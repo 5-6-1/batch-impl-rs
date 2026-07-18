@@ -212,7 +212,7 @@ batch_trait!(
 
 | 错误输入 | 错误信息 |
 |----------|----------|
-| `#[batch_impl()]` | `auto_impl 至少需要一个类型参数` |
+| `#[batch_impl()]` | `batch_impl 至少需要一个类型参数` |
 | `#[batch_impl(<T> MyTrait<T>)]` | `` `MyTrait<...>` 被解析为 trait 泛型参数，但缺少目标类型 `` |
 | `#[batch_impl([])]` | `` 空的 `[]`——若是并列列表请填入类型 `` |
 | `#[batch_impl(<T> Vec<T)]` | `未闭合的 <（有 1 层尖括号未关闭）` |
