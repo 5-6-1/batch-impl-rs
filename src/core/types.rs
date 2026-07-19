@@ -41,17 +41,6 @@ pub enum PrefixItem {
     },
 }
 
-impl PrefixItem {
-    /// 是否是引用/指针类修饰符（&、&mut、*const、*mut）
-    pub fn is_ref_like(&self) -> bool {
-        matches!(self, PrefixItem::Ref | PrefixItem::RefMut | PrefixItem::ConstPtr | PrefixItem::MutPtr)
-    }
-    /// 是否是 fn 类型
-    pub fn is_fn(&self) -> bool {
-        matches!(self, PrefixItem::Fn)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum TargetItem {
     Single(TokenStream2),

@@ -169,7 +169,6 @@ pub fn parse_segment(
     {
         // fn-... 格式：跳过 fn 和 -，解析剩余部分
         let dash_input: TokenStream2 = target_vec[2..].iter().cloned().collect();
-        let dash_input_tv: Vec<TokenTree> = dash_input.clone().into_iter().collect();
 
         // 检查是否包含 ^，如果有，先展开生成所有组合
         if has_top_level_char(&dash_input, '^') {

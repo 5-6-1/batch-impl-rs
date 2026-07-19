@@ -1902,6 +1902,79 @@ fn test_attr_simple() {
 }
 
 // ============================================================
+// 93. batch_impl 与 batch_trait 一致性测试
+// ============================================================
+
+trait ConsistencyA {}
+#[batch_impl(usize, isize)]
+trait ConsistencyB {}
+batch_trait!(ConsistencyA: usize, isize);
+
+fn test_batch_consistency() {
+    fn _a<T: ConsistencyA>() {}
+    fn _b<T: ConsistencyB>() {}
+    _a::<usize>();
+    _a::<isize>();
+    _b::<usize>();
+    _b::<isize>();
+    println!("  93. batch_impl vs batch_trait consistency: OK");
+}
+
+// ============================================================
+// 94. 复杂嵌套测试：多层 [] 嵌套
+// ============================================================
+
+#[batch_impl(
+    [[usize { fn nested_name() -> &'static str { "usize" } },
+      isize { fn nested_name() -> &'static str { "isize" } }]
+     { fn nested_zero() -> Self { 0 } },
+     [f32 { fn nested_name() -> &'static str { "f32" } },
+      f64 { fn nested_name() -> &'static str { "f64" } }]
+     { fn nested_zero() -> Self { 0.0 } }]
+    { fn nested_tag() -> &'static str { "number" } }
+)]
+trait DeepNestedTest {
+    fn nested_name() -> &'static str;
+    fn nested_zero() -> Self;
+    fn nested_tag() -> &'static str;
+}
+
+fn test_deep_nested() {
+    assert_eq!(usize::nested_name(), "usize");
+    assert_eq!(isize::nested_name(), "isize");
+    assert_eq!(f32::nested_name(), "f32");
+    assert_eq!(f64::nested_name(), "f64");
+    assert_eq!(usize::nested_zero(), 0);
+    assert_eq!(f32::nested_zero() as i32, 0);
+    assert_eq!(usize::nested_tag(), "number");
+    assert_eq!(f64::nested_tag(), "number");
+    println!("  94. deep nested [[A,B],[C,D]]: OK");
+}
+
+// ============================================================
+// 95. 多功能并行：关联类型 + fn + unsafe + 属性
+// ============================================================
+
+#[batch_impl(
+    <T> MultiFeature<Item=T> Vec<T> {
+        fn feature_name() -> &'static str { "vec" }
+    },
+    <K, V> MultiFeature<Item=(K, V)> HashMap<K, V> {
+        fn feature_name() -> &'static str { "hashmap" }
+    }
+)]
+trait MultiFeature {
+    type Item;
+    fn feature_name() -> &'static str;
+}
+
+fn test_multi_feature() {
+    assert_eq!(Vec::<i32>::feature_name(), "vec");
+    assert_eq!(HashMap::<i32, i32>::feature_name(), "hashmap");
+    println!("  95. multi-feature parallel: OK");
+}
+
+// ============================================================
 
 fn main() {
     println!("=== auto_impl macro tests ===");
@@ -2006,6 +2079,9 @@ fn main() {
     test_fn_tuple_gen();
     test_range_tuple();
     test_attr_simple();
+    test_batch_consistency();
+    test_deep_nested();
+    test_multi_feature();
     println!("\n--- comparison tests ---");
     test_cmp_basic();
     test_cmp_generic();
