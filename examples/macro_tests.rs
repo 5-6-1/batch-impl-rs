@@ -638,7 +638,7 @@ fn test_caret_through_bracket() {
 }
 
 // ============================================================
-// 36. 元组生成：()^3 = (), (A,), (A,B)
+// 36. 元组生成：()^3 = (A, B, C) 带3个泛型参数
 // ============================================================
 
 #[batch_impl(()^3)]
@@ -646,14 +646,13 @@ trait GenTuple {}
 
 fn test_tuple_gen() {
     fn _t<T: GenTuple>() {}
-    _t::<()>();
-    _t::<(i32,)>();
-    _t::<(i32, String)>();
-    println!("  36. tuple gen ()^3: OK");
+    // ()^3 现在生成带3个泛型参数的元组
+    _t::<(i32, i32, i32)>();
+    println!("  36. tuple gen ()^3 = (A,B,C): OK");
 }
 
 // ============================================================
-// 37. 元组重复类型：(u32,)^3 = (), (u32,), (u32,u32)
+// 37. 元组重复类型：(u32,)^3 = (u32, u32, u32)
 // ============================================================
 
 #[batch_impl((u32,)^3)]
@@ -661,43 +660,40 @@ trait RepTuple {}
 
 fn test_tuple_repeat() {
     fn _t<T: RepTuple>() {}
-    _t::<()>();
-    _t::<(u32,)>();
-    _t::<(u32, u32)>();
-    println!("  37. tuple repeat (u32,)^3: OK");
+    _t::<(u32, u32, u32)>();
+    println!("  37. tuple repeat (u32,)^3 = (u32,u32,u32): OK");
 }
 
 // ============================================================
-// 38. 元组范围：()^1..3 = (A,), (A,B)
+// 38. 元组范围：()^1..3 不再支持，改为 ()^2
 // ============================================================
 
-#[batch_impl(()^1 .. 3)]
+#[batch_impl(()^2)]
 trait RangeTuple {}
 
 fn test_tuple_range() {
     fn _t<T: RangeTuple>() {}
-    _t::<(i32,)>();
+    // ()^2 生成带2个泛型参数的元组
     _t::<(i32, String)>();
-    println!("  38. tuple range ()^1..3: OK");
+    println!("  38. tuple ()^2 = (A,B): OK");
 }
 
 // ============================================================
-// 39. 元组闭区间：()^1..=3 = (A,), (A,B), (A,B,C)
+// 39. 元组闭区间：()^1..=3 不再支持，改为 ()^3
 // ============================================================
 
-#[batch_impl(()^1 ..= 3)]
+#[batch_impl(()^3)]
 trait RangeIncTuple {}
 
 fn test_tuple_range_inclusive() {
     fn _t<T: RangeIncTuple>() {}
-    _t::<(i32,)>();
-    _t::<(i32, String)>();
+    // ()^3 生成带3个泛型参数的元组
     _t::<(i32, String, u8)>();
-    println!("  39. tuple range inc ()^1..=3: OK");
+    println!("  39. tuple ()^3 = (A,B,C): OK");
 }
 
 // ============================================================
-// 40. 元组 bound：(<Clone>)^3 = (A:Clone,), (A:Clone,B:Clone)
+// 40. 元组 bound：(<Clone>)^3 = (A:Clone, B:Clone, C:Clone)
 // ============================================================
 
 #[batch_impl((<Clone>)^3)]
@@ -705,9 +701,10 @@ trait BoundTuple {}
 
 fn test_tuple_bound() {
     fn _t<T: BoundTuple>() {}
-    _t::<(i32,)>();
-    _t::<(i32, String)>();
-    println!("  40. tuple bound (<Clone>)^3: OK");
+    // (<Clone>)^3 生成带3个泛型参数的元组，每个都有 Clone bound
+    _t::<(i32, i32, i32)>();
+    _t::<(String, String, String)>();
+    println!("  40. tuple bound (<Clone>)^3 = (A:Clone,B:Clone,C:Clone): OK");
 }
 
 // ============================================================
@@ -768,20 +765,15 @@ fn test_complex_nest() {
 }
 
 // ============================================================
-// 44. 笛卡尔积：(u32,i32)^3 = (), (u32,), (i32,), (u32,u32), (u32,i32), (i32,u32), (i32,i32)
+// 44. 笛卡尔积：(u32,i32)^3 = 长度为3的所有组合
 // ============================================================
 
-#[batch_impl((u32,i32)^1..4)]
+#[batch_impl((u32,i32)^3)]
 trait CartesianSimple {}
 
 fn test_cartesian_simple() {
     fn _t<T: CartesianSimple>() {}
-    _t::<(u32,)>();
-    _t::<(i32,)>();
-    _t::<(u32, u32)>();
-    _t::<(u32, i32)>();
-    _t::<(i32, u32)>();
-    _t::<(i32, i32)>();
+    // (u32,i32)^3 生成长度为3的所有组合
     _t::<(u32, u32, u32)>();
     _t::<(u32, u32, i32)>();
     _t::<(u32, i32, u32)>();
@@ -790,23 +782,22 @@ fn test_cartesian_simple() {
     _t::<(i32, u32, i32)>();
     _t::<(i32, i32, u32)>();
     _t::<(i32, i32, i32)>();
-    println!("  44. cartesian (u32,i32)^1..4: OK");
+    println!("  44. cartesian (u32,i32)^3 = 8 combos: OK");
 }
 
 // ============================================================
-// 45. 笛卡尔积 + bound：(<Clone>,String)^1..3
-#[batch_impl((<Clone>,String)^1..3)]
+// 45. 笛卡尔积 + bound：(<Clone>,String)^2
+#[batch_impl((<Clone>,String)^2)]
 trait CartesianBound {}
 
 fn test_cartesian_bound() {
     fn _t<T: CartesianBound>() {}
-    _t::<(String,)>();
-    _t::<(i32,)>();
+    // (<Clone>,String)^2 生成长度为2的所有组合
     _t::<(String, String)>();
     _t::<(i32, String)>();
     _t::<(String, i32)>();
     _t::<(i32, i32)>();
-    println!("  45. cartesian bound (<Clone>,String)^1..3: OK");
+    println!("  45. cartesian bound (<Clone>,String)^2 = 4 combos: OK");
 }
 
 // ============================================================
@@ -1221,10 +1212,9 @@ unsafe trait UnsafeTupleGen {}
 
 fn test_unsafe_tuple_gen() {
     fn _t<T: UnsafeTupleGen>() {}
-    _t::<()>();
-    _t::<(i32,)>();
-    _t::<(i32, String)>();
-    println!("  59. unsafe^()^3: OK");
+    // unsafe^()^3 生成带3个泛型参数的元组
+    _t::<(i32, i32, i32)>();
+    println!("  59. unsafe^()^3 = (A,B,C): OK");
 }
 
 // ============================================================
@@ -1236,10 +1226,9 @@ unsafe trait UnsafeTupleRepeat {}
 
 fn test_unsafe_tuple_repeat() {
     fn _t<T: UnsafeTupleRepeat>() {}
-    _t::<()>();
-    _t::<(u32,)>();
-    _t::<(u32, u32)>();
-    println!("  60. unsafe^(u32,)^3: OK");
+    // unsafe^(u32,)^3 生成 (u32,u32,u32)
+    _t::<(u32, u32, u32)>();
+    println!("  60. unsafe^(u32,)^3 = (u32,u32,u32): OK");
 }
 
 // ============================================================
@@ -1264,9 +1253,10 @@ unsafe trait UnsafeTupleBound {}
 
 fn test_unsafe_tuple_bound() {
     fn _t<T: UnsafeTupleBound>() {}
-    _t::<(i32,)>();
-    _t::<(i32, String)>();
-    println!("  62. unsafe^(<Clone>)^3: OK");
+    // unsafe^(<Clone>)^3 生成带3个泛型参数的元组，每个都有 Clone bound
+    _t::<(i32, i32, i32)>();
+    _t::<(String, String, String)>();
+    println!("  62. unsafe^(<Clone>)^3 = (A:Clone,B:Clone,C:Clone): OK");
 }
 
 // ============================================================
