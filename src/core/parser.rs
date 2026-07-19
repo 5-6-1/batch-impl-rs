@@ -162,6 +162,88 @@ pub fn parse_segment(
     let (body_vec, target_vec) = split_trailing_brace(remaining);
     let body: Option<TokenStream2> = body_vec.map(|v| v.into_iter().collect());
 
+    // 特殊处理 fn- 前缀：fn-(A,B)^N 生成多个函数类型
+    if target_vec.len() >= 2
+        && matches!(&target_vec[0], TokenTree::Ident(id) if id == "fn")
+        && is_punct(&target_vec[1], '-')
+    {
+        // fn-... 格式：跳过 fn 和 -，解析剩余部分
+        let dash_input: TokenStream2 = target_vec[2..].iter().cloned().collect();
+        let dash_input_tv: Vec<TokenTree> = dash_input.clone().into_iter().collect();
+
+        // 检查是否包含 ^，如果有，先展开生成所有组合
+        if has_top_level_char(&dash_input, '^') {
+            // 使用 expand_caret 生成所有组合
+            match expand_caret(dash_input.clone(), &eff_types, &eff_trait, &eff_assoc, body.clone(), span) {
+                ParseResult::Ok(combo_specs) => {
+                    // 每个组合包装成 fn(...)
+                    let mut specs = Vec::new();
+                    for combo in combo_specs {
+                        let fn_target = {
+                            let target_tv: Vec<TokenTree> = combo.target.clone().into_iter().collect();
+                            let mut result = TokenStream2::new();
+                            result.extend(std::iter::once(TokenTree::Ident(proc_macro2::Ident::new("fn", proc_macro2::Span::call_site()))));
+                            // 如果目标已经是元组 (A, B)，直接用作参数列表
+                            if target_tv.len() == 1 && matches!(&target_tv[0], TokenTree::Group(g) if g.delimiter() == proc_macro2::Delimiter::Parenthesis) {
+                                result.extend(combo.target.clone());
+                            } else {
+                                // 否则包装成 (target)
+                                let inner = proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, combo.target);
+                                result.extend(std::iter::once(TokenTree::Group(inner)));
+                            }
+                            result
+                        };
+                        specs.push(ImplSpec {
+                            type_params: combo.type_params,
+                            trait_params: combo.trait_params,
+                            assoc_bindings: combo.assoc_bindings,
+                            target: fn_target,
+                            custom_body: combo.custom_body,
+                            is_unsafe: false,
+                    attributes: vec![],
+                        });
+                    }
+                    return ParseResult::Ok(specs);
+                }
+                ParseResult::Err(e) => return ParseResult::Err(e),
+            }
+        }
+
+        // 没有 ^，使用 dash 追加参数
+        let fn_ts: TokenStream2 = std::iter::once(target_vec[0].clone()).collect();
+        let start_specs = vec![ImplSpec {
+            type_params: eff_types.to_vec(),
+            trait_params: eff_trait.clone(),
+            assoc_bindings: eff_assoc.to_vec(),
+            target: fn_ts,
+            custom_body: body.clone(),
+            is_unsafe: false,
+                    attributes: vec![],
+        }];
+        let right_slots = match crate::core::dash::dash_parse_slots_public(&dash_input, span) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let mut specs = Vec::new();
+        for spec in &start_specs {
+            for slot in &right_slots {
+                let (new_target, extra_types) = crate::core::dash::dash_append_public(&spec.target, slot, 0);
+                let mut all_types = spec.type_params.clone();
+                all_types.extend(extra_types);
+                specs.push(ImplSpec {
+                    type_params: all_types,
+                    trait_params: spec.trait_params.clone(),
+                    assoc_bindings: spec.assoc_bindings.clone(),
+                    target: new_target,
+                    custom_body: spec.custom_body.clone(),
+                    is_unsafe: false,
+                    attributes: vec![],
+                });
+            }
+        }
+        return ParseResult::Ok(specs);
+    }
+
     // ^ 优先级高于 -：先检查 ^
     if split_by_caret(&target_vec).is_some() {
         return expand_caret(
@@ -221,6 +303,7 @@ fn parse_target(
         target: ts,
         custom_body: b,
         is_unsafe: false,
+                    attributes: vec![],
     };
 
     if let TokenTree::Group(ref g) = tv[0] {

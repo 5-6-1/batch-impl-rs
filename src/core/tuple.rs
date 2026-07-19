@@ -146,12 +146,12 @@ pub fn parse_tuple_count(t: &crate::core::types::TargetItem) -> Result<(usize, u
                     }
                 }
             }
-            // 单个整数
+            // 单个整数：返回 (n, 1) 表示只生成长度为 n 的元组
             let s = ts.to_string().trim().to_string();
             let n: usize = s
                 .parse()
                 .map_err(|_| format!("元组长度应为非负整数，得到 `{}`", s))?;
-            Ok((0, n))
+            Ok((n, 1))
         }
         _ => Err("元组 ^ 右侧应为整数(如 ^3)或范围(如 ^1..5, ^1..=5)".into()),
     }
@@ -159,11 +159,12 @@ pub fn parse_tuple_count(t: &crate::core::types::TargetItem) -> Result<(usize, u
 
 /// 为元组前缀生成多个 ImplSpec
 ///
-/// 新规则：
+/// 规则：
 /// - `(T)^N` → 生成长度为 N 的元组 `(T,T,...,T)`
+/// - `(T)^M..N` → 生成长度从 M 到 N-1 的元组
+/// - `(T)^M..=N` → 生成长度从 M 到 N 的元组
 /// - `(T1,T2)^N` → 生成长度为 N 的所有笛卡尔积组合
 /// - `()^N` → 生成带 N 个泛型参数的元组 `(A,B,...)`
-/// - 不再生成空元组和不同长度的元组
 pub fn generate_tuples(
     elem: &Option<TokenStream2>,
     bound: &Option<TokenStream2>,
@@ -176,11 +177,6 @@ pub fn generate_tuples(
 ) -> Vec<ImplSpec> {
     let mut specs = Vec::new();
 
-    // 新规则：start 是目标长度 N（从 parse_tuple_count 返回的第二个值）
-    // 对于简单数字 "3"，parse_tuple_count 返回 (0, 3)，我们用 3 作为目标长度
-    // 对于范围 "1..3"，parse_tuple_count 返回 (1, 2)，我们用 2 作为目标长度
-    let n = count;
-
     // 检查 elem 是否包含多个类型（逗号分隔）→ 笛卡尔积模式
     let slots: Option<Vec<SlotKind>> = elem.as_ref().and_then(|e| {
         if has_top_level_char(e, ',') {
@@ -190,29 +186,106 @@ pub fn generate_tuples(
         }
     });
 
-    if let Some(ref slots) = slots {
-        // 笛卡尔积模式：生成长度为 N 的所有组合
-        let combos = cartesian_combos(slots, n, suffix);
-        if combos.is_empty() && n > 0 {
-            // 超过上限，报错
-            let num_slots = slots.len();
-            let total = num_slots.pow(n as u32);
-            let msg = format!(
-                "笛卡尔积组合数 {} ({}^{}) 超过上限 {}，请减少类型数量或长度",
-                total, num_slots, n, MAX_CARTESIAN_COMBOS
-            );
-            let lit = proc_macro2::Literal::string(&msg);
-            specs.push(ImplSpec {
-                type_params: vec![],
-                trait_params: None,
-                assoc_bindings: vec![],
-                target: quote::quote_spanned! { Span::call_site() => ::core::compile_error!(#lit) },
-                custom_body: None,
-                is_unsafe: false,
-            });
-            return specs;
-        }
-        for (tuple_ts, extra_types) in combos {
+    // 生成从 start 到 start+count-1 长度的元组
+    for n in start..start + count {
+        if let Some(ref slots) = slots {
+            // 笛卡尔积模式：生成长度为 N 的所有组合
+            let combos = cartesian_combos(slots, n, suffix);
+            if combos.is_empty() && n > 0 {
+                // 超过上限，报错
+                let num_slots = slots.len();
+                let total = num_slots.pow(n as u32);
+                let msg = format!(
+                    "笛卡尔积组合数 {} ({}^{}) 超过上限 {}，请减少类型数量或长度",
+                    total, num_slots, n, MAX_CARTESIAN_COMBOS
+                );
+                let lit = proc_macro2::Literal::string(&msg);
+                specs.push(ImplSpec {
+                    type_params: vec![],
+                    trait_params: None,
+                    assoc_bindings: vec![],
+                    target: quote::quote_spanned! { Span::call_site() => ::core::compile_error!(#lit) },
+                    custom_body: None,
+                    is_unsafe: false,
+                    attributes: vec![],
+                });
+                return specs;
+            }
+            for (tuple_ts, extra_types) in combos {
+                let mut all_types = parent_types.to_vec();
+                all_types.extend(extra_types);
+                specs.push(ImplSpec {
+                    type_params: all_types,
+                    trait_params: parent_trait.clone(),
+                    assoc_bindings: vec![],
+                    target: tuple_ts,
+                    custom_body: body.clone(),
+                    is_unsafe: false,
+                    attributes: vec![],
+                });
+            }
+        } else {
+            // 单类型或无类型模式
+            let (tuple_ts, extra_types): (TokenStream2, Vec<TokenStream2>) = {
+                match (elem, bound) {
+                    (Some(e), _) => {
+                        // 单类型模式：(T)^N → (T,T,...,T) 长度为 N
+                        if n == 0 {
+                            (quote! { () }, vec![])
+                        } else {
+                            let elems: Vec<_> = (0..n).map(|_| e.clone()).collect();
+                            let ts = if n == 1 {
+                                quote! { ( #(#elems),* ,) }
+                            } else {
+                                quote! { ( #(#elems),* ) }
+                            };
+                            (ts, vec![])
+                        }
+                    }
+                    (None, Some(b)) => {
+                        // 带 bound 的泛型模式：(<Bound>)^N → (A:Bound, B:Bound, ...)
+                        if n == 0 {
+                            (quote! { () }, vec![])
+                        } else {
+                            let mut extras = vec![];
+                            let elems: Vec<TokenStream2> = (0..n)
+                                .map(|i| {
+                                    let letter = generic_letter(i, suffix);
+                                    extras.push(quote! { #letter: #b });
+                                    quote! { #letter }
+                                })
+                                .collect();
+                            let ts = if n == 1 {
+                                quote! { ( #(#elems),* ,) }
+                            } else {
+                                quote! { ( #(#elems),* ) }
+                            };
+                            (ts, extras)
+                        }
+                    }
+                    (None, None) => {
+                        // 纯泛型模式：()^N → (A, B, ...)
+                        if n == 0 {
+                            (quote! { () }, vec![])
+                        } else {
+                            let mut extras = vec![];
+                            let elems: Vec<TokenStream2> = (0..n)
+                                .map(|i| {
+                                    let letter = generic_letter(i, suffix);
+                                    extras.push(quote! { #letter });
+                                    quote! { #letter }
+                                })
+                                .collect();
+                            let ts = if n == 1 {
+                                quote! { ( #(#elems),* ,) }
+                            } else {
+                                quote! { ( #(#elems),* ) }
+                            };
+                            (ts, extras)
+                        }
+                    }
+                }
+            };
             let mut all_types = parent_types.to_vec();
             all_types.extend(extra_types);
             specs.push(ImplSpec {
@@ -222,74 +295,9 @@ pub fn generate_tuples(
                 target: tuple_ts,
                 custom_body: body.clone(),
                 is_unsafe: false,
+                    attributes: vec![],
             });
         }
-    } else {
-        // 单类型或无类型模式
-        let (tuple_ts, extra_types): (TokenStream2, Vec<TokenStream2>) = {
-            match (elem, bound) {
-                (Some(e), _) => {
-                    // 单类型模式：(T)^N → (T,T,...,T) 长度为 N
-                    let elems: Vec<_> = (0..n).map(|_| e.clone()).collect();
-                    let ts = if n == 1 {
-                        quote! { ( #(#elems),* ,) }
-                    } else if n == 0 {
-                        quote! { () }
-                    } else {
-                        quote! { ( #(#elems),* ) }
-                    };
-                    (ts, vec![])
-                }
-                (None, Some(b)) => {
-                    // 带 bound 的泛型模式：(<Bound>)^N → (A:Bound, B:Bound, ...)
-                    let mut extras = vec![];
-                    let elems: Vec<TokenStream2> = (0..n)
-                        .map(|i| {
-                            let letter = generic_letter(i, suffix);
-                            extras.push(quote! { #letter: #b });
-                            quote! { #letter }
-                        })
-                        .collect();
-                    let ts = if n == 1 {
-                        quote! { ( #(#elems),* ,) }
-                    } else if n == 0 {
-                        quote! { () }
-                    } else {
-                        quote! { ( #(#elems),* ) }
-                    };
-                    (ts, extras)
-                }
-                (None, None) => {
-                    // 纯泛型模式：()^N → (A, B, ...)
-                    let mut extras = vec![];
-                    let elems: Vec<TokenStream2> = (0..n)
-                        .map(|i| {
-                            let letter = generic_letter(i, suffix);
-                            extras.push(quote! { #letter });
-                            quote! { #letter }
-                        })
-                        .collect();
-                    let ts = if n == 1 {
-                        quote! { ( #(#elems),* ,) }
-                    } else if n == 0 {
-                        quote! { () }
-                    } else {
-                        quote! { ( #(#elems),* ) }
-                    };
-                    (ts, extras)
-                }
-            }
-        };
-        let mut all_types = parent_types.to_vec();
-        all_types.extend(extra_types);
-        specs.push(ImplSpec {
-            type_params: all_types,
-            trait_params: parent_trait.clone(),
-            assoc_bindings: vec![],
-            target: tuple_ts,
-            custom_body: body.clone(),
-            is_unsafe: false,
-        });
     }
     specs
 }

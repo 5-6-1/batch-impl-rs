@@ -1829,6 +1829,79 @@ fn test_mutptr_caret_chain() {
 }
 
 // ============================================================
+// 88. fn 关键字：fn^(A,B) = fn(A,B)
+// ============================================================
+
+#[batch_impl(fn^(i32, u32))]
+trait FnSimple {}
+
+fn test_fn_simple() {
+    fn _check<T: FnSimple>() {}
+    _check::<fn(i32, u32)>();
+    println!("  88. fn^(i32,u32) = fn(i32,u32): OK");
+}
+
+// ============================================================
+// 89. fn + - 运算符：fn(A,B)-T = fn(A,B)->T
+// ============================================================
+
+#[batch_impl(fn(i32, u32)-String)]
+trait FnWithReturn {}
+
+fn test_fn_with_return() {
+    fn _check<T: FnWithReturn>() {}
+    _check::<fn(i32, u32) -> String>();
+    println!("  89. fn(i32,u32)-String = fn(i32,u32)->String: OK");
+}
+
+// ============================================================
+// 90. fn + 元组生成：fn-(A,B)^N
+// ============================================================
+
+#[batch_impl(fn-(i32, u32)^2)]
+trait FnTupleGen {}
+
+fn test_fn_tuple_gen() {
+    fn _check<T: FnTupleGen>() {}
+    // fn-(i32,u32)^2 生成 fn(i32,i32), fn(i32,u32), fn(u32,i32), fn(u32,u32)
+    _check::<fn(i32, i32)>();
+    _check::<fn(i32, u32)>();
+    _check::<fn(u32, i32)>();
+    _check::<fn(u32, u32)>();
+    println!("  90. fn-(i32,u32)^2 = 4 fn types: OK");
+}
+
+// ============================================================
+// 91. fn + 范围语法：()^1..3
+// ============================================================
+
+#[batch_impl(()^1..3)]
+trait RangeTupleNew {}
+
+fn test_range_tuple() {
+    fn _t<T: RangeTupleNew>() {}
+    // ()^1..3 生成带1个和2个泛型参数的元组
+    _t::<(i32,)>();
+    _t::<(i32, String)>();
+    println!("  91. ()^1..3 = (A,), (A,B): OK");
+}
+
+// ============================================================
+// 92. #[...] 属性支持
+// ============================================================
+
+#[batch_impl(#[allow(dead_code)]^usize, isize)]
+trait AttrSimple {}
+
+fn test_attr_simple() {
+    // 验证属性被正确添加
+    fn _check<T: AttrSimple>() {}
+    _check::<usize>();
+    _check::<isize>();
+    println!("  92. #[allow(dead_code)]^usize: OK");
+}
+
+// ============================================================
 
 fn main() {
     println!("=== auto_impl macro tests ===");
@@ -1928,6 +2001,11 @@ fn main() {
     test_refmut_caret_chain();
     test_constptr_caret_chain();
     test_mutptr_caret_chain();
+    test_fn_simple();
+    test_fn_with_return();
+    test_fn_tuple_gen();
+    test_range_tuple();
+    test_attr_simple();
     println!("\n--- comparison tests ---");
     test_cmp_basic();
     test_cmp_generic();

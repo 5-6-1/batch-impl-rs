@@ -21,7 +21,7 @@
 - `()^N` → 生成带 N 个泛型参数的元组 `(A,B,...)`
 - `(T)^N` → 生成长度为 N 的元组 `(T,T,...,T)`
 - `(T1,T2)^N` → 生成长度为 N 的所有笛卡尔积组合
-- 不再生成空元组和不同长度的元组
+- 支持范围语法：`()^M..N` 和 `()^M..=N`
 
 #### *const/*mut 指针支持
 - `*const^T` → `*const T`
@@ -34,16 +34,26 @@
 - `*const^A^B` → `*const A<B>`
 - `*mut^A^B` → `*mut A<B>`
 
+#### fn 关键字支持
+- `fn^(A,B)` → `fn(A,B)`：fn 类型创建
+- `fn(A,B)^T` → `fn(A,B)->T`：fn 类型追加返回类型
+- `fn-(A,B)^N` → 生成 N 长度组合的 fn 类型
+
+#### #[...] 属性支持
+- `#[attr]^T` → 在 impl 块前添加属性
+- `#[a]^[#[b]^B, #[c]^C]` → 生成带嵌套属性的 impl 块
+
 #### 实现细节
-- `ImplSpec` 新增 `assoc_bindings` 字段
-- `PrefixItem` 新增 `ConstPtr`、`MutPtr` 变体
+- `ImplSpec` 新增 `assoc_bindings` 和 `attributes` 字段
+- `PrefixItem` 新增 `ConstPtr`、`MutPtr`、`Fn`、`Attribute` 变体
 - `parse_segment` 解析 `TraitName<Item=T>` 时分离关联类型绑定
 - `expand_caret` 和 `expand_dash` 正确传递 `assoc_bindings`
+- `generate_impl` 输出属性和关联类型绑定到 impl 块
 
 #### 测试
-- macro-test：105 个测试用例
+- macro-test：110 个测试用例
 - ds-test：15 个边界测试
-- 新增测试：关联类型、`*const`、`*mut`、引用链式应用
+- 新增测试：关联类型、`*const`、`*mut`、引用链式应用、fn 关键字、范围语法、属性支持
 
 ## 0.1.1 (2026-07-19)
 

@@ -77,6 +77,8 @@ impl-spec = [ <impl-泛型> ] [ Trait名<trait-泛型> ] 目标 [ { body } ]
 | `*mut` | 裸指针（可变） |
 | `self` | 恒等（不改变类型） |
 | `unsafe` | 标记 impl 为 `unsafe impl` |
+| `fn` | 函数类型前缀 |
+| `#[attr]` | 属性前缀 |
 | `Ident` | 容器（如 `Box`, `Vec`） |
 | `Ident<...>` | 带预填泛型的容器（如 `HashMap<K>`），`^` 追加参数 |
 | `(A,)`/`(A,B)` | 元组前缀 |
@@ -101,6 +103,8 @@ impl-spec = [ <impl-泛型> ] [ Trait名<trait-泛型> ] 目标 [ { body } ]
 | `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>` |
 | `&^Box^T` | `&Box<T>`（引用类修饰符链式应用） |
 | `*const^Vec^T` | `*const Vec<T>` |
+| `fn^(A,B)` | `fn(A,B)`（函数类型） |
+| `#[attr]^T` | 在 impl 块前添加属性 |
 
 ## `-` 运算符（左结合）
 

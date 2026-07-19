@@ -89,7 +89,16 @@ pub fn parse_single_prefix(tokens: &[TokenTree]) -> Result<PrefixItem, String> {
         [TokenTree::Punct(p), TokenTree::Ident(id)] if p.as_char() == '*' && id == "mut" => {
             Ok(PrefixItem::MutPtr)
         }
+        // #[...] 属性
+        [TokenTree::Punct(p), TokenTree::Group(g)] if p.as_char() == '#' && g.delimiter() == Delimiter::Bracket => {
+            // 存储完整的 #[...] 包括 # 和 [group]
+            let mut attr_ts = TokenStream2::new();
+            attr_ts.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new('#', proc_macro2::Spacing::Alone))));
+            attr_ts.extend(std::iter::once(TokenTree::Group(g.clone())));
+            Ok(PrefixItem::Attribute(attr_ts))
+        }
         [TokenTree::Ident(id)] if id == "unsafe" => Ok(PrefixItem::Unsafe),
+        [TokenTree::Ident(id)] if id == "fn" => Ok(PrefixItem::Fn),
         [TokenTree::Ident(id)] => Ok(PrefixItem::Container {
             name: id.clone(),
             prefill: None,
@@ -186,6 +195,9 @@ pub fn apply_caret(prefix: &PrefixItem, target: &TargetItem) -> Result<TokenStre
         (PrefixItem::MutPtr, _) => Err("*mut^ 不能用于多参目标，如 <X,Y>".into()),
         (PrefixItem::Unsafe, TargetItem::Single(ts)) => Ok(ts.clone()),
         (PrefixItem::Unsafe, _) => Err("unsafe^ 不能用于多参目标".into()),
+        // fn^(A,B) → fn(A,B)
+        (PrefixItem::Fn, TargetItem::Single(ts)) => Ok(quote! { fn #ts }),
+        (PrefixItem::Fn, _) => Err("fn^ 不能用于多参目标".into()),
         (PrefixItem::Container { name, prefill }, TargetItem::Single(ts)) => {
             match prefill {
                 Some(args) => {
@@ -211,6 +223,7 @@ pub fn apply_caret(prefix: &PrefixItem, target: &TargetItem) -> Result<TokenStre
             }
         }
         (PrefixItem::Tuple { .. }, _) => Err("元组 ^ 的内部错误，这不应该发生，请报告 bug".into()),
+        (PrefixItem::Attribute(_), _) => Err("属性 ^ 的内部错误，这不应该发生，请报告 bug".into()),
     }
 }
 
@@ -244,6 +257,21 @@ pub fn expand_caret(
         .into_iter()
         .filter(|p| !matches!(p, PrefixItem::Unsafe))
         .collect();
+
+    // 检测属性前缀并从列表中移除
+    let mut attrs: Vec<TokenStream2> = Vec::new();
+    let prefixes: Vec<_> = prefixes
+        .into_iter()
+        .filter_map(|p| {
+            if let PrefixItem::Attribute(attr_ts) = &p {
+                attrs.push(attr_ts.clone());
+                None
+            } else {
+                Some(p)
+            }
+        })
+        .collect();
+
     let targets = match parse_target_items(&right) {
         Ok(t) => t,
         Err(e) => return ParseResult::Err(err(span, &e)),
@@ -391,6 +419,7 @@ pub fn expand_caret(
                 target: ts,
                 custom_body: body.clone(),
                 is_unsafe: false,
+                    attributes: vec![],
             });
         }
     } else {
@@ -488,6 +517,7 @@ pub fn expand_caret(
                             target: new_target,
                             custom_body: body.clone(),
                             is_unsafe: false,
+                    attributes: vec![],
                         });
                     }
                 }
@@ -504,6 +534,7 @@ pub fn expand_caret(
                         target: ts,
                         custom_body: body.clone(),
                         is_unsafe: false,
+                    attributes: vec![],
                     });
                 }
             }
@@ -513,6 +544,12 @@ pub fn expand_caret(
     if has_unsafe {
         for spec in &mut specs {
             spec.is_unsafe = true;
+        }
+    }
+    // 如果有属性前缀，添加到所有 spec
+    if !attrs.is_empty() {
+        for spec in &mut specs {
+            spec.attributes.extend(attrs.clone());
         }
     }
     ParseResult::Ok(specs)

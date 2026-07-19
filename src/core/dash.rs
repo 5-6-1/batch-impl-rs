@@ -83,6 +83,7 @@ pub fn expand_dash(
                     target: new_target,
                     custom_body: spec.custom_body.clone(),
                     is_unsafe: false,
+                    attributes: vec![],
                 });
             }
         }
@@ -207,6 +208,7 @@ fn dash_parse_start(
                         target: quote! { () },
                         custom_body: None,
                         is_unsafe: false,
+                    attributes: vec![],
                     }]);
                 }
                 // `(A,)` → 已有元组作为起始
@@ -217,9 +219,40 @@ fn dash_parse_start(
                     target: tokens,
                     custom_body: None,
                     is_unsafe: false,
+                    attributes: vec![],
                 }]);
             }
         }
+    }
+    // `fn` 关键字 → 作为起始，后续处理特殊
+    if tv.len() >= 1 && matches!(&tv[0], TokenTree::Ident(id) if id == "fn") {
+        // 检查是否是 fn(...) 格式
+        if tv.len() >= 2 {
+            if let TokenTree::Group(ref g) = tv[1] {
+                if g.delimiter() == proc_macro2::Delimiter::Parenthesis {
+                    // fn(...) → 已经是函数类型，作为起始
+                    return ParseResult::Ok(vec![ImplSpec {
+                        type_params: parent_types.to_vec(),
+                        trait_params: parent_trait.clone(),
+                        assoc_bindings: parent_assoc.to_vec(),
+                        target: tokens,
+                        custom_body: None,
+                        is_unsafe: false,
+                    attributes: vec![],
+                    }]);
+                }
+            }
+        }
+        // fn 单独出现，作为起始
+        return ParseResult::Ok(vec![ImplSpec {
+            type_params: parent_types.to_vec(),
+            trait_params: parent_trait.clone(),
+            assoc_bindings: parent_assoc.to_vec(),
+            target: tokens,
+            custom_body: None,
+            is_unsafe: false,
+                    attributes: vec![],
+        }]);
     }
     // 单个类型 → 作为 target
     ParseResult::Ok(vec![ImplSpec {
@@ -229,6 +262,7 @@ fn dash_parse_start(
         target: tokens,
         custom_body: None,
         is_unsafe: false,
+                    attributes: vec![],
     }])
 }
 
@@ -237,92 +271,170 @@ fn dash_parse_start(
 /// `(A,)` + `T` → `(A, T)`
 /// `(A,B)` + `T` → `(A, B, T)`
 /// `A` + `T` → `A<T>` (泛型应用，当 A 不是元组时)
+/// `fn` + `(A,B)` → `fn(A,B)` (fn 特殊处理)
 fn dash_append(tuple_ts: &TokenStream2, slot: &SlotKind, suffix: u64) -> (TokenStream2, Vec<TokenStream2>) {
     let tv: Vec<TokenTree> = tuple_ts.clone().into_iter().collect();
     let mut extra_types = Vec::new();
 
-    // 检查是否是空元组 `()`
-    let is_empty_tuple = tv.len() == 1
-        && matches!(&tv[0], TokenTree::Group(g)
-            if g.delimiter() == proc_macro2::Delimiter::Parenthesis && g.stream().into_iter().next().is_none());
+    // 检查是否是单独的 fn 关键字：fn + (A,B) → fn(A,B)
+    let is_fn_keyword = tv.len() == 1 && matches!(&tv[0], TokenTree::Ident(id) if id == "fn");
 
-    // 检查是否是元组 `(A,)` 或 `(A,B)`
-    let is_tuple = tv.len() == 1
-        && matches!(&tv[0], TokenTree::Group(g) if g.delimiter() == proc_macro2::Delimiter::Parenthesis);
-
-    match slot {
-        SlotKind::Fixed(fixed_ts) => {
-            if is_empty_tuple {
-                // () + T → (T,)
-                let ts = quote! { ( #fixed_ts ,) };
-                (ts, extra_types)
-            } else if is_tuple {
-                // (A,B,...) + T → (A,B,...,T)
-                if let TokenTree::Group(g) = &tv[0] {
-                    let content = g.stream();
-                    // 去掉尾随逗号再追加
-                    let trimmed = strip_trailing_comma(content);
-                    let mut new_inner = trimmed;
-                    new_inner.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
-                        ',',
-                        proc_macro2::Spacing::Alone,
-                    ))));
-                    new_inner.extend(fixed_ts.clone());
-                    let new_group = proc_macro2::Group::new(g.delimiter(), new_inner);
+    if is_fn_keyword {
+        // fn + slot → fn(slot)
+        match slot {
+            SlotKind::Fixed(fixed_ts) => {
+                let fixed_tv: Vec<TokenTree> = fixed_ts.clone().into_iter().collect();
+                // 检查 fixed_ts 是否已经是括号组
+                if fixed_tv.len() == 1 && matches!(&fixed_tv[0], TokenTree::Group(g) if g.delimiter() == proc_macro2::Delimiter::Parenthesis) {
+                    // fn + (A,B) → fn(A,B)
                     let mut result = TokenStream2::new();
-                    result.extend(std::iter::once(TokenTree::Group(new_group)));
+                    result.extend(std::iter::once(tv[0].clone()));
+                    result.extend(fixed_ts.clone());
                     (result, extra_types)
                 } else {
-                    (tuple_ts.clone(), extra_types)
-                }
-            } else {
-                // A + T → A<T> (泛型应用)
-                // 检查是否是带泛型的容器，如 HashMap<u32>
-                // 如果是，追加参数：HashMap<u32> + String → HashMap<u32, String>
-                if let Some(new_ts) = append_to_generic_container(tuple_ts, fixed_ts) {
-                    (new_ts, extra_types)
-                } else {
-                    let ts = quote! { #tuple_ts < #fixed_ts > };
-                    (ts, extra_types)
+                    // fn + T → fn(T)
+                    let inner = proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, fixed_ts.clone());
+                    let mut result = TokenStream2::new();
+                    result.extend(std::iter::once(tv[0].clone()));
+                    result.extend(std::iter::once(TokenTree::Group(inner)));
+                    (result, extra_types)
                 }
             }
+            SlotKind::Bound(bound_ts) => {
+                let letter = crate::core::tuple::generic_letter(0, suffix);
+                extra_types.push(quote! { #letter: #bound_ts });
+                let inner = proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, quote! { #letter });
+                let mut result = TokenStream2::new();
+                result.extend(std::iter::once(tv[0].clone()));
+                result.extend(std::iter::once(TokenTree::Group(inner)));
+                (result, extra_types)
+            }
         }
-        SlotKind::Bound(bound_ts) => {
-            // 泛型参数
-            let letter = crate::core::tuple::generic_letter(0, suffix);
-            extra_types.push(quote! { #letter: #bound_ts });
+    } else {
+        // 检查是否是 fn 类型：fn(...)
+        let is_fn_type = tv.len() >= 2
+            && matches!(&tv[0], TokenTree::Ident(id) if id == "fn")
+            && matches!(&tv[1], TokenTree::Group(g) if g.delimiter() == proc_macro2::Delimiter::Parenthesis);
 
-            if is_empty_tuple {
-                // () + <Bound> → (A: Bound,)
-                let ts = quote! { ( #letter ,) };
-                (ts, extra_types)
-            } else if is_tuple {
-                // (A,B,...) + <Bound> → (A,B,...,X,)  where X: Bound
-                if let TokenTree::Group(g) = &tv[0] {
-                    let content = g.stream();
-                    let trimmed = strip_trailing_comma(content);
-                    let mut new_inner = trimmed;
-                    new_inner.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
-                        ',',
+        if is_fn_type {
+            // fn(A,B) + T → fn(A,B)->T
+            match slot {
+                SlotKind::Fixed(fixed_ts) => {
+                    let mut result = tuple_ts.clone();
+                    result.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                        '-',
+                        proc_macro2::Spacing::Joint,
+                    ))));
+                    result.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                        '>',
                         proc_macro2::Spacing::Alone,
                     ))));
-                    new_inner.extend(quote! { #letter });
-                    let new_group = proc_macro2::Group::new(g.delimiter(), new_inner);
-                    let mut result = TokenStream2::new();
-                    result.extend(std::iter::once(TokenTree::Group(new_group)));
+                    result.extend(fixed_ts.clone());
                     (result, extra_types)
-                } else {
-                    (tuple_ts.clone(), extra_types)
                 }
-            } else {
-                // A + <Bound> → A<Letter>  where Letter: Bound
-                // 检查是否是带泛型的容器
-                let bound_letter: TokenStream2 = quote! { #letter };
-                if let Some(new_ts) = append_to_generic_container(tuple_ts, &bound_letter) {
-                    (new_ts, extra_types)
-                } else {
-                    let ts = quote! { #tuple_ts < #letter > };
-                    (ts, extra_types)
+                SlotKind::Bound(bound_ts) => {
+                    // fn(A,B) + <T> → <T>fn(A,B)->T
+                    let letter = crate::core::tuple::generic_letter(0, suffix);
+                    extra_types.push(quote! { #letter: #bound_ts });
+                    let mut result = TokenStream2::new();
+                    result.extend(tuple_ts.clone());
+                    result.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                        '-',
+                        proc_macro2::Spacing::Joint,
+                    ))));
+                    result.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                        '>',
+                        proc_macro2::Spacing::Alone,
+                    ))));
+                    result.extend(quote! { #letter });
+                    (result, extra_types)
+                }
+            }
+        } else {
+            // 检查是否是空元组 `()`
+            let is_empty_tuple = tv.len() == 1
+                && matches!(&tv[0], TokenTree::Group(g)
+                    if g.delimiter() == proc_macro2::Delimiter::Parenthesis && g.stream().into_iter().next().is_none());
+
+            // 检查是否是元组 `(A,)` 或 `(A,B)`
+            let is_tuple = tv.len() == 1
+                && matches!(&tv[0], TokenTree::Group(g) if g.delimiter() == proc_macro2::Delimiter::Parenthesis);
+
+            match slot {
+                SlotKind::Fixed(fixed_ts) => {
+                    if is_empty_tuple {
+                        // () + T → (T,)
+                        let ts = quote! { ( #fixed_ts ,) };
+                        (ts, extra_types)
+                    } else if is_tuple {
+                        // (A,B,...) + T → (A,B,...,T)
+                        if let TokenTree::Group(g) = &tv[0] {
+                            let content = g.stream();
+                            // 去掉尾随逗号再追加
+                            let trimmed = strip_trailing_comma(content);
+                            let mut new_inner = trimmed;
+                            new_inner.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                                ',',
+                                proc_macro2::Spacing::Alone,
+                            ))));
+                            new_inner.extend(fixed_ts.clone());
+                            let new_group = proc_macro2::Group::new(g.delimiter(), new_inner);
+                            let mut result = TokenStream2::new();
+                            result.extend(std::iter::once(TokenTree::Group(new_group)));
+                            (result, extra_types)
+                        } else {
+                            (tuple_ts.clone(), extra_types)
+                        }
+                    } else {
+                        // A + T → A<T> (泛型应用)
+                        // 检查是否是带泛型的容器，如 HashMap<u32>
+                        // 如果是，追加参数：HashMap<u32> + String → HashMap<u32, String>
+                        if let Some(new_ts) = append_to_generic_container(tuple_ts, fixed_ts) {
+                            (new_ts, extra_types)
+                        } else {
+                            let ts = quote! { #tuple_ts < #fixed_ts > };
+                            (ts, extra_types)
+                        }
+                    }
+                }
+                SlotKind::Bound(bound_ts) => {
+                    // 泛型参数
+                    let letter = crate::core::tuple::generic_letter(0, suffix);
+                    extra_types.push(quote! { #letter: #bound_ts });
+
+                    if is_empty_tuple {
+                        // () + <Bound> → (A: Bound,)
+                        let ts = quote! { ( #letter ,) };
+                        (ts, extra_types)
+                    } else if is_tuple {
+                        // (A,B,...) + <Bound> → (A,B,...,X,)  where X: Bound
+                        if let TokenTree::Group(g) = &tv[0] {
+                            let content = g.stream();
+                            let trimmed = strip_trailing_comma(content);
+                            let mut new_inner = trimmed;
+                            new_inner.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                                ',',
+                                proc_macro2::Spacing::Alone,
+                            ))));
+                            new_inner.extend(quote! { #letter });
+                            let new_group = proc_macro2::Group::new(g.delimiter(), new_inner);
+                            let mut result = TokenStream2::new();
+                            result.extend(std::iter::once(TokenTree::Group(new_group)));
+                            (result, extra_types)
+                        } else {
+                            (tuple_ts.clone(), extra_types)
+                        }
+                    } else {
+                        // A + <Bound> → A<Letter>  where Letter: Bound
+                        // 检查是否是带泛型的容器
+                        let bound_letter: TokenStream2 = quote! { #letter };
+                        if let Some(new_ts) = append_to_generic_container(tuple_ts, &bound_letter) {
+                            (new_ts, extra_types)
+                        } else {
+                            let ts = quote! { #tuple_ts < #letter > };
+                            (ts, extra_types)
+                        }
+                    }
                 }
             }
         }
@@ -402,4 +514,14 @@ fn append_to_generic_container(container_ts: &TokenStream2, new_arg: &TokenStrea
     }
     
     None
+}
+
+/// 公开版本的 dash_parse_slots，供 parser.rs 使用
+pub fn dash_parse_slots_public(ts: &TokenStream2, span: Span) -> Result<Vec<SlotKind>, ParseResult> {
+    dash_parse_slots(ts, span)
+}
+
+/// 公开版本的 dash_append，供 parser.rs 使用
+pub fn dash_append_public(tuple_ts: &TokenStream2, slot: &SlotKind, suffix: u64) -> (TokenStream2, Vec<TokenStream2>) {
+    dash_append(tuple_ts, slot, suffix)
 }

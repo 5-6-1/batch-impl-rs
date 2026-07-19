@@ -11,6 +11,7 @@ pub struct ImplSpec {
     pub target: TokenStream2,
     pub custom_body: Option<TokenStream2>,
     pub is_unsafe: bool,
+    pub attributes: Vec<TokenStream2>,
 }
 
 pub enum ParseResult {
@@ -26,6 +27,8 @@ pub enum PrefixItem {
     ConstPtr,
     MutPtr,
     Unsafe,
+    Fn,
+    Attribute(TokenStream2),
     /// 容器前缀：name 为标识符，prefill 为预填泛型参数（如 HashMap<K> 中的 K）
     Container {
         name: proc_macro2::Ident,
@@ -42,6 +45,10 @@ impl PrefixItem {
     /// 是否是引用/指针类修饰符（&、&mut、*const、*mut）
     pub fn is_ref_like(&self) -> bool {
         matches!(self, PrefixItem::Ref | PrefixItem::RefMut | PrefixItem::ConstPtr | PrefixItem::MutPtr)
+    }
+    /// 是否是 fn 类型
+    pub fn is_fn(&self) -> bool {
+        matches!(self, PrefixItem::Fn)
     }
 }
 

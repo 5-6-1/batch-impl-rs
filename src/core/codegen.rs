@@ -38,12 +38,21 @@ pub fn generate_impl(spec: &ImplSpec, trait_name_tokens: TokenStream2) -> TokenS
         quote! { #(#bindings)* }
     };
 
+    let attrs = if spec.attributes.is_empty() {
+        quote! {}
+    } else {
+        let attr_list = &spec.attributes;
+        quote! { #(#attr_list)* }
+    };
+
     if spec.is_unsafe {
         quote_spanned! { span =>
+            #attrs
             unsafe impl #impl_generics #trait_path for #target { #assoc #body }
         }
     } else {
         quote_spanned! { span =>
+            #attrs
             impl #impl_generics #trait_path for #target { #assoc #body }
         }
     }
