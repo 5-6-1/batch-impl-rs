@@ -1651,6 +1651,86 @@ fn test_complex_all_combined() {
 }
 
 // ============================================================
+// 76. 关联类型 + unsafe
+// ============================================================
+
+#[batch_impl(<T> UnsafeAssoc<Item=T> Vec<T> {
+    fn unsafe_len(&self) -> usize { self.len() }
+})]
+unsafe trait UnsafeAssoc {
+    type Item;
+    fn unsafe_len(&self) -> usize;
+}
+
+fn test_assoc_unsafe() {
+    let v = vec![1, 2, 3];
+    assert_eq!(v.unsafe_len(), 3);
+    println!("  76. assoc + unsafe: OK");
+}
+
+// ============================================================
+// 77. 关联类型 + 多类型共享
+// ============================================================
+
+#[batch_impl(
+    <T> MultiAssoc<Item=T> Vec<T> {
+        fn multi_name() -> &'static str { "vec" }
+    },
+    <K, V> MultiAssoc<Item=(K, V)> HashMap<K, V> {
+        fn multi_name() -> &'static str { "hashmap" }
+    }
+)]
+trait MultiAssoc {
+    type Item;
+    fn multi_name() -> &'static str;
+}
+
+fn test_assoc_multi_type() {
+    assert_eq!(Vec::<i32>::multi_name(), "vec");
+    assert_eq!(std::collections::HashMap::<i32, i32>::multi_name(), "hashmap");
+    println!("  77. assoc + multi type: OK");
+}
+
+// ============================================================
+// 78. 关联类型 + 泛型约束
+// ============================================================
+
+#[batch_impl(
+    <T: Clone> BoundAssoc<Item=T> Vec<T> {
+        fn bound_first(&self) -> T { self[0].clone() }
+    }
+)]
+trait BoundAssoc {
+    type Item;
+    fn bound_first(&self) -> Self::Item;
+}
+
+fn test_assoc_bound() {
+    let v = vec![1, 2, 3];
+    assert_eq!(v.bound_first(), 1);
+    println!("  78. assoc + generic bound: OK");
+}
+
+// ============================================================
+// 79. 关联类型 + 共享body + 不同目标
+// ============================================================
+
+#[batch_impl(
+    <T> SharedAssoc<Item=T> Vec<T> {
+        fn shared_tag() -> &'static str { "shared" }
+    }
+)]
+trait SharedAssoc {
+    type Item;
+    fn shared_tag() -> &'static str;
+}
+
+fn test_assoc_shared() {
+    assert_eq!(Vec::<i32>::shared_tag(), "shared");
+    println!("  79. assoc + shared body: OK");
+}
+
+// ============================================================
 
 fn main() {
     println!("=== auto_impl macro tests ===");
@@ -1738,6 +1818,10 @@ fn main() {
     test_nested_shared_body_with_assoc();
     test_complex_assoc_tuple_array();
     test_complex_all_combined();
+    test_assoc_unsafe();
+    test_assoc_multi_type();
+    test_assoc_bound();
+    test_assoc_shared();
     println!("\n--- comparison tests ---");
     test_cmp_basic();
     test_cmp_generic();

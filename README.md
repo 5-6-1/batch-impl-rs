@@ -192,6 +192,18 @@ trait Pair {
 }
 ```
 
+支持泛型约束：
+
+```rust
+#[batch_impl(<T: Clone> CloneIter<Item=T> Vec<T> {
+    fn first(&self) -> T { self[0].clone() }
+})]
+trait CloneIter {
+    type Item;
+    fn first(&self) -> Self::Item;
+}
+```
+
 ### 独立/共享 body 合并
 
 列表项可有独立 body，与共享 body 合并：
