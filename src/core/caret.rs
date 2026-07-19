@@ -204,6 +204,7 @@ pub fn expand_caret(
     tokens: TokenStream2,
     types: &[TokenStream2],
     tr: &Option<Vec<TokenStream2>>,
+    assoc: &[(TokenStream2, TokenStream2)],
     body: Option<TokenStream2>,
     span: Span,
 ) -> ParseResult {
@@ -259,6 +260,7 @@ pub fn expand_caret(
                                         stv.into_iter().collect(),
                                         types,
                                         tr,
+                                        assoc,
                                         body.clone(),
                                         span,
                                     ) {
@@ -303,6 +305,7 @@ pub fn expand_caret(
                                     stv.into_iter().collect(),
                                     types,
                                     tr,
+                                    assoc,
                                     body.clone(),
                                     span,
                                 ) {
@@ -347,7 +350,7 @@ pub fn expand_caret(
             }
             // caret at top level → recursive expand
             if split_by_caret(&tv).is_some() {
-                match expand_caret(tv.into_iter().collect(), types, tr, body.clone(), span) {
+                match expand_caret(tv.into_iter().collect(), types, tr, assoc, body.clone(), span) {
                     ParseResult::Ok(sub) => specs.extend(sub),
                     ParseResult::Err(e) => return ParseResult::Err(e),
                 }
@@ -370,7 +373,7 @@ pub fn expand_caret(
             specs.push(ImplSpec {
                 type_params: types.to_vec(),
                 trait_params: tr.clone(),
-                assoc_bindings: vec![],
+                assoc_bindings: assoc.to_vec(),
                 target: ts,
                 custom_body: body.clone(),
                 is_unsafe: false,
@@ -467,7 +470,7 @@ pub fn expand_caret(
                         specs.push(ImplSpec {
                             type_params: all_types,
                             trait_params: tr.clone(),
-                            assoc_bindings: vec![],
+                            assoc_bindings: assoc.to_vec(),
                             target: new_target,
                             custom_body: body.clone(),
                             is_unsafe: false,
@@ -483,7 +486,7 @@ pub fn expand_caret(
                     specs.push(ImplSpec {
                         type_params: types.to_vec(),
                         trait_params: tr.clone(),
-                        assoc_bindings: vec![],
+                        assoc_bindings: assoc.to_vec(),
                         target: ts,
                         custom_body: body.clone(),
                         is_unsafe: false,
@@ -545,7 +548,7 @@ pub fn expand_single(ts: TokenStream2, span: Span) -> crate::core::types::PResul
 
     // 顶层 - (左结合元组构建)
     if crate::core::dash::split_by_dash(&tokens).is_some() {
-        match crate::core::dash::expand_dash(ts, &[], &None, None, span) {
+        match crate::core::dash::expand_dash(ts, &[], &None, &[], None, span) {
             ParseResult::Ok(specs) => {
                 return Ok(specs
                     .into_iter()

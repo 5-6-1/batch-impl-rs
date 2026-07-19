@@ -37,6 +37,7 @@ pub fn expand_dash(
     tokens: TokenStream2,
     parent_types: &[TokenStream2],
     parent_trait: &Option<Vec<TokenStream2>>,
+    parent_assoc: &[(TokenStream2, TokenStream2)],
     body: Option<TokenStream2>,
     span: Span,
 ) -> ParseResult {
@@ -53,6 +54,7 @@ pub fn expand_dash(
             left.into_iter().collect(),
             parent_types,
             parent_trait,
+            parent_assoc,
             body.clone(),
             span,
         ) {
@@ -88,7 +90,7 @@ pub fn expand_dash(
     } else {
         // 没有 `-`：起始点
         // 可以是 `()`、`(A,)`、或单个类型
-        dash_parse_start(tokens, parent_types, parent_trait, span)
+        dash_parse_start(tokens, parent_types, parent_trait, parent_assoc, span)
     }
 }
 
@@ -122,6 +124,7 @@ fn dash_parse_slots(ts: &TokenStream2, span: Span) -> Result<Vec<SlotKind>, Pars
                                     seg_ts.clone(),
                                     &[],
                                     &None,
+                                    &[],
                                     None,
                                     span,
                                 );
@@ -145,6 +148,7 @@ fn dash_parse_slots(ts: &TokenStream2, span: Span) -> Result<Vec<SlotKind>, Pars
                         inner_ts,
                         &[],
                         &None,
+                        &[],
                         None,
                         span,
                     );
@@ -167,6 +171,7 @@ fn dash_parse_slots(ts: &TokenStream2, span: Span) -> Result<Vec<SlotKind>, Pars
             ts.clone(),
             &[],
             &None,
+            &[],
             None,
             span,
         );
@@ -185,6 +190,7 @@ fn dash_parse_start(
     tokens: TokenStream2,
     parent_types: &[TokenStream2],
     parent_trait: &Option<Vec<TokenStream2>>,
+    parent_assoc: &[(TokenStream2, TokenStream2)],
     _span: Span,
 ) -> ParseResult {
     let tv: Vec<TokenTree> = tokens.clone().into_iter().collect();
@@ -197,7 +203,7 @@ fn dash_parse_start(
                     return ParseResult::Ok(vec![ImplSpec {
                         type_params: parent_types.to_vec(),
                         trait_params: parent_trait.clone(),
-                        assoc_bindings: vec![],
+                        assoc_bindings: parent_assoc.to_vec(),
                         target: quote! { () },
                         custom_body: None,
                         is_unsafe: false,
@@ -207,7 +213,7 @@ fn dash_parse_start(
                 return ParseResult::Ok(vec![ImplSpec {
                     type_params: parent_types.to_vec(),
                     trait_params: parent_trait.clone(),
-                    assoc_bindings: vec![],
+                    assoc_bindings: parent_assoc.to_vec(),
                     target: tokens,
                     custom_body: None,
                     is_unsafe: false,
@@ -219,7 +225,7 @@ fn dash_parse_start(
     ParseResult::Ok(vec![ImplSpec {
         type_params: parent_types.to_vec(),
         trait_params: parent_trait.clone(),
-        assoc_bindings: vec![],
+        assoc_bindings: parent_assoc.to_vec(),
         target: tokens,
         custom_body: None,
         is_unsafe: false,

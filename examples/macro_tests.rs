@@ -1731,6 +1731,36 @@ fn test_assoc_shared() {
 }
 
 // ============================================================
+// 80. 关联类型 + ^ 运算符
+// ============================================================
+
+#[batch_impl(<T> CaretAssoc<Item=T> Box^T)]
+trait CaretAssoc {
+    type Item;
+}
+
+fn test_assoc_caret() {
+    fn _check<T: CaretAssoc<Item = i32>>() {}
+    _check::<Box<i32>>();
+    println!("  80. assoc + ^ operator: OK");
+}
+
+// ============================================================
+// 81. 关联类型 + - 运算符
+// ============================================================
+
+#[batch_impl(<T> DashAssocA<Item=T> Vec-T)]
+trait DashAssocA {
+    type Item;
+}
+
+fn test_assoc_dash() {
+    fn _check<T: DashAssocA<Item = i32>>() {}
+    _check::<Vec<i32>>();
+    println!("  81. assoc + - operator: OK");
+}
+
+// ============================================================
 
 fn main() {
     println!("=== auto_impl macro tests ===");
@@ -1822,6 +1852,8 @@ fn main() {
     test_assoc_multi_type();
     test_assoc_bound();
     test_assoc_shared();
+    test_assoc_caret();
+    test_assoc_dash();
     println!("\n--- comparison tests ---");
     test_cmp_basic();
     test_cmp_generic();

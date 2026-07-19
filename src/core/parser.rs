@@ -168,6 +168,7 @@ pub fn parse_segment(
             target_vec.into_iter().collect(),
             &eff_types,
             &eff_trait,
+            &eff_assoc,
             body,
             span,
         );
@@ -179,6 +180,7 @@ pub fn parse_segment(
             target_vec.into_iter().collect(),
             &eff_types,
             &eff_trait,
+            &eff_assoc,
             body,
             span,
         );
