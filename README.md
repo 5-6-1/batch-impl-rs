@@ -73,6 +73,8 @@ impl-spec = [ <impl-泛型> ] [ Trait名<trait-泛型> ] 目标 [ { body } ]
 |--------|------|
 | `&` | 引用 |
 | `&mut` | 可变引用 |
+| `*const` | 裸指针（不可变） |
+| `*mut` | 裸指针（可变） |
 | `self` | 恒等（不改变类型） |
 | `unsafe` | 标记 impl 为 `unsafe impl` |
 | `Ident` | 容器（如 `Box`, `Vec`） |
@@ -86,6 +88,8 @@ impl-spec = [ <impl-泛型> ] [ Trait名<trait-泛型> ] 目标 [ { body } ]
 |------|------|
 | `&^T` | `&T` |
 | `&mut^T` | `&mut T` |
+| `*const^T` | `*const T` |
+| `*mut^T` | `*mut T` |
 | `self^T` | `T` |
 | `Box^T` | `Box<T>` |
 | `Box^<X,Y>` | `Box<X, Y>`（多参容器） |
@@ -95,6 +99,8 @@ impl-spec = [ <impl-泛型> ] [ Trait名<trait-泛型> ] 目标 [ { body } ]
 | `Box^Box^T` | `Box<Box<T>>` |
 | `HashMap<K>^V` | `HashMap<K, V>`（预填泛型追加） |
 | `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>` |
+| `&^Box^T` | `&Box<T>`（引用类修饰符链式应用） |
+| `*const^Vec^T` | `*const Vec<T>` |
 
 ## `-` 运算符（左结合）
 

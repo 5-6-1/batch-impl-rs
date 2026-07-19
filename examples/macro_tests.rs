@@ -794,9 +794,7 @@ fn test_cartesian_simple() {
 }
 
 // ============================================================
-// 45. 笛卡尔积 + bound：(<Clone>,String)^2 = 所有 2 长度组合
-// ============================================================
-
+// 45. 笛卡尔积 + bound：(<Clone>,String)^1..3
 #[batch_impl((<Clone>,String)^1..3)]
 trait CartesianBound {}
 
@@ -1761,6 +1759,86 @@ fn test_assoc_dash() {
 }
 
 // ============================================================
+// 82. *const 指针类型
+// ============================================================
+
+#[batch_impl(*const^u32, *const^i32)]
+trait ConstPtrMarker {}
+
+fn test_const_ptr() {
+    fn _check<T: ConstPtrMarker>() {}
+    _check::<*const u32>();
+    _check::<*const i32>();
+    println!("  82. *const^T = *const T: OK");
+}
+
+// ============================================================
+// 83. *mut 指针类型
+// ============================================================
+
+#[batch_impl(*mut^u32, *mut^i32)]
+trait MutPtrMarker {}
+
+fn test_mut_ptr() {
+    fn _check<T: MutPtrMarker>() {}
+    _check::<*mut u32>();
+    _check::<*mut i32>();
+    println!("  83. *mut^T = *mut T: OK");
+}
+
+// ============================================================
+// 84. &^A^B = &A<B>（引用类修饰符的特殊行为）
+// ============================================================
+
+#[batch_impl(&^Box^u32)]
+trait RefCaretChain {}
+
+fn test_ref_caret_chain() {
+    fn _check<T: RefCaretChain>() {}
+    _check::<&Box<u32>>();
+    println!("  84. &^Box^u32 = &Box<u32>: OK");
+}
+
+// ============================================================
+// 85. &mut^A^B = &mut A<B>
+// ============================================================
+
+#[batch_impl(&mut^Vec^i32)]
+trait RefMutCaretChain {}
+
+fn test_refmut_caret_chain() {
+    fn _check<T: RefMutCaretChain>() {}
+    _check::<&mut Vec<i32>>();
+    println!("  85. &mut^Vec^i32 = &mut Vec<i32>: OK");
+}
+
+// ============================================================
+// 86. *const^A^B = *const A<B>
+// ============================================================
+
+#[batch_impl(*const^Box^u64)]
+trait ConstPtrCaretChain {}
+
+fn test_constptr_caret_chain() {
+    fn _check<T: ConstPtrCaretChain>() {}
+    _check::<*const Box<u64>>();
+    println!("  86. *const^Box^u64 = *const Box<u64>: OK");
+}
+
+// ============================================================
+// 87. *mut^A^B = *mut A<B>
+// ============================================================
+
+#[batch_impl(*mut^Vec^String)]
+trait MutPtrCaretChain {}
+
+fn test_mutptr_caret_chain() {
+    fn _check<T: MutPtrCaretChain>() {}
+    _check::<*mut Vec<String>>();
+    println!("  87. *mut^Vec^String = *mut Vec<String>: OK");
+}
+
+// ============================================================
 
 fn main() {
     println!("=== auto_impl macro tests ===");
@@ -1854,6 +1932,12 @@ fn main() {
     test_assoc_shared();
     test_assoc_caret();
     test_assoc_dash();
+    test_const_ptr();
+    test_mut_ptr();
+    test_ref_caret_chain();
+    test_refmut_caret_chain();
+    test_constptr_caret_chain();
+    test_mutptr_caret_chain();
     println!("\n--- comparison tests ---");
     test_cmp_basic();
     test_cmp_generic();

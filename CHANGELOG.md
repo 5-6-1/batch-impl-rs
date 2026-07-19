@@ -9,6 +9,7 @@
 - `<T> Iter<Item=T> Vec<T>` → 生成 `impl<T> Iter for Vec<T> { type Item = T; ... }`
 - 支持多关联类型绑定：`Pair<First=T, Second=U>`
 - 支持复杂类型绑定：`TupleAssoc<Output=(T, T)>`
+- 关联类型可与 `^`、`-`、unsafe 任意组合
 
 #### 独立/共享 body 合并
 - `[A{bodyA}, B{bodyB}]{shared}` 语法：列表项可有独立 body，与共享 body 合并
@@ -16,24 +17,27 @@
 - 合并策略：拼接（shared + independent）
 - 支持多层嵌套：`[[A{...}, B{...}]{shared1}, C{...}]{shared2}`
 
+#### *const/*mut 指针支持
+- `*const^T` → `*const T`
+- `*mut^T` → `*mut T`
+- 支持链式应用：`*const^Box^T` → `*const Box<T>`
+
+#### 引用类修饰符特殊行为
+- `&^A^B` → `&A<B>`（`&` 先绑定到 `A`，然后 `^B` 应用到结果）
+- `&mut^A^B` → `&mut A<B>`
+- `*const^A^B` → `*const A<B>`
+- `*mut^A^B` → `*mut A<B>`
+
 #### 实现细节
 - `ImplSpec` 新增 `assoc_bindings` 字段
-- `parse_segment` 解析 `TraitName<Item=T>` 时分离关联类型绑定（通过 `=` 检测）
-- `parse_target` 支持独立 body 和共享 body 合并
-- `generate_impl` 输出关联类型绑定到 impl 块
+- `PrefixItem` 新增 `ConstPtr`、`MutPtr` 变体
+- `parse_segment` 解析 `TraitName<Item=T>` 时分离关联类型绑定
+- `expand_caret` 和 `expand_dash` 正确传递 `assoc_bindings`
 
 #### 测试
-- 新增 14 个测试用例（76-81）
-- 76: 关联类型 + unsafe
-- 77: 关联类型 + 多类型实现
-- 78: 关联类型 + 泛型约束
-- 79: 关联类型 + 共享 body
-- 80: 关联类型 + `^` 运算符
-- 81: 关联类型 + `-` 运算符
-
-#### Bug 修复
-- 修复 `expand_caret` 和 `expand_dash` 不传递 `assoc_bindings` 的问题
-- 现在所有功能可以任意组合：关联类型 + `^` + `-` + unsafe + 共享/独立 body
+- macro-test：105 个测试用例
+- ds-test：15 个边界测试
+- 新增测试：关联类型、`*const`、`*mut`、引用链式应用
 
 ## 0.1.1 (2026-07-19)
 

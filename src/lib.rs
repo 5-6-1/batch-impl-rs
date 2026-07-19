@@ -30,6 +30,8 @@ use core::types::{err, ParseResult};
 /// |------|------|
 /// | `&^T` | `&T` |
 /// | `&mut^T` | `&mut T` |
+/// | `*const^T` | `*const T` |
+/// | `*mut^T` | `*mut T` |
 /// | `self^T` | `T` |
 /// | `A^B` | `A<B>` |
 /// | `A^<X,Y>` | `A<X,Y>` |
@@ -40,6 +42,8 @@ use core::types::{err, ParseResult};
 /// | `Box^[Box^T]` | `Box<[Box<T>]>` |
 /// | `HashMap<K>^V` | `HashMap<K, V>`（预填泛型追加） |
 /// | `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>` |
+/// | `&^Box^T` | `&Box<T>`（引用类修饰符链式应用） |
+/// | `*const^Vec^T` | `*const Vec<T>` |
 ///
 /// # 元组 `^`（追加/生成）
 ///

@@ -82,6 +82,13 @@ pub fn parse_single_prefix(tokens: &[TokenTree]) -> Result<PrefixItem, String> {
         [TokenTree::Punct(p), TokenTree::Ident(id)] if p.as_char() == '&' && id == "mut" => {
             Ok(PrefixItem::RefMut)
         }
+        // *const 和 *mut
+        [TokenTree::Punct(p), TokenTree::Ident(id)] if p.as_char() == '*' && id == "const" => {
+            Ok(PrefixItem::ConstPtr)
+        }
+        [TokenTree::Punct(p), TokenTree::Ident(id)] if p.as_char() == '*' && id == "mut" => {
+            Ok(PrefixItem::MutPtr)
+        }
         [TokenTree::Ident(id)] if id == "unsafe" => Ok(PrefixItem::Unsafe),
         [TokenTree::Ident(id)] => Ok(PrefixItem::Container {
             name: id.clone(),
@@ -157,11 +164,14 @@ pub fn parse_target_items(tokens: &[TokenTree]) -> Result<Vec<TargetItem>, Strin
 /// - `self^T` → `T`
 /// - `&^T` → `&T`
 /// - `&mut^T` → `&mut T`
+/// - `*const^T` → `*const T`
+/// - `*mut^T` → `*mut T`
 /// - `unsafe^T` → `T`（标记为 unsafe impl）
 /// - `A^B` → `A<B>`
 /// - `A^<X,Y>` → `A<X, Y>`
 /// - `A<B>^C` → `A<B, C>`（预填泛型追加）
 /// - `A<B>^<X,Y>` → `A<B, X, Y>`（预填泛型追加）
+/// - `&^A^B` → `&A<B>`（引用类修饰符链式应用）
 pub fn apply_caret(prefix: &PrefixItem, target: &TargetItem) -> Result<TokenStream2, String> {
     match (prefix, target) {
         (PrefixItem::Self_, TargetItem::Single(ts)) => Ok(ts.clone()),
@@ -170,6 +180,10 @@ pub fn apply_caret(prefix: &PrefixItem, target: &TargetItem) -> Result<TokenStre
         (PrefixItem::Ref, _) => Err("&^ 不能用于多参目标，如 <X,Y>".into()),
         (PrefixItem::RefMut, TargetItem::Single(ts)) => Ok(quote! { &mut #ts }),
         (PrefixItem::RefMut, _) => Err("&mut^ 不能用于多参目标，如 <X,Y>".into()),
+        (PrefixItem::ConstPtr, TargetItem::Single(ts)) => Ok(quote! { *const #ts }),
+        (PrefixItem::ConstPtr, _) => Err("*const^ 不能用于多参目标，如 <X,Y>".into()),
+        (PrefixItem::MutPtr, TargetItem::Single(ts)) => Ok(quote! { *mut #ts }),
+        (PrefixItem::MutPtr, _) => Err("*mut^ 不能用于多参目标，如 <X,Y>".into()),
         (PrefixItem::Unsafe, TargetItem::Single(ts)) => Ok(ts.clone()),
         (PrefixItem::Unsafe, _) => Err("unsafe^ 不能用于多参目标".into()),
         (PrefixItem::Container { name, prefill }, TargetItem::Single(ts)) => {
