@@ -1,6 +1,6 @@
 [package]
 name = "batch-impl"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["5-6-1"]
 description = "A proc-macro library for batch generating trait impls with a powerful DSL"
