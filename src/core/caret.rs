@@ -370,6 +370,7 @@ pub fn expand_caret(
             specs.push(ImplSpec {
                 type_params: types.to_vec(),
                 trait_params: tr.clone(),
+                assoc_bindings: vec![],
                 target: ts,
                 custom_body: body.clone(),
                 is_unsafe: false,
@@ -466,6 +467,7 @@ pub fn expand_caret(
                         specs.push(ImplSpec {
                             type_params: all_types,
                             trait_params: tr.clone(),
+                            assoc_bindings: vec![],
                             target: new_target,
                             custom_body: body.clone(),
                             is_unsafe: false,
@@ -481,6 +483,7 @@ pub fn expand_caret(
                     specs.push(ImplSpec {
                         type_params: types.to_vec(),
                         trait_params: tr.clone(),
+                        assoc_bindings: vec![],
                         target: ts,
                         custom_body: body.clone(),
                         is_unsafe: false,

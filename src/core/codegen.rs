@@ -29,13 +29,22 @@ pub fn generate_impl(spec: &ImplSpec, trait_name_tokens: TokenStream2) -> TokenS
         _ => quote! { #trait_name_tokens },
     };
 
+    let assoc = if spec.assoc_bindings.is_empty() {
+        quote! {}
+    } else {
+        let bindings: Vec<_> = spec.assoc_bindings.iter().map(|(name, value)| {
+            quote! { type #name = #value; }
+        }).collect();
+        quote! { #(#bindings)* }
+    };
+
     if spec.is_unsafe {
         quote_spanned! { span =>
-            unsafe impl #impl_generics #trait_path for #target { #body }
+            unsafe impl #impl_generics #trait_path for #target { #assoc #body }
         }
     } else {
         quote_spanned! { span =>
-            impl #impl_generics #trait_path for #target { #body }
+            impl #impl_generics #trait_path for #target { #assoc #body }
         }
     }
 }

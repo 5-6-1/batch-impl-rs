@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0 (2026-07-19)
+
+### 新功能
+
+#### 关联类型简洁写法
+- `TraitName<AssocType=value>` 语法：在 trait 泛型参数中指定关联类型绑定
+- `<T> Iter<Item=T> Vec<T>` → 生成 `impl<T> Iter for Vec<T> { type Item = T; ... }`
+- 支持多关联类型绑定：`Pair<First=T, Second=U>`
+- 支持复杂类型绑定：`TupleAssoc<Output=(T, T)>`
+
+#### 独立/共享 body 合并
+- `[A{bodyA}, B{bodyB}]{shared}` 语法：列表项可有独立 body，与共享 body 合并
+- 共享 body 提供公共实现，独立 body 提供类型特定实现
+- 合并策略：拼接（shared + independent）
+- 支持多层嵌套：`[[A{...}, B{...}]{shared1}, C{...}]{shared2}`
+
+#### 实现细节
+- `ImplSpec` 新增 `assoc_bindings` 字段
+- `parse_segment` 解析 `TraitName<Item=T>` 时分离关联类型绑定（通过 `=` 检测）
+- `parse_target` 支持独立 body 和共享 body 合并
+- `generate_impl` 输出关联类型绑定到 impl 块
+
+#### 测试
+- 新增 8 个测试用例
+- 72: 三层嵌套共享/独立 body
+- 73: 多层嵌套 + 关联类型
+- 74: 关联类型绑定到元组
+- 75: 全功能组合（共享/独立 body + 关联类型 + 泛型 + 元组）
+
 ## 0.1.1 (2026-07-19)
 
 ### 新功能

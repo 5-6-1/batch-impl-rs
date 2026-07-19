@@ -1444,6 +1444,213 @@ fn test_dash_hashmap() {
 }
 
 // ============================================================
+// 68. 关联类型简洁写法：<T> IterAssoc<Item=T> Vec<T>
+// ============================================================
+
+#[batch_impl(<T> IterAssoc<Item=T> Vec<T> {
+    fn iter_count(&self) -> usize { self.len() }
+})]
+trait IterAssoc {
+    type Item;
+    fn iter_count(&self) -> usize;
+}
+
+fn test_assoc_binding() {
+    let v = vec![1, 2, 3];
+    assert_eq!(v.iter_count(), 3);
+    fn _check<T: IterAssoc<Item = i32>>() {}
+    _check::<Vec<i32>>();
+    println!("  68. assoc: <T> IterAssoc<Item=T> Vec<T>: OK");
+}
+
+// ============================================================
+// 69. 关联类型简洁写法 + 多绑定
+// ============================================================
+
+#[batch_impl(<T, U> PairAssoc<First=T, Second=U> (T, U))]
+trait PairAssoc {
+    type First;
+    type Second;
+}
+
+fn test_assoc_multi_binding() {
+    fn _check<T: PairAssoc<First = i32, Second = String>>() {}
+    _check::<(i32, String)>();
+    println!("  69. assoc multi: <T,U> PairAssoc<First=T,Second=U> (T,U): OK");
+}
+
+// ============================================================
+// 70. 独立/共享 body 合并
+// ============================================================
+
+#[batch_impl(
+    [usize { fn name() -> &'static str { "usize" } },
+     isize { fn name() -> &'static str { "isize" } }]
+    { fn zero() -> Self { 0 } }
+)]
+trait ZeroAssoc {
+    fn zero() -> Self;
+    fn name() -> &'static str;
+}
+
+fn test_shared_independent_body() {
+    assert_eq!(usize::zero(), 0);
+    assert_eq!(isize::zero(), 0);
+    assert_eq!(usize::name(), "usize");
+    assert_eq!(isize::name(), "isize");
+    println!("  70. shared+independent body: OK");
+}
+
+// ============================================================
+// 71. 独立 body（无共享）
+// ============================================================
+
+#[batch_impl(
+    usize { fn describe(&self) -> String { format!("usize: {}", self) } },
+    String { fn describe(&self) -> String { format!("string: {}", self) } }
+)]
+trait DescribeAssoc {
+    fn describe(&self) -> String;
+}
+
+fn test_independent_body_only() {
+    assert_eq!(42usize.describe(), "usize: 42");
+    assert_eq!(String::from("hi").describe(), "string: hi");
+    println!("  71. independent body only: OK");
+}
+
+// ============================================================
+// 72. 多层嵌套共享/独立 body（三层）
+// ============================================================
+
+#[batch_impl(
+    [[usize { fn deep_type_name() -> &'static str { "usize" } },
+      isize { fn deep_type_name() -> &'static str { "isize" } }]
+     { fn deep_is_signed() -> bool { true } },
+     f32 { fn deep_type_name() -> &'static str { "f32" } fn deep_is_signed() -> bool { false } }]
+    { fn deep_zero() -> usize { 0 } }
+)]
+trait DeepNested {
+    fn deep_zero() -> usize;
+    fn deep_is_signed() -> bool;
+    fn deep_type_name() -> &'static str;
+}
+
+fn test_nested_shared_body_3level() {
+    assert_eq!(usize::deep_zero(), 0);
+    assert_eq!(isize::deep_zero(), 0);
+    assert_eq!(f32::deep_zero(), 0);
+    assert_eq!(usize::deep_is_signed(), true);
+    assert_eq!(isize::deep_is_signed(), true);
+    assert_eq!(f32::deep_is_signed(), false);
+    assert_eq!(usize::deep_type_name(), "usize");
+    assert_eq!(isize::deep_type_name(), "isize");
+    assert_eq!(f32::deep_type_name(), "f32");
+    println!("  72. 3-level nested shared/independent body: OK");
+}
+
+// ============================================================
+// 73. 多层嵌套 + 关联类型
+// ============================================================
+
+#[batch_impl(
+    [<T> WrapAssoc<Item=Vec<T>> Vec<T> { fn wrap_count(&self) -> usize { self.len() } },
+     <K, V> WrapAssoc<Item=HashMap<K, V>> HashMap<K, V> { fn wrap_count(&self) -> usize { self.len() } }]
+    { fn wrap_tag() -> &'static str { "container" } }
+)]
+trait WrapAssoc {
+    type Item;
+    fn wrap_count(&self) -> usize;
+    fn wrap_tag() -> &'static str;
+}
+
+fn test_nested_shared_body_with_assoc() {
+    assert_eq!(vec![1, 2, 3].wrap_count(), 3);
+    let mut m = std::collections::HashMap::new();
+    m.insert(1, "a");
+    assert_eq!(m.wrap_count(), 1);
+    assert_eq!(Vec::<i32>::wrap_tag(), "container");
+    assert_eq!(std::collections::HashMap::<i32, i32>::wrap_tag(), "container");
+    println!("  73. nested + assoc type: OK");
+}
+
+// ============================================================
+// 74. 关联类型绑定到元组
+// ============================================================
+
+#[batch_impl(
+    <T: Clone> TupleAssoc<Output=(T, T)> Vec<T> {
+        fn double_first(&self) -> (T, T) { (self[0].clone(), self[0].clone()) }
+    },
+    <K: Clone, V: Clone> TupleAssoc<Output=(K, V)> HashMap<K, V> {
+        fn double_first(&self) -> (K, V) {
+            let (k, v) = self.iter().next().unwrap();
+            (k.clone(), v.clone())
+        }
+    }
+)]
+trait TupleAssoc {
+    type Output;
+    fn double_first(&self) -> Self::Output;
+}
+
+fn test_complex_assoc_tuple_array() {
+    let v = vec![1, 2, 3];
+    let (a, b) = v.double_first();
+    assert_eq!(a, 1);
+    assert_eq!(b, 1);
+
+    let mut m = std::collections::HashMap::new();
+    m.insert(10, "hello");
+    let (k, val) = m.double_first();
+    assert_eq!(k, 10);
+    assert_eq!(val, "hello");
+    println!("  74. assoc -> tuple: OK");
+}
+
+// ============================================================
+// 75. 全功能组合：共享/独立 body + 关联类型 + 泛型 + 元组
+// ============================================================
+
+#[batch_impl(
+    [<T> FullComboA<Item=T> Vec<T> {
+        fn combo_name() -> &'static str { "vec" }
+    },
+     <K, V> FullComboA<Item=(K, V)> HashMap<K, V> {
+        fn combo_name() -> &'static str { "map" }
+     }]
+    { fn combo_is_container() -> bool { true } }
+)]
+trait FullComboA {
+    type Item;
+    fn combo_name() -> &'static str;
+    fn combo_is_container() -> bool;
+}
+
+#[batch_impl(
+    <T> FullTupleA<Elements=(T, T)> (T, T) {
+        fn full_tuple_len() -> usize { 2 }
+    }
+)]
+trait FullTupleA {
+    type Elements;
+    fn full_tuple_len() -> usize;
+}
+
+fn test_complex_all_combined() {
+    // 共享/独立 body + 关联类型
+    assert_eq!(Vec::<i32>::combo_name(), "vec");
+    assert_eq!(std::collections::HashMap::<i32, i32>::combo_name(), "map");
+    assert_eq!(Vec::<i32>::combo_is_container(), true);
+    assert_eq!(std::collections::HashMap::<i32, i32>::combo_is_container(), true);
+
+    // 关联类型 + 元组
+    assert_eq!(<(i32, i32) as FullTupleA>::full_tuple_len(), 2);
+
+    println!("  75. complex: shared/assoc/generic/tuple: OK");
+}
+
+// ============================================================
 
 fn main() {
     println!("=== auto_impl macro tests ===");
@@ -1523,6 +1730,14 @@ fn main() {
     test_nested_special_types();
     test_prefill_single();
     test_dash_hashmap();
+    test_assoc_binding();
+    test_assoc_multi_binding();
+    test_shared_independent_body();
+    test_independent_body_only();
+    test_nested_shared_body_3level();
+    test_nested_shared_body_with_assoc();
+    test_complex_assoc_tuple_array();
+    test_complex_all_combined();
     println!("\n--- comparison tests ---");
     test_cmp_basic();
     test_cmp_generic();

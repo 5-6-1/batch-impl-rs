@@ -86,7 +86,7 @@ use core::types::{err, ParseResult};
 /// - **`()` 歧义**：`()=空元组`, `(A,)=单元素元组`, `(A)=分组（非元组）`
 /// - **trait 泛型必须显式**：trait 有泛型时必须写 `Trait名<T>`
 /// - **泛型继承**：嵌套 `[...]` 中子项不写泛型则继承父级，写了则追加并去重
-/// - **body 继承**：列表级 `{...}` 被所有子项共享；子项 `{...}` 覆盖列表级
+/// - **body 继承**：列表级 `{...}` 被所有子项共享；子项 `{...}` 与共享 body 合并（拼接）
 /// - **目标类型透传**：不解析，原样透传
 ///
 /// # 基本示例
@@ -145,6 +145,41 @@ use core::types::{err, ParseResult};
 /// trait Describe<T> { fn describe(&self) -> String; }
 /// // → impl<T>    Describe<T> for Vec<T>
 /// // → impl<T, U> Describe<T> for HashMap<T, U>
+/// ```
+///
+/// # 关联类型简洁写法
+///
+/// 在 trait 泛型参数中使用 `Name=value` 语法绑定关联类型：
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// #[batch_impl(<T> Iter<Item=T> Vec<T> {
+///     fn count(&self) -> usize { self.len() }
+/// })]
+/// trait Iter {
+///     type Item;
+///     fn count(&self) -> usize;
+/// }
+/// // → impl<T> Iter for Vec<T> { type Item = T; ... }
+/// ```
+///
+/// 支持多关联类型：`Pair<First=T, Second=U>`
+///
+/// # 独立/共享 body 合并
+///
+/// 列表项可有独立 body，与共享 body 合并：
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// #[batch_impl(
+///     [usize { fn name() -> &'static str { "usize" } },
+///      isize { fn name() -> &'static str { "isize" } }]
+///     { fn zero() -> Self { 0 } }
+/// )]
+/// trait Zero {
+///     fn zero() -> Self;
+///     fn name() -> &'static str;
+/// }
 /// ```
 ///
 /// # `^` 运算符示例

@@ -77,6 +77,7 @@ pub fn expand_dash(
                 specs.push(ImplSpec {
                     type_params: all_types,
                     trait_params: spec.trait_params.clone(),
+                    assoc_bindings: spec.assoc_bindings.clone(),
                     target: new_target,
                     custom_body: spec.custom_body.clone(),
                     is_unsafe: false,
@@ -196,6 +197,7 @@ fn dash_parse_start(
                     return ParseResult::Ok(vec![ImplSpec {
                         type_params: parent_types.to_vec(),
                         trait_params: parent_trait.clone(),
+                        assoc_bindings: vec![],
                         target: quote! { () },
                         custom_body: None,
                         is_unsafe: false,
@@ -205,6 +207,7 @@ fn dash_parse_start(
                 return ParseResult::Ok(vec![ImplSpec {
                     type_params: parent_types.to_vec(),
                     trait_params: parent_trait.clone(),
+                    assoc_bindings: vec![],
                     target: tokens,
                     custom_body: None,
                     is_unsafe: false,
@@ -216,6 +219,7 @@ fn dash_parse_start(
     ParseResult::Ok(vec![ImplSpec {
         type_params: parent_types.to_vec(),
         trait_params: parent_trait.clone(),
+        assoc_bindings: vec![],
         target: tokens,
         custom_body: None,
         is_unsafe: false,

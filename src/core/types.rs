@@ -7,6 +7,7 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 pub struct ImplSpec {
     pub type_params: Vec<TokenStream2>,
     pub trait_params: Option<Vec<TokenStream2>>,
+    pub assoc_bindings: Vec<(TokenStream2, TokenStream2)>,
     pub target: TokenStream2,
     pub custom_body: Option<TokenStream2>,
     pub is_unsafe: bool,

@@ -195,6 +195,7 @@ pub fn generate_tuples(
                 specs.push(ImplSpec {
                     type_params: vec![],
                     trait_params: None,
+                    assoc_bindings: vec![],
                     target: quote::quote_spanned! { Span::call_site() => ::core::compile_error!(#lit) },
                     custom_body: None,
                     is_unsafe: false,
@@ -207,6 +208,7 @@ pub fn generate_tuples(
                 specs.push(ImplSpec {
                     type_params: all_types,
                     trait_params: parent_trait.clone(),
+                    assoc_bindings: vec![],
                     target: tuple_ts,
                     custom_body: body.clone(),
                     is_unsafe: false,
@@ -266,6 +268,7 @@ pub fn generate_tuples(
             specs.push(ImplSpec {
                 type_params: all_types,
                 trait_params: parent_trait.clone(),
+                assoc_bindings: vec![],
                 target: tuple_ts,
                 custom_body: body.clone(),
                 is_unsafe: false,

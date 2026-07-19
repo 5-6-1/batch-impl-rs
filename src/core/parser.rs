@@ -23,7 +23,7 @@ pub fn parse_top_level(tokens: TokenStream2, trait_name: &Ident, trait_span: Spa
     };
     let mut all = Vec::new();
     for seg in segments {
-        match parse_segment(seg, &[], &None, trait_name) {
+        match parse_segment(seg, &[], &None, &[], trait_name) {
             ParseResult::Ok(s) => all.extend(s),
             ParseResult::Err(e) => return ParseResult::Err(e),
         }
@@ -37,10 +37,53 @@ pub fn parse_top_level(tokens: TokenStream2, trait_name: &Ident, trait_span: Spa
     ParseResult::Ok(all)
 }
 
+/// 将 trait 泛型参数分离为普通参数和关联类型绑定
+/// `Item=T` → 关联类型绑定 (Item, T)
+/// `T` → 普通参数
+fn split_trait_params(
+    params: Vec<TokenStream2>,
+) -> (Vec<TokenStream2>, Vec<(TokenStream2, TokenStream2)>) {
+    let mut regular = Vec::new();
+    let mut assoc = Vec::new();
+    for p in params {
+        let tokens: Vec<TokenTree> = p.clone().into_iter().collect();
+        // 查找顶层 `=`（排除 `==` 和 `=>`）
+        let mut eq_pos = None;
+        for (i, tt) in tokens.iter().enumerate() {
+            if is_punct(tt, '=') {
+                // 排除 ==
+                if i + 1 < tokens.len() && is_punct(&tokens[i + 1], '=') {
+                    continue;
+                }
+                // 排除 =>
+                if i + 1 < tokens.len() && is_punct(&tokens[i + 1], '>') {
+                    continue;
+                }
+                eq_pos = Some(i);
+                break;
+            }
+        }
+        if let Some(pos) = eq_pos {
+            let name: TokenStream2 = tokens[..pos].iter().cloned().collect();
+            let value: TokenStream2 = tokens[pos + 1..].iter().cloned().collect();
+            if name.is_empty() || value.is_empty() {
+                // 格式错误，当作普通参数
+                regular.push(p);
+            } else {
+                assoc.push((name, value));
+            }
+        } else {
+            regular.push(p);
+        }
+    }
+    (regular, assoc)
+}
+
 pub fn parse_segment(
     tokens: TokenStream2,
     parent_types: &[TokenStream2],
     parent_trait: &Option<Vec<TokenStream2>>,
+    parent_assoc: &[(TokenStream2, TokenStream2)],
     trait_name: &Ident,
 ) -> ParseResult {
     let span = tokens_span(&tokens);
@@ -76,8 +119,8 @@ pub fn parse_segment(
         m
     };
 
-    // 2. trait 泛型
-    let (own_trait, trait_consumed) = if pos < total
+    // 2. trait 泛型（可能包含关联类型绑定 Item=T）
+    let (own_trait_raw, trait_consumed) = if pos < total
         && is_ident_eq(&tv[pos], trait_name)
         && pos + 1 < total
         && is_punct(&tv[pos + 1], '<')
@@ -96,7 +139,23 @@ pub fn parse_segment(
         (None, false)
     };
 
-    let eff_trait = own_trait.or_else(|| parent_trait.clone());
+    // 分离普通参数和关联类型绑定
+    let (own_trait, own_assoc) = match own_trait_raw {
+        Some(params) => split_trait_params(params),
+        None => (vec![], vec![]),
+    };
+
+    let eff_trait = if own_trait.is_empty() {
+        parent_trait.clone()
+    } else {
+        let mut m = parent_trait.clone().unwrap_or_default();
+        m.extend(own_trait);
+        Some(m)
+    };
+
+    // 合并关联类型绑定
+    let mut eff_assoc = parent_assoc.to_vec();
+    eff_assoc.extend(own_assoc);
 
     // 3. 分离 {body}, 4. ^ 运算符（高优先级）, 4b. - 运算符（低优先级）, 5. 有效性检查, 6. 目标类型
     let remaining = &tv[pos..];
@@ -136,13 +195,14 @@ pub fn parse_segment(
         return ParseResult::Err(err(span, "缺少目标类型，如 #[batch_impl(usize)]"));
     }
 
-    parse_target(target_ts, &eff_types, &eff_trait, trait_name, body)
+    parse_target(target_ts, &eff_types, &eff_trait, &eff_assoc, trait_name, body)
 }
 
 fn parse_target(
     tokens: TokenStream2,
     parent_types: &[TokenStream2],
     parent_trait: &Option<Vec<TokenStream2>>,
+    parent_assoc: &[(TokenStream2, TokenStream2)],
     trait_name: &Ident,
     inherited_body: Option<TokenStream2>,
 ) -> ParseResult {
@@ -155,6 +215,7 @@ fn parse_target(
     let spec = |ts, b| ImplSpec {
         type_params: parent_types.to_vec(),
         trait_params: parent_trait.clone(),
+        assoc_bindings: parent_assoc.to_vec(),
         target: ts,
         custom_body: b,
         is_unsafe: false,
@@ -184,11 +245,21 @@ fn parse_target(
                 }
                 let mut results = Vec::new();
                 for sub in subs {
-                    match parse_segment(sub, parent_types, parent_trait, trait_name) {
+                    match parse_segment(sub, parent_types, parent_trait, parent_assoc, trait_name) {
                         ParseResult::Ok(ss) => {
                             for mut s in ss {
-                                if s.custom_body.is_none() {
-                                    s.custom_body = bb.clone();
+                                // 合并独立 body 和共享 body
+                                match (&s.custom_body, &bb) {
+                                    (Some(_independent), Some(shared)) => {
+                                        // 独立 body + 共享 body → 拼接（独立在后，覆盖同名方法由编译器报错）
+                                        let mut merged = shared.clone();
+                                        merged.extend(s.custom_body.take().unwrap());
+                                        s.custom_body = Some(merged);
+                                    }
+                                    (None, Some(shared)) => {
+                                        s.custom_body = Some(shared.clone());
+                                    }
+                                    _ => {}
                                 }
                                 results.push(s);
                             }
