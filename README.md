@@ -27,21 +27,20 @@ batch-impl 的核心设计目标是**批量生成**（bulk generation）——�
 
 ```toml
 [dependencies]
-batch-impl = "0.4.0"
+batch-impl = "0.4.1"
 ```
 
 需要 Rust 2024 edition 及以上。
 
-## 两个入口
+## 三个入口
 
 | 宏               | 用途                                |
 |-----------------|-----------------------------------|
 | `#[batch_impl]` | 属性宏，在 trait 定义上标注，宏参数即 DSL        |
 | `#[batch_impl_only]` | 同上，但丢弃 trait 定义，只输出 impl 块     |
 | `batch_trait!`  | 函数式宏，对已声明的 trait 批量生成 impl（支持多 trait） |
-| `#method` / `#fill` / `#delegate` | DSL 内指令，从 trait 签名自动生成方法 body |
 
-两者接受相同的 DSL 参数。
+三者接受相同的 DSL 参数。
 
 ## 快速开始
 
@@ -439,7 +438,7 @@ trait MyTrait { fn my_method(&self) -> i32; }
 扩展机制的工作流程：
 
 1. 预处理器遇到 `#my_handler(args1){body}`
-2. 不认识 `my_handler` → 生成 `#[my_handler[args1 {body}]]`
+2. 不认识 `my_handler` → 生成 `#[my_handler[args1 {body}]]trait_def`
 3. DSL 解析器把它当普通属性节点处理
 4. 编译器在 batch-impl 宏展开后调用用户的 `#[my_handler]` 属性宏
 
@@ -488,18 +487,14 @@ batch_trait!(
 
 ## 设计决策
 
-### 有意识不支持
+### 特意不支持
 
-- **where 子句**：不在 DSL 内。复杂 bound 写在 trait 定义本身
-- **高阶 trait bound（`for<'a>`）**：where 子句式范畴；类型内部 token 透传，无需特殊处理
-- **`TraitName<>`（空尖括号）**：视为"trait 无泛型"；无需指定时直接写 `TraitName`
-- **重复类型不去重**：`[usize, usize]` 会生成两个 impl（类型去重由用户负责）
+- **where 子句**：不符合简短特性且加入难度大
 
 ### 歧义处理
 
 - **`[]`**：有逗号是并列列表，无逗号是切片类型（如 `Box^[u32]` → `Box<[u32]>`）
 - **`()`**：`()` = 空元组，`(A,)` = 单元素元组，`(A)` = 分组
-- **`[<`**：Rust 的词法限制，`[<Trait>]` 中 `[<` 会被 token 化；拆成独立表达式使用
 - **`()^0`**：生成空元组 `()`，即 `impl Trait for ()`
 - **`[T; N]`**：`[]` 内的 `;` 通过 DSL 的 `Semi` 优先级层级识别为定长数组分隔符
 

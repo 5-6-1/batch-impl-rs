@@ -76,7 +76,7 @@ fn expand_directive(
                 "fill"=> expand_fill(args, body, trait_def),
                 "delegate"=> expand_delegate(args, body, trait_def),
                 _=> Ok(quote!{
-                        #[#name[#args #body]]
+                        #[#name[#args #body]]#trait_def
                     }.into_iter().collect())
             }
         }else{
