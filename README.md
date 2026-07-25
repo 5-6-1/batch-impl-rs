@@ -21,12 +21,13 @@ batch-impl 的核心设计目标是**批量生成**（bulk generation）——�
 | fn 类型         | 批量生成函数类型实现                         |
 | 属性支持          | `#[...]` 语法为 impl 块添加属性            |
 | `*const` / `*mut` | 裸指针类型                         |
+| `#` 指令系统       | `#method` / `#fill` / `#delegate` 从 trait 自动读取签名 |
 
 ## 安装
 
 ```toml
 [dependencies]
-batch-impl = "0.3.0"
+batch-impl = "0.4.0"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -36,7 +37,9 @@ batch-impl = "0.3.0"
 | 宏               | 用途                                |
 |-----------------|-----------------------------------|
 | `#[batch_impl]` | 属性宏，在 trait 定义上标注，宏参数即 DSL        |
+| `#[batch_impl_only]` | 同上，但丢弃 trait 定义，只输出 impl 块     |
 | `batch_trait!`  | 函数式宏，对已声明的 trait 批量生成 impl（支持多 trait） |
+| `#method` / `#fill` / `#delegate` | DSL 内指令，从 trait 签名自动生成方法 body |
 
 两者接受相同的 DSL 参数。
 
@@ -351,6 +354,111 @@ trait AttrSimple {}
 trait ComplexMarker {}
 ```
 
+## 指令系统（v0.4.0）
+
+`#[batch_impl]` / `#[batch_impl_only]` 支持 `#` 指令，在预处理阶段展开，从 trait 定义自动读取方法签名。
+指令预处理错误输出 `compile_error!`（不 panic）。
+
+### `#method{body}` — 单方法简写
+
+```rust
+#[batch_impl(usize #to_str{"usize"})]
+trait ToString { fn to_str(&self) -> &str; }
+// → impl ToString for usize { fn to_str(&self) -> &str { "usize" } }
+```
+
+### `#fill(methods){body}` — 多方法同一 body
+
+```rust
+#[batch_impl(usize #fill(name, kind){"usize"})]
+trait Describable { fn name(&self) -> &str; fn kind(&self) -> &str; }
+// → 为 name 和 kind 各生成 { "usize" } body
+```
+
+支持 `#all` 表示 trait 的所有方法：
+
+```rust
+#[batch_impl(usize #fill(#all){"usize"})]
+trait Describable { fn name(&self) -> &str; fn kind(&self) -> &str; }
+```
+
+### `#delegate(methods){target}` — 委托调用
+
+将 trait 方法委托到 target 表达式上调用同名方法。要求 target 类型具备同名固有方法（通常先为真实类型用 `#method` 提供 body，再为包装类型用 `#delegate` 委托）。
+
+```rust
+// Vec<u32> 用 #method 提供 body，Box<Vec<u32>> 委托过去
+#[batch_impl(
+    Vec<u32> #d_len{self.len()},
+    Box^Vec^u32 #delegate(d_len){**self}
+)]
+trait MyLen { fn d_len(&self) -> usize; }
+// → impl MyLen for Vec<u32> { fn d_len(&self) -> usize { self.len() } }
+// → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
+
+// blanket impl 模式：具体类型 + 引用委托
+#[batch_impl(i32 #to_i32{*self}, <T: ToI32> &T #delegate(to_i32){**self})]
+trait ToI32 { fn to_i32(&self) -> i32; }
+// → impl ToI32 for i32 { fn to_i32(&self) -> i32 { *self } }
+// → impl<T: ToI32> ToI32 for &T { fn to_i32(&self) -> i32 { (**self).to_i32() } }
+```
+
+`target` 中 `{**self}` 是常用委托形式，也可用 `{self.0}` 委托到元组字段。
+
+### 指令与 DSL 组合
+
+指令可以和 DSL 运算符、`{body}` 连续附着等特性自由组合：
+
+```rust
+#[batch_impl(
+    usize #name{"usize"} { fn kind(&self) -> &str { "number" } }
+)]
+trait Tagged { fn name(&self) -> &str; fn kind(&self) -> &str; }
+
+#[batch_impl(<T: std::fmt::Display> Vec<T> #t10{self.len()})]
+trait Len { fn t10(&self) -> usize; }
+```
+
+### 扩展指令
+
+`#fill`、`#delegate` 是内置指令。对于不认识的 `#name`，预处理器自动转换为 `#[name[args...]]` 属性——用户的自定义属性宏可以接收并处理它。
+
+```rust
+// 用户定义自己的属性宏（在另一个 crate 里）
+#[proc_macro_attribute]
+pub fn my_handler(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // attr = [args1 args2]，item = trait 定义
+    // 读取 trait 方法签名，生成 DSL tokens 返回
+}
+
+// 在 batch_impl 中使用
+#[batch_impl(usize #my_handler(args1){body})]
+trait MyTrait { fn my_method(&self) -> i32; }
+```
+
+扩展机制的工作流程：
+
+1. 预处理器遇到 `#my_handler(args1){body}`
+2. 不认识 `my_handler` → 生成 `#[my_handler[args1 {body}]]`
+3. DSL 解析器把它当普通属性节点处理
+4. 编译器在 batch-impl 宏展开后调用用户的 `#[my_handler]` 属性宏
+
+这意味着 batch-impl 的指令系统是**开放的**：任何符合 `#name(...){...}` 语法的指令都会被预处理器捕获，不认识的名字自动委托给 Rust 的属性宏系统。
+
+## `#[batch_impl_only]`
+
+与 `#[batch_impl]` 语法完全相同，但丢弃 trait 定义本身，只输出 `impl` 块。
+用于 trait 已在别处定义、只需批量生成 impl 的场景。
+
+```rust
+trait Greet { fn hello(&self) -> &str; }
+
+// trait 定义只用来读取方法签名，宏输出不含 trait 本身
+#[batch_impl_only(usize #hello{"hi"})]
+trait Greet { fn hello(&self) -> &str; }
+// → impl Greet for usize { fn hello(&self) -> &str { "hi" } }
+```
+
 ## `batch_trait!` 宏
 
 对已声明的 trait 批量生成 impl。
@@ -424,14 +532,19 @@ batch_trait!(
 ## 内部架构
 
 ```
-lib.rs          宏入口（#[batch_impl] / batch_trait!）
-  ├── parse.rs    DSL 解析器：Cursor 游标 + 优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
-  ├── types.rs    AST 节点（Ty 枚举 + 20 个变体）+ Op 优先级定义
-  ├── apply.rs    运算符语义：apply() 折叠规则 + 元组展开（^N / 笛卡尔积）
-  └── codegen.rs  代码生成：Ty 递归拆解 → impl 块组装
+lib.rs            宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only] / batch_trait!）
+  ├── preprocess.rs  指令预处理：#name 指令展开（内置 + 自定义属性委托）
+  ├── parse.rs       DSL 解析器：Cursor 游标 + 优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
+  ├── types.rs       AST 节点（Ty 枚举 + 21 个变体，含 Error）+ Op 优先级定义
+  ├── apply.rs       运算符语义：apply() 折叠规则 + 元组展开（^N / 笛卡尔积）
+  └── codegen.rs     代码生成：Ty 递归拆解 → impl 块组装
 ```
 
-解析流程：**token 流 → Cursor 扫描取切片 → parse_item 优先级攀爬 → Ty AST → BFS 展开并列列表 → 逐叶子 generate_impl**
+解析流程：**token 流 → 指令预处理 → Cursor 扫描取切片 → parse_item 优先级攀爬 → Ty AST → BFS 展开并列列表 → 逐叶子 generate_impl**
+
+### 错误处理
+
+所有 DSL 语法错误均通过 `compile_error!()` 输出友好的编译错误，**永不 panic**。`Ty::Error` 变体在 apply/codegen 链路中透传，`preprocess` 层通过 `Result<_, TokenStream>` 传播。
 
 ## 许可证
 

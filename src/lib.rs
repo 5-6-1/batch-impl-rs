@@ -7,6 +7,7 @@ mod types;
 mod apply;
 mod parse;
 mod codegen;
+mod preprocess;
 
 use codegen::generate_impl;
 use parse::{parse_item, Cursor};
@@ -25,7 +26,7 @@ use types::{reset_fresh_counter, Op};
 ///
 /// impl-spec 由三部分组成（均可省略后半部分）：
 /// - `<impl-泛型>` — `impl` 块的泛型参数
-/// - `TraitName<trait-泛型>` — trait 的泛型参数与关联类型绑定
+/// - `Trait名<trait-泛型>` — trait 的泛型参数与关联类型绑定
 /// - 目标类型 — 用 `[]` 包裹表示并列，用 `^`/`-` 表示泛型应用
 ///
 /// ## 示例
@@ -42,15 +43,45 @@ use types::{reset_fresh_counter, Op};
 /// ```
 #[proc_macro_attribute]
 pub fn batch_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    expand_attr_macro(attr, item, true)
+}
+
+/// 与 `#[batch_impl]` 相同，但丢弃 trait 定义本身，只输出 `impl` 块。
+///
+/// 用于 trait 已在别处定义、只需批量生成 impl 的场景。
+/// 语法与 `#[batch_impl]` 完全一致。
+///
+/// ## 示例
+///
+/// ```ignore
+/// trait Greet { fn hello(&self) -> &str; }
+///
+/// #[batch_impl_only(usize #hello{"hi"})]
+/// trait Greet {}  // 此 trait 定义被丢弃，不影响已有的定义
+/// ```
+#[proc_macro_attribute]
+pub fn batch_impl_only(attr: TokenStream, item: TokenStream) -> TokenStream {
+    expand_attr_macro(attr, item, false)
+}
+
+/// 两个属性宏的共享实现
+fn expand_attr_macro(attr: TokenStream, item: TokenStream, include_trait: bool) -> TokenStream {
     reset_fresh_counter();
     let trait_item = parse_macro_input!(item as ItemTrait);
     let trait_name = trait_item.ident.clone();
     let attr_vec = TokenStream2::from(attr).into_iter().collect::<Vec<_>>();
-    let trait_name_ts: TokenStream2 = quote![#trait_name];
     let mut cursor = Cursor::new(&attr_vec);
+    let expanded = match preprocess::expand_tokens(&mut cursor, &trait_item) {
+        Ok(tokens) => tokens,
+        Err(err) => return err.into(),
+    };
+    cursor = Cursor::new(&expanded);
+    let trait_name_ts = quote![#trait_name];
+    let is_unsafe = trait_item.unsafety.is_some();
+    let start_trait = if include_trait { Some(trait_item) } else { None };
     let impls = parse_batch_trait_entry(
         &mut cursor, Op::Comma, &trait_name_ts, &trait_name,
-        trait_item.unsafety.is_some(), Some(trait_item),
+        is_unsafe, start_trait,
     );
     impls.into()
 }

@@ -51,7 +51,7 @@ impl<'a> Cursor<'a> {
         &self.tokens[start..self.pos]
     }
 
-    /// 取出直到下一个 depth-0 停止符的切片（停止符留在游标中，不消费）
+    /// 取出直到下一个 depth-0 停止符的切片（停止符留在标中，不消费）
     fn take_segment(&mut self, stop: &[char]) -> &'a [TokenTree] {
         let tokens = self.tokens;
         let rest = &tokens[self.pos..];
@@ -155,15 +155,24 @@ fn parse_operand(cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>) -> 
     parse_item(&mut Cursor::new(segment), level.next()?, trait_name)
 }
 
-/// DSL 解析入口：解析 tokens 的原语层，剥离尾部 `{...}` 代码块后交给 `parse_primary`
+/// DSL 解析入口：剥离尾部 `{...}` 代码块后交给 `attach_body`（递归支持连续附着）
 pub(crate) fn parse_primitive(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     let (tokens, body) = split_trailing_body(tokens);
-    attach_body(parse_primary(tokens, trait_name), body)
+    attach_body(tokens, trait_name, body)
 }
 
 // ============================================================
 // 原子层解析
 // ============================================================
+
+/// 将代码块附着到类型上。
+/// 有 body 时递归调用 `parse_primitive`，支持 `T{b1}{b2}` 连续附着。
+fn attach_body(tokens: &[TokenTree], trait_name: Option<&Ident>, body: Option<TokenStream>) -> Ty {
+    match body {
+        Some(body) => Ty::CodeBlock(TyCodeBlock(body)).apply(parse_primitive(tokens, trait_name)),
+        None => parse_primary(tokens, trait_name),
+    }
+}
 
 /// 分离尾部 `{...}` 代码块（`macro!{...}` 不是尾部代码块）
 fn split_trailing_body(tokens: &[TokenTree]) -> (&[TokenTree], Option<TokenStream>) {
@@ -182,19 +191,11 @@ fn split_trailing_body(tokens: &[TokenTree]) -> (&[TokenTree], Option<TokenStrea
     }
 }
 
-/// 将代码块附着到类型上（`{body}` 在 DSL 中与左侧类型绑定）
-fn attach_body(ty: Ty, body: Option<TokenStream>) -> Ty {
-    match body {
-        Some(body) => TyCodeBlock(body).apply(ty),
-        None => ty,
-    }
-}
-
 /// 解析一个"原子"表达式：属性 → 函数 → 前缀 → 范围 → 数字 → 分组 → 泛型 → 类型参数 → 透传兜底
 fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
         let inner = if rest.is_empty() {
-            Ty::Attr(TyAttr(attr))
+            TyAttr(attr).into()
         } else {
             TyAttr(attr).apply(parse_primitive(rest, trait_name))
         };

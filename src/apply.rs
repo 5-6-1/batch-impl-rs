@@ -1,7 +1,13 @@
 use quote::ToTokens;
+use quote::quote;
 
 use crate::types::*;
 use crate::parse::parse_primitive;
+
+/// 用消息生成包含 `compile_error!` 的 `Ty::Error`
+fn err_ty(msg: &str) -> Ty {
+    Ty::Error(TyError(quote! { compile_error!(#msg); }))
+}
 
 /// 类型表达式上的二元运算：`A^B` / `A-B` 中，`A.apply(B)` 产出组合后的 `Ty`。
 ///
@@ -20,6 +26,10 @@ impl Type for Ty {
         // Group 透明展开：Group(T) 等价于 T
         if let Ty::Group(g) = o {
             return self.apply(*g.0);
+        }
+        // WithCode提前拿出
+        if let Ty::WithCode(wc) = o{
+            return TyWithCode(self.apply(*wc.0).into(),wc.1).into()
         }
         match self {
             Ty::Prefix(p) => p.apply(o),
@@ -43,6 +53,7 @@ impl Type for Ty {
             Ty::Range(r) => r.apply(o),
             Ty::Slice(s) => s.apply(o),
             Ty::FixedArray(f) => f.apply(o),
+            Ty::Error(e) => e.into(),
         }
     }
 }
@@ -61,7 +72,7 @@ impl Type for TyPrefix {
             TyPrefix::Fn => match o {
                 Ty::Tuple(t) => TyFn(t.0, None).into(),
                 Ty::Group(t) => TyFn(vec![*t.0],None).into(),
-                _ => panic!("batch-impl: `fn` 前缀右侧必须是元组类型，如 fn^(i32, u32)"),
+                _ => err_ty("batch-impl: `fn` 前缀右侧必须是元组类型，如 fn^(i32, u32)"),
             },
             // unsafe^T=unsafe下T
             TyPrefix::Unsafe => TyUnsafe(o.into()).into(),
@@ -181,7 +192,7 @@ fn pow_single(template: Ty, n: u8) -> Ty {
     if let Ty::TypeParam(tp) = template {
         // 来自 `(<Bound>)^N`：TypeParam 必定恰好一个无 bound 参数（由 parse_angle_bracket_contents 保证）
         if tp.params.len() != 1 || tp.params[0].1.is_some() {
-            unreachable!("TypeParam from single-bound parse always has exactly one unbound param");
+            return err_ty("batch-impl: (<Trait>)⁁ 中意外收到了 bound 参数，这是内部错误");
         }
         let params = fresh_params(n);
         let param_names = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
@@ -278,7 +289,7 @@ impl Type for TyFn {
     /// `fn(A,B)^C` => `fn(A,B)->C`（追加返回类型，已有返回类型时报错）
     fn apply(self, o: Ty) -> Ty {
         if self.1.is_some() {
-            panic!("batch-impl: `fn` 类型已有返回类型，不能重复应用")
+            err_ty("batch-impl: `fn` 类型已有返回类型，不能重复应用")
         } else {
             TyFn(self.0, Some(o.into())).into()
         }
@@ -315,25 +326,27 @@ impl Type for TyTypeParam {
 impl Type for TyNum{
     /// 数字不能作为左侧操作数（只在右侧使用，如 `T^3`）
     fn apply(self, _: Ty) -> Ty {
-        panic!("batch-impl: 数字 `^{}` 不能作为左侧操作数，只能出现在右侧（如 T^{}）", self.0, self.0)
+        err_ty(&format!("batch-impl: 数字 `{}` 不能作为左侧操作数，只能出现在右侧（如 T^{}）", self.0, self.0))
     }
 }
 impl Type for TyRange{
     /// 范围不能作为左侧操作数（只在右侧使用，如 `T^1..3`）
     fn apply(self, _: Ty) -> Ty {
-        panic!("batch-impl: 范围 `{}..{}` 不能作为左侧操作数，只能出现在右侧（如 T^{}..{}）", self.start, self.end, self.start, self.end)
+        let end_mark = if self.inclusive { "=" } else { "" };
+        err_ty(&format!("batch-impl: 范围 `{}..{}{}` 不能作为左侧操作数，只能出现在右侧（如 T^{}..{}{}）",
+            self.start, self.end, end_mark, self.start, self.end, end_mark))
     }
 }
 impl Type for TySlice{
     /// 切片类型不能作为左侧操作数
     fn apply(self, _: Ty) -> Ty {
-        panic!("batch-impl: 切片类型 `[T]` 不能作为左侧操作数")
+        err_ty("batch-impl: 切片类型 `[T]` 不能作为左侧操作数")
     }
 }
 impl Type for TyFixedArray{
     /// 固定数组类型不能作为左侧操作数
     fn apply(self, _: Ty) -> Ty {
-        panic!("batch-impl: 固定数组类型 `[T; N]` 不能作为左侧操作数")
+        err_ty("batch-impl: 固定数组类型 `[T; N]` 不能作为左侧操作数")
     }
 }
 impl Type for TyWithTrait {

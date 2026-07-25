@@ -73,12 +73,16 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             parts.target_type = TyModified(m.0, Box::new(parts.target_type)).into();
             parts
         }
+        Ty::Error(e) => ImplParts::leaf(Ty::Error(e)),
         other => ImplParts::leaf(other),
     }
 }
 
 /// 生成一个 impl 块：拆解元数据 → 构建泛型参数 / trait 泛型 / impl body → 输出 `quote!` 块
 pub(crate) fn generate_impl(ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool) -> TokenStream {
+    if let Ty::Error(e) = ty {
+        return e.0;
+    }
     let parts = extract_impl_parts(ty);
 
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
@@ -112,7 +116,7 @@ pub(crate) fn generate_impl(ty: Ty, trait_name: &TokenStream, is_unsafe_trait: b
     let target = &parts.target_type;
 
     // impl body：关联类型 + 用户 body
-    let mut body_tokens: Vec<TokenStream> = Vec::new();
+    let mut body_tokens = vec![];
     for (name, value) in &parts.associated_types {
         body_tokens.push(quote!(type #name = #value;));
     }

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.4.0 (2026-07-25)
+
+### 指令系统
+
+新增 `#` 指令系统，`#[batch_impl]` 在 DSL 解析前预处理指令，从 trait 定义自动读取方法签名。
+
+| 指令 | 语法 | 效果 |
+|------|------|------|
+| 单方法 | `#method{body}` | `{fn method(签名) { body }}` |
+| 填充 | `#fill(args){body}` | `{fn m1(sig){body} fn m2(sig){body} ...}` |
+| 委托 | `#delegate(args){target}` | `{fn m1(sig){(target).m1(args)} ...}` |
+
+- `#fill(#all){body}` 表示 trait 的所有方法
+- 指令与 DSL 运算符、`{body}` 连续附着、泛型、unsafe 等特性自由组合
+- 仅 `#[batch_impl]` / `#[batch_impl_only]` 支持（`batch_trait!` 无 trait 定义，无法读取签名）
+- 指令预处理错误输出 `compile_error!`（不 panic）
+
+### 指令扩展性
+
+内置指令（`#fill`、`#delegate`）由 batch-impl 内部处理。对于不认识的 `#name`，预处理器自动转换为 `#[name[...]]` 属性，用户的自定义属性宏可以接收并处理。这意味着 batch-impl 的指令系统是开放的——任何符合 `#name(...){...}` 语法的指令都会被预处理器捕获，不认识的名字委托给 Rust 的属性宏系统。
+
+### `#[batch_impl_only]`
+
+新增 `#[batch_impl_only]` 属性宏：与 `#[batch_impl]` 语法完全相同，但丢弃 trait 定义，只输出 `impl` 块。用于 trait 已在别处定义、只需批量生成 impl 的场景。
+
+### `{body}` 连续附着
+
+`T{body1}{body2}` 现在正确递归附着，等效于 `{body2}` 套在 `{body1}` 外面。
+
+### 内部
+
+- 新增 `preprocess.rs`：指令预处理模块，仅递归展开 `[...]`（Bracket）Group
+- preprocess 的 `expand_tokens` / `expand_directive` 返回 `Result`，错误时输出 `compile_error!` 而非 panic
+- 全库零 `panic!` / `unreachable!`：AST 层新增 `Ty::Error` 变体经 `ToTokens` 输出 `compile_error!`，预处理层 `parse_method_names_from_tokens` / `get_trait_method_sig` 返回 `Result`，错误沿调用链传播
+- 新增 `examples/my_tests.rs`：36 项指令测试
+
+---
+
 ## 0.3.0 (2026-07-24)
 
 ### 用更合理的框架重写了 batch-impl
@@ -10,11 +48,12 @@ v0.3.0 是从零开始的完全重写。公开 API 和 DSL 语法与 v0.2.x 保�
 ### 架构
 
 ```
-lib.rs          宏入口（#[batch_impl] / batch_trait!）
-  ├── parse.rs    DSL 解析器：Cursor 游标 + 优先级攀爬
-  ├── types.rs    AST 节点（Ty 枚举 + 20 个变体）+ Op 优先级定义
-  ├── apply.rs    运算符语义：apply() 折叠规则 + 元组展开
-  └── codegen.rs  代码生成：Ty 递归拆解 → impl 块组装
+lib.rs            宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only] / batch_trait!）
+  ├── preprocess.rs  指令预处理：#name 指令展开（内置 + 自定义属性委托）
+  ├── parse.rs       DSL 解析器：Cursor 游标 + 优先级攀爬
+  ├── types.rs       AST 节点（Ty 枚举 + 20 个变体）+ Op 优先级定义
+  ├── apply.rs       运算符语义：apply() 折叠规则 + 元组展开
+  └── codegen.rs     代码生成：Ty 递归拆解 → impl 块组装
 ```
 
 **解析模型**：基于 `Cursor<'a>` 借用切片游标的优先级攀爬。四级运算符层级

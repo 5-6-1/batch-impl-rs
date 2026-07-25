@@ -3,33 +3,33 @@ use quote::{quote, ToTokens};
 use syn::Ident;
 use std::cell::Cell;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `[...,]`
 pub(crate) struct TyArray(pub(crate) Vec<Ty>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `(...,)`
 pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `(...)`
 pub(crate) struct TyGroup(pub(crate) Box<Ty>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `[...]`
 pub(crate) struct TySlice(pub(crate) Box<Ty>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `[...;...]`
 pub(crate) struct TyFixedArray(pub(crate) Box<Ty>, pub(crate) TokenStream);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `ident`
 pub(crate) struct TyPrimitive(pub(crate) TokenStream);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `T<...>`
 pub(crate) struct TyGeneric(pub(crate) Box<Ty>, pub(crate) TyTypeParam);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `trait-name<...>`
 pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
 /// `<T: Clone, U, Item=V>` 泛型参数列表：positional 参数（可带 bound）+ 关联类型绑定
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct TyTypeParam {
     pub(crate) params: Vec<(TokenStream, Option<Ty>)>,
     pub(crate) bindings: Vec<(TokenStream, TokenStream)>,
@@ -52,13 +52,13 @@ impl TyTypeParam {
         self.bindings.extend(other.bindings);
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `{...}` — 附着在类型上的代码块
 pub(crate) struct TyCodeBlock(pub(crate) TokenStream);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `T { code }` — 类型 + 代码块
 pub(crate) struct TyWithCode(pub(crate) Box<Ty>, pub(crate) TokenStream);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 /// `& &mut *const *mut fn self unsafe`
 pub(crate) enum TyPrefix {
     Ref,
@@ -69,33 +69,37 @@ pub(crate) enum TyPrefix {
     Fn,
     Unsafe,
 }
-#[derive(Clone)]
+
+#[derive(Clone, Debug)]
 /// prefix `T`
 pub(crate) struct TyModified(pub(crate) TyPrefix, pub(crate) Box<Ty>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `fn(...)->T`
 pub(crate) struct TyFn(pub(crate) Vec<Ty>, pub(crate) Option<Box<Ty>>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `unsafe T`
 pub(crate) struct TyUnsafe(pub(crate) Box<Ty>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `#[...]`
 pub(crate) struct TyAttr(pub(crate) TokenStream);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `#[...] T`
 pub(crate) struct TyWithAttr(pub(crate) TyAttr, pub(crate) Box<Ty>);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 /// `N`
 pub(crate) struct TyNum(pub(crate) u8);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 /// `N..M` `N..=M`
 pub(crate) struct TyRange { pub(crate) start: u8, pub(crate) end: u8, pub(crate) inclusive: bool }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `trait-name<...> T` — trait name applied to non-TypeParam right
 pub(crate) struct TyWithTrait(pub(crate) TyTrait, pub(crate) Box<Ty>);
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// `<T...> T` — type param applied to non-TypeParam right
 pub(crate) struct TyWithType(pub(crate) TyTypeParam, pub(crate) Box<Ty>);
+#[derive(Clone, Debug)]
+/// 编译期错误信号 — 当 DSL 语义不合法时产生，最终输出 `compile_error!`
+pub(crate) struct TyError(pub(crate) TokenStream);
 
 /// DSL 解析输出的类型表达式 AST。
 ///
@@ -103,7 +107,7 @@ pub(crate) struct TyWithType(pub(crate) TyTypeParam, pub(crate) Box<Ty>);
 /// - **叶子**（Primitive / Num / Range）：不可再展开的原子
 /// - **包装**（WithType / WithTrait / WithCode / WithAttr / Unsafe / Modified）：携带元数据，在 codegen 阶段被拆解
 /// - **容器**（Array / Tuple / Group / Slice / FixedArray）：可展开为多个叶子的集合
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum Ty {
     Array(TyArray),
     Tuple(TyTuple),
@@ -126,6 +130,7 @@ pub(crate) enum Ty {
     WithCode(TyWithCode),
     Num(TyNum),
     Range(TyRange),
+    Error(TyError),
 }
 fn params_to_tokens(base: &TokenStream, tp: &TyTypeParam) -> TokenStream {
     let mut all = tp.params.iter()
@@ -206,7 +211,7 @@ impl ToTokens for Ty {
                     TyPrefix::RefMut => quote!(&mut),
                     TyPrefix::PtrConst => quote!(*const),
                     TyPrefix::PtrMut => quote!(*mut),
-                    _ => unreachable!(),
+                    _ => quote!(compile_error!("batch-impl: 内部错误：TyModified 含有非引用前缀")),
                 };
                 let inner = m.1.to_token_stream();
                 quote!(#prefix_tokens #inner)
@@ -276,6 +281,7 @@ impl ToTokens for Ty {
                 TyPrefix::Fn => quote![fn],
                 TyPrefix::Unsafe => quote![unsafe],
             },
+            Ty::Error(e) => e.0.clone(),
         })
     }
 }
@@ -319,6 +325,7 @@ impl_from_for_ty! {
     TyWithCode => WithCode,
     TyNum => Num,
     TyRange => Range,
+    TyError => Error,
 }
 
 /// 运算符优先级层级（从低到高：`;` < `,` < `-` < `^`，`Prim` 为无运算符的原子级）。
