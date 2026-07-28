@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
-use syn::Ident;
+use quote::{ToTokens, quote};
 use std::cell::Cell;
+use syn::Ident;
 
 #[derive(Clone, Debug)]
 /// `[...,]`
@@ -28,17 +28,27 @@ pub(crate) struct TyGeneric(pub(crate) Box<Ty>, pub(crate) TyTypeParam);
 #[derive(Clone, Debug)]
 /// `trait-name<...>`
 pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
-/// `<T: Clone, U, Item=V>` 泛型参数列表：positional 参数（可带 bound）+ 关联类型绑定
+/// `<T: Clone, U, Item=V>` 泛型参数列表：positional 参数（可带 bound）+
+/// 关联类型绑定 + `where {...}` 子句。
+///
+/// `where_clauses` 元素是 `{...}` 内部透传的整段 token 流。
+/// codegen 阶段把多条 where_clauses 拼接为 `where P1, P2, ...`
+/// 渲染到 impl where 位置。
 #[derive(Clone, Debug)]
 pub(crate) struct TyTypeParam {
     pub(crate) params: Vec<(TokenStream, Option<Ty>)>,
     pub(crate) bindings: Vec<(TokenStream, TokenStream)>,
+    pub(crate) where_clauses: Vec<TokenStream>,
 }
 
 impl TyTypeParam {
     /// 构造单个无 bound 参数（`T^U` 中 `U` 变为 `<U>`）
     pub(crate) fn single(arg: &Ty) -> Self {
-        TyTypeParam { params: vec![(arg.to_token_stream(), None)], bindings: vec![] }
+        TyTypeParam {
+            params: vec![(arg.to_token_stream(), None)],
+            bindings: vec![],
+            where_clauses: vec![],
+        }
     }
 
     /// 追加一个无 bound 参数（`T<A>^B` 中 `B` 追加到 `<A,B>`）
@@ -46,10 +56,12 @@ impl TyTypeParam {
         self.params.push((arg.to_token_stream(), None));
     }
 
-    /// 合并另一个参数列表（`T<A>^<B,C>` 中 `<B,C>` 的 params + bindings 合并进来）
+    /// 合并另一个参数列表（`T<A>^<B,C>` 中 `<B,C>` 的
+    /// params + bindings + where_clauses 合并进来）
     pub(crate) fn extend(&mut self, other: TyTypeParam) {
         self.params.extend(other.params);
         self.bindings.extend(other.bindings);
+        self.where_clauses.extend(other.where_clauses);
     }
 }
 #[derive(Clone, Debug)]
@@ -90,7 +102,11 @@ pub(crate) struct TyWithAttr(pub(crate) TyAttr, pub(crate) Box<Ty>);
 pub(crate) struct TyNum(pub(crate) u8);
 #[derive(Copy, Clone, Debug)]
 /// `N..M` `N..=M`
-pub(crate) struct TyRange { pub(crate) start: u8, pub(crate) end: u8, pub(crate) inclusive: bool }
+pub(crate) struct TyRange {
+    pub(crate) start: u8,
+    pub(crate) end: u8,
+    pub(crate) inclusive: bool,
+}
 #[derive(Clone, Debug)]
 /// `trait-name<...> T` — trait name applied to non-TypeParam right
 pub(crate) struct TyWithTrait(pub(crate) TyTrait, pub(crate) Box<Ty>);
@@ -132,33 +148,6 @@ pub(crate) enum Ty {
     Range(TyRange),
     Error(TyError),
 }
-fn params_to_tokens(base: &TokenStream, tp: &TyTypeParam) -> TokenStream {
-    let mut all = tp.params.iter()
-        .map(|(name, _)| name.clone())
-        .collect::<Vec<_>>();
-    for (name, value) in &tp.bindings {
-        all.push(quote!(#name = #value));
-    }
-    quote!(#base < #(#all),* >)
-}
-
-fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
-    let mut all = vec![];
-    for (name, bound) in &tp.params {
-        match bound {
-            Some(b) => {
-                let b_tokens = b.to_token_stream();
-                all.push(quote!(#name: #b_tokens));
-            }
-            None => all.push(name.clone()),
-        }
-    }
-    for (name, value) in &tp.bindings {
-        all.push(quote!(#name = #value));
-    }
-    quote!(<#(#all),*>)
-}
-
 impl Ty {
     /// 展开并列列表类节点：Array 直接拆包，WithCode/Group 透传后递归。
     /// 不可展开的叶子原样经 `Err` 返回（由调用方决定是收集还是继续展开）。
@@ -168,121 +157,20 @@ impl Ty {
             Ty::WithCode(wc) => match (*wc.0).expand() {
                 Ok(expanded) => Ok(expanded
                     .into_iter()
-                    .map(|inner| Ty::WithCode(TyWithCode(Box::new(inner), wc.1.clone())))
+                    .map(|inner| {
+                        Ty::WithCode(TyWithCode(
+                            Box::new(inner),
+                            wc.1.clone(),
+                        ))
+                    })
                     .collect()),
-                Err(leaf) => Err(Ty::WithCode(TyWithCode(Box::new(leaf), wc.1))),
+                Err(leaf) => {
+                    Err(Ty::WithCode(TyWithCode(Box::new(leaf), wc.1)))
+                },
             },
             Ty::Group(g) => (*g.0).expand(),
             other => Err(other),
         }
-    }
-}
-
-impl ToTokens for Ty {
-    fn to_tokens(&self, out: &mut TokenStream) {
-        out.extend(match self {
-            Ty::Primitive(p) => p.0.clone(),
-            Ty::Generic(g) => params_to_tokens(&g.0.to_token_stream(), &g.1),
-            Ty::Trait(t) => params_to_tokens(&t.0, &t.1),
-            Ty::Array(a) => {
-                let elems = a.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
-                quote!([#(#elems),*])
-            }
-            Ty::Tuple(t) => {
-                let elems = t.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
-                quote!((#(#elems,)*))
-            }
-            Ty::Group(g) => {
-                let inner = g.0.to_token_stream();
-                quote!((#inner))
-            }
-            Ty::Slice(s) => {
-                let inner = s.0.to_token_stream();
-                quote!([#inner])
-            }
-            Ty::FixedArray(f) => {
-                let inner = f.0.to_token_stream();
-                let size = &f.1;
-                quote!([#inner; #size])
-            }
-            Ty::Modified(m) => {
-                let prefix_tokens = match m.0 {
-                    TyPrefix::Ref => quote!(&),
-                    TyPrefix::RefMut => quote!(&mut),
-                    TyPrefix::PtrConst => quote!(*const),
-                    TyPrefix::PtrMut => quote!(*mut),
-                    _ => quote!(compile_error!("batch-impl: 内部错误：TyModified 含有非引用前缀")),
-                };
-                let inner = m.1.to_token_stream();
-                quote!(#prefix_tokens #inner)
-            }
-            Ty::Fn(f) => {
-                let params = f.0.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
-                match &f.1 {
-                    Some(ret) => {
-                        let ret_tokens = ret.to_token_stream();
-                        quote!(fn(#(#params),*) -> #ret_tokens)
-                    }
-                    None => quote!(fn(#(#params),*)),
-                }
-            }
-            Ty::TypeParam(tp) => params_to_tokens_no_base(tp),
-            Ty::Unsafe(u) => {
-                let inner = u.0.to_token_stream();
-                quote!(unsafe #inner)
-            }
-            Ty::Attr(a) => {
-                let stream = &a.0;
-                quote!(#[#stream])
-            }
-            Ty::WithAttr(w) => {
-                let stream = &w.0 .0;
-                let inner = w.1.to_token_stream();
-                quote!(#[#stream] #inner)
-            }
-            Ty::Num(n) => {
-                let n = n.0;
-                quote!(#n)
-            }
-            Ty::Range(r) => {
-                let start = r.start;
-                let end = r.end;
-                if r.inclusive {
-                    quote!(#start ..= #end)
-                } else {
-                    quote!(#start .. #end)
-                }
-            }
-            Ty::CodeBlock(b) => {
-                let stream = &b.0;
-                quote!({#stream})
-            }
-            Ty::WithTrait(wt) => {
-                let trait_tokens = params_to_tokens(&wt.0.0, &wt.0.1);
-                let inner = wt.1.to_token_stream();
-                quote!(#trait_tokens #inner)
-            }
-            Ty::WithType(wt) => {
-                let tp_tokens = params_to_tokens_no_base(&wt.0);
-                let inner = wt.1.to_token_stream();
-                quote!(#tp_tokens #inner)
-            }
-            Ty::WithCode(wc) => {
-                let inner = wc.0.to_token_stream();
-                let stream = &wc.1;
-                quote!(#inner {#stream})
-            }
-            Ty::Prefix(p) => match p {
-                TyPrefix::Ref => quote![&],
-                TyPrefix::RefMut => quote![&mut],
-                TyPrefix::PtrConst => quote![*const],
-                TyPrefix::PtrMut => quote![*mut],
-                TyPrefix::SelfType => quote![self],
-                TyPrefix::Fn => quote![fn],
-                TyPrefix::Unsafe => quote![unsafe],
-            },
-            Ty::Error(e) => e.0.clone(),
-        })
     }
 }
 

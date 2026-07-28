@@ -1,6 +1,6 @@
 [package]
 name = "batch-impl"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 authors = ["5-6-1"]
 description = "A proc-macro library for batch generating trait impls with a powerful DSL"
@@ -15,8 +15,15 @@ rust-version = "1.93.0"
 
 [lib]
 proc-macro = true
+# README 中的代码块多为片段，未在每个块上声明 `use batch_impl::*`，
+# 故暂关 lib doctest 以避免 `cannot find attribute batch_impl` 误报。
+# 后续对 README 进行隐藏 `# use` 行规整后再开启。
+doctest = false
 
 [dependencies]
 syn = { version = "3", features = ["full"] }
 quote = "1"
-proc-macro2 = { version = "1", features = ["span-locations"] }
+proc-macro2 = "1"
+
+[dev-dependencies]
+trybuild = "1.0.118"

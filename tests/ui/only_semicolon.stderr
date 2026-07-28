@@ -1,0 +1,7 @@
+error: batch_trait! 中期望 trait 名称
+ --> tests/ui/only_semicolon.rs:5:1
+  |
+5 | batch_trait!(unsafe);
+  | ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

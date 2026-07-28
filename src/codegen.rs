@@ -1,6 +1,17 @@
-use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+//! 代码生成。
+//!
+//! 把展开摊平后的叶子 [`Ty`]（见 `lib::parse_batch_trait_entry`）
+//! 递归拆解为 [`ImplParts`]（impl 泛型、trait 泛型、关联类型绑定、
+//! 目标类型、body、属性、unsafe 标记），再渲染为最终
+//! `impl<...> Trait<...> for Target { ... }` 块。
+//!
+//! v0.4.2 [`extract_impl_parts`] 的 `WithType` 分支由 append 改为
+//! prepend：`<A>[<B>T1, <C>T2]` 现输出 `impl<A, B>` / `impl<A, C>`，
+//! 与"外层先写"的书写顺序一致。
+
 use crate::types::*;
+use proc_macro2::TokenStream;
+use quote::{ToTokens, quote};
 
 /// 从 Ty 中递归提取 impl 块所需的各部分。
 ///
@@ -14,6 +25,10 @@ pub(crate) struct ImplParts {
     pub(crate) body: Option<TokenStream>,
     pub(crate) attrs: Vec<TokenStream>,
     pub(crate) is_unsafe_impl: bool,
+    /// 来自 `<...> where { ... }` 或 `Trait<...> where { ... }`
+    /// 的 where 谓词列表，多条会被拼接为
+    /// `where P1, P2, ...`。元素间以逗号连接。
+    pub(crate) where_clauses: Vec<TokenStream>,
 }
 
 impl ImplParts {
@@ -27,6 +42,7 @@ impl ImplParts {
             body: None,
             attrs: vec![],
             is_unsafe_impl: false,
+            where_clauses: vec![],
         }
     }
 }
@@ -39,16 +55,43 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
     match ty {
         Ty::WithType(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            parts.impl_generics.extend(wt.0.params);
-            parts.associated_types.extend(wt.0.bindings);
+            let (impl_generics, associated_types) =
+                (parts.impl_generics, parts.associated_types);
+            parts.impl_generics = wt.0.params;
+            parts.associated_types = wt.0.bindings;
+            parts.impl_generics.extend(impl_generics);
+            parts.associated_types.extend(associated_types);
+            parts.where_clauses.extend(wt.0.where_clauses);
             parts
-        }
+        },
         Ty::WithTrait(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            parts.trait_generic_names.extend(wt.0.1.params.into_iter().map(|p| p.0));
-            parts.associated_types.extend(wt.0.1.bindings);
             parts
-        }
+                .trait_generic_names
+                .extend(wt.0.1.params.into_iter().map(|p| p.0));
+            parts.associated_types.extend(wt.0.1.bindings);
+            parts.where_clauses.extend(wt.0.1.where_clauses);
+            parts
+        },
+        Ty::Generic(g) => {
+            // TyGeneric 的 TyTypeParam 可能因 `Vec<T> <where {...}>`
+            // 这类 apply 路径而携带 where_clauses；
+            // to_tokens 不输出 where，故 codegen 必须显式提取
+            // 提升到 impl 级。target_type 保留整 TyGeneric，让 to_tokens
+            // 渲染 `Vec<T>` 完整形式。
+            let wc = g.1.where_clauses.clone();
+            let mut parts = ImplParts::leaf(Ty::Generic(g));
+            parts.where_clauses.extend(wc);
+            parts
+        },
+        Ty::Trait(t) => {
+            // 类似 TyGeneric：trait 路径本身的 TyTypeParam 余 where_clauses
+            // 也提升到 impl 级。target_type 保留整 TyTrait。
+            let wc = t.1.where_clauses.clone();
+            let mut parts = ImplParts::leaf(Ty::Trait(t));
+            parts.where_clauses.extend(wc);
+            parts
+        },
         Ty::WithCode(wc) => {
             let mut parts = extract_impl_parts(*wc.0);
             match &mut parts.body {
@@ -56,30 +99,35 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 None => parts.body = Some(wc.1),
             }
             parts
-        }
+        },
         Ty::WithAttr(wa) => {
             let mut parts = extract_impl_parts(*wa.1);
             let stream = &wa.0.0;
             parts.attrs.push(quote!(#[#stream]));
             parts
-        }
+        },
         Ty::Unsafe(u) => {
             let mut parts = extract_impl_parts(*u.0);
             parts.is_unsafe_impl = true;
             parts
-        }
+        },
         Ty::Modified(m) => {
             let mut parts = extract_impl_parts(*m.1);
-            parts.target_type = TyModified(m.0, Box::new(parts.target_type)).into();
+            parts.target_type =
+                TyModified(m.0, Box::new(parts.target_type)).into();
             parts
-        }
+        },
         Ty::Error(e) => ImplParts::leaf(Ty::Error(e)),
         other => ImplParts::leaf(other),
     }
 }
 
 /// 生成一个 impl 块：拆解元数据 → 构建泛型参数 / trait 泛型 / impl body → 输出 `quote!` 块
-pub(crate) fn generate_impl(ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool) -> TokenStream {
+pub(crate) fn generate_impl(
+    ty: Ty,
+    trait_name: &TokenStream,
+    is_unsafe_trait: bool,
+) -> TokenStream {
     if let Ty::Error(e) = ty {
         return e.0;
     }
@@ -92,15 +140,17 @@ pub(crate) fn generate_impl(ty: Ty, trait_name: &TokenStream, is_unsafe_trait: b
     let impl_gen = if parts.impl_generics.is_empty() {
         quote!()
     } else {
-        let params = parts.impl_generics.iter().map(|(name, bound)| {
-            match bound {
+        let params = parts
+            .impl_generics
+            .iter()
+            .map(|(name, bound)| match bound {
                 Some(b) => {
                     let b_tokens = b.to_token_stream();
                     quote!(#name: #b_tokens)
-                }
+                },
                 None => name.clone(),
-            }
-        }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         quote!(<#(#params),*>)
     };
 
@@ -127,9 +177,17 @@ pub(crate) fn generate_impl(ty: Ty, trait_name: &TokenStream, is_unsafe_trait: b
     // 属性
     let attrs = parts.attrs;
 
+    // where 子句：多条按逗号拼接，无 where 则空
+    let where_clause = if parts.where_clauses.is_empty() {
+        quote!()
+    } else {
+        let preds = &parts.where_clauses;
+        quote!(where #(#preds,)*)
+    };
+
     quote! {
         #(#attrs)*
-        #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target {
+        #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target #where_clause {
             #(#body_tokens)*
         }
     }

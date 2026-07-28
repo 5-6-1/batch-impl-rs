@@ -1,5 +1,175 @@
 # Changelog
 
+## 0.5.0 (2026-07-28)
+
+### `#where[]{...}` where 子句指令
+
+新增 `#where[]{predicates}` 指令，为生成的 impl 块添加 where 子句。`[]` 为占位符（当前无含义），`{...}` 内是透传的 where 谓词。
+
+```rust
+#[batch_impl(<T> Vec<T> #where[]{T: Clone + Default} {
+    fn default_first(&self) -> T { self.first().cloned().unwrap_or_default() }
+})]
+trait DefaultFirst<T> { fn default_first(&self) -> T; }
+// → impl<T> DefaultFirst<T> for Vec<T> where T: Clone + Default { ... }
+```
+
+- 预处理阶段转换为 `< where { predicates } >` token 流，复用 `<>` 深度跟踪避免逗号切碎
+- `TyTypeParam` 新增 `where_clauses: Vec<TokenStream>` 字段，通过 apply 链传播
+- `codegen.rs` 新增 `ImplParts.where_clauses` 字段，`extract_impl_parts` 从 `WithType` / `WithTrait` / `TyGeneric` / `TyTrait` 四条路径递归收集，`generate_impl` 输出 `where ...`
+- 放在 `<>` 前、后、目标类型后均可（通过 apply 链自然组合）
+- 多个 `#where` 会合并（`TyTypeParam::extend` 合并 `where_clauses`）
+
+### 原生 `where{...}` 后缀
+
+除 `#where` 指令外，DSL 原生支持 `where { predicates }` 后缀形式：
+
+```rust
+#[batch_impl(<T: Clone> Sortable<T> where { T: Ord } Vec<T> { ... })]
+trait Sortable<T>{  }
+```
+
+- 新增 `eat_where_suffix` 函数（`parse.rs`），从 token 流起首连续剥离 `Ident("where") + Group(Brace)` 模式
+- `parse_primary` 的泛型分支和裸类型参数分支均调用 `eat_where_suffix`，支持 `Trait<T> where{...}` 和 `<T> where{...}` 两种位置
+- `parse_generic` 改为 where-aware：遇到 `where{...}` 时停止搜索 `<`，防止 `Trait where{...} Vec<T>` 误匹配
+
+### `#[batch_impl_only]` 外部 trait 路径前缀
+
+`#[batch_impl_only]` 支持 `#path::to::Trait:` 路径前缀，用于为外部模块中定义的 trait 生成 impl：
+
+```rust
+#[batch_impl_only(#ext::mod::TraitName: usize, isize)]
+trait TraitName {  }
+```
+
+- `#` + `Ident` + (`::` `Ident`)+ + `:` 形式起始时，路径作为外部 trait 路径
+- 路径末尾标识符必须与本地 dummy trait 名一致（否则报 `compile_error!`）
+- 新增 `try_parse_path_prefix` 状态机函数（`lib.rs`），要求至少一个 `::`
+- `#[batch_impl]` 不支持此前缀（它输出本地 trait 定义，路径前缀无意义）
+
+### `Spacing::Joint` 精确检查
+
+多符号标点（`::`、`->`、`..`）的识别增加 `Spacing::Joint` 检查，防止相邻但不粘连的标点被误判为双字符运算符：
+
+| 位置                                 | 检测目标        | 改动                                                |
+|--------------------------------------|-----------------|-----------------------------------------------------|
+| `scan_with`（`parse.rs`）            | `->` 箭头       | 检查 `-` 的 `Spacing::Joint`                        |
+| `find_colon_at_depth0`（`parse.rs`） | `::` vs `:`     | 重写为检查左右相邻 `:` 的 `Spacing::Joint`          |
+| `parse_range`（`parse.rs`）          | `..` / `..=`    | 检查 `first_dot` / `second_dot` 的 `Spacing::Joint` |
+| `batch_trait!`（`lib.rs`）           | `::` 路径分隔符 | 检查 `p.spacing() == Spacing::Joint`                |
+
+### Range 处理集中化
+
+`Apply for Ty` 外层 match 新增 `Ty::Range` 分支（`apply.rs`），统一处理右侧 Range 展开。移除 `TyTuple::apply` 和 `TyGroup::apply` 中的重复 `Range` 分支。
+
+`T^(1..3)` → `[T<1>, T<2>]`，`T<A>^(1..3)` → `[T<A,1>, T<A,2>]` 等 const generic range 展开自动生效。
+
+### 模块级文档
+
+所有源文件（`apply.rs`、`codegen.rs`、`diagnostic.rs`、`parse.rs`、`preprocess.rs`）新增 `//!` 模块级文档注释，描述模块职责与版本历史。
+
+### 模块拆分
+
+从 `parse.rs`、`apply.rs`、`types.rs`、`preprocess.rs` 中拆分出独立模块，降低单文件认知负担：
+
+| 新模块                | 拆自           | 职责                                                     |
+|-----------------------|----------------|----------------------------------------------------------|
+| `scan.rs`             | `parse.rs`     | Cursor 游标 + scan_with / ScanMode / is_punct            |
+| `parse_atom.rs`       | `parse.rs`     | 原子层解析（parse_attribute / parse_function / parse_group / parse_prefix / parse_range） |
+| `generic.rs`          | `parse.rs`     | `<...>` 泛型解析（parse_generic / parse_angle_bracket_contents / eat_where_suffix / matching_angle） |
+| `types_render.rs`     | `types.rs`     | `ToTokens for Ty` + params_to_tokens 系列                |
+| `apply_tuple.rs`      | `apply.rs`     | TyTuple / TyGroup / TyFn / TyCodeBlock / TyAttr / TyTypeParam 等的 Apply impl + tuple_pow / map_range |
+| `batch_trait_entry.rs`| `lib.rs`       | BFS 展开并列列表 → 逐叶子 generate_impl 的共享驱动       |
+| `path_prefix.rs`      | `lib.rs`       | `#Path::to::Trait:` 路径前缀状态机解析                   |
+| `preprocess_helpers.rs` | `preprocess.rs` | build_from_item / get_trait_item / collect_call_args / parse_names_from_tokens |
+
+拆分前后公共 API 与 DSL 语法不变。
+
+### 测试
+
+- `tests/dsl.rs`：新增测试 21（`where{...}` 后缀）、22（`#where[]{...}` 指令）、23（`<A><B>T` 合并 + `#where`）
+
+## 0.4.2 (2026-07-27)
+
+### `#name{body}` 支持 const / type 项
+
+`#name{body}` 指令现在可以为 trait 中的 const 常量和 type 关联类型赋默认值，
+不再局限于 fn 方法。`build_from_item` 根据 item 类型自动选择输出格式：
+
+- `#CONST_NAME{value}` → `const CONST_NAME: Type = value;`
+- `#TypeName{type_def}` → `type TypeName = type_def;`
+- `#method_name{body}` → `fn method_name(签名) { body }`（不变）
+
+### `#fill` 扩展与 `#all` 标记
+
+- `#fill(args){body}` 不再限制为 Fn 项，可用于 fn + const + type
+- `#all` 含义变更为所有 item（fn + const + type）
+- 新增 `#all_methods`（仅 Fn）、`#all_constants`（仅 const）、`#all_types`（仅 type）
+- `#delegate` 仍仅支持 Fn（委托本质是方法调用），传入非 Fn 项报 `compile_error!`
+- `#fill` 传入非 Fn 项不再报错
+
+### 错误处理
+
+- `expand_delegate` 中的 `todo!("error")` 替换为 `compile_error!`，包含 trait 名和 item 名
+
+### 文档
+
+- 更新 preprocess.rs 注释：`#name{body}` 不再标注为"单方法简写"
+- 更新 `get_trait_item` 错误信息：`"没有找到方法"` → `"没有找到 item"`
+- 更新 README 指令系统章节：补充 const / type 示例和 `#all` 标记说明
+- 新增 8 项 const / type / `#all` 指令测试（tests 37-44）
+
+### 测试与示例重组
+
+examples/ 原本堆放了 4 个文件 4700+ 行的 `assert_eq!` 测试，与"examples"语义不符。本版重组为三层：
+
+- 删除 `examples/{tests.rs, ds_tests.rs, my_tests.rs, debug_tests.rs}` 共 ~4800 行
+- 新增 `examples/quickstart.rs` —— 单文件可运行 demo（~250 行），14 段覆盖基础→复杂，`cargo run --example quickstart` 直接观察输出
+- 新增 `tests/regression.rs` —— 16 个 `#[test]`，从原 `examples/tests.rs` 抽取高价值 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、10 组 `batch_impl` vs `batch_trait!` 一致性
+- `tests/dsl.rs` 保持不变（20 个 `#[test]`）
+- README「测试」段重写为四列表格 + 三组运行指令
+
+### 工程化重构
+
+零功能变化的代码工程化与测试体系铺底。
+
+- **命名**：`apply::trait Type` 重命名为 `trait Apply`，统一"运算符语义"与
+  trait 名稱的语义。`parse.rs` 的 `use crate::apply::Type` 同步为 `Apply`。
+  仅是 trait 名变更，对外行为不变。
+- **格式锁定**：新增 `rustfmt.toml`（`edition=2024`、`max_width=75`、
+  `fn_call_width=60`、`match_block_trailing_comma=true`、
+  `use_field_init_shorthand=true`），要求 PR 通过 `cargo +nightly fmt --check`。
+  仓库内一次性 `cargo +nightly fmt` 全量格式化。
+- **诊断统一**：新增 `src/diagnostic.rs` 暴露唯一 `compile_error_str(msg)`
+  构造器；删除 `lib.rs::generate_compile_error` 与 `preprocess.rs::compile_error`
+  两份同名实现，防止诊断构造点漂移。未来若要引入带 `Span` 的诊断结构，
+  只需改 `diagnostic.rs` 一处。
+- **扫描器合并**：`parse.rs` 引入 `enum ScanMode { Lossy, Strict }` 与
+  单一 `scan_with(tokens, stop, mode)`；`scan_stop`（宽松，
+  用于停止符扫描）与 `matching_angle`（严格，
+  用于尖括号配对）退化为两个对外语义别名，
+  消除原先两份近似但行为不同的 `<>` 深度循环。
+- **WithType 顺序修正**：`codegen.rs::extract_impl_parts` 的 `WithType`
+  分支从 append 改为 prepend——
+  `<A>[<B>T1, <C>T2]` 现输出 `impl<A, B>` 与 `impl<A, C>`，
+  与"外层先写"的书写顺序一致。修复了同名泛型被反转的隐性问题。
+- **错误加固**：`preprocess.rs::expand_tokens` 中两处
+  `cursor.peek().unwrap()` 替换为 `let Some(tt) = cursor.peek() else { break; };`，
+  彻底消除预处理层 panic 点；`apply.rs::tuple_pow` 单元素分支
+  `.unwrap()` 改为带消息的 `expect`，保留不可达性追踪。
+- **入口收敛**：`lib.rs` 内联 `extract_trait_path` /
+  `extract_last_ident` 到 `batch_trait!` 宏内部，
+  导出函数集中于 `diagnostic.rs`；`lib.rs` 由 303 行降到 ~276 行。
+- **测试体系**：新增 `tests/dsl.rs` —— 20 个 `#[test]` 用例覆盖
+  基础、泛型、共享/独立 body 合并、`^` 列表、元组生成、范围元组、
+  关联类型、unsafe、fn 类型、属性、复杂透传、5 个 `#` 指令、
+  `batch_trait!` 多段、`-` 操作符、嵌套泛型合并。
+  新增 `tests/ui.rs` + 8 个 `compile_fail` UI fixture +
+  1 个 pass fixture，通过 `trybuild` 锁定 DSL 错误诊断的中文措辞。
+  重新生成快照：`TRYBUILD=overwrite cargo test --test ui`。
+- **依赖**：新增 `[dev-dependencies] trybuild = "1.0.118"`。
+- **文档**：README「内部架构」图加入 `diagnostic.rs` 与 `Apply trait` 名称。
+
 ## 0.4.1 (2026-07-25)
 修复了自定义宏未携带trait_def问题
 
@@ -9,11 +179,11 @@
 
 新增 `#` 指令系统，`#[batch_impl]` 在 DSL 解析前预处理指令，从 trait 定义自动读取方法签名。
 
-| 指令 | 语法 | 效果 |
-|------|------|------|
-| 单方法 | `#method{body}` | `{fn method(签名) { body }}` |
-| 填充 | `#fill(args){body}` | `{fn m1(sig){body} fn m2(sig){body} ...}` |
-| 委托 | `#delegate(args){target}` | `{fn m1(sig){(target).m1(args)} ...}` |
+| 指令   | 语法                      | 效果                                      |
+|--------|---------------------------|-------------------------------------------|
+| 单方法 | `#method{body}`           | `{fn method(签名) { body }}`              |
+| 填充   | `#fill(args){body}`       | `{fn m1(sig){body} fn m2(sig){body} ...}` |
+| 委托   | `#delegate(args){target}` | `{fn m1(sig){(target).m1(args)} ...}`     |
 
 - `#fill(#all){body}` 表示 trait 的所有方法
 - 指令与 DSL 运算符、`{body}` 连续附着、泛型、unsafe 等特性自由组合

@@ -1,0 +1,7 @@
+error: batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs
+ --> tests/ui/missing_colon.rs:7:1
+  |
+7 | batch_trait!(A);
+  | ^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)
