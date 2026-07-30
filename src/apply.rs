@@ -39,6 +39,9 @@ impl Apply for Ty {
             Ty::WithCode(wc) => {
                 TyWithCode(self.apply(*wc.0).into(), wc.1).into()
             },
+            Ty::WithWhere(ww) => {
+                TyWithWhere(self.apply(*ww.0).into(),ww.1).into()
+            }
             Ty::Error(e) => e.into(),
             Ty::Range(TyRange {
                 start,
@@ -69,6 +72,8 @@ impl Apply for Ty {
                 Ty::Range(r) => r.apply(o),
                 Ty::Slice(s) => s.apply(o),
                 Ty::FixedArray(f) => f.apply(o),
+                Ty::Where(w) => w.apply(o),
+                Ty::WithWhere(ww) => ww.apply(o),
                 Ty::Error(e) => e.into(),
             },
         }

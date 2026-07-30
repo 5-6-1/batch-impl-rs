@@ -38,7 +38,6 @@ pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
 pub(crate) struct TyTypeParam {
     pub(crate) params: Vec<(TokenStream, Option<Ty>)>,
     pub(crate) bindings: Vec<(TokenStream, TokenStream)>,
-    pub(crate) where_clauses: Vec<TokenStream>,
 }
 
 impl TyTypeParam {
@@ -47,7 +46,6 @@ impl TyTypeParam {
         TyTypeParam {
             params: vec![(arg.to_token_stream(), None)],
             bindings: vec![],
-            where_clauses: vec![],
         }
     }
 
@@ -61,7 +59,6 @@ impl TyTypeParam {
     pub(crate) fn extend(&mut self, other: TyTypeParam) {
         self.params.extend(other.params);
         self.bindings.extend(other.bindings);
-        self.where_clauses.extend(other.where_clauses);
     }
 }
 #[derive(Clone, Debug)]
@@ -69,7 +66,7 @@ impl TyTypeParam {
 pub(crate) struct TyCodeBlock(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
 /// `T { code }` — 类型 + 代码块
-pub(crate) struct TyWithCode(pub(crate) Box<Ty>, pub(crate) TokenStream);
+pub(crate) struct TyWithCode(pub(crate) Box<Ty>, pub(crate) TyCodeBlock);
 #[derive(Copy, Clone, Debug)]
 /// `& &mut *const *mut fn self unsafe`
 pub(crate) enum TyPrefix {
@@ -117,6 +114,12 @@ pub(crate) struct TyWithType(pub(crate) TyTypeParam, pub(crate) Box<Ty>);
 /// 编译期错误信号 — 当 DSL 语义不合法时产生，最终输出 `compile_error!`
 pub(crate) struct TyError(pub(crate) TokenStream);
 
+#[derive(Clone, Debug)]
+pub(crate) struct TyWhere(pub(crate) TokenStream);
+
+#[derive(Clone, Debug)]
+pub(crate) struct TyWithWhere(pub(crate) Box<Ty>,pub(crate) TyWhere);
+
 /// DSL 解析输出的类型表达式 AST。
 ///
 /// 节点分三类：
@@ -146,6 +149,8 @@ pub(crate) enum Ty {
     WithCode(TyWithCode),
     Num(TyNum),
     Range(TyRange),
+    Where(TyWhere),
+    WithWhere(TyWithWhere),
     Error(TyError),
 }
 impl Ty {
@@ -213,6 +218,8 @@ impl_from_for_ty! {
     TyWithCode => WithCode,
     TyNum => Num,
     TyRange => Range,
+    TyWhere => Where,
+    TyWithWhere => WithWhere,
     TyError => Error,
 }
 

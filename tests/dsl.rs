@@ -344,7 +344,7 @@ fn nested_generic_list() {
 // ============================================================
 // 21. `where { ... }` DSL 后缀
 // ============================================================
-#[batch_impl(<T: Clone> Sortable<T> where { T: Ord } Vec<T> {
+#[batch_impl(<T: Clone> Sortable<T> Vec<T> where { T: Ord } {
     fn is_sorted(&self) -> bool {
         self.windows(2).all(|w| w[0] <= w[1])
     }
@@ -362,10 +362,10 @@ fn dsl_where_clause() {
 }
 
 // ============================================================
-// 22. `#where[]{...}` 指令形式
+// 22. `where{...}` 后缀形式（后置）
 // ============================================================
 #[batch_impl(
-    <T> Singleton<T> Vec<T> #where[]{ T: Clone + Default }
+    <T> Singleton<T> Vec<T> where{ T: Clone + Default }
     { fn only(&self) -> T { self.first().cloned().unwrap_or_default() } }
 )]
 trait Singleton<T> {
@@ -388,7 +388,7 @@ trait PairAB<A, B> {
 }
 
 #[batch_impl_only(
-    <A> <B> PairAB<A, B> (A, B) #where[]{ A: Clone, B: Clone }
+    <A> <B> PairAB<A, B> (A, B) where{ A: Clone, B: Clone }
     { fn pair(&self) -> (A, B) { (self.0.clone(), self.1.clone()) } }
 )]
 trait PairAB<A, B> {

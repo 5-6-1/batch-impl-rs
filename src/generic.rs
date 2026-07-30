@@ -2,7 +2,7 @@
 //!
 //! 提供 `<...>` 泛型参数的匹配、解析与相关辅助函数。
 
-use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Ident, Spacing, TokenTree};
 use quote::quote;
 
 use crate::parse::parse_item;
@@ -109,22 +109,8 @@ pub(crate) fn parse_angle_bracket_contents(
 ) -> TyTypeParam {
     let mut params = Vec::new();
     let mut bindings = Vec::new();
-    let mut where_clauses = Vec::new();
     for chunk in split_at_depth0(tokens, ',') {
         if chunk.is_empty() {
-            continue;
-        }
-        // 探测 `where { ... }` 指令模式（由 `#where[...]{...}` 预处理为
-        // `< where { ... } >` 后，args 内首个 chunk 即此形式）
-        if chunk.len() >= 2
-            && matches!(&chunk[0], TokenTree::Ident(id) if id == "where")
-            && matches!(&chunk[1], TokenTree::Group(g) if g.delimiter() == Delimiter::Brace)
-        {
-            let group = match &chunk[1] {
-                TokenTree::Group(g) => g,
-                _ => unreachable!(),
-            };
-            where_clauses.push(group.stream());
             continue;
         }
         if let Some(eq) = scan_stop(chunk, &['=']) {
@@ -151,37 +137,12 @@ pub(crate) fn parse_angle_bracket_contents(
     TyTypeParam {
         params,
         bindings,
-        where_clauses,
     }
 }
 
 // ============================================================
 // 兜底
 // ============================================================
-
-/// 从 `rest` 起首剥离连续的 `where { ... }` 后缀。
-///
-/// 形式：`Ident("where")` + `Group(Brace)`，重复任意多次。
-/// 返回 `(where_clauses, 剩余 rest)`。where_clauses 元素是
-/// Group 内部透传的整段 TokenStream。
-pub(crate) fn eat_where_suffix(
-    rest: &[TokenTree],
-) -> (Vec<TokenStream>, &[TokenTree]) {
-    let mut wheres = Vec::new();
-    let mut i = 0usize;
-    while i + 1 < rest.len() {
-        match (&rest[i], &rest[i + 1]) {
-            (TokenTree::Ident(id), TokenTree::Group(g))
-                if id == "where" && g.delimiter() == Delimiter::Brace =>
-            {
-                wheres.push(g.stream());
-                i += 2;
-            },
-            _ => break,
-        }
-    }
-    (wheres, &rest[i..])
-}
 
 /// 将 token 序列包装为 Primitive 透传节点（无法识别的类型都走这里）
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {

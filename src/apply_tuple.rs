@@ -47,7 +47,6 @@ fn pow_empty(n: u8) -> Ty {
     TyTypeParam {
         params: param_names.into_iter().map(|n| (n, None)).collect(),
         bindings: vec![],
-        where_clauses: vec![],
     }
     .apply(TyTuple(params).into())
 }
@@ -74,7 +73,6 @@ fn pow_single(template: Ty, n: u8) -> Ty {
                 .map(|n| (n, Some(parse_primitive(&bound_tokens, None))))
                 .collect(),
             bindings: vec![],
-            where_clauses: vec![],
         }
         .apply(TyTuple(params).into());
     }
@@ -119,7 +117,6 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                 param_decls.push(TyTypeParam {
                     params,
                     bindings: vec![],
-                    where_clauses: vec![],
                 });
                 tuple_elems.push(Ty::from(TyPrimitive(name)));
             },
@@ -133,7 +130,6 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     let mut merged = TyTypeParam {
         params: vec![],
         bindings: vec![],
-        where_clauses: vec![],
     };
     for tp in param_decls {
         merged.extend(tp);
@@ -185,7 +181,7 @@ impl Apply for TyFn {
 impl Apply for TyCodeBlock {
     /// `{code}^T` => `T { code }`（附着代码块到类型）
     fn apply(self, o: Ty) -> Ty {
-        TyWithCode(o.into(), self.0).into()
+        TyWithCode(o.into(), self).into()
     }
 }
 
@@ -256,5 +252,19 @@ impl Apply for TyWithCode {
     /// `T{body}^U` => `(T^U){body}`（外部应用透传到内部类型，body 不变）
     fn apply(self, o: Ty) -> Ty {
         TyWithCode(self.0.apply(o).into(), self.1).into()
+    }
+}
+
+impl Apply for TyWhere {
+    /// `{code}^T` => `T { code }`（附着代码块到类型）
+    fn apply(self, o: Ty) -> Ty {
+        TyWithWhere(o.into(), self).into()
+    }
+}
+
+impl Apply for TyWithWhere {
+    /// `T{body}^U` => `(T^U){body}`（外部应用透传到内部类型，body 不变）
+    fn apply(self, o: Ty) -> Ty {
+        TyWithWhere(self.0.apply(o).into(), self.1).into()
     }
 }

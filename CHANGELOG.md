@@ -2,36 +2,17 @@
 
 ## 0.5.0 (2026-07-28)
 
-### `#where[]{...}` where 子句指令
-
-新增 `#where[]{predicates}` 指令，为生成的 impl 块添加 where 子句。`[]` 为占位符（当前无含义），`{...}` 内是透传的 where 谓词。
-
-```rust
-#[batch_impl(<T> Vec<T> #where[]{T: Clone + Default} {
-    fn default_first(&self) -> T { self.first().cloned().unwrap_or_default() }
-})]
-trait DefaultFirst<T> { fn default_first(&self) -> T; }
-// → impl<T> DefaultFirst<T> for Vec<T> where T: Clone + Default { ... }
-```
-
-- 预处理阶段转换为 `< where { predicates } >` token 流，复用 `<>` 深度跟踪避免逗号切碎
-- `TyTypeParam` 新增 `where_clauses: Vec<TokenStream>` 字段，通过 apply 链传播
-- `codegen.rs` 新增 `ImplParts.where_clauses` 字段，`extract_impl_parts` 从 `WithType` / `WithTrait` / `TyGeneric` / `TyTrait` 四条路径递归收集，`generate_impl` 输出 `where ...`
-- 放在 `<>` 前、后、目标类型后均可（通过 apply 链自然组合）
-- 多个 `#where` 会合并（`TyTypeParam::extend` 合并 `where_clauses`）
-
 ### 原生 `where{...}` 后缀
 
-除 `#where` 指令外，DSL 原生支持 `where { predicates }` 后缀形式：
+DSL 原生支持 `where{...}` 后缀形式，为生成的 impl 块添加 where 子句：
 
 ```rust
-#[batch_impl(<T: Clone> Sortable<T> where { T: Ord } Vec<T> { ... })]
+#[batch_impl(<T: Clone> Sortable<T> where{ T: Ord } Vec<T> { ... })]
 trait Sortable<T>{  }
 ```
 
-- 新增 `eat_where_suffix` 函数（`parse.rs`），从 token 流起首连续剥离 `Ident("where") + Group(Brace)` 模式
-- `parse_primary` 的泛型分支和裸类型参数分支均调用 `eat_where_suffix`，支持 `Trait<T> where{...}` 和 `<T> where{...}` 两种位置
-- `parse_generic` 改为 where-aware：遇到 `where{...}` 时停止搜索 `<`，防止 `Trait where{...} Vec<T>` 误匹配
+- `where{...}` 可跟在泛型参数或目标类型之后
+- 多个 `where{...}` 会合并
 
 ### `#[batch_impl_only]` 外部 trait 路径前缀
 
@@ -76,7 +57,7 @@ trait TraitName {  }
 |-----------------------|----------------|----------------------------------------------------------|
 | `scan.rs`             | `parse.rs`     | Cursor 游标 + scan_with / ScanMode / is_punct            |
 | `parse_atom.rs`       | `parse.rs`     | 原子层解析（parse_attribute / parse_function / parse_group / parse_prefix / parse_range） |
-| `generic.rs`          | `parse.rs`     | `<...>` 泛型解析（parse_generic / parse_angle_bracket_contents / eat_where_suffix / matching_angle） |
+| `generic.rs`          | `parse.rs`     | `<...>` 泛型解析（parse_generic / parse_angle_bracket_contents / matching_angle） |
 | `types_render.rs`     | `types.rs`     | `ToTokens for Ty` + params_to_tokens 系列                |
 | `apply_tuple.rs`      | `apply.rs`     | TyTuple / TyGroup / TyFn / TyCodeBlock / TyAttr / TyTypeParam 等的 Apply impl + tuple_pow / map_range |
 | `batch_trait_entry.rs`| `lib.rs`       | BFS 展开并列列表 → 逐叶子 generate_impl 的共享驱动       |
@@ -87,7 +68,7 @@ trait TraitName {  }
 
 ### 测试
 
-- `tests/dsl.rs`：新增测试 21（`where{...}` 后缀）、22（`#where[]{...}` 指令）、23（`<A><B>T` 合并 + `#where`）
+- `tests/dsl.rs`：新增测试 21（`where{...}` 后缀）、22（`where{...}` 后置）、23（`<A><B>T` 合并 + `where`）
 
 ## 0.4.2 (2026-07-27)
 

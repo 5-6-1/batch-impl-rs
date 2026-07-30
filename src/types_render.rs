@@ -12,8 +12,8 @@ pub(crate) fn params_to_tokens(base: &TokenStream, tp: &TyTypeParam) -> TokenStr
         all.push(quote!(#name = #value));
     }
     if all.is_empty() {
-        // params + bindings 都空时只渲染 base；where_clauses 不进
-        // 类型表达式（由 codegen 提取）。
+        // params + bindings 都空时只渲染 base；where 不进类型表达式
+        // （由 codegen 提取）。
         return base.clone();
     }
     quote!(#base < #(#all),* >)
@@ -34,7 +34,7 @@ pub(crate) fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
         all.push(quote!(#name = #value));
     }
     if all.is_empty() {
-        // 仅 where_clauses 的 TyTypeParam 在类型表达式中渲染为空
+        // 仅 where 的 TypeParam 在类型表达式中渲染为空
         // （where 由 codegen 提取）。
         return quote!();
     }
@@ -145,7 +145,7 @@ impl ToTokens for Ty {
             },
             Ty::WithCode(wc) => {
                 let inner = wc.0.to_token_stream();
-                let stream = &wc.1;
+                let stream = &wc.1.0;
                 quote!(#inner {#stream})
             },
             Ty::Prefix(p) => match p {
@@ -156,6 +156,15 @@ impl ToTokens for Ty {
                 TyPrefix::SelfType => quote![self],
                 TyPrefix::Fn => quote![fn],
                 TyPrefix::Unsafe => quote![unsafe],
+            },
+            Ty::Where(w) => {
+                let stream = &w.0;
+                quote!(where{#stream})
+            },
+            Ty::WithWhere(ww) => {
+                let inner = ww.0.to_token_stream();
+                let stream = &ww.1.0;
+                quote!(#inner where{#stream})
             },
             Ty::Error(e) => e.0.clone(),
         })

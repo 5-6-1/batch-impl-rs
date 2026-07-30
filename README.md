@@ -22,13 +22,13 @@ batch-impl 的核心设计目标是**批量生成**（bulk generation）——�
 | 属性支持          | `#[...]` 语法为 impl 块添加属性                         |
 | `*const` / `*mut` | 裸指针类型                                              |
 | `#` 指令系统      | `#method` / `#fill` / `#delegate` 从 trait 自动读取签名 |
-| where 子句        | `#where[]{...}` 指令 + 原生 `where{...}` 后缀           |
+| where 子句        | `where{...}` 后缀语法                                    |
 
 ## 安装
 
 ```toml
 [dependencies]
-batch-impl = "0.5.0"
+batch-impl = "0.5.1"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -439,33 +439,25 @@ trait Tagged { fn name(&self) -> &str; fn kind(&self) -> &str; }
 trait Len { fn t10(&self) -> usize; }
 ```
 
-### `#where[]{predicates}` — where 子句
+### `where{...}` — where 子句
 
-为生成的 impl 块添加 where 子句。`[]` 为占位符（当前无含义），`{...}` 内是透传的 where 谓词：
+为生成的 impl 块添加 where 子句。`where{...}` 后缀跟在类型或泛型参数之后，内是透传的 where 谓词：
 
 ```rust
-#[batch_impl(<T> Vec<T> #where[]{T: Clone + Default} {
-    fn default_first(&self) -> T { self.first().cloned().unwrap_or_default() }
+#[batch_impl(<T: Clone> Sortable<T> where{ T: Ord } Vec<T> {
+    fn sort(&self) -> Vec<T> { let mut v = self.clone(); v.sort(); v }
 })]
-trait DefaultFirst<T> { fn default_first(&self) -> T; }
-// → impl<T> DefaultFirst<T> for Vec<T> where T: Clone + Default { ... }
+trait Sortable<T> { fn sort(&self) -> Vec<T>; }
+// → impl<T: Clone> Sortable<T> for Vec<T> where T: Ord { ... }
 ```
 
-`#where` 放在 `<>` 前、后、目标类型后均可（通过 apply 链自然组合），多个 `#where` 会合并：
+多个 `where{...}` 会合并：
 
 ```rust
-// 合并多个泛型参数的 where
-#[batch_impl_only(
-    <A> <B> PairAB<A, B> (A, B) #where[]{A: Clone, B: Clone} { ... }
+#[batch_impl(
+    <A> <B> PairAB<A, B> (A, B) where{A: Clone} where{B: Clone} { ... }
 )]
 trait PairAB<A,B>{  }
-```
-
-也支持原生 `where{...}` 后缀形式（无需 `#`），跟在泛型参数之后：
-
-```rust
-#[batch_impl(<T: Clone> Sortable<T> where { T: Ord } Vec<T> { ... })]
-trait Sortable<T>{  }
 ```
 
 ### 扩展指令
@@ -587,7 +579,7 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
   ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / collect_call_args
   ├── parse.rs           DSL 解析器：Cursor 游标 + 优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
   ├── parse_atom.rs      原子层解析：属性 / fn / 分组 / 前缀 / 范围
-  ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents / eat_where_suffix
+   ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents
   ├── types.rs           AST 节点（Ty 枚举 + 21 个变体，含 Error）+ Op 优先级定义
   ├── types_render.rs    AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply.rs           运算符语义：Apply trait + 核心 apply() 折叠规则（^ 右结合 / 数组分发）

@@ -25,8 +25,7 @@ pub(crate) struct ImplParts {
     pub(crate) body: Option<TokenStream>,
     pub(crate) attrs: Vec<TokenStream>,
     pub(crate) is_unsafe_impl: bool,
-    /// 来自 `<...> where { ... }` 或 `Trait<...> where { ... }`
-    /// 的 where 谓词列表，多条会被拼接为
+    /// 来自 `where{...}` 后缀的 where 谓词列表，多条会被拼接为
     /// `where P1, P2, ...`。元素间以逗号连接。
     pub(crate) where_clauses: Vec<TokenStream>,
 }
@@ -61,7 +60,6 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             parts.associated_types = wt.0.bindings;
             parts.impl_generics.extend(impl_generics);
             parts.associated_types.extend(associated_types);
-            parts.where_clauses.extend(wt.0.where_clauses);
             parts
         },
         Ty::WithTrait(wt) => {
@@ -70,34 +68,19 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 .trait_generic_names
                 .extend(wt.0.1.params.into_iter().map(|p| p.0));
             parts.associated_types.extend(wt.0.1.bindings);
-            parts.where_clauses.extend(wt.0.1.where_clauses);
-            parts
-        },
-        Ty::Generic(g) => {
-            // TyGeneric 的 TyTypeParam 可能因 `Vec<T> <where {...}>`
-            // 这类 apply 路径而携带 where_clauses；
-            // to_tokens 不输出 where，故 codegen 必须显式提取
-            // 提升到 impl 级。target_type 保留整 TyGeneric，让 to_tokens
-            // 渲染 `Vec<T>` 完整形式。
-            let wc = g.1.where_clauses.clone();
-            let mut parts = ImplParts::leaf(Ty::Generic(g));
-            parts.where_clauses.extend(wc);
-            parts
-        },
-        Ty::Trait(t) => {
-            // 类似 TyGeneric：trait 路径本身的 TyTypeParam 余 where_clauses
-            // 也提升到 impl 级。target_type 保留整 TyTrait。
-            let wc = t.1.where_clauses.clone();
-            let mut parts = ImplParts::leaf(Ty::Trait(t));
-            parts.where_clauses.extend(wc);
             parts
         },
         Ty::WithCode(wc) => {
             let mut parts = extract_impl_parts(*wc.0);
             match &mut parts.body {
-                Some(t) => t.extend(wc.1),
-                None => parts.body = Some(wc.1),
+                Some(t) => t.extend(wc.1.0),
+                None => parts.body = Some(wc.1.0),
             }
+            parts
+        },
+        Ty::WithWhere(ww) => {
+            let mut parts = extract_impl_parts(*ww.0);
+            parts.where_clauses.push(ww.1.0);
             parts
         },
         Ty::WithAttr(wa) => {
@@ -118,7 +101,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             parts
         },
         Ty::Error(e) => ImplParts::leaf(Ty::Error(e)),
-        other => ImplParts::leaf(other),
+        o => ImplParts::leaf(o),
     }
 }
 
@@ -182,7 +165,7 @@ pub(crate) fn generate_impl(
         quote!()
     } else {
         let preds = &parts.where_clauses;
-        quote!(where #(#preds,)*)
+        quote!(where #(#preds),*)
     };
 
     quote! {

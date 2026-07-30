@@ -10,7 +10,7 @@
 use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 
 use crate::apply::Apply;
-use crate::generic::{eat_where_suffix, is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params, primitive};
+use crate::generic::{is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params, primitive};
 use crate::parse_atom::{parse_attribute, parse_function, parse_group, parse_prefix, parse_range};
 use crate::scan::{Cursor, is_punct};
 use crate::types::*;
@@ -88,46 +88,41 @@ pub(crate) fn parse_primitive(
     tokens: &[TokenTree],
     trait_name: Option<&Ident>,
 ) -> Ty {
-    let (tokens, body) = split_trailing_body(tokens);
-    attach_body(tokens, trait_name, body)
+    let (tokens, body,is_where) = split_trailing_body(tokens);
+    match (body,is_where) {
+        (Some(body),false) => Ty::CodeBlock(TyCodeBlock(body))
+            .apply(parse_primitive(tokens, trait_name)),
+        (Some(w),true) => Ty::Where(TyWhere(w))
+            .apply(parse_primitive(tokens,trait_name)),
+        _ => parse_primary(tokens, trait_name),
+    }
 }
 
 // ============================================================
 // 原子层解析
 // ============================================================
 
-/// 将代码块附着到类型上。
-/// 有 body 时递归调用 `parse_primitive`，支持 `T{b1}{b2}` 连续附着。
-fn attach_body(
-    tokens: &[TokenTree],
-    trait_name: Option<&Ident>,
-    body: Option<TokenStream>,
-) -> Ty {
-    match body {
-        Some(body) => Ty::CodeBlock(TyCodeBlock(body))
-            .apply(parse_primitive(tokens, trait_name)),
-        None => parse_primary(tokens, trait_name),
-    }
-}
-
 /// 分离尾部 `{...}` 代码块（`macro!{...}` 不是尾部代码块）
 fn split_trailing_body(
     tokens: &[TokenTree],
-) -> (&[TokenTree], Option<TokenStream>) {
+) -> (&[TokenTree], Option<TokenStream>,bool) {
     match tokens.last() {
         Some(TokenTree::Group(group))
-            if group.delimiter() == Delimiter::Brace =>
-        {
+            if group.delimiter() == Delimiter::Brace => {
             // macro!{...} 不是尾部代码块，排除
             if tokens.len() >= 2
                 && let TokenTree::Punct(p) = &tokens[tokens.len() - 2]
-                && p.as_char() == '!'
-            {
-                return (tokens, None);
+                && p.as_char() == '!' {
+                return (tokens, None,false);
             }
-            (&tokens[..tokens.len() - 1], Some(group.stream()))
+            if tokens.len()>=2 
+                && let TokenTree::Ident(i)=&tokens[tokens.len() - 2]
+                && i.to_string()=="where"{
+                return (&tokens[..tokens.len() - 2], Some(group.stream()),true)
+            }
+            (&tokens[..tokens.len() - 1], Some(group.stream()),false)
         },
-        _ => (tokens, None),
+        _ => (tokens, None,false),
     }
 }
 
@@ -170,17 +165,10 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     }
 
     if let Some((base, args, rest)) = parse_generic(tokens) {
-        let mut params = parse_angle_bracket_contents(args, trait_name);
-        let (wheres, rest) = eat_where_suffix(rest);
-        params.where_clauses.extend(wheres);
+        let params = parse_angle_bracket_contents(args, trait_name);
         let generic = if is_trait_base(base, trait_name) {
             Ty::Trait(TyTrait(base.iter().cloned().collect(), params))
         } else {
-            // base 不是 trait 名称的回退：
-            // - rest 起首 `<` 表示是 `Vec<T> <where {...}>` 这类合并模式
-            //   （#where 指令预处理后），应走 apply 链合并 where_clauses
-            // - 否则 rest 是 `for<'a> Fn(...)` 之类不合法的后续，
-            //   整体透传（保持原有兼容）
             if !rest.is_empty()
                 && !matches!(rest.first(), Some(t) if is_punct(t, '<'))
             {
@@ -196,9 +184,7 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     }
 
     if let Some((args, rest)) = parse_type_params(tokens) {
-        let mut params = parse_angle_bracket_contents(args, trait_name);
-        let (wheres, rest) = eat_where_suffix(rest);
-        params.where_clauses.extend(wheres);
+        let params = parse_angle_bracket_contents(args, trait_name);
         let params = Ty::TypeParam(params);
         return if rest.is_empty() {
             params

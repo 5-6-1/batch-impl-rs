@@ -99,30 +99,6 @@ fn expand_directive(
                 cursor.bump(); // {body}
                 expand_single(name, args, trait_def)
             },
-            Delimiter::Bracket if name == "where" => {
-                // `#where[占位]{predicates}` → `< where { predicates } >`
-                // [] 内为占位符，暂时忽略；{predicates} 内是 where 谓词源
-                // 透传，由后续 DSL 解析进 TyTypeParam.where_clauses。
-                let body = cursor.peek_at(3);
-                let Some(TokenTree::Group(body_group)) = body else {
-                    return Err(compile_error_str(
-                        "`#where[...]` 后期望 `{ predicates }` 代码块",
-                    ));
-                };
-                if body_group.delimiter() != Delimiter::Brace {
-                    return Err(compile_error_str(
-                        "`#where[...]` 后期望 `{ predicates }` 代码块",
-                    ));
-                }
-                cursor.bump(); // #
-                cursor.bump(); // where
-                cursor.bump(); // [args]
-                cursor.bump(); // {predicates}
-                let predicates = body_group.stream();
-                Ok(quote! { < where { #predicates } > }
-                    .into_iter()
-                    .collect())
-            },
             _ => {
                 // `#cmd(args){body}` — 名称 + 括号参数 + {body}
                 let body_tt = cursor.peek_at(3);
@@ -155,7 +131,7 @@ fn expand_directive(
         }
     } else {
         Err(compile_error_str(&format!(
-            "`#{}` 后期望括号参数 `(args)`、`[占位]` 或代码块 `{{body}}`",
+            "`#{}` 后期望括号参数 `(args)` 或代码块 `{{body}}`",
             name
         )))
     }
