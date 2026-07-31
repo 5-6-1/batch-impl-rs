@@ -16,10 +16,9 @@ exclude = ["rustfmt.toml"]
 
 [lib]
 proc-macro = true
-# README 中的代码块多为片段，未在每个块上声明 `use batch_impl::*`，
-# 故暂关 lib doctest 以避免 `cannot find attribute batch_impl` 误报。
-# 后续对 README 进行隐藏 `# use` 行规整后再开启。
-doctest = false
+# README（经 `#![doc = include_str!]` 引入）与 lib.rs 文档代码块均已补齐
+# 隐藏 `# use` 行，lib doctest 默认开启。路径前缀示例因依赖外部模块上下文
+# 无法在 doctest 的 fn main 中编译，标记为 `ignore`。
 
 [dependencies]
 syn = { version = "3", features = ["full"] }

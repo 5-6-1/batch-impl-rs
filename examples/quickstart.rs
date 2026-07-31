@@ -116,9 +116,15 @@ fn demos_assoc_binding() {
 // ------------------------------------------------------------
 // 7. unsafe 支持：单条标记 + unsafe trait
 // ------------------------------------------------------------
+/// # Safety
+///
+/// 演示用标记 trait，无实际 unsafe 语义。
 #[batch_impl(unsafe^usize, isize)]
 unsafe trait PartialUnsafe {}
 
+/// # Safety
+///
+/// 演示用标记 trait，无实际 unsafe 语义。
 #[batch_impl(u8, u16, u32)]
 unsafe trait AllUnsafe {}
 
@@ -199,6 +205,10 @@ fn demos_directives() {
 // ------------------------------------------------------------
 trait SegA {}
 trait SegB<T> {}
+
+/// # Safety
+///
+/// 演示用标记 trait，无实际 unsafe 语义。
 unsafe trait SegUnsafe {}
 
 mod deep {

@@ -1,18 +1,40 @@
 # Changelog
 
-## 0.5.0 (2026-07-28)
+## 0.5.1 (2026-07-31)
 
 ### 原生 `where{...}` 后缀
 
 DSL 原生支持 `where{...}` 后缀形式，为生成的 impl 块添加 where 子句：
 
 ```rust
-#[batch_impl(<T: Clone> Sortable<T> where{ T: Ord } Vec<T> { ... })]
+#[batch_impl(<T: Clone> Sortable<T> Vec<T> where{ T: Ord } { ... })]
 trait Sortable<T>{  }
 ```
 
-- `where{...}` 可跟在泛型参数或目标类型之后
+- `where{...}` 跟在目标类型之后（spec 末尾）
 - 多个 `where{...}` 会合并
+
+### 裸 `where 谓词 {代码块}` 新语法
+
+`where` 后可裸写谓词，谓词后必须跟 `{...}` 代码块；三个接口
+（`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`）统一支持：
+
+```rust
+#[batch_impl(<A> <B> PairAB<A, B> (A, B) where A: Clone, B: Clone { ... })]
+trait PairAB<A, B>{  }
+```
+
+- 新增 `where_process.rs` 预处理模块：在指令预处理之后、DSL 解析之前
+  扫描深度 0 的裸 `where`，收集谓词直至首个 `{...}` 代码块，改写为旧式
+  `where{谓词}` 后缀；解析层零改动
+- 边界判定排除 `ident!{...}` 宏调用体（如 `where F: Fn(u32) -> m!{} { ... }`），
+  尖括号内代码块（如 `<N = {5}>`）不计入
+- 谓词区内的逗号不被 spec 切分；多个 `where` 段可依次书写
+  （`where A where B`），等价旧式多 `where{...}`
+- 裸 `where` 后缺少代码块报 `batch-impl: \`where\` 谓词后缺少代码块 {...}`
+- 测试：`tests/dsl.rs` 新增 25-27，`tests/ui/where_missing_body.rs` 锁定缺 body 诊断
+
+## 0.5.0 (2026-07-28)
 
 ### `#[batch_impl_only]` 外部 trait 路径前缀
 

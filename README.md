@@ -1,30 +1,53 @@
 # batch-impl
 
-为 Rust trait 批量生成 `impl` 块的过程宏库。
+为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
-## 设计目标
+```rust
+use batch_impl::batch_impl;
+# use std::rc::Rc;
 
-batch-impl 的核心设计目标是**批量生成**（bulk generation）——把"为 N 个类型写 N 个 impl"压缩成一行声明式 DSL。
+// 一个 body，为 4 种类型各生成一个 impl
+#[batch_impl(<T> Sortable<T> [Box, Rc]^Vec<T> where{ T: Ord } {
+    fn is_sorted(&self) -> bool { self.windows(2).all(|w| w[0] <= w[1]) }
+})]
+trait Sortable<T> { fn is_sorted(&self) -> bool; }
+// → impl<T> Sortable<T> for Box<Vec<T>> where T: Ord { ... }
+// → impl<T> Sortable<T> for Rc<Vec<T>>  where T: Ord { ... }
 
-### 功能特性
+// 一行生成 4 个带泛型的元组 impl
+#[batch_impl(()^4)]
+trait TupleTrait {}
+// → impl<A>       TupleTrait for (A,) {}
+// → impl<A, B>    TupleTrait for (A, B) {}
+// → impl<A, B, C> TupleTrait for (A, B, C) {}
+// → impl<A, B, C, D> TupleTrait for (A, B, C, D) {}
+```
 
-| 特性              | 说明                                                    |
-|-------------------|---------------------------------------------------------|
-| 批量生成          | 为任意类型批量生成 impl 块                              |
-| 泛型控制          | 手动精确指定 impl 泛型和 trait 泛型                     |
-| 自定义 body       | 每个类型可有独立的实现体                                |
-| 元组生成          | `()^N` + 笛卡尔积 + 范围语法                            |
-| `^` 运算符        | 右结合，泛型应用和类型组合                              |
-| `-` 运算符        | 左结合，与 `^` 语义相同                                 |
-| `unsafe impl`     | 支持 unsafe impl 生成                                   |
-| 关联类型          | `Name=value` 语法绑定关联类型                           |
-| fn 类型           | 批量生成函数类型实现                                    |
-| 属性支持          | `#[...]` 语法为 impl 块添加属性                         |
-| `*const` / `*mut` | 裸指针类型                                              |
-| `#` 指令系统      | `#method` / `#fill` / `#delegate` 从 trait 自动读取签名 |
-| where 子句        | `where{...}` 后缀语法                                    |
+## 核心心智模型
 
-## 安装
+你写的是**一条"类型矩阵"的描述**，batch-impl 对矩阵的每个格子生成 impl：
+
+```
+#[batch_impl( <impl-泛型> Trait名<trait-泛型> 目标类型矩阵 { body }? )]
+```
+
+| 记号      | 含义                                  | 直觉                         |
+|-----------|---------------------------------------|------------------------------|
+| `^` / `-` | 应用：把左侧容器/修饰符作用到右侧类型 | **同一个运算**，仅结合性不同 |
+| `[A, B]`  | 列表                                  | 横向展开（笛卡尔积）         |
+| `(A, B)`  | 元组                                  | 排列（有序对）               |
+| `#name`   | 指令：从 trait 定义自动抄 item 签名   | body 不用手写签名            |
+
+`^` 与 `-` 是**同一运算**（左侧是修饰符/容器，右侧是目标类型），区别只在结合方向：
+
+- `^` **右结合**，链式产生嵌套：`Box^Box^T` = `Box<Box<T>>`，`HashMap^K^V` = `HashMap<K<V>>`
+- `-` **左结合**，链式累加参数：`HashMap-K-V` = `HashMap<K, V>`，`fn(A, B)-C` = `fn(A, B) -> C`
+
+所以选哪个只看你想要的分组形状：想套娃用 `^`，想并列参数用 `-`。
+
+`[A, B]^[X, Y]` = 2×2 矩阵（4 个 impl）；`(T1, T2)^2` = 排列（4 个有序对）。
+
+## 快速开始
 
 ```toml
 [dependencies]
@@ -33,35 +56,26 @@ batch-impl = "0.5.1"
 
 需要 Rust 2024 edition 及以上。
 
-## 三个入口
-
-| 宏                   | 用途                                                     |
-|----------------------|----------------------------------------------------------|
-| `#[batch_impl]`      | 属性宏，在 trait 定义上标注，宏参数即 DSL                |
-| `#[batch_impl_only]` | 同上，但丢弃 trait 定义，只输出 impl 块                  |
-| `batch_trait!`       | 函数式宏，对已声明的 trait 批量生成 impl（支持多 trait） |
-
-三者接受相同的 DSL 参数。
-
-## 快速开始
-
 ```rust
 use batch_impl::batch_impl;
 
-#[batch_impl(usize, isize)]
-trait Numeric {}
-// → impl Numeric for usize {}
-// → impl Numeric for isize {}
+// 1. 定义 trait，方法签名只写一次
+trait Describe { fn describe(&self) -> String; }
+
+// 2. 写一条 DSL：目标类型 + body（方法签名用 #fill 自动从 trait 抄）
+#[batch_impl(
+    [usize, isize] #fill(name){"number"},
+    String #fill(name){"string"}
+)]
+trait Tagged { fn name(&self) -> &str; }
+// → impl Tagged for usize  { fn name(&self) -> &str { "number" } }
+// → impl Tagged for isize  { fn name(&self) -> &str { "number" } }
+// → impl Tagged for String { fn name(&self) -> &str { "string" } }
 ```
 
-## 语法概览
+## 语法参考
 
-```
-#[batch_impl( impl-spec [, impl-spec]* [ { body }]? )]
-impl-spec = [ <impl-泛型> ] [ Trait名<trait-泛型> ] 目标 [ { body } ]
-```
-
-### 结构分解
+### spec 结构
 
 | 部分                  | 示例                                    | 何时需要               |
 |-----------------------|-----------------------------------------|------------------------|
@@ -71,22 +85,33 @@ impl-spec = [ <impl-泛型> ] [ Trait名<trait-泛型> ] 目标 [ { body } ]
 | `[...]` 列表          | `[A, B, C]`                             | 为多个类型同时实现     |
 | `{ body }`            | `{ fn m(&self) -> usize { 0 } }`        | 需要自定义实现体时     |
 
-## 运算符优先级
+多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-DSL 表达式通过四级运算符优先级解析（从低到高）：
+### 运算符
 
-| 优先级 | 运算符 | 结合方向 | 说明                             |
-|--------|--------|----------|----------------------------------|
-| 0      | `;`    | —        | `batch_trait!` 的段落分隔符      |
-| 1      | `,`    | —        | impl-spec 列表分隔               |
-| 2      | `-`    | 左结合   | 泛型应用/类型组合（同 `^` 语义） |
-| 3      | `^`    | 右结合   | 泛型应用/类型组合                |
+DSL 通过四级优先级解析（从低到高）：
+
+| 优先级 | 运算符 | 结合方向 | 说明                              |
+|--------|--------|----------|-----------------------------------|
+| 0      | `;`    | —        | `batch_trait!` 的段落分隔符       |
+| 1      | `,`    | —        | impl-spec 列表分隔                |
+| 2      | `-`    | 左结合   | 应用（同 `^` 语义，链式累加参数） |
+| 3      | `^`    | 右结合   | 应用（链式嵌套）                  |
 
 `(` `)` 分组在所有运算符之上起作用。
 
-## `^` 运算符（右结合）
+结合示例：
 
-`A^B^C = A^(B^C)`。左侧是"修饰符"，右侧是"目标类型"。修饰符可以是：
+- `A^B-C,D` = `(A^B)-C,D` = `A<B,C>,D`
+- `[A,B]^[C,D]-E` = `([A,B]^[C,D])-E` = `[A<C>,A<D>,B<C>,B<D>]-E`
+- `HashMap^K-V` = `(HashMap^K)-V` = `HashMap<K>-V` = `HashMap<K, V>`
+- `fn^(A,B)-C` = `(fn^(A,B))-C` = `fn(A,B)->C`
+
+> **注意**：`Box^Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box^Vec^u32`。
+
+### `^` 修饰符
+
+左侧的修饰符可以是：
 
 | 修饰符         | 含义                                              |
 |----------------|---------------------------------------------------|
@@ -117,28 +142,28 @@ DSL 表达式通过四级运算符优先级解析（从低到高）：
 | `[Box, Vec]^T`           | `Box<T>, Vec<T>`                  |
 | `Box^[T1, T2]`           | `Box<T1>, Box<T2>`                |
 | `[Box, Vec]^[T1, T2]`    | 笛卡尔积共 4 项                   |
-| `Box^Box^T`              | `Box<Box<T>>`                     |
+| `Box^Box^T`              | `Box<Box<T>>`（右结合嵌套）       |
 | `HashMap<K>^V`           | `HashMap<K, V>`（预填泛型追加）   |
 | `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>`        |
-| `&^Box^T`                | `&Box<T>`（引用类修饰符链式应用） |
+| `&^Box^T`                | `&Box<T>`（修饰符链式应用）       |
 | `*const^Vec^T`           | `*const Vec<T>`                   |
 | `fn^(A,B)`               | `fn(A,B)`（函数类型）             |
 | `#[attr]^T`              | 在 impl 块前添加属性              |
 
-## `-` 运算符（左结合）
+### `-` 运算符
 
-`-` 与 `^` 语义完全相同，仅结合方向不同：`A-B = A^B`，`A-B-C = (A-B)-C`。
+与 `^` 同一运算，仅左结合（链式累加参数）：
 
 | 写法                 | 展开                                           |
 |----------------------|------------------------------------------------|
 | `Vec-u32`            | `Vec<u32>`                                     |
-| `HashMap-u32-String` | `HashMap<u32, String>`（左结合，预填泛型追加） |
+| `HashMap-u32-String` | `HashMap<u32, String>`（左结合，参数累加）     |
 | `()-[A, B]`          | `(A,), (B,)`                                   |
 | `()-[A, B]-[C, D]`   | `(A, C), (A, D), (B, C), (B, D)`               |
 
-## 元组生成
+### 元组生成
 
-`^` 运算符右侧是数字或范围时，生成指定长度的元组。
+`^` 右侧是数字或范围时，生成指定长度的元组（数字只作为指数使用，u8 范围）：
 
 | 写法          | 展开                                          |
 |---------------|-----------------------------------------------|
@@ -152,32 +177,21 @@ DSL 表达式通过四级运算符优先级解析（从低到高）：
 
 > 注意：`(T)` 是分组（非元组），`(T,)` 才是单元素元组。
 
-## 使用示例
+### 歧义处理
 
-### 基础
+- **`[]`**：有逗号是并列列表，无逗号是切片类型（如 `Box^[u32]` → `Box<[u32]>`）
+- **`()`**：`()` = 空元组，`(A,)` = 单元素元组，`(A)` = 分组
+- **`()^0`**：生成空元组 `()`，即 `impl Trait for ()`
+- **`[T; N]`**：`[]` 内的 `;` 通过 DSL 的 `Semi` 优先级层级识别为定长数组分隔符
 
-```rust
-use batch_impl::batch_impl;
+## 组合拳
 
-#[batch_impl(usize, isize)]
-trait Numeric {}
+### 共享 body + 列表
 
-#[batch_impl(<T> Vec<T>)]
-trait Collection {}
-```
-
-### Trait 带泛型参数
+一个 body 为所有目标类型复用：
 
 ```rust
-#[batch_impl(<T> FromValue<T> i32 {
-    fn wrap(_val: T) -> Self { 0 }
-})]
-trait FromValue<T> { fn wrap(val: T) -> Self; }
-```
-
-### 并列列表 + 共享 body
-
-```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 #[batch_impl([usize, isize, f32] {
     fn tag(&self) -> &'static str { "number" }
 })]
@@ -186,7 +200,10 @@ trait Tagged { fn tag(&self) -> &'static str; }
 
 ### 嵌套泛型合并
 
+列表项各自声明 impl 泛型，自动合并到 impl 块：
+
 ```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 use std::collections::HashMap;
 
 #[batch_impl(<T> Describe<T> [Vec<T>, <U> HashMap<T, U>] {
@@ -197,48 +214,12 @@ trait Describe<T> { fn describe(&self) -> String; }
 // → impl<T, U> Describe<T> for HashMap<T, U>
 ```
 
-### 关联类型简洁写法
-
-在 trait 泛型参数中使用 `Name=value` 语法绑定关联类型：
-
-```rust
-#[batch_impl(<T> Iter<Item=T> Vec<T> {
-    fn count(&self) -> usize { self.len() }
-})]
-trait Iter {
-    type Item;
-    fn count(&self) -> usize;
-}
-// → impl<T> Iter for Vec<T> { type Item = T; fn count(&self) -> usize { self.len() } }
-```
-
-支持多关联类型：
-
-```rust
-#[batch_impl(<T, U> Pair<First=T, Second=U> (T, U))]
-trait Pair {
-    type First;
-    type Second;
-}
-```
-
-支持泛型约束：
-
-```rust
-#[batch_impl(<T: Clone> CloneIter<Item=T> Vec<T> {
-    fn first(&self) -> T { self[0].clone() }
-})]
-trait CloneIter {
-    type Item;
-    fn first(&self) -> Self::Item;
-}
-```
-
 ### 独立/共享 body 合并
 
 列表项可有独立 body，与共享 body 合并：
 
 ```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 #[batch_impl(
     [usize { fn name() -> &'static str { "usize" } },
      isize { fn name() -> &'static str { "isize" } }]
@@ -252,48 +233,150 @@ trait Zero {
 // → impl Zero for isize { fn zero() -> Self { 0 } fn name() -> &'static str { "isize" } }
 ```
 
-纯独立 body（无共享）：
+### 关联类型简洁写法
+
+`Name=value` 语法在 trait 泛型参数中绑定关联类型：
 
 ```rust
-#[batch_impl(
-    usize { fn describe(&self) -> String { format!("usize: {}", self) } },
-    String { fn describe(&self) -> String { format!("string: {}", self) } }
-)]
-trait Describe {
-    fn describe(&self) -> String;
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(<T> Iter<Item=T> Vec<T> {
+    fn count(&self) -> usize { self.len() }
+})]
+trait Iter {
+    type Item;
+    fn count(&self) -> usize;
+}
+// → impl<T> Iter for Vec<T> { type Item = T; fn count(&self) -> usize { self.len() } }
+```
+
+支持多关联类型与泛型约束：
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(<T, U> Pair<First=T, Second=U> (T, U))]
+trait Pair {
+    type First;
+    type Second;
+}
+
+#[batch_impl(<T: Clone> CloneIter<Item=T> Vec<T> {
+    fn first(&self) -> T { self[0].clone() }
+})]
+trait CloneIter {
+    type Item;
+    fn first(&self) -> Self::Item;
 }
 ```
 
-### `^` 运算符
+### 指令系统
+
+`#` 指令在预处理阶段展开，从 trait 定义自动读取 item 签名/类型，body 不用手写签名。
+
+**`#name{body}` — 单 item 赋值**（fn / const / type 自动选择输出格式）：
 
 ```rust
-#[batch_impl([&, Box, Rc]^u32)]
-trait RefOrOwned {}
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(usize #to_str{"usize"})]
+trait ToString { fn to_str(&self) -> &str; }
+// → impl ToString for usize { fn to_str(&self) -> &str { "usize" } }
 
-#[batch_impl(HashMap^<u32, String>)]
-trait MapMarker {}
+#[batch_impl(usize #MAX_SIZE{1024})]
+trait HasConst { const MAX_SIZE: usize; }
+// → impl HasConst for usize { const MAX_SIZE: usize = 1024; }
+
+#[batch_impl(usize #Item{u32})]
+trait HasType { type Item; }
+// → impl HasType for usize { type Item = u32; }
 ```
 
-### 元组生成
+**`#fill(methods){body}` — 多方法同一 body**：
 
 ```rust
-#[batch_impl(()^4)]
-trait TupleTrait {}
-
-#[batch_impl((<Clone>)^6)]
-trait CloneTuple {}
-
-// 范围语法
-#[batch_impl(()^1..3)]
-trait RangeTuple {}
-
-#[batch_impl(()^1..=3)]
-trait RangeIncTuple {}
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(usize #fill(name, kind){"usize"})]
+trait Describable { fn name(&self) -> &str; fn kind(&self) -> &str; }
+// → 为 name 和 kind 各生成 { "usize" } body
 ```
+
+特殊标记：`#all`（所有 item）、`#all_methods`（仅 fn）、`#all_constants`（仅 const）、`#all_types`（仅 type）。
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(usize #fill(#all){"default"})]
+trait HasAll { fn method(&self) -> &str; const VALUE: &str; }
+// → fn method 与 const VALUE 各生成 { "default" } body
+```
+
+**`#delegate(methods){target}` — 委托调用**：把方法委托到 target 表达式上调用同名方法。
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+// Vec<u32> 用 #name 提供 body，Box<Vec<u32>> 委托过去
+#[batch_impl(
+    Vec<u32> #d_len{self.len()},
+    Box^Vec^u32 #delegate(d_len){**self}
+)]
+trait MyLen { fn d_len(&self) -> usize; }
+// → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
+
+// blanket impl 模式：具体类型 + 引用委托
+#[batch_impl(i32 #to_i32{*self}, <T: ToI32> &T #delegate(to_i32){**self})]
+trait ToI32 { fn to_i32(&self) -> i32; }
+// → impl<T: ToI32> ToI32 for &T { fn to_i32(&self) -> i32 { (**self).to_i32() } }
+```
+
+### 指令与 DSL 组合
+
+指令可与运算符、`{body}` 连续附着自由组合：
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(
+    usize #name{"usize"} { fn kind(&self) -> &str { "number" } }
+)]
+trait Tagged { fn name(&self) -> &str; fn kind(&self) -> &str; }
+
+#[batch_impl(<T: std::fmt::Display> Vec<T> #t10{self.len()})]
+trait Len { fn t10(&self) -> usize; }
+```
+
+**扩展机制**：不认识的 `#name` 自动转换为 `#[name[(args){body}]]` 属性，交给用户的属性宏处理。工作流程：预处理器遇到 `#my_handler(args){body}` → 不认识 `my_handler` → 生成 `#[my_handler[(args){body}]]` → DSL 解析器当普通属性节点处理 → 编译器随后调用用户的 `#[my_handler]` 属性宏。这意味着指令系统是**开放的**。
+
+### `where{...}` — where 子句
+
+`where{...}` 后缀跟在目标类型之后，内是透传的 where 谓词；多个会合并：
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(<T: Clone> Sortable<T> Vec<T> where{ T: Ord } {
+    fn sort(&self) -> Vec<T> { let mut v = self.clone(); v.sort(); v }
+})]
+trait Sortable<T> { fn sort(&self) -> Vec<T>; }
+// → impl<T: Clone> Sortable<T> for Vec<T> where T: Ord { ... }
+
+#[batch_impl(<A> <B> PairAB<A, B> (A, B) where{A: Clone} where{B: Clone} {
+    fn pair(&self) -> (A, B) { (self.0.clone(), self.1.clone()) }
+})]
+trait PairAB<A, B> { fn pair(&self) -> (A, B); }
+```
+
+也支持 Rust 风格裸写 `where 谓词 {代码块}`（三个接口通用），谓词后的 `{...}` 代码块必须存在；谓词区边界为首个 `{...}` 代码块（`ident!{...}` 宏调用体与 `<N = {5}>` 尖括号内代码块不计入），逗号谓词不会被 spec 切分：
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(<A> <B> PairAB<A, B> (A, B) where A: Clone, B: Clone {
+    fn pair(&self) -> (A, B) { (self.0.clone(), self.1.clone()) }
+})]
+trait PairAB<A, B> { fn pair(&self) -> (A, B); }
+// → impl<A, B> PairAB<A, B> for (A, B) where A: Clone, B: Clone { ... }
+```
+
+多个 `where` 段可依次书写（`where A: Clone where B: Clone`），与旧式多 `where{...}` 等价。
 
 ### fn 类型
 
 ```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 #[batch_impl(fn^(i32, u32))]
 trait FnSimple {}
 
@@ -310,40 +393,31 @@ trait FnTupleGen {}
 // → impl FnTupleGen for fn(u32, u32) {}
 ```
 
-### unsafe
+### unsafe / 指针 / 属性
 
 ```rust
-// 单个 spec 标记为 unsafe
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 #[batch_impl(unsafe^usize, isize)]
 unsafe trait UnsafePartial {}
+// unsafe trait 的所有 impl 自动 unsafe
 
-// unsafe trait 所有 impl 自动 unsafe
-#[batch_impl(usize, Box<u32>)]
-unsafe trait UnsafeAll {}
-```
-
-### 指针类型
-
-```rust
 #[batch_impl(*const^u32, *mut^i32)]
 trait PtrMarker {}
 
-// 指针链式应用
 #[batch_impl(*const^Box^u32)]
 trait ConstPtrChain {}
 // → impl ConstPtrChain for *const Box<u32> {}
-```
 
-### 属性支持
-
-```rust
 #[batch_impl(#[allow(dead_code)]^usize, isize)]
 trait AttrSimple {}
 ```
 
 ### 复杂类型透传
 
+无法识别的类型原样透传：
+
 ```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 #[batch_impl(
     (i32, String),
     &str,
@@ -354,236 +428,81 @@ trait AttrSimple {}
 trait ComplexMarker {}
 ```
 
-## 指令系统（v0.4.0）
+## 三个入口
 
-`#[batch_impl]` / `#[batch_impl_only]` 支持 `#` 指令，在预处理阶段展开，从 trait 定义自动读取 item 签名/类型。
-指令预处理错误输出 `compile_error!`（不 panic）。
+| 宏                   | 用途                                                     |
+|----------------------|----------------------------------------------------------|
+| `#[batch_impl]`      | 属性宏，在 trait 定义上标注，宏参数即 DSL                |
+| `#[batch_impl_only]` | 同上，但丢弃 trait 定义，只输出 impl 块                  |
+| `batch_trait!`       | 函数式宏，对已声明的 trait 批量生成 impl（支持多 trait） |
 
-### `#name{body}` — 单 item 赋值
+三者接受相同的 DSL 参数。
 
-`#name{body}` 中 `name` 是 trait 中的任意 item 名（方法、常量、类型），
-`build_from_item` 根据 item 类型自动选择输出格式：
+### `#[batch_impl_only]`
 
-```rust
-// fn 方法
-#[batch_impl(usize #to_str{"usize"})]
-trait ToString { fn to_str(&self) -> &str; }
-// → impl ToString for usize { fn to_str(&self) -> &str { "usize" } }
-
-// const 常量
-#[batch_impl(usize #MAX_SIZE{1024})]
-trait HasConst { const MAX_SIZE: usize; }
-// → impl HasConst for usize { const MAX_SIZE: usize = 1024; }
-
-// type 关联类型
-#[batch_impl(usize #Item{u32})]
-trait HasType { type Item; }
-// → impl HasType for usize { type Item = u32; }
-```
-
-### `#fill(methods){body}` — 多方法同一 body
-
-支持 fn、const、type 三种 item 类型：
+trait 已在别处定义、只需批量生成 impl 的场景。trait 定义仍要写出（只用来读取方法签名），输出不含 trait：
 
 ```rust
-// 手动指定名称
-#[batch_impl(usize #fill(name, kind){"usize"})]
-trait Describable { fn name(&self) -> &str; fn kind(&self) -> &str; }
-// → 为 name 和 kind 各生成 { "usize" } body
-
-// #fill(#all) 填充所有 item（fn + const + type）
-#[batch_impl(usize #fill(#all){"default"})]
-trait HasAll { fn method(&self) -> &str; const VALUE: &str; }
-```
-
-特殊标记：
-- `#all` — 所有 item（fn + const + type）
-- `#all_methods` — 仅 Fn 方法
-- `#all_constants` — 仅 const
-- `#all_types` — 仅 type
-
-### `#delegate(methods){target}` — 委托调用
-
-将 trait 方法委托到 target 表达式上调用同名方法。要求 target 类型具备同名固有方法（通常先为真实类型用 `#method` 提供 body，再为包装类型用 `#delegate` 委托）。
-
-```rust
-// Vec<u32> 用 #method 提供 body，Box<Vec<u32>> 委托过去
-#[batch_impl(
-    Vec<u32> #d_len{self.len()},
-    Box^Vec^u32 #delegate(d_len){**self}
-)]
-trait MyLen { fn d_len(&self) -> usize; }
-// → impl MyLen for Vec<u32> { fn d_len(&self) -> usize { self.len() } }
-// → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
-
-// blanket impl 模式：具体类型 + 引用委托
-#[batch_impl(i32 #to_i32{*self}, <T: ToI32> &T #delegate(to_i32){**self})]
-trait ToI32 { fn to_i32(&self) -> i32; }
-// → impl ToI32 for i32 { fn to_i32(&self) -> i32 { *self } }
-// → impl<T: ToI32> ToI32 for &T { fn to_i32(&self) -> i32 { (**self).to_i32() } }
-```
-
-`target` 中 `{**self}` 是常用委托形式，也可用 `{self.0}` 委托到元组字段。
-
-### 指令与 DSL 组合
-
-指令可以和 DSL 运算符、`{body}` 连续附着等特性自由组合：
-
-```rust
-#[batch_impl(
-    usize #name{"usize"} { fn kind(&self) -> &str { "number" } }
-)]
-trait Tagged { fn name(&self) -> &str; fn kind(&self) -> &str; }
-
-#[batch_impl(<T: std::fmt::Display> Vec<T> #t10{self.len()})]
-trait Len { fn t10(&self) -> usize; }
-```
-
-### `where{...}` — where 子句
-
-为生成的 impl 块添加 where 子句。`where{...}` 后缀跟在类型或泛型参数之后，内是透传的 where 谓词：
-
-```rust
-#[batch_impl(<T: Clone> Sortable<T> where{ T: Ord } Vec<T> {
-    fn sort(&self) -> Vec<T> { let mut v = self.clone(); v.sort(); v }
-})]
-trait Sortable<T> { fn sort(&self) -> Vec<T>; }
-// → impl<T: Clone> Sortable<T> for Vec<T> where T: Ord { ... }
-```
-
-多个 `where{...}` 会合并：
-
-```rust
-#[batch_impl(
-    <A> <B> PairAB<A, B> (A, B) where{A: Clone} where{B: Clone} { ... }
-)]
-trait PairAB<A,B>{  }
-```
-
-### 扩展指令
-
-`#fill`、`#delegate` 是内置指令。对于不认识的 `#name`，预处理器自动转换为 `#[name[(args){body}]]` 属性——用户的自定义属性宏可以接收并处理它。
-
-```rust
-// 用户定义自己的属性宏（在另一个 crate 里）
-#[proc_macro_attribute]
-pub fn my_handler(attr: TokenStream, item: TokenStream) -> TokenStream {
-    // attr = [args1 args2]，item = trait 定义
-    // 读取 trait 方法签名，生成 DSL tokens 返回
-}
-
-// 在 batch_impl 中使用
-#[batch_impl(usize #my_handler(args1){body})]
-trait MyTrait { fn my_method(&self) -> i32; }
-```
-
-扩展机制的工作流程：
-
-1. 预处理器遇到 `#my_handler(args){body}`
-2. 不认识 `my_handler` → 生成 `#[my_handler[(args){body}]]trait_def`
-3. DSL 解析器把它当普通属性节点处理
-4. 编译器在 batch-impl 宏展开后调用用户的 `#[my_handler]` 属性宏
-
-这意味着 batch-impl 的指令系统是**开放的**：任何符合 `#name(...){...}`/`#name[...]{...}` 语法的指令都会被预处理器捕获，不认识的名字自动委托给 Rust 的属性宏系统。
-
-## `#[batch_impl_only]`
-
-与 `#[batch_impl]` 语法完全相同，但丢弃 trait 定义本身，只输出 `impl` 块。
-用于 trait 已在别处定义、只需批量生成 impl 的场景。
-
-```rust
-trait Greet { fn hello(&self) -> &str; }
-
-// trait 定义只用来读取方法签名，宏输出不含 trait 本身
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+# trait Greet { fn hello(&self) -> &str; } // 真实 trait 在别处定义
 #[batch_impl_only(usize #hello{"hi"})]
-trait Greet { fn hello(&self) -> &str; }
+trait Greet { fn hello(&self) -> &str; } // 此 dummy 定义被丢弃
 // → impl Greet for usize { fn hello(&self) -> &str { "hi" } }
 ```
 
-支持 `#path::to::Trait:` 路径前缀，为外部模块中定义的 trait 生成 impl：
+支持 `#path::to::Trait:` 路径前缀，为外部模块中定义的 trait 生成 impl（路径末尾标识符必须与本地 dummy trait 名一致；`#[batch_impl]` 不支持此前缀）：
 
-```rust
-#[batch_impl_only(#ext::mod::TraitName: usize, isize)]
-trait TraitName {  }
+```ignore
+// 路径前缀需要真实的外部模块上下文：doctest 的 fn main 内无法定义 pub 模块，
+// 故此处仅示意语法（`mod` 是关键字不能作路径段，实际应为合法模块名）。
+// 该特性的编译行为由 tests/regression.rs 中的路径 trait 用例覆盖。
+#[batch_impl_only(#ext::traits::TraitName: usize, isize)]
+trait TraitName { }
 ```
 
-路径末尾标识符必须与本地 dummy trait 名一致。`#[batch_impl]` 不支持此前缀。
+### `batch_trait!`
 
-## `batch_trait!` 宏
-
-对已声明的 trait 批量生成 impl。
+对已声明的 trait 批量生成 impl，`;` 分隔多个 trait 段。语法：`[unsafe] Trait路径: impl-specs`，接受与 `#[batch_impl]` 完全相同的 DSL 语法（`:` 右侧），额外支持多 trait 段、路径 trait（如 `foo::C`，见 tests/regression.rs）、unsafe 段：
 
 ```rust
 use batch_impl::batch_trait;
 
 trait A {}
 trait B<T> {}
-mod foo { pub trait C {} }
+unsafe trait UnsafeTrait {}
 
 batch_trait!(
     A: usize, isize;
     B: <T> B<T> Vec<T>;
-    foo::C: u32;
     unsafe UnsafeTrait: usize
 );
 ```
 
-语法：`[unsafe] Trait路径: impl-specs`，`;` 分隔多个 trait 段。
-
-`batch_trait!` 接受与 `#[batch_impl]` 完全相同的 DSL 语法（`:` 右侧），额外支持：
-
-- **多 trait**：以 `;` 分隔，每段可指定不同的 trait 路径
-- **路径 trait**：支持 `mod::TraitName` 形式
-- **unsafe 段**：`unsafe` 前缀标记该段所有 impl 为 unsafe impl
-
-## 设计决策
-
-### 歧义处理
-
-- **`[]`**：有逗号是并列列表，无逗号是切片类型（如 `Box^[u32]` → `Box<[u32]>`）
-- **`()`**：`()` = 空元组，`(A,)` = 单元素元组，`(A)` = 分组
-- **`()^0`**：生成空元组 `()`，即 `impl Trait for ()`
-- **`[T; N]`**：`[]` 内的 `;` 通过 DSL 的 `Semi` 优先级层级识别为定长数组分隔符
-
 ## 错误提示
 
-宏对常见错误给出中文提示并指向源码位置（`compile_error!`）：
+所有 DSL 语法错误通过 `compile_error!()` 输出中文提示并指向源码位置，永不 panic：
 
 | 错误输入               | 错误信息                                               |
 |------------------------|--------------------------------------------------------|
 | `batch_trait!(;)`      | `batch_trait! 中期望 trait 名称`                       |
 | `batch_trait!(A)`      | `batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs` |
 | `batch_trait!(A: B::)` | `batch_trait! 中期望标识符作为 trait 名称`             |
-
-## 优先级
-
-运算符优先级从高到低：
-
-1. **`^`**（右结合）- 最高优先级
-2. **`-`**（左结合）- 中等优先级
-3. **`,`**（分隔符）- 最低优先级
-
-示例：
-- `A^B-C,D` = `(A^B)-C,D` = `(A<B>)-C,D` = `A<B,C>,D`
-- `[A,B]^[C,D]-E` = `([A,B]^[C,D])-E` = `[A<C>,A<D>,B<C>,B<D>]-E`
-- `HashMap^K-V` = `(HashMap^K)-V` = `HashMap<K>-V` = `HashMap<K, V>`
-- `fn^(A,B)-C` = `(fn^(A,B))-C` = `fn(A,B)->C`
-
-> **注意**：`Box^Vec-u32` 是错误写法（会被解释为Box<Vec,u32>），应写为 `Box^Vec^u32`。
+| 裸 `where` 缺代码块     | `batch-impl: \`where\` 谓词后缺少代码块 {...}`          |
 
 ## 内部架构
 
-```
+```text
 lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only] / batch_trait!）
   ├── preprocess.rs      指令预处理：#name 指令展开（内置 + 自定义属性委托）
+  ├── where_process.rs   裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`（预处理后、解析前，三接口共用）
   ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / collect_call_args
   ├── parse.rs           DSL 解析器：Cursor 游标 + 优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
   ├── parse_atom.rs      原子层解析：属性 / fn / 分组 / 前缀 / 范围
-   ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents
-  ├── types.rs           AST 节点（Ty 枚举 + 21 个变体，含 Error）+ Op 优先级定义
+  ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents
+  ├── types.rs           AST 节点（Ty 枚举 19 个变体，含 Error）+ Op 优先级定义；前缀/后缀包装内层用 Option<Box<Ty>> 表示裸状态
   ├── types_render.rs    AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply.rs           运算符语义：Apply trait + 核心 apply() 折叠规则（^ 右结合 / 数组分发）
-  ├── apply_tuple.rs     元组与容器运算符：TyTuple / TyGroup / TyFn / TyCodeBlock / TyAttr 等的 Apply impl + 元组展开（^N / 笛卡尔积 / 范围）
+  ├── apply_tuple.rs     元组与容器运算符：TyTuple / TyGroup / TyFn / TyWithPrefix 等的 Apply impl + 元组展开（^N / 笛卡尔积 / 范围）
   ├── scan.rs            扫描与游标：Cursor<'a> + scan_with + ScanMode::Lossy / Strict
   ├── batch_trait_entry.rs  共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
   ├── path_prefix.rs     外部 trait 路径前缀：#Path::to::Trait: 状态机解析
@@ -591,7 +510,7 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
   └── diagnostic.rs      统一 compile_error_str(msg) 用于编译期诊断
 ```
 
-解析流程：**token 流 → 指令预处理 → Cursor 扫描取切片 → parse_item 优先级攀爬 → Ty AST → BFS 展开并列列表 → 逐叶子 generate_impl**
+解析流程：**token 流 → 指令预处理 → where 裸写改写 → Cursor 扫描取切片 → parse_item 优先级攀爬 → Ty AST → BFS 展开并列列表 → 逐叶子 generate_impl**
 
 ### 错误处理
 
@@ -604,9 +523,9 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
 | 目录        | 文件            | 用途                                                                                                                                            |
 |-------------|-----------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                            |
-| `tests/`    | `dsl.rs`        | 23 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀）                                                                          |
+| `tests/`    | `dsl.rs`        | 27 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀）                                                                          |
 | `tests/`    | `regression.rs` | 16 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：8 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                              |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：9 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                              |
 
 运行：
 
