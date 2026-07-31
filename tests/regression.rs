@@ -61,7 +61,7 @@ fn const_generic_array() {
 //    验证 DSL 不被 `<T : Clone , const N : usize>` 中的空格 / 逗号干扰
 #[batch_impl(<T: Clone, const N: usize> MixedGeneric<T, N> [T; N] {
     fn repeat_inner(&self) -> Vec<T> {
-        std::iter::repeat(self[0].clone()).take(N).collect()
+        std::iter::repeat_n(self[0].clone(), N).collect()
     }
 })]
 trait MixedGeneric<T, const N: usize> {
@@ -421,4 +421,60 @@ trait PathPrefixGen<T> {
 fn cmp_path_prefix_trait_generic() {
     assert_eq!(vec![1i32].head(), 1);
     assert_eq!(vec![String::from("x")].head(), "x");
+}
+
+// ============================================================
+// 19. 数组/切片 builder：`TyPrimitiveArray` 合并 TySlice + TyFixedArray
+//     - `[]^T` => `[T]`（空基座包出切片）
+//     - `[T]^N` => `[T; N]`（数字字面量 / const 泛型 / 范围 / 列表）
+//     - `<const N> []-X-N` => `[X; N]`：整矩阵包进 const 泛型数组
+//     - `()^N` 的 fresh 泛型元组作为泛型实参/数组元素时自动外提
+// ============================================================
+#[batch_impl([]^u8)]
+trait ArrSlice {}
+
+#[batch_impl([u8]^3)]
+trait ArrLit {}
+
+#[batch_impl(<const N: usize> [u8]^N)]
+trait ArrConst {}
+
+#[batch_impl([u8]^1..3)]
+trait ArrRange {}
+
+#[batch_impl([u8]^[1, 2, 4])]
+trait ArrList {}
+
+#[batch_impl(<const N: usize> []-[&, self, Box]^[u8, i8, ()^0..3]-N)]
+trait ArrMatrix {}
+
+#[batch_impl(Box^()^0..3)]
+trait ArrTupleGeneric {}
+
+#[test]
+fn primitive_array_rules() {
+    fn s<T: ArrSlice + ?Sized>(_: &T) {}
+    fn l<T: ArrLit>(_: &T) {}
+    fn c<T: ArrConst>(_: &T) {}
+    fn r<T: ArrRange>(_: &T) {}
+    fn ls<T: ArrList>(_: &T) {}
+    fn m<T: ArrMatrix>(_: &T) {}
+    fn tg<T: ArrTupleGeneric>(_: &T) {}
+
+    s(&[1u8, 2][..]);
+    l(&[0u8; 3]);
+    c(&[0u8; 7]);
+    r(&[0u8; 1]);
+    r(&[0u8; 2]);
+    ls(&[0u8; 1]);
+    ls(&[0u8; 4]);
+    m(&[&5u8; 2]);
+    m(&[5i8; 2]);
+    m(&[(); 2]);
+    m(&[(1u8, 2i8); 2]);
+    let bx: [Box<u8>; 2] = [Box::new(1), Box::new(2)];
+    m(&bx);
+    tg(&Box::new(()));
+    tg(&Box::new((1u8,)));
+    tg(&Box::new((1u8, 2u16)));
 }

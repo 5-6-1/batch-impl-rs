@@ -118,6 +118,61 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
     }
 }
 
+/// 递归外提类型中嵌套的 `WithType` 泛型声明（如 `()^N` 的 fresh 泛型元组）。
+///
+/// 收集 `WithType(<A>, T)` 的参数到 `out`（供 impl 泛型），并把该节点替换为其内层
+/// `T`。需要递归到所有容器（Array / Tuple / Group / PrimitiveArray / Generic /
+/// WithPrefix / WithTrait / WithCode / WithWhere / WithAttr / Fn）。
+fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
+    match ty {
+        Ty::WithType(wt) => {
+            out.extend(wt.0.params);
+            hoist_type_params(*wt.1, out)
+        }
+        Ty::Array(a) => Ty::Array(TyArray(
+            a.0.into_iter().map(|e| hoist_type_params(e, out)).collect(),
+        )),
+        Ty::Tuple(t) => Ty::Tuple(TyTuple(
+            t.0.into_iter().map(|e| hoist_type_params(e, out)).collect(),
+        )),
+        Ty::Group(g) => Ty::Group(TyGroup(Box::new(hoist_type_params(*g.0, out)))),
+        Ty::PrimitiveArray(pa) => Ty::PrimitiveArray(TyPrimitiveArray(
+            pa.0.map(|e| Box::new(hoist_type_params(*e, out))),
+            pa.1,
+        )),
+        Ty::Generic(g) => {
+            let base = hoist_type_params(*g.0, out);
+            Ty::Generic(TyGeneric(Box::new(base), g.1))
+        }
+        Ty::WithPrefix(wp) => Ty::WithPrefix(TyWithPrefix(
+            wp.0,
+            wp.1.map(|e| Box::new(hoist_type_params(*e, out))),
+        )),
+        Ty::WithTrait(wt) => {
+            Ty::WithTrait(TyWithTrait(wt.0, Box::new(hoist_type_params(*wt.1, out))))
+        }
+        Ty::WithCode(wc) => Ty::WithCode(TyWithCode(
+            wc.0.map(|e| Box::new(hoist_type_params(*e, out))),
+            wc.1,
+        )),
+        Ty::WithWhere(ww) => Ty::WithWhere(TyWithWhere(
+            ww.0.map(|e| Box::new(hoist_type_params(*e, out))),
+            ww.1,
+        )),
+        Ty::WithAttr(wa) => Ty::WithAttr(TyWithAttr(
+            wa.0,
+            wa.1.map(|e| Box::new(hoist_type_params(*e, out))),
+        )),
+        Ty::Fn(f) => Ty::Fn(TyFn(
+            f.0.map(|params| {
+                params.into_iter().map(|p| hoist_type_params(p, out)).collect()
+            }),
+            f.1.map(|r| Box::new(hoist_type_params(*r, out))),
+        )),
+        other => other,
+    }
+}
+
 /// 生成一个 impl 块：拆解元数据 → 构建泛型参数 / trait 泛型 / impl body → 输出 `quote!` 块
 pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
@@ -125,7 +180,13 @@ pub(crate) fn generate_impl(
     if let Ty::Error(e) = ty {
         return e.0;
     }
-    let parts = extract_impl_parts(ty);
+    let mut parts = extract_impl_parts(ty);
+
+    // 递归外提目标类型中嵌套的 `WithType`（来自 `()^N` 的 fresh 泛型）：
+    // 参数并入 impl 泛型，`WithType(<A>, T)` 替换为 `T`，避免 `<A>` 泄漏在类型中间。
+    let mut nested_params = vec![];
+    parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
+    parts.impl_generics.extend(nested_params);
 
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };

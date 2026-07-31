@@ -6,7 +6,7 @@ use crate::types::*;
 
 /// `N..M` / `N..=M`：对范围内的每个长度 n 调用 f，结果打包为并列列表
 pub(crate) fn map_range(
-    start: u8, end: u8, inclusive: bool, f: impl Fn(u8) -> Ty,
+    start: usize, end: usize, inclusive: bool, f: impl Fn(usize) -> Ty,
 ) -> Ty {
     let ns: Vec<_> =
         if inclusive { (start..=end).collect() } else { (start..end).collect() };
@@ -14,7 +14,7 @@ pub(crate) fn map_range(
 }
 
 /// `(...,)^N`：元组按长度 N 展开（空元组、单元素、多元素分别处理）
-fn tuple_pow(mut elems: Vec<Ty>, n: u8) -> Ty {
+fn tuple_pow(mut elems: Vec<Ty>, n: usize) -> Ty {
     match elems.len() {
         0 => pow_empty(n),
         // len == 1 由 match 保证，remove(0) 越界分支不可达
@@ -24,7 +24,7 @@ fn tuple_pow(mut elems: Vec<Ty>, n: u8) -> Ty {
 }
 
 /// `()^N` => `<A,B,...,N>(A,B,...,N)` — 生成 N 个新泛型参数并包装
-fn pow_empty(n: u8) -> Ty {
+fn pow_empty(n: usize) -> Ty {
     if n == 0 {
         return TyTuple(vec![]).into();
     }
@@ -38,7 +38,7 @@ fn pow_empty(n: u8) -> Ty {
 }
 
 /// `(T,)^N` => `(T,T,...,T)`；`(<Bound>)^N` => `(A:Bound, B:Bound, ...)`
-fn pow_single(template: Ty, n: u8) -> Ty {
+fn pow_single(template: Ty, n: usize) -> Ty {
     if let Ty::TypeParam(tp) = template {
         // 来自 `(<Bound>)^N`：TypeParam 必定恰好一个无 bound 参数（由 parse_angle_bracket_contents 保证）
         if tp.params.len() != 1 || tp.params[0].1.is_some() {
@@ -63,7 +63,7 @@ fn pow_single(template: Ty, n: u8) -> Ty {
 }
 
 /// `(A,B,..)^N`：N 位笛卡尔积，每位从所有元素中选一个
-fn pow_cartesian(elems: Vec<Ty>, n: u8) -> Ty {
+fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
     let mut combos = vec![vec![]];
     for _ in 0..n {
         let mut next = vec![];
@@ -109,7 +109,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     merged.apply(tuple)
 }
 
-fn fresh_params(n: u8) -> Vec<Ty> {
+fn fresh_params(n: usize) -> Vec<Ty> {
     (0..n).map(|_| TyPrimitive(fresh_param()).into()).collect()
 }
 
@@ -205,16 +205,19 @@ impl Apply for TyRange {
         ))
     }
 }
-impl Apply for TySlice {
-    /// 切片类型不能作为左侧操作数
-    fn apply(self, _: Ty) -> Ty {
-        err_ty("batch-impl: 切片类型 `[T]` 不能作为左侧操作数")
-    }
-}
-impl Apply for TyFixedArray {
-    /// 固定数组类型不能作为左侧操作数
-    fn apply(self, _: Ty) -> Ty {
-        err_ty("batch-impl: 固定数组类型 `[T; N]` 不能作为左侧操作数")
+impl Apply for TyPrimitiveArray {
+    /// `[]^T` => `[T]`（空基座包出切片）；`[T]^N` => `[T; N]`（定长数组）
+    ///
+    /// 长度右侧可以是数字字面量（`[u8]^3`）、const 泛型参数（`[u8]^N`）或
+    /// 列表/范围（经顶层右操作数分发逐项展开）。已完成的数组再应用报错。
+    fn apply(self, o: Ty) -> Ty {
+        match (self.0, self.1) {
+            (None, None) => TyPrimitiveArray(Some(o.into()), None).into(),
+            (Some(elem), None) => {
+                TyPrimitiveArray(Some(elem), Some(o.to_token_stream())).into()
+            }
+            _ => err_ty("batch-impl: 定长数组 `[T; N]` 不能作为左侧操作数"),
+        }
     }
 }
 impl Apply for TyWithTrait {

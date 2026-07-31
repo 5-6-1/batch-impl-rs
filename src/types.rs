@@ -13,11 +13,11 @@ pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
 /// `(...)`
 pub(crate) struct TyGroup(pub(crate) Box<Ty>);
 #[derive(Clone, Debug)]
-/// `[...]`
-pub(crate) struct TySlice(pub(crate) Box<Ty>);
-#[derive(Clone, Debug)]
-/// `[...;...]`
-pub(crate) struct TyFixedArray(pub(crate) Box<Ty>, pub(crate) TokenStream);
+/// `[]`（种子）/ `[T]`（切片）/ `[T; N]`（定长数组）— 元素 `None` 表示空 `[]`，长度 `None` 表示切片
+pub(crate) struct TyPrimitiveArray(
+    pub(crate) Option<Box<Ty>>,
+    pub(crate) Option<TokenStream>,
+);
 #[derive(Clone, Debug)]
 /// `ident`
 pub(crate) struct TyPrimitive(pub(crate) TokenStream);
@@ -88,12 +88,12 @@ pub(crate) struct TyAttr(pub(crate) TokenStream);
 pub(crate) struct TyWithAttr(pub(crate) TyAttr, pub(crate) Option<Box<Ty>>);
 #[derive(Copy, Clone, Debug)]
 /// `N`
-pub(crate) struct TyNum(pub(crate) u8);
+pub(crate) struct TyNum(pub(crate) usize);
 #[derive(Copy, Clone, Debug)]
 /// `N..M` `N..=M`
 pub(crate) struct TyRange {
-    pub(crate) start: u8,
-    pub(crate) end: u8,
+    pub(crate) start: usize,
+    pub(crate) end: usize,
     pub(crate) inclusive: bool,
 }
 #[derive(Clone, Debug)]
@@ -118,7 +118,7 @@ pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 /// 节点分三类：
 /// - **叶子**（Primitive / Num / Range）：不可再展开的原子
 /// - **包装**（WithType / WithTrait / WithPrefix / WithCode / WithWhere / WithAttr / Fn）：携带元数据，在 codegen 阶段被拆解
-/// - **容器**（Array / Tuple / Group / Slice / FixedArray）：可展开为多个叶子的集合
+/// - **容器**（Array / Tuple / Group / PrimitiveArray）：可展开为多个叶子的集合
 ///
 /// 前缀/后缀类包装（WithPrefix / WithCode / WithAttr / WithWhere / Fn）的内层用
 /// `Option<Box<Ty>>` 表示"暂未附着类型"的裸状态，避免枚举中再存半成品变体。
@@ -127,8 +127,7 @@ pub(crate) enum Ty {
     Array(TyArray),
     Tuple(TyTuple),
     Group(TyGroup),
-    Slice(TySlice),
-    FixedArray(TyFixedArray),
+    PrimitiveArray(TyPrimitiveArray),
     Primitive(TyPrimitive),
     Generic(TyGeneric),
     Trait(TyTrait),
@@ -171,6 +170,22 @@ impl Ty {
                 },
                 None => Err(Ty::WithWhere(ww)),
             },
+            // `WithType`/`WithTrait` 透明透传：`<T> [A, B]` 展开为 `<T>A, <T>B`，
+            // 使 `[]-X-N` 等链式应用的数组保持可逐项展开（泛型声明不重复进单个 impl）。
+            Ty::WithType(wt) => match wt.1.expand() {
+                Ok(expanded) => Ok(expanded
+                    .into_iter()
+                    .map(|e| TyWithType(wt.0.clone(), e.into()).into())
+                    .collect()),
+                Err(leaf) => Err(TyWithType(wt.0, leaf.into()).into()),
+            },
+            Ty::WithTrait(wt) => match wt.1.expand() {
+                Ok(expanded) => Ok(expanded
+                    .into_iter()
+                    .map(|e| TyWithTrait(wt.0.clone(), e.into()).into())
+                    .collect()),
+                Err(leaf) => Err(TyWithTrait(wt.0, leaf.into()).into()),
+            },
             Ty::Group(g) => (*g.0).expand(),
             other => Err(other),
         }
@@ -198,8 +213,7 @@ impl_from_for_ty! {
     TyArray => Array,
     TyTuple => Tuple,
     TyGroup => Group,
-    TySlice => Slice,
-    TyFixedArray => FixedArray,
+    TyPrimitiveArray => PrimitiveArray,
     TyPrimitive => Primitive,
     TyGeneric => Generic,
     TyTrait => Trait,

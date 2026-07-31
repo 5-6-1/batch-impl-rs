@@ -99,7 +99,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     {
         return None;
     }
-    let start = start.to_string().parse::<u8>().ok()?;
+    let start = start.to_string().parse::<usize>().ok()?;
     let (inclusive, end) = match rest {
         [TokenTree::Literal(end)] => (false, end),
         [TokenTree::Punct(eq), TokenTree::Literal(end)]
@@ -109,11 +109,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
         }
         _ => return None,
     };
-    Some(Ty::Range(TyRange {
-        start,
-        end: end.to_string().parse().ok()?,
-        inclusive,
-    }))
+    Some(TyRange { start, end: end.to_string().parse().ok()?, inclusive }.into())
 }
 
 /// 分组解析：`(A,B)` 元组 / `(A)` 分组 / `[A,B]` 列表 / `[A; N]` 定长数组 / `[A]` 切片 / `{...}` 代码块
@@ -134,19 +130,23 @@ pub(crate) fn parse_group(
             }
         }
         Delimiter::Bracket => {
-            // 有逗号是并列列表；否则以 `;`（Op::Semi）区分定长数组与切片
+            // 有逗号是并列列表；否则以 `;`（Op::Semi）区分定长数组与切片。
+            // 空 `[]` 是数组/切片 builder 基座 `(None, None)`。
             if contains_punct(&contents, ',') {
                 Ty::Array(TyArray(parse_list(&contents, Op::Comma, trait_name)))
+            } else if contents.is_empty() {
+                TyPrimitiveArray(None, None).into()
             } else {
                 let mut cursor = Cursor::new(&contents);
                 let element = parse_item(&mut cursor, Op::Semi, trait_name)
                     .unwrap_or_else(empty);
                 if cursor.is_punct(';') {
                     cursor.bump();
-                    let length = cursor.take_rest().iter().cloned().collect();
-                    TyFixedArray(element.into(), length).into()
+                    let length: TokenStream =
+                        cursor.take_rest().iter().cloned().collect();
+                    TyPrimitiveArray(Some(element.into()), Some(length)).into()
                 } else {
-                    TySlice(element.into()).into()
+                    TyPrimitiveArray(Some(element.into()), None).into()
                 }
             }
         }

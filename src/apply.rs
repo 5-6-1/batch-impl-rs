@@ -48,6 +48,10 @@ impl Apply for Ty {
                 }
                 None => TyWithWhere(Some(self.into()), ww.1).into(),
             },
+            // 右操作数为 `WithType`（如 `()^N` 的 fresh 泛型元组）时，
+            // 把泛型声明外提到外层：`T^<A>X` => `<A>(T^X)`，
+            // 避免 `T<<A>X>` 在类型中泄漏泛型声明。
+            Ty::WithType(wt) => TyWithType(wt.0, self.apply(*wt.1).into()).into(),
             Ty::Error(e) => e.into(),
             Ty::Range(TyRange { start, end, inclusive }) => {
                 map_range(start, end, inclusive, |n| {
@@ -71,8 +75,7 @@ impl Apply for Ty {
                 Ty::TypeParam(t) => t.apply(o),
                 Ty::Num(n) => n.apply(o),
                 Ty::Range(r) => r.apply(o),
-                Ty::Slice(s) => s.apply(o),
-                Ty::FixedArray(f) => f.apply(o),
+                Ty::PrimitiveArray(pa) => pa.apply(o),
                 Ty::Error(e) => e.into(),
             },
         }

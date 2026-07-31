@@ -55,15 +55,18 @@ impl ToTokens for Ty {
                 let inner = g.0.to_token_stream();
                 quote!((#inner))
             }
-            Ty::Slice(s) => {
-                let inner = s.0.to_token_stream();
-                quote!([#inner])
-            }
-            Ty::FixedArray(f) => {
-                let inner = f.0.to_token_stream();
-                let size = &f.1;
-                quote!([#inner; #size])
-            }
+            Ty::PrimitiveArray(pa) => match (&pa.0, &pa.1) {
+                (Some(elem), None) => {
+                    let inner = elem.to_token_stream();
+                    quote!([#inner])
+                }
+                (Some(elem), Some(size)) => {
+                    let inner = elem.to_token_stream();
+                    quote!([#inner; #size])
+                }
+                // 空基座 `[]` 不是有效类型，防御性渲染
+                (None, _) => quote!([]),
+            },
             Ty::WithPrefix(wp) => match &wp.1 {
                 Some(inner) => {
                     let prefix = prefix_token(wp.0);
