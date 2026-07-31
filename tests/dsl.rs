@@ -121,6 +121,9 @@ fn assoc_type_binding() {
 // ============================================================
 // 8. unsafe impl：unsafe 前 TRAIT 全 unsafe
 // ============================================================
+/// # Safety
+///
+/// 测试用标记 trait，无实际 unsafe 语义。
 #[batch_impl(usize, Box<u32>)]
 unsafe trait UnsafeAll {}
 
@@ -134,6 +137,9 @@ fn unsafe_trait_impls() {
 // ============================================================
 // 9. 局部 unsafe
 // ============================================================
+/// # Safety
+///
+/// 测试用标记 trait，无实际 unsafe 语义。
 #[batch_impl(unsafe^usize, isize)]
 unsafe trait PartialUnsafe {}
 
@@ -284,6 +290,9 @@ batch_trait!(
     unsafe YieldUnsafe: u32
 );
 
+/// # Safety
+///
+/// 测试用标记 trait，无实际 unsafe 语义。
 #[allow(dead_code)] // 通过 batch_trait! 引用，编译器看不到 impl
 unsafe trait YieldUnsafe {}
 

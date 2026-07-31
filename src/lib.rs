@@ -1,4 +1,12 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
+// 库不使用任何 unsafe；缺失文档按错误拒绝（仅作用于 pub 项，内部 pub(crate) 不受限）。
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+// MSVC 链接器输出"正在创建库…和对象…"到 stdout，被 rustc 当 linker_messages 告警，
+// 属于无害的 Windows 链接产物提示，全局抑制。
+#![allow(linker_messages)]
+#[cfg(test)]
+mod fuzz;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
 use syn::{ItemTrait, parse_macro_input};

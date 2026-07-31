@@ -129,6 +129,8 @@ DSL 通过四级优先级解析（从低到高）：
 | `()`           | 空元组前缀                                        |
 | `(<bound>)`    | 带 trait bound 的泛型元组前缀                     |
 | `[A, B]`       | 多修饰符（笛卡尔积展开）                          |
+| `[T]`          | 切片（`[T]^N` 填长度成定长数组）                  |
+| `[]`           | 空基座（`[]^T` 包出切片，`[]-T-N` 造定长数组）    |
 
 | 写法                     | 展开                              |
 |--------------------------|-----------------------------------|
@@ -149,6 +151,10 @@ DSL 通过四级优先级解析（从低到高）：
 | `*const^Vec^T`           | `*const Vec<T>`                   |
 | `fn^(A,B)`               | `fn(A,B)`（函数类型）             |
 | `#[attr]^T`              | 在 impl 块前添加属性              |
+| `[]^T`                   | `[T]`（空基座包出切片）           |
+| `[T]^N`                  | `[T; N]`（定长数组，N 可为数字/const 泛型） |
+| `[T]^1..3`               | `[T; 1], [T; 2]`（范围批量）      |
+| `[T]^[1, 2, 4]`          | `[T; 1], [T; 2], [T; 4]`（指定长度） |
 
 ### `-` 运算符
 
@@ -160,6 +166,21 @@ DSL 通过四级优先级解析（从低到高）：
 | `HashMap-u32-String` | `HashMap<u32, String>`（左结合，参数累加）     |
 | `()-[A, B]`          | `(A,), (B,)`                                   |
 | `()-[A, B]-[C, D]`   | `(A, C), (A, D), (B, C), (B, D)`               |
+| `[]-T-N`             | `[T; N]`（空基座 + 元素 + 长度 = 定长数组）     |
+
+`[]` 作为 `-` 累加链的基座，可把整个类型矩阵包进 const 泛型定长数组：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(
+    <const N: usize> []-[&, self, Box]^[u8, i8, ()^0..3]-N
+)]
+trait FixedMatrix {}
+// → impl<const N: usize> FixedMatrix for [&u8; N]   { }
+// → impl<const N: usize> FixedMatrix for [Box<i8>; N] { }
+// → impl<const N: usize, A> FixedMatrix for [(A,); N] { }  // 元组 fresh 泛型自动外提
+// → ...
+```
 
 ### 元组生成
 
@@ -179,7 +200,8 @@ DSL 通过四级优先级解析（从低到高）：
 
 ### 歧义处理
 
-- **`[]`**：有逗号是并列列表，无逗号是切片类型（如 `Box^[u32]` → `Box<[u32]>`）
+- **`[]`**：有逗号是并列列表，无逗号是切片类型（如 `Box^[u32]` → `Box<[u32]>`）；空 `[]` 是数组/切片 builder 基座（`[]^T` → `[T]`，`[]-T-N` → `[T; N]`）
+- **`[T]^N`**：切片填长度成定长数组（`[u8]^3` → `[u8; 3]`，`<const N: usize> [u8]^N` → `[u8; N]`）；`N` 仅限数字字面量、const 泛型标识符或列表/范围
 - **`()`**：`()` = 空元组，`(A,)` = 单元素元组，`(A)` = 分组
 - **`()^0`**：生成空元组 `()`，即 `impl Trait for ()`
 - **`[T; N]`**：`[]` 内的 `;` 通过 DSL 的 `Semi` 优先级层级识别为定长数组分隔符
@@ -518,19 +540,21 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
 
 ### 测试
 
-测试矩阵分三层：
+测试矩阵分四层：
 
-| 目录        | 文件            | 用途                                                                                                                                            |
-|-------------|-----------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
-| `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                            |
-| `tests/`    | `dsl.rs`        | 27 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀）                                                                          |
-| `tests/`    | `regression.rs` | 16 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：9 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                              |
+| 目录            | 文件             | 用途                                                                                                                                     |
+|-----------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `examples/`     | `quickstart.rs`  | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                      |
+| `src/`          | `fuzz.rs`        | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                       |
+| `tests/`        | `dsl.rs`         | 27 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界）                                                       |
+| `tests/`        | `regression.rs`  | 22 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
+| `tests/`        | `ui.rs`          | `trybuild` UI 测试：10 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                      |
 
 运行：
 
 ```bash
 cargo run --example quickstart       # 主特性 demo
+cargo test --lib                     # 单元测试 + fuzz
 cargo test --test dsl --test regression   # 功能与回归测试
 cargo test --test ui                  # 诊断 UI 测试
 # 重新生成 UI 快照：

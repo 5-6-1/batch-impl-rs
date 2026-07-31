@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.5.2 (2026-08-01)
+
+### 解析器 fuzz 验证
+
+新增 `src/fuzz.rs`（proptest，`cargo test --lib`）：用随机 token 序列
+（覆盖 DSL 关键字、`^`/`-`/`,`/`;`/`::` 等运算符、括号嵌套深度 3）喂给最危险的
+两个入口 `where_process` 与 `parse_item`，断言任意输入均不 panic —— 为
+"不因用户输入 panic"的承诺提供属性测试背书。
+
+### 发布卫生
+
+- `#![forbid(unsafe_code)]`：库零 unsafe 变为硬约束
+- `#![deny(missing_docs)]`：强制 `pub` 项文档（内部 `pub(crate)` 不受限）
+- 修复 Windows MSVC 下无害的 `linker_messages` 告警（链接器 stdout 提示被 rustc 误报）
+
+### CI 与文档
+
+- 新增 GitHub Actions CI：`fmt --check` + `clippy --all-targets -- -D warnings` +
+  `cargo test` + `cargo doc`，stable 与 MSRV（1.93.0）双工具链
+- README 测试矩阵更新：新增 fuzz 层，regression 22、ui 10 个 `compile_fail`
+
+### 数组/切片 builder（`TyPrimitiveArray`）
+
+合并 `TySlice` 与 `TyFixedArray` 为 `TyPrimitiveArray(Option<Box<Ty>>, Option<TokenStream>)`，
+`[]`（空基座）/ `[T]`（切片）/ `[T; N]`（定长数组）三种状态用 Option 表示：
+
+- `[]^T` => `[T]`（空基座包出切片）
+- `[T]^N` => `[T; N]`（定长数组；`N` 可为数字字面量、const 泛型标识符、范围或列表）
+- `<const N: usize> []-X-N` => `[X; N]`：`[]` 作 `-` 累加链基座，把整个类型矩阵
+  包进 const 泛型定长数组（如 `[]-[&, self, Box]^[u8, i8, ()^0..3]-N`）
+- `()^N` 的 fresh 泛型元组作为泛型实参/数组元素时自动外提（`T^<A>X` => `<A>(T^X)`，
+  嵌套 `WithType` 参数并入 impl 泛型），修复 `Box^()^N` 与矩阵嵌入的既有 bug
+- `TyNum` / `TyRange` 由 `u8` 改为 `usize`（数组长度可更大）
+- 测试：`tests/regression.rs` 新增第 19 节（`primitive_array_rules`）
+
 ## 0.5.1 (2026-07-31)
 
 ### 原生 `where{...}` 后缀
