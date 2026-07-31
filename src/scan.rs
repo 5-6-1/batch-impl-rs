@@ -41,6 +41,17 @@ impl<'a> Cursor<'a> {
         matches!(self.tokens.get(self.pos), Some(t) if is_punct(t, ch))
     }
 
+    /// 当前位置的前一个 token 是否为指定标点（用于识别 `ident!` 宏调用体）
+    pub(crate) fn prev_is_punct(&self, ch: char) -> bool {
+        self.pos > 0
+            && matches!(self.tokens.get(self.pos - 1), Some(t) if is_punct(t, ch))
+    }
+
+    /// 当前位置的 `:` 是否为独立单冒号（非 `::` 的组成部分）
+    pub(crate) fn is_single_colon(&self) -> bool {
+        is_single_colon(self.tokens, self.pos)
+    }
+
     pub(crate) fn bump(&mut self) {
         self.pos += 1;
     }
@@ -84,18 +95,13 @@ pub(crate) enum ScanMode {
 /// - Lossy：遇到停止符或失衡也用饱和减忽略（用于 `scan_stop`）。
 /// - Strict：尖括号严格配对，失衡返回 None（用于 `matching_angle`）。
 pub(crate) fn scan_with(
-    tokens: &[TokenTree],
-    stop: &[char],
-    mode: ScanMode,
+    tokens: &[TokenTree], stop: &[char], mode: ScanMode,
 ) -> Option<usize> {
     let mut depth = 0usize;
     for (index, token) in tokens.iter().enumerate() {
         if is_punct(token, '<') {
             depth += 1;
-        } else if is_punct(token, '>')
-            && !(index > 0
-                && matches!(&tokens[index - 1], TokenTree::Punct(p) if p.as_char() == '-' && p.spacing() == Spacing::Joint))
-        {
+        } else if is_punct(token, '>') && !is_arrow(tokens, index) {
             match mode {
                 ScanMode::Lossy => depth = depth.saturating_sub(1),
                 ScanMode::Strict => {
@@ -103,7 +109,7 @@ pub(crate) fn scan_with(
                     if depth == 0 {
                         return Some(index);
                     }
-                },
+                }
             }
         } else if depth == 0
             && matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char()))
@@ -126,6 +132,33 @@ pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
 /// 判断单个 token 是否为指定标点符号
 pub(crate) fn is_punct(token: &TokenTree, punctuation: char) -> bool {
     matches!(token, TokenTree::Punct(p) if p.as_char() == punctuation)
+}
+
+/// 判断 `tokens[index]` 是否为 `->` 的 `>`（前一个 token 是 Joint 的 `-`）。
+///
+/// `->` 箭头在扫描中不作为 `>` 深度计数，也不作为 DSL 停止符。
+pub(crate) fn is_arrow(tokens: &[TokenTree], index: usize) -> bool {
+    index > 0
+        && matches!(&tokens[index - 1], TokenTree::Punct(p)
+            if p.as_char() == '-' && p.spacing() == Spacing::Joint)
+}
+
+/// 判断 `tokens[index]` 是否为独立的 `:`（不是 `::` 的组成部分）。
+///
+/// `::` 的两个 `:` 中前一个 `Spacing::Joint`（紧跟后一个），据此排除：
+/// 前一个 token 是 Joint 的 `:`（本 token 是 `::` 的后半），或
+/// 后一个 token 是 `:` 且本 token `Spacing::Joint`（本 token 是 `::` 的前半）。
+pub(crate) fn is_single_colon(tokens: &[TokenTree], index: usize) -> bool {
+    let Some(TokenTree::Punct(p)) = tokens.get(index) else {
+        return false;
+    };
+    p.as_char() == ':'
+        && !(index > 0
+            && matches!(&tokens[index - 1], TokenTree::Punct(q)
+                if q.as_char() == ':' && q.spacing() == Spacing::Joint)
+            || index + 1 < tokens.len()
+                && matches!(&tokens[index + 1], TokenTree::Punct(q)
+                    if q.as_char() == ':' && p.spacing() == Spacing::Joint))
 }
 
 /// 判断 token 序列中是否包含指定的顶层标点符号

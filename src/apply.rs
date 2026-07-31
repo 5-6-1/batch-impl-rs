@@ -16,7 +16,7 @@ use crate::types::*;
 
 /// 用消息生成包含 `compile_error!` 的 `Ty::Error`
 pub(crate) fn err_ty(msg: &str) -> Ty {
-    Ty::Error(TyError(quote! { compile_error!(#msg); }))
+    TyError(quote! { compile_error!(#msg); }).into()
 }
 
 /// 类型表达式上的二元运算：`A^B` / `A-B` 中，`A.apply(B)` 产出组合后的 `Ty`。
@@ -31,29 +31,31 @@ impl Apply for Ty {
     fn apply(self, o: Ty) -> Ty {
         // 数组分发：左操作数 apply 到右数组的每个元素
         match o {
-            Ty::Array(arr) => TyArray(
-                arr.0.into_iter().map(|e| self.clone().apply(e)).collect(),
-            )
-            .into(),
-            Ty::Group(g) => self.apply(*g.0),
-            Ty::WithCode(wc) => {
-                TyWithCode(self.apply(*wc.0).into(), wc.1).into()
-            },
-            Ty::WithWhere(ww) => {
-                TyWithWhere(self.apply(*ww.0).into(),ww.1).into()
+            Ty::Array(arr) => {
+                TyArray(arr.0.into_iter().map(|e| self.clone().apply(e)).collect())
+                    .into()
             }
+            Ty::Group(g) => self.apply(*g.0),
+            Ty::WithCode(wc) => match wc.0 {
+                Some(inner) => {
+                    TyWithCode(Some(self.apply(*inner).into()), wc.1).into()
+                }
+                None => TyWithCode(Some(self.into()), wc.1).into(),
+            },
+            Ty::WithWhere(ww) => match ww.0 {
+                Some(inner) => {
+                    TyWithWhere(Some(self.apply(*inner).into()), ww.1).into()
+                }
+                None => TyWithWhere(Some(self.into()), ww.1).into(),
+            },
             Ty::Error(e) => e.into(),
-            Ty::Range(TyRange {
-                start,
-                end,
-                inclusive,
-            }) => map_range(start, end, inclusive, |n| {
-                self.clone().apply(TyNum(n).into())
-            }),
+            Ty::Range(TyRange { start, end, inclusive }) => {
+                map_range(start, end, inclusive, |n| {
+                    self.clone().apply(TyNum(n).into())
+                })
+            }
             _ => match self {
-                Ty::Prefix(p) => p.apply(o),
-                Ty::Modified(m) => m.apply(o),
-                Ty::Unsafe(u) => u.apply(o),
+                Ty::WithPrefix(wp) => wp.apply(o),
                 Ty::Primitive(p) => p.apply(o),
                 Ty::Generic(g) => g.apply(o),
                 Ty::Trait(t) => t.apply(o),
@@ -61,63 +63,43 @@ impl Apply for Ty {
                 Ty::Tuple(t) => t.apply(o),
                 Ty::Group(g) => g.apply(o),
                 Ty::Fn(f) => f.apply(o),
-                Ty::CodeBlock(b) => b.apply(o),
-                Ty::Attr(a) => a.apply(o),
                 Ty::WithAttr(w) => w.apply(o),
                 Ty::WithTrait(wt) => wt.apply(o),
                 Ty::WithType(wt) => wt.apply(o),
                 Ty::WithCode(wc) => wc.apply(o),
+                Ty::WithWhere(ww) => ww.apply(o),
                 Ty::TypeParam(t) => t.apply(o),
                 Ty::Num(n) => n.apply(o),
                 Ty::Range(r) => r.apply(o),
                 Ty::Slice(s) => s.apply(o),
                 Ty::FixedArray(f) => f.apply(o),
-                Ty::Where(w) => w.apply(o),
-                Ty::WithWhere(ww) => ww.apply(o),
                 Ty::Error(e) => e.into(),
             },
         }
     }
 }
 
-impl Apply for TyPrefix {
-    /// `&^T` => `&T`；`*const^T` => `*const T`；`self^T` => `T`；`fn^(A,B)` => `fn(A,B)`；`unsafe^T` => `unsafe T`
+impl Apply for TyWithPrefix {
+    /// `&^T` => `&T`；`*const^T` => `*const T`；`self^T` => `T`；`unsafe^T` => `unsafe T`（unsafe impl 标记）
+    ///
+    /// `&T^U` => `&(T^U)`、`unsafe T^U` => `unsafe (T^U)`：修饰符透传到内部类型。
     fn apply(self, o: Ty) -> Ty {
-        match self {
-            // &^T=>&T
+        match self.0 {
+            // &^T=>&T / unsafe^T=>unsafe T
             TyPrefix::Ref
             | TyPrefix::RefMut
             | TyPrefix::PtrConst
-            | TyPrefix::PtrMut => TyModified(self, o.into()).into(),
-            // self^T=>self
+            | TyPrefix::PtrMut
+            | TyPrefix::Unsafe => {
+                let inner = match self.1 {
+                    Some(t) => t.apply(o),
+                    None => o,
+                };
+                TyWithPrefix(self.0, Some(inner.into())).into()
+            }
+            // self^T=>T
             TyPrefix::SelfType => o,
-            // fn^(...,)=>fn(...)
-            TyPrefix::Fn => match o {
-                Ty::Tuple(t) => TyFn(t.0, None).into(),
-                Ty::Group(t) => TyFn(vec![*t.0], None).into(),
-                _ => err_ty(
-                    "batch-impl: `fn` 前缀右侧必须是元组类型，如 fn^(i32, u32)",
-                ),
-            },
-            // unsafe^T=unsafe下T
-            TyPrefix::Unsafe => TyUnsafe(o.into()).into(),
         }
-    }
-}
-
-impl Apply for TyModified {
-    /// `&T^U` => `&(T^U)`（修饰符透传到内部类型）
-    fn apply(self, o: Ty) -> Ty {
-        // &T^U=>&(T^U)
-        TyModified(self.0, self.1.apply(o).into()).into()
-    }
-}
-
-impl Apply for TyUnsafe {
-    /// `unsafe T^U` => `unsafe (T^U)`（unsafe 修饰透传到内部类型）
-    fn apply(self, o: Ty) -> Ty {
-        // unsafe传递
-        TyUnsafe(self.0.apply(o).into()).into()
     }
 }
 
@@ -151,7 +133,7 @@ impl Apply for TyTrait {
                 let mut tp = self.1;
                 tp.extend(rhs);
                 TyTrait(self.0, tp).into()
-            },
+            }
             _ => TyWithTrait(self, o.into()).into(),
         }
     }
@@ -165,20 +147,15 @@ impl Apply for TyArray {
                 let mut result = vec![];
                 for left in self.0 {
                     for right_elem in &right.0 {
-                        result
-                            .push(left.clone().apply(right_elem.clone()));
+                        result.push(left.clone().apply(right_elem.clone()));
                     }
                 }
                 TyArray(result).into()
-            },
+            }
             _ => {
-                let result = self
-                    .0
-                    .into_iter()
-                    .map(|e| e.apply(o.clone()))
-                    .collect();
+                let result = self.0.into_iter().map(|e| e.apply(o.clone())).collect();
                 TyArray(result).into()
-            },
+            }
         }
     }
 }

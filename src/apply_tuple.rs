@@ -6,30 +6,19 @@ use crate::types::*;
 
 /// `N..M` / `N..=M`：对范围内的每个长度 n 调用 f，结果打包为并列列表
 pub(crate) fn map_range(
-    start: u8,
-    end: u8,
-    inclusive: bool,
-    f: impl Fn(u8) -> Ty,
+    start: u8, end: u8, inclusive: bool, f: impl Fn(u8) -> Ty,
 ) -> Ty {
-    let ns: Vec<u8> = if inclusive {
-        (start..=end).collect()
-    } else {
-        (start..end).collect()
-    };
+    let ns: Vec<_> =
+        if inclusive { (start..=end).collect() } else { (start..end).collect() };
     TyArray(ns.into_iter().map(f).collect()).into()
 }
 
 /// `(...,)^N`：元组按长度 N 展开（空元组、单元素、多元素分别处理）
-fn tuple_pow(elems: Vec<Ty>, n: u8) -> Ty {
+fn tuple_pow(mut elems: Vec<Ty>, n: u8) -> Ty {
     match elems.len() {
         0 => pow_empty(n),
-        1 => pow_single(
-            elems
-                .into_iter()
-                .next()
-                .expect("elems.len() == 1 guarantees one element"),
-            n,
-        ),
+        // len == 1 由 match 保证，remove(0) 越界分支不可达
+        1 => pow_single(elems.remove(0), n),
         _ => pow_cartesian(elems, n),
     }
 }
@@ -40,10 +29,7 @@ fn pow_empty(n: u8) -> Ty {
         return TyTuple(vec![]).into();
     }
     let params = fresh_params(n);
-    let param_names = params
-        .iter()
-        .map(|p| p.to_token_stream())
-        .collect::<Vec<_>>();
+    let param_names = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
     TyTypeParam {
         params: param_names.into_iter().map(|n| (n, None)).collect(),
         bindings: vec![],
@@ -61,12 +47,9 @@ fn pow_single(template: Ty, n: u8) -> Ty {
             );
         }
         let params = fresh_params(n);
-        let param_names = params
-            .iter()
-            .map(|p| p.to_token_stream())
-            .collect::<Vec<_>>();
-        let bound_tokens: Vec<_> =
-            tp.params[0].0.clone().into_iter().collect();
+        let param_names =
+            params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
+        let bound_tokens = tp.params[0].0.clone().into_iter().collect::<Vec<_>>();
         return TyTypeParam {
             params: param_names
                 .into_iter()
@@ -107,30 +90,19 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                 let params = tp
                     .params
                     .iter()
-                    .map(|(b, _)| {
-                        (
-                            name.clone(),
-                            Some(Ty::from(TyPrimitive(b.clone()))),
-                        )
-                    })
+                    .map(|(b, _)| (name.clone(), Some(TyPrimitive(b.clone()).into())))
                     .collect();
-                param_decls.push(TyTypeParam {
-                    params,
-                    bindings: vec![],
-                });
-                tuple_elems.push(Ty::from(TyPrimitive(name)));
-            },
+                param_decls.push(TyTypeParam { params, bindings: vec![] });
+                tuple_elems.push(TyPrimitive(name).into());
+            }
             _ => tuple_elems.push(elem),
         }
     }
-    let tuple = Ty::from(TyTuple(tuple_elems));
+    let tuple = TyTuple(tuple_elems).into();
     if param_decls.is_empty() {
         return tuple;
     }
-    let mut merged = TyTypeParam {
-        params: vec![],
-        bindings: vec![],
-    };
+    let mut merged = TyTypeParam { params: vec![], bindings: vec![] };
     for tp in param_decls {
         merged.extend(tp);
     }
@@ -138,9 +110,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
 }
 
 fn fresh_params(n: u8) -> Vec<Ty> {
-    (0..n)
-        .map(|_| Ty::from(TyPrimitive(fresh_param())))
-        .collect()
+    (0..n).map(|_| TyPrimitive(fresh_param()).into()).collect()
 }
 
 impl Apply for TyTuple {
@@ -151,7 +121,7 @@ impl Apply for TyTuple {
             _ => {
                 self.0.push(o);
                 self.into()
-            },
+            }
         }
     }
 }
@@ -168,34 +138,45 @@ impl Apply for TyGroup {
 }
 
 impl Apply for TyFn {
-    /// `fn(A,B)^C` => `fn(A,B)->C`（追加返回类型，已有返回类型时报错）
+    /// `fn^(A,B)` => `fn(A,B)`（填入参数）；`fn(A,B)-C` => `fn(A,B)->C`（追加返回类型）
     fn apply(self, o: Ty) -> Ty {
-        if self.1.is_some() {
-            err_ty("batch-impl: `fn` 类型已有返回类型，不能重复应用")
-        } else {
-            TyFn(self.0, Some(o.into())).into()
+        match self {
+            // 裸 fn 经 `^` 填入参数
+            TyFn(None, None) => match o {
+                Ty::Tuple(t) => TyFn(Some(t.0), None).into(),
+                Ty::Group(t) => TyFn(Some(vec![*t.0]), None).into(),
+                _ => err_ty(
+                    "batch-impl: `fn` 前缀右侧必须是元组类型，如 fn^(i32, u32)",
+                ),
+            },
+            // 已有参数，经 `-` 追加返回类型
+            TyFn(Some(params), None) => TyFn(Some(params), Some(o.into())).into(),
+            TyFn(Some(_), Some(_)) => {
+                err_ty("batch-impl: `fn` 类型已有返回类型，不能重复应用")
+            }
+            // 不可能：参数 None 但返回 Some
+            TyFn(None, Some(_)) => {
+                err_ty("batch-impl: `fn` 类型缺少参数列表，内部错误")
+            }
         }
     }
 }
 
-impl Apply for TyCodeBlock {
-    /// `{code}^T` => `T { code }`（附着代码块到类型）
+impl Apply for TyWithCode {
+    /// `{code}^T` => `T { code }`；`T{body}^U` => `(T^U){body}`（body 不变）
     fn apply(self, o: Ty) -> Ty {
-        TyWithCode(o.into(), self).into()
-    }
-}
-
-impl Apply for TyAttr {
-    /// `#[attr]^T` => `#[attr] T`（附着属性到类型）
-    fn apply(self, o: Ty) -> Ty {
-        TyWithAttr(self, o.into()).into()
+        let inner = match self.0 {
+            Some(t) => t.apply(o),
+            None => o,
+        };
+        TyWithCode(Some(inner.into()), self.1).into()
     }
 }
 
 impl Apply for TyWithAttr {
-    /// `#[attr] T^U` => `#[attr] (T^U)`（属性透传到内部）
+    /// `#[attr]^T` => `#[attr] T`（附着属性到类型）
     fn apply(self, o: Ty) -> Ty {
-        TyWithAttr(self.0, o.into()).into()
+        TyWithAttr(self.0, Some(o.into())).into()
     }
 }
 
@@ -248,23 +229,13 @@ impl Apply for TyWithType {
         TyWithType(self.0, self.1.apply(o).into()).into()
     }
 }
-impl Apply for TyWithCode {
-    /// `T{body}^U` => `(T^U){body}`（外部应用透传到内部类型，body 不变）
-    fn apply(self, o: Ty) -> Ty {
-        TyWithCode(self.0.apply(o).into(), self.1).into()
-    }
-}
-
-impl Apply for TyWhere {
-    /// `{code}^T` => `T { code }`（附着代码块到类型）
-    fn apply(self, o: Ty) -> Ty {
-        TyWithWhere(o.into(), self).into()
-    }
-}
-
 impl Apply for TyWithWhere {
-    /// `T{body}^U` => `(T^U){body}`（外部应用透传到内部类型，body 不变）
+    /// `where{...}^T` => `T where{...}`；`T where{...}^U` => `(T^U) where{...}`（where 不变）
     fn apply(self, o: Ty) -> Ty {
-        TyWithWhere(self.0.apply(o).into(), self.1).into()
+        let inner = match self.0 {
+            Some(t) => t.apply(o),
+            None => o,
+        };
+        TyWithWhere(Some(inner.into()), self.1).into()
     }
 }

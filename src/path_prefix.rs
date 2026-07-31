@@ -30,38 +30,35 @@ pub(crate) fn try_parse_path_prefix(
     let mut i = 2usize;
     let mut expect_sep = true;
     let mut saw_double_colon = false;
-    let mut last_ident: Option<Ident> = None;
+    let mut last_ident = None;
     loop {
         match tokens.get(i) {
             // `::`：必须是连续两个 `:`，且第一个 `:` Spacing::Joint
-            Some(TokenTree::Punct(p))
-                if p.as_char() == ':' && expect_sep =>
-            {
+            Some(TokenTree::Punct(p)) if p.as_char() == ':' && expect_sep => {
                 match tokens.get(i + 1) {
                     Some(TokenTree::Punct(p2))
-                        if p2.as_char() == ':'
-                            && p.spacing() == Spacing::Joint =>
+                        if p2.as_char() == ':' && p.spacing() == Spacing::Joint =>
                     {
                         i += 2;
                         expect_sep = false;
                         saw_double_colon = true;
-                    },
+                    }
                     // 单 `:` 收尾——只在已见过至少一个 `::` 时才接受
                     _ if saw_double_colon => {
                         let path = tokens[1..i].to_vec();
                         let rest = tokens[i + 1..].to_vec();
                         return Some((path, last_ident, rest));
-                    },
+                    }
                     // 否则 falls through 到下方 `_ => return None`
                     _ => return None,
                 }
-            },
+            }
             // 期待的 Ident（紧跟在 `::` 之后）
             Some(TokenTree::Ident(id)) if !expect_sep => {
                 i += 1;
                 last_ident = Some(id.clone());
                 expect_sep = true;
-            },
+            }
             _ => return None,
         }
     }

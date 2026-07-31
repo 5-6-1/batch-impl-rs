@@ -29,11 +29,7 @@ pub(crate) struct TyGeneric(pub(crate) Box<Ty>, pub(crate) TyTypeParam);
 /// `trait-name<...>`
 pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
 /// `<T: Clone, U, Item=V>` 泛型参数列表：positional 参数（可带 bound）+
-/// 关联类型绑定 + `where {...}` 子句。
-///
-/// `where_clauses` 元素是 `{...}` 内部透传的整段 token 流。
-/// codegen 阶段把多条 where_clauses 拼接为 `where P1, P2, ...`
-/// 渲染到 impl where 位置。
+/// 关联类型绑定。
 #[derive(Clone, Debug)]
 pub(crate) struct TyTypeParam {
     pub(crate) params: Vec<(TokenStream, Option<Ty>)>,
@@ -55,7 +51,7 @@ impl TyTypeParam {
     }
 
     /// 合并另一个参数列表（`T<A>^<B,C>` 中 `<B,C>` 的
-    /// params + bindings + where_clauses 合并进来）
+    /// params + bindings 合并进来）
     pub(crate) fn extend(&mut self, other: TyTypeParam) {
         self.params.extend(other.params);
         self.bindings.extend(other.bindings);
@@ -65,35 +61,31 @@ impl TyTypeParam {
 /// `{...}` — 附着在类型上的代码块
 pub(crate) struct TyCodeBlock(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
-/// `T { code }` — 类型 + 代码块
-pub(crate) struct TyWithCode(pub(crate) Box<Ty>, pub(crate) TyCodeBlock);
+/// `{...}`（裸）或 `T { code }` — 内层 `None` 表示裸代码块
+pub(crate) struct TyWithCode(pub(crate) Option<Box<Ty>>, pub(crate) TyCodeBlock);
 #[derive(Copy, Clone, Debug)]
-/// `& &mut *const *mut fn self unsafe`
+/// `& &mut *const *mut self unsafe` — 类型前缀修饰符
 pub(crate) enum TyPrefix {
     Ref,
     RefMut,
     PtrConst,
     PtrMut,
     SelfType,
-    Fn,
     Unsafe,
 }
 
 #[derive(Clone, Debug)]
-/// prefix `T`
-pub(crate) struct TyModified(pub(crate) TyPrefix, pub(crate) Box<Ty>);
+/// 裸前缀（`&`/`unsafe` 等）或 `prefix T` — 内层 `None` 表示裸前缀
+pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
 #[derive(Clone, Debug)]
-/// `fn(...)->T`
-pub(crate) struct TyFn(pub(crate) Vec<Ty>, pub(crate) Option<Box<Ty>>);
+/// 裸 `fn` / `fn(...)` / `fn(...)->T` — 参数 `None` 表示尚未填入
+pub(crate) struct TyFn(pub(crate) Option<Vec<Ty>>, pub(crate) Option<Box<Ty>>);
 #[derive(Clone, Debug)]
-/// `unsafe T`
-pub(crate) struct TyUnsafe(pub(crate) Box<Ty>);
-#[derive(Clone, Debug)]
-/// `#[...]`
+/// `#[...]`（裸）或 `#[...] T` — 内层 `None` 表示裸属性
 pub(crate) struct TyAttr(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
-/// `#[...] T`
-pub(crate) struct TyWithAttr(pub(crate) TyAttr, pub(crate) Box<Ty>);
+/// `#[...]`（裸）或 `#[...] T` — 内层 `None` 表示裸属性
+pub(crate) struct TyWithAttr(pub(crate) TyAttr, pub(crate) Option<Box<Ty>>);
 #[derive(Copy, Clone, Debug)]
 /// `N`
 pub(crate) struct TyNum(pub(crate) u8);
@@ -118,14 +110,18 @@ pub(crate) struct TyError(pub(crate) TokenStream);
 pub(crate) struct TyWhere(pub(crate) TokenStream);
 
 #[derive(Clone, Debug)]
-pub(crate) struct TyWithWhere(pub(crate) Box<Ty>,pub(crate) TyWhere);
+/// 裸 `where{...}` 或 `T where{...}` — 内层 `None` 表示裸 where 后缀
+pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 
 /// DSL 解析输出的类型表达式 AST。
 ///
 /// 节点分三类：
 /// - **叶子**（Primitive / Num / Range）：不可再展开的原子
-/// - **包装**（WithType / WithTrait / WithCode / WithAttr / Unsafe / Modified）：携带元数据，在 codegen 阶段被拆解
+/// - **包装**（WithType / WithTrait / WithPrefix / WithCode / WithWhere / WithAttr / Fn）：携带元数据，在 codegen 阶段被拆解
 /// - **容器**（Array / Tuple / Group / Slice / FixedArray）：可展开为多个叶子的集合
+///
+/// 前缀/后缀类包装（WithPrefix / WithCode / WithAttr / WithWhere / Fn）的内层用
+/// `Option<Box<Ty>>` 表示"暂未附着类型"的裸状态，避免枚举中再存半成品变体。
 #[derive(Clone, Debug)]
 pub(crate) enum Ty {
     Array(TyArray),
@@ -137,41 +133,43 @@ pub(crate) enum Ty {
     Generic(TyGeneric),
     Trait(TyTrait),
     TypeParam(TyTypeParam),
-    CodeBlock(TyCodeBlock),
-    Prefix(TyPrefix),
-    Modified(TyModified),
     Fn(TyFn),
-    Unsafe(TyUnsafe),
-    Attr(TyAttr),
+    WithPrefix(TyWithPrefix),
     WithAttr(TyWithAttr),
     WithTrait(TyWithTrait),
     WithType(TyWithType),
     WithCode(TyWithCode),
+    WithWhere(TyWithWhere),
     Num(TyNum),
     Range(TyRange),
-    Where(TyWhere),
-    WithWhere(TyWithWhere),
     Error(TyError),
 }
 impl Ty {
-    /// 展开并列列表类节点：Array 直接拆包，WithCode/Group 透传后递归。
+    /// 展开并列列表类节点：Array 直接拆包，WithCode/WithWhere/Group 透传后递归。
     /// 不可展开的叶子原样经 `Err` 返回（由调用方决定是收集还是继续展开）。
+    /// 裸代码块 / 裸 where（内层 `None`）不可展开，原样 `Err` 返回。
     pub(crate) fn expand(self) -> Result<Vec<Ty>, Ty> {
         match self {
             Ty::Array(ty) => Ok(ty.0),
-            Ty::WithCode(wc) => match (*wc.0).expand() {
-                Ok(expanded) => Ok(expanded
-                    .into_iter()
-                    .map(|inner| {
-                        Ty::WithCode(TyWithCode(
-                            Box::new(inner),
-                            wc.1.clone(),
-                        ))
-                    })
-                    .collect()),
-                Err(leaf) => {
-                    Err(Ty::WithCode(TyWithCode(Box::new(leaf), wc.1)))
+            Ty::WithCode(wc) => match wc.0 {
+                Some(inner) => match inner.expand() {
+                    Ok(expanded) => Ok(expanded
+                        .into_iter()
+                        .map(|e| TyWithCode(Some(e.into()), wc.1.clone()).into())
+                        .collect()),
+                    Err(leaf) => Err(TyWithCode(Some(leaf.into()), wc.1).into()),
                 },
+                None => Err(Ty::WithCode(wc)),
+            },
+            Ty::WithWhere(ww) => match ww.0 {
+                Some(inner) => match inner.expand() {
+                    Ok(expanded) => Ok(expanded
+                        .into_iter()
+                        .map(|e| TyWithWhere(Some(e.into()), ww.1.clone()).into())
+                        .collect()),
+                    Err(leaf) => Err(TyWithWhere(Some(leaf.into()), ww.1).into()),
+                },
+                None => Err(Ty::WithWhere(ww)),
             },
             Ty::Group(g) => (*g.0).expand(),
             other => Err(other),
@@ -189,7 +187,7 @@ macro_rules! impl_from_for_ty {
             }
             impl From<$struct> for Box<Ty> {
                 fn from(value: $struct) -> Self {
-                    Box::new(Ty::$variant(value))
+                    Box::new(value.into())
                 }
             }
         )*
@@ -206,20 +204,15 @@ impl_from_for_ty! {
     TyGeneric => Generic,
     TyTrait => Trait,
     TyTypeParam => TypeParam,
-    TyCodeBlock => CodeBlock,
-    TyPrefix => Prefix,
-    TyModified => Modified,
     TyFn => Fn,
-    TyUnsafe => Unsafe,
-    TyAttr => Attr,
+    TyWithPrefix => WithPrefix,
     TyWithAttr => WithAttr,
     TyWithTrait => WithTrait,
     TyWithType => WithType,
     TyWithCode => WithCode,
+    TyWithWhere => WithWhere,
     TyNum => Num,
     TyRange => Range,
-    TyWhere => Where,
-    TyWithWhere => WithWhere,
     TyError => Error,
 }
 

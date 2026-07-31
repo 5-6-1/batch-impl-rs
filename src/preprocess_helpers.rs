@@ -5,17 +5,13 @@ use syn::ItemTrait;
 use crate::diagnostic::compile_error_str;
 
 pub(crate) fn parse_names_from_tokens(
-    tokens: &[TokenTree],
-    trait_def: &ItemTrait,
+    tokens: &[TokenTree], trait_def: &ItemTrait,
 ) -> Result<Vec<Ident>, TokenStream> {
     if tokens.is_empty() {
-        return Err(compile_error_str(
-            "batch-impl: 指令的参数列表不能为空",
-        ));
+        return Err(compile_error_str("batch-impl: 指令的参数列表不能为空"));
     }
     if tokens.len() == 2
-        && let (TokenTree::Punct(p), TokenTree::Ident(id)) =
-            (&tokens[0], &tokens[1])
+        && let (TokenTree::Punct(p), TokenTree::Ident(id)) = (&tokens[0], &tokens[1])
         && p.as_char() == '#'
     {
         if id == "all_methods" {
@@ -49,14 +45,11 @@ pub(crate) fn parse_names_from_tokens(
             Err(None) => None,
             Err(Some(e)) => Some(Err(e)),
         })
-        .collect::<Result<Vec<_>, _>>()
+        .collect()
 }
 
 fn get_trait_item_names(
-    trait_def: &ItemTrait,
-    include_fn: bool,
-    include_const: bool,
-    include_type: bool,
+    trait_def: &ItemTrait, include_fn: bool, include_const: bool, include_type: bool,
 ) -> Vec<Ident> {
     let mut names = vec![];
     for item in &trait_def.items {
@@ -88,8 +81,7 @@ fn get_all_trait_types(trait_def: &ItemTrait) -> Vec<Ident> {
 }
 
 pub(crate) fn get_trait_item<'a>(
-    trait_def: &'a ItemTrait,
-    name: &Ident,
+    trait_def: &'a ItemTrait, name: &Ident,
 ) -> Result<&'a syn::TraitItem, TokenStream> {
     for item in &trait_def.items {
         let found = match item {
@@ -109,8 +101,7 @@ pub(crate) fn get_trait_item<'a>(
 }
 
 pub(crate) fn build_from_item(
-    item: &syn::TraitItem,
-    body: &TokenStream,
+    item: &syn::TraitItem, body: &TokenStream,
 ) -> TokenStream {
     match item {
         syn::TraitItem::Fn(f) => {
@@ -118,29 +109,22 @@ pub(crate) fn build_from_item(
             f.semi_token = None;
             f.default = Some(syn::Block {
                 brace_token: syn::token::Brace::default(),
-                stmts: vec![syn::Stmt::Expr(
-                    syn::Expr::Verbatim(body.clone()),
-                    None,
-                )],
+                stmts: vec![syn::Stmt::Expr(syn::Expr::Verbatim(body.clone()), None)],
             });
             quote! {#f}
-        },
+        }
         syn::TraitItem::Const(c) => {
             let mut c = c.clone();
-            c.default = Some((
-                syn::token::Eq::default(),
-                syn::Expr::Verbatim(body.clone()),
-            ));
+            c.default =
+                Some((syn::token::Eq::default(), syn::Expr::Verbatim(body.clone())));
             quote! {#c}
-        },
+        }
         syn::TraitItem::Type(t) => {
             let mut t = t.clone();
-            t.default = Some((
-                syn::token::Eq::default(),
-                syn::Type::Verbatim(body.clone()),
-            ));
+            t.default =
+                Some((syn::token::Eq::default(), syn::Type::Verbatim(body.clone())));
             quote! {#t}
-        },
+        }
         _ => compile_error_str("item格式错误，不可能出现的错误"),
     }
 }

@@ -14,7 +14,9 @@ use quote::quote;
 use syn::ItemTrait;
 
 use crate::diagnostic::compile_error_str;
-use crate::preprocess_helpers::{build_from_item, collect_call_args, get_trait_item, parse_names_from_tokens};
+use crate::preprocess_helpers::{
+    build_from_item, collect_call_args, get_trait_item, parse_names_from_tokens,
+};
 use crate::scan::Cursor;
 
 // ============================================================
@@ -45,8 +47,7 @@ use crate::scan::Cursor;
 /// 只递归展开 `[...]`（Bracket）Group 内容；`(...)` 和 `{...}` 不递归，
 /// 避免误入指令的参数或 body。
 pub(crate) fn expand_tokens(
-    cursor: &mut Cursor,
-    trait_def: &ItemTrait,
+    cursor: &mut Cursor, trait_def: &ItemTrait,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     while !cursor.at_end() {
@@ -62,18 +63,17 @@ pub(crate) fn expand_tokens(
             // 逻辑上不可达；防御性 break 以兜底
             break;
         };
-        // 只递归展开 [...] 内容（`(...)` 和 `{...}` 不递归）
+        // 只递归展开 [...] 内容（`(...)` 和 `{...}` 不递归）；
+        // `ident![...]` 宏调用体是透传的宏参数，不展开其中的指令
         if let TokenTree::Group(g) = tt
             && g.delimiter() == Delimiter::Bracket
+            && !cursor.prev_is_punct('!')
         {
             let inner = expand_tokens(
-                &mut Cursor::new(
-                    &g.stream().into_iter().collect::<Vec<_>>(),
-                ),
+                &mut Cursor::new(&g.stream().into_iter().collect::<Vec<_>>()),
                 trait_def,
             )?;
-            let new_group =
-                Group::new(g.delimiter(), inner.into_iter().collect());
+            let new_group = Group::new(g.delimiter(), inner.into_iter().collect());
             result.push(new_group.into());
             cursor.bump();
         } else {
@@ -86,9 +86,7 @@ pub(crate) fn expand_tokens(
 
 /// 分派指令：根据 `#` 后的名称和括号结构分派到对应的展开函数。
 fn expand_directive(
-    name: &Ident,
-    cursor: &mut Cursor,
-    trait_def: &ItemTrait,
+    name: &Ident, cursor: &mut Cursor, trait_def: &ItemTrait,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if let Some(TokenTree::Group(args)) = cursor.peek_at(2) {
         match args.delimiter() {
@@ -98,7 +96,7 @@ fn expand_directive(
                 cursor.bump(); // method_name
                 cursor.bump(); // {body}
                 expand_single(name, args, trait_def)
-            },
+            }
             _ => {
                 // `#cmd(args){body}` — 名称 + 括号参数 + {body}
                 let body_tt = cursor.peek_at(3);
@@ -127,7 +125,7 @@ fn expand_directive(
                     .into_iter()
                     .collect()),
                 }
-            },
+            }
         }
     } else {
         Err(compile_error_str(&format!(
@@ -141,15 +139,12 @@ fn expand_directive(
 ///
 /// 根据 `name` 在 trait 定义中查找对应的 item，由 `build_from_item` 按 item 类型自动输出。
 fn expand_single(
-    method_name: &Ident,
-    body: &Group,
-    trait_def: &ItemTrait,
+    method_name: &Ident, body: &Group, trait_def: &ItemTrait,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let item = get_trait_item(trait_def, method_name)?;
-    Ok(vec![TokenTree::Group(Group::new(
-        Delimiter::Brace,
-        build_from_item(item, &body.stream()),
-    ))])
+    Ok(vec![
+        Group::new(Delimiter::Brace, build_from_item(item, &body.stream())).into(),
+    ])
 }
 
 /// `#fill(args){body}` → `{fn m1(sig){body} fn m2(sig){body} ...}`
@@ -158,9 +153,7 @@ fn expand_single(
 /// 支持 fn、const、type 三种 item 类型。
 /// 为每个 item 从 trait 定义读取签名/类型，body 作为实现体。
 fn expand_fill(
-    args_group: &Group,
-    body: &Group,
-    trait_def: &ItemTrait,
+    args_group: &Group, body: &Group, trait_def: &ItemTrait,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let method_names = parse_names_from_tokens(
         &args_group.stream().into_iter().collect::<Vec<_>>(),
@@ -169,21 +162,16 @@ fn expand_fill(
     let mut methods = TokenStream::new();
     for name in &method_names {
         let item = get_trait_item(trait_def, name)?;
-        methods.extend(build_from_item(&item, &body.stream()));
+        methods.extend(build_from_item(item, &body.stream()));
     }
-    Ok(vec![TokenTree::Group(Group::new(
-        Delimiter::Brace,
-        methods,
-    ))])
+    Ok(vec![Group::new(Delimiter::Brace, methods).into()])
 }
 
 /// `#delegate(args){target}` → `{fn m1(sig){(target).m1(params)} ...}`
 ///
 /// 为每个方法生成委托调用：跳过 `self` 参数，将其余参数原样转发。
 fn expand_delegate(
-    args_group: &Group,
-    target: &Group,
-    trait_def: &ItemTrait,
+    args_group: &Group, target: &Group, trait_def: &ItemTrait,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let method_names = parse_names_from_tokens(
         &args_group.stream().into_iter().collect::<Vec<_>>(),
@@ -202,10 +190,7 @@ fn expand_delegate(
         let call_args = collect_call_args(&sig);
         let target = target.stream();
         let body = quote! { (#target) . #name ( #(#call_args),* ) };
-        methods.extend(build_from_item(&item, &body));
+        methods.extend(build_from_item(item, &body));
     }
-    Ok(vec![TokenTree::Group(Group::new(
-        Delimiter::Brace,
-        methods,
-    ))])
+    Ok(vec![Group::new(Delimiter::Brace, methods).into()])
 }

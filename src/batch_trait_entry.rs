@@ -16,17 +16,11 @@ use crate::types::Op;
 /// 展开阶段通过 BFS 工作清单把 `Ty::Array`（并列列表）逐层摊平为叶子 `Ty`，
 /// 再对每个叶子调用 `generate_impl` 生成对应的 impl 块。
 pub(crate) fn parse_batch_trait_entry(
-    cursor: &mut Cursor,
-    top_level: Op,
-    trait_full_path: &TokenStream,
-    trait_last_ident: &Ident,
-    is_unsafe_trait: bool,
-    start_trait: Option<ItemTrait>,
+    cursor: &mut Cursor, top_level: Op, trait_full_path: &TokenStream,
+    trait_last_ident: &Ident, is_unsafe_trait: bool, start_trait: Option<ItemTrait>,
 ) -> TokenStream {
     let mut tys = vec![];
-    while let Some(ty) =
-        parse_item(cursor, top_level, Some(trait_last_ident))
-    {
+    while let Some(ty) = parse_item(cursor, top_level, Some(trait_last_ident)) {
         let mut queue = vec![ty];
         while let Some(item) = queue.pop() {
             match item.expand() {
@@ -34,7 +28,7 @@ pub(crate) fn parse_batch_trait_entry(
                     for e in expanded.into_iter().rev() {
                         queue.push(e);
                     }
-                },
+                }
                 Err(leaf) => tys.push(leaf),
             }
         }

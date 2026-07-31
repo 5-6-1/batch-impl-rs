@@ -61,55 +61,66 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             parts.impl_generics.extend(impl_generics);
             parts.associated_types.extend(associated_types);
             parts
-        },
+        }
         Ty::WithTrait(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            parts
-                .trait_generic_names
-                .extend(wt.0.1.params.into_iter().map(|p| p.0));
+            parts.trait_generic_names.extend(wt.0.1.params.into_iter().map(|p| p.0));
             parts.associated_types.extend(wt.0.1.bindings);
             parts
-        },
-        Ty::WithCode(wc) => {
-            let mut parts = extract_impl_parts(*wc.0);
-            match &mut parts.body {
-                Some(t) => t.extend(wc.1.0),
-                None => parts.body = Some(wc.1.0),
+        }
+        Ty::WithCode(wc) => match wc.0 {
+            Some(inner) => {
+                let mut parts = extract_impl_parts(*inner);
+                match &mut parts.body {
+                    Some(t) => t.extend(wc.1.0),
+                    None => parts.body = Some(wc.1.0),
+                }
+                parts
             }
-            parts
+            // 裸代码块无目标类型，防御性兜底
+            None => ImplParts::leaf(Ty::WithCode(wc)),
         },
-        Ty::WithWhere(ww) => {
-            let mut parts = extract_impl_parts(*ww.0);
-            parts.where_clauses.push(ww.1.0);
-            parts
+        Ty::WithWhere(ww) => match ww.0 {
+            Some(inner) => {
+                let mut parts = extract_impl_parts(*inner);
+                parts.where_clauses.push(ww.1.0);
+                parts
+            }
+            None => ImplParts::leaf(Ty::WithWhere(ww)),
         },
-        Ty::WithAttr(wa) => {
-            let mut parts = extract_impl_parts(*wa.1);
-            let stream = &wa.0.0;
-            parts.attrs.push(quote!(#[#stream]));
-            parts
+        Ty::WithAttr(wa) => match wa.1 {
+            Some(inner) => {
+                let mut parts = extract_impl_parts(*inner);
+                let stream = &wa.0.0;
+                parts.attrs.push(quote!(#[#stream]));
+                parts
+            }
+            None => ImplParts::leaf(Ty::WithAttr(wa)),
         },
-        Ty::Unsafe(u) => {
-            let mut parts = extract_impl_parts(*u.0);
-            parts.is_unsafe_impl = true;
-            parts
+        Ty::WithPrefix(wp) => match wp.1 {
+            Some(inner) => {
+                let mut parts = extract_impl_parts(*inner);
+                match wp.0 {
+                    // unsafe 前缀 → 标记 unsafe impl
+                    TyPrefix::Unsafe => parts.is_unsafe_impl = true,
+                    // 引用/指针前缀 → 包到目标类型上
+                    _ => {
+                        parts.target_type =
+                            TyWithPrefix(wp.0, Some(parts.target_type.into())).into()
+                    }
+                }
+                parts
+            }
+            None => ImplParts::leaf(Ty::WithPrefix(wp)),
         },
-        Ty::Modified(m) => {
-            let mut parts = extract_impl_parts(*m.1);
-            parts.target_type =
-                TyModified(m.0, Box::new(parts.target_type)).into();
-            parts
-        },
-        Ty::Error(e) => ImplParts::leaf(Ty::Error(e)),
+        Ty::Error(e) => ImplParts::leaf(e.into()),
         o => ImplParts::leaf(o),
     }
 }
 
 /// 生成一个 impl 块：拆解元数据 → 构建泛型参数 / trait 泛型 / impl body → 输出 `quote!` 块
 pub(crate) fn generate_impl(
-    ty: Ty,
-    trait_name: &TokenStream,
-    is_unsafe_trait: bool,
+    ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
 ) -> TokenStream {
     if let Ty::Error(e) = ty {
         return e.0;
@@ -130,7 +141,7 @@ pub(crate) fn generate_impl(
                 Some(b) => {
                     let b_tokens = b.to_token_stream();
                     quote!(#name: #b_tokens)
-                },
+                }
                 None => name.clone(),
             })
             .collect::<Vec<_>>();

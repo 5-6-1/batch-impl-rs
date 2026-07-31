@@ -2,11 +2,13 @@
 //!
 //! 提供 `<...>` 泛型参数的匹配、解析与相关辅助函数。
 
-use proc_macro2::{Delimiter, Ident, Spacing, TokenTree};
+use proc_macro2::{Ident, TokenTree};
 use quote::quote;
 
 use crate::parse::parse_item;
-use crate::scan::{Cursor, is_punct, scan_stop, scan_with, ScanMode};
+use crate::scan::{
+    Cursor, ScanMode, is_punct, is_single_colon, scan_stop, scan_with,
+};
 use crate::types::*;
 
 // ============================================================
@@ -17,21 +19,12 @@ use crate::types::*;
 pub(crate) fn parse_generic(
     tokens: &[TokenTree],
 ) -> Option<(&[TokenTree], &[TokenTree], &[TokenTree])> {
-    // 找 `<>` 时不能跨越 `where {...}` 关键字——
-    // `LenTrait where { ... } Vec<T>` 中第一个 `<`（在 `Vec<T>`）不属于
-    // `LenTrait` 的泛型。在 where 关键字处截断搜索。
+    // 找第一个 `<`
     let mut i = 0usize;
     let mut open = None;
     while i < tokens.len() {
         if is_punct(&tokens[i], '<') {
             open = Some(i);
-            break;
-        }
-        // 检测 `where { ... }`：遇到即停止向右搜索 `<`
-        if i + 1 < tokens.len()
-            && matches!(&tokens[i], TokenTree::Ident(id) if id == "where")
-            && matches!(&tokens[i + 1], TokenTree::Group(g) if g.delimiter() == Delimiter::Brace)
-        {
             break;
         }
         i += 1;
@@ -70,16 +63,14 @@ pub(crate) fn matching_angle(tokens: &[TokenTree], open: usize) -> Option<usize>
 
 /// 判断 base 是否与 trait_name 重名（用于区分 `TraitName<T>` 与普通泛型）
 pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> bool {
-    trait_name
-        .is_some_and(|name| matches!(base.last(), Some(TokenTree::Ident(last)) if last == name))
+    trait_name.is_some_and(
+        |name| matches!(base.last(), Some(TokenTree::Ident(last)) if last == name),
+    )
 }
 
 /// 在 depth-0 按 separator 切分（`->` 中的 `>` 不改变深度）
-fn split_at_depth0(
-    tokens: &[TokenTree],
-    separator: char,
-) -> Vec<&[TokenTree]> {
-    let mut chunks = Vec::new();
+fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
+    let mut chunks = vec![];
     let mut rest = tokens;
     while let Some(index) = scan_stop(rest, &[separator]) {
         chunks.push(&rest[..index]);
@@ -91,24 +82,15 @@ fn split_at_depth0(
 
 /// 找到第一个 depth-0 的 `:` 且不是 `::` 的位置（用于 `T: Bound` 切分）
 fn find_colon_at_depth0(tokens: &[TokenTree]) -> Option<usize> {
-    scan_stop(tokens, &[':']).filter(|&index| {
-        let TokenTree::Punct(p0)=&tokens[index] else{
-            return false
-        };
-        !(index > 0
-            && matches!(&tokens[index-1], TokenTree::Punct(p) if p.as_char() == ':' && p.spacing() == Spacing::Joint)
-            || index + 1 < tokens.len()
-            && matches!(&tokens[index+1], TokenTree::Punct(p) if p.as_char() == ':' && p0.spacing() == Spacing::Joint))
-    })
+    scan_stop(tokens, &[':']).filter(|&index| is_single_colon(tokens, index))
 }
 
 /// 解析 `<T: Clone, U, Item=V>` 泛型参数内容：参数列表 + 关联类型绑定
 pub(crate) fn parse_angle_bracket_contents(
-    tokens: &[TokenTree],
-    trait_name: Option<&Ident>,
+    tokens: &[TokenTree], trait_name: Option<&Ident>,
 ) -> TyTypeParam {
-    let mut params = Vec::new();
-    let mut bindings = Vec::new();
+    let mut params = vec![];
+    let mut bindings = vec![];
     for chunk in split_at_depth0(tokens, ',') {
         if chunk.is_empty() {
             continue;
@@ -134,10 +116,7 @@ pub(crate) fn parse_angle_bracket_contents(
             params.push((chunk.iter().cloned().collect(), None));
         }
     }
-    TyTypeParam {
-        params,
-        bindings,
-    }
+    TyTypeParam { params, bindings }
 }
 
 // ============================================================
@@ -146,10 +125,10 @@ pub(crate) fn parse_angle_bracket_contents(
 
 /// 将 token 序列包装为 Primitive 透传节点（无法识别的类型都走这里）
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
-    Ty::Primitive(TyPrimitive(tokens.iter().cloned().collect()))
+    TyPrimitive(tokens.iter().cloned().collect()).into()
 }
 
 /// 空 token 节点（用于 unwrap_or_else 的兜底）
 pub(crate) fn empty() -> Ty {
-    Ty::Primitive(TyPrimitive(quote![]))
+    TyPrimitive(quote![]).into()
 }

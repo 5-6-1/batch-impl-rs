@@ -10,8 +10,13 @@
 use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 
 use crate::apply::Apply;
-use crate::generic::{is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params, primitive};
-use crate::parse_atom::{parse_attribute, parse_function, parse_group, parse_prefix, parse_range};
+use crate::generic::{
+    is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params,
+    primitive,
+};
+use crate::parse_atom::{
+    parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
+};
 use crate::scan::{Cursor, is_punct};
 use crate::types::*;
 
@@ -23,9 +28,7 @@ use crate::types::*;
 /// `Op::Semi` / `Op::Comma` 只返回第一个非空项，分隔符之后的部分由调用方继续遍历；
 /// Semi 停在 `;` 前且不消费，供 batch_trait! 判断段落边界。
 pub(crate) fn parse_item(
-    cursor: &mut Cursor,
-    level: Op,
-    trait_name: Option<&Ident>,
+    cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>,
 ) -> Option<Ty> {
     match level {
         Op::Semi | Op::Comma => loop {
@@ -42,17 +45,12 @@ pub(crate) fn parse_item(
             let mut result = parse_operand(cursor, Op::Dash, trait_name)?;
             while cursor.is_punct('-') {
                 cursor.bump();
-                result = result.apply(parse_operand(
-                    cursor,
-                    Op::Dash,
-                    trait_name,
-                )?);
+                result = result.apply(parse_operand(cursor, Op::Dash, trait_name)?);
             }
             Some(result)
-        },
+        }
         Op::Caret => {
-            let mut items =
-                vec![parse_operand(cursor, Op::Caret, trait_name)?];
+            let mut items = vec![parse_operand(cursor, Op::Caret, trait_name)?];
             while cursor.is_punct('^') {
                 cursor.bump();
                 items.push(parse_operand(cursor, Op::Caret, trait_name)?);
@@ -62,7 +60,7 @@ pub(crate) fn parse_item(
                 result = left.apply(result);
             }
             Some(result)
-        },
+        }
         Op::Prim => Some(parse_primitive(cursor.take_rest(), trait_name)),
     }
 }
@@ -72,9 +70,7 @@ pub(crate) fn parse_item(
 /// 操作数边界由 `scan_stop` 确定（只看 `<>` 深度，不理解 Rust 类型文法），
 /// 边界内的切片交给 `parse_item` 以更高优先级递归解析。
 fn parse_operand(
-    cursor: &mut Cursor,
-    level: Op,
-    trait_name: Option<&Ident>,
+    cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>,
 ) -> Option<Ty> {
     if cursor.at_end() {
         return None;
@@ -83,18 +79,18 @@ fn parse_operand(
     parse_item(&mut Cursor::new(segment), level.next()?, trait_name)
 }
 
-/// DSL 解析入口：剥离尾部 `{...}` 代码块后交给 `attach_body`（递归支持连续附着）
+/// DSL 解析入口：剥离尾部 `{...}` 代码块 / `where{...}` 后缀，
+/// 通过 apply 附着到剩余部分解析出的类型上（递归支持连续附着）
 pub(crate) fn parse_primitive(
-    tokens: &[TokenTree],
-    trait_name: Option<&Ident>,
+    tokens: &[TokenTree], trait_name: Option<&Ident>,
 ) -> Ty {
-    let (tokens, body,is_where) = split_trailing_body(tokens);
-    match (body,is_where) {
-        (Some(body),false) => Ty::CodeBlock(TyCodeBlock(body))
-            .apply(parse_primitive(tokens, trait_name)),
-        (Some(w),true) => Ty::Where(TyWhere(w))
-            .apply(parse_primitive(tokens,trait_name)),
-        _ => parse_primary(tokens, trait_name),
+    let split = split_trailing_body(tokens);
+    match (split.body, split.is_where) {
+        (Some(body), false) => Ty::WithCode(TyWithCode(None, TyCodeBlock(body)))
+            .apply(parse_primitive(split.tokens, trait_name)),
+        (Some(w), true) => Ty::WithWhere(TyWithWhere(None, TyWhere(w)))
+            .apply(parse_primitive(split.tokens, trait_name)),
+        _ => parse_primary(split.tokens, trait_name),
     }
 }
 
@@ -102,27 +98,44 @@ pub(crate) fn parse_primitive(
 // 原子层解析
 // ============================================================
 
-/// 分离尾部 `{...}` 代码块（`macro!{...}` 不是尾部代码块）
-fn split_trailing_body(
-    tokens: &[TokenTree],
-) -> (&[TokenTree], Option<TokenStream>,bool) {
+/// 尾部 `{...}` 剥离的结果
+struct TrailingBody<'a> {
+    /// 剥离尾部代码块后的剩余 token
+    tokens: &'a [TokenTree],
+    /// 剥离出的 body 内容；`None` 表示无尾部代码块
+    body: Option<TokenStream>,
+    /// `true` 表示 body 是 `where{...}` 谓词后缀
+    is_where: bool,
+}
+
+/// 分离尾部 `{...}` 代码块（`macro!{...}` 不是尾部代码块；`where{...}` 记为谓词）
+fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
     match tokens.last() {
-        Some(TokenTree::Group(group))
-            if group.delimiter() == Delimiter::Brace => {
+        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
             // macro!{...} 不是尾部代码块，排除
             if tokens.len() >= 2
                 && let TokenTree::Punct(p) = &tokens[tokens.len() - 2]
-                && p.as_char() == '!' {
-                return (tokens, None,false);
+                && p.as_char() == '!'
+            {
+                return TrailingBody { tokens, body: None, is_where: false };
             }
-            if tokens.len()>=2 
-                && let TokenTree::Ident(i)=&tokens[tokens.len() - 2]
-                && i.to_string()=="where"{
-                return (&tokens[..tokens.len() - 2], Some(group.stream()),true)
+            if tokens.len() >= 2
+                && let TokenTree::Ident(i) = &tokens[tokens.len() - 2]
+                && *i == "where"
+            {
+                return TrailingBody {
+                    tokens: &tokens[..tokens.len() - 2],
+                    body: Some(group.stream()),
+                    is_where: true,
+                };
             }
-            (&tokens[..tokens.len() - 1], Some(group.stream()),false)
-        },
-        _ => (tokens, None,false),
+            TrailingBody {
+                tokens: &tokens[..tokens.len() - 1],
+                body: Some(group.stream()),
+                is_where: false,
+            }
+        }
+        _ => TrailingBody { tokens, body: None, is_where: false },
     }
 }
 
@@ -130,9 +143,9 @@ fn split_trailing_body(
 fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
         let inner = if rest.is_empty() {
-            TyAttr(attr).into()
+            TyWithAttr(TyAttr(attr), None).into()
         } else {
-            TyAttr(attr).apply(parse_primitive(rest, trait_name))
+            TyWithAttr(TyAttr(attr), None).apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }
@@ -141,11 +154,18 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         return function;
     }
 
+    // 裸 `fn`（无参数）：`fn^(A,B)` 由 `^` 操作符后续填入参数
+    if let [TokenTree::Ident(name)] = tokens
+        && name == "fn"
+    {
+        return TyFn(None, None).into();
+    }
+
     if let Some((prefix, rest)) = parse_prefix(tokens) {
         let inner = if rest.is_empty() {
-            Ty::Prefix(prefix)
+            TyWithPrefix(prefix, None).into()
         } else {
-            prefix.apply(parse_primitive(rest, trait_name))
+            TyWithPrefix(prefix, None).apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }
@@ -155,9 +175,9 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     }
 
     if let [TokenTree::Literal(literal)] = tokens
-        && let Ok(number) = literal.to_string().parse::<u8>()
+        && let Ok(number) = literal.to_string().parse()
     {
-        return Ty::Num(TyNum(number));
+        return TyNum(number).into();
     }
 
     if let [TokenTree::Group(group)] = tokens {
@@ -167,14 +187,14 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((base, args, rest)) = parse_generic(tokens) {
         let params = parse_angle_bracket_contents(args, trait_name);
         let generic = if is_trait_base(base, trait_name) {
-            Ty::Trait(TyTrait(base.iter().cloned().collect(), params))
+            TyTrait(base.iter().cloned().collect(), params).into()
         } else {
             if !rest.is_empty()
                 && !matches!(rest.first(), Some(t) if is_punct(t, '<'))
             {
                 return primitive(tokens);
             }
-            Ty::Generic(TyGeneric(Box::new(primitive(base)), params))
+            TyGeneric(primitive(base).into(), params).into()
         };
         return if rest.is_empty() {
             generic
@@ -185,7 +205,7 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
 
     if let Some((args, rest)) = parse_type_params(tokens) {
         let params = parse_angle_bracket_contents(args, trait_name);
-        let params = Ty::TypeParam(params);
+        let params = params.into();
         return if rest.is_empty() {
             params
         } else {
@@ -195,5 +215,3 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
 
     primitive(tokens)
 }
-
-
