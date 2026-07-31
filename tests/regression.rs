@@ -8,8 +8,9 @@
 // - 生命周期泛型
 // - dyn trait + 多重 bound
 // - `batch_impl` 与 `batch_trait!` 在 10 种 spec 下的一致性
+// - 宏调用 `m![]` 的透传，以及宏体与指令 / 裸 where 的边界
 
-use batch_impl::{batch_impl, batch_trait};
+use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 
 // ============================================================
 // 1. 嵌套尖括号 Vec<Vec<T>> —— 验证 `>>` 不破坏深度跟踪
@@ -286,4 +287,138 @@ fn cmp_path_trait() {
     _a::<u32>();
     _b::<u32>();
     _c::<u32>();
+}
+
+// ============================================================
+// 17. 宏调用 m![] 与 DSL 的交互
+//     - m![] 作为目标类型 / 泛型实参 / where 谓词透传
+//     - m![] 宏体是透传的宏参数：指令（#name）与裸 where 不得进入宏体
+// ============================================================
+macro_rules! ty {
+    () => { Vec<u8> };
+}
+macro_rules! passthrough {
+    ($($t:tt)*) => { $($t)* };
+}
+
+#[batch_impl(ty![])]
+trait MacroBracketA {}
+#[batch_impl(passthrough![Vec<u8>])]
+trait MacroBracketB {}
+#[batch_impl(Box<ty![]>)]
+trait MacroBracketC {}
+
+#[batch_impl(
+    <T> MacroBracketFnRet<T> Vec<T> where T: Fn() -> ty![]
+    { fn ok(&self) -> bool { true } }
+)]
+trait MacroBracketFnRet<T> {
+    fn ok(&self) -> bool;
+}
+
+#[test]
+fn macro_bracket_passthrough() {
+    fn a<T: MacroBracketA>(_: &T) {}
+    fn b<T: MacroBracketB>(_: &T) {}
+    fn c<T: MacroBracketC>(_: &T) {}
+    a(&vec![1u8]);
+    b(&vec![1u8]);
+    c(&Box::new(vec![1u8]));
+    let v: Vec<fn() -> Vec<u8>> = vec![|| vec![1u8]];
+    assert!(v.ok());
+}
+
+// --- m![] 宏体不展开指令、不处理裸 where ---
+trait MacroBracketDirective {
+    fn len(&self) -> usize;
+}
+
+macro_rules! len_ty {
+    (#len{ $n:expr }) => {
+        u8
+    };
+}
+
+#[batch_impl_only(
+    usize #len{5},
+    len_ty![#len{5}] #len{6}
+)]
+trait MacroBracketDirective {
+    fn len(&self) -> usize;
+}
+
+#[test]
+fn macro_bracket_directive_not_expanded() {
+    assert_eq!(0usize.len(), 5);
+    assert_eq!(0u8.len(), 6);
+}
+
+trait MacroBracketWhere<T> {
+    fn ok2(&self) -> bool;
+}
+
+macro_rules! m2 {
+    (where) => { Vec<u8> };
+}
+
+#[batch_impl_only(
+    <T> MacroBracketWhere<T> Vec<T> where T: Fn() -> m2![where]
+    { fn ok2(&self) -> bool { true } }
+)]
+trait MacroBracketWhere<T> {
+    fn ok2(&self) -> bool;
+}
+
+#[test]
+fn macro_bracket_where_not_processed() {
+    let v: Vec<fn() -> Vec<u8>> = vec![|| vec![1u8]];
+    assert!(v.ok2());
+}
+
+// ============================================================
+// 18. 路径前缀 `#path::to::Trait:`（batch_impl_only）
+//     - 生成 impl 引用外部模块中的真实 trait
+//     - dummy trait 仍用于指令签名读取
+//     - DSL 中 `Trait<T>` 通过路径末段 ident 识别为 trait 泛型应用
+// ============================================================
+mod ext {
+    pub mod traits {
+        pub trait PathPrefixTrait {
+            fn tag(&self) -> &'static str;
+        }
+
+        pub trait PathPrefixGen<T> {
+            fn head(&self) -> T;
+        }
+    }
+}
+
+// dummy trait 被 batch_impl_only 丢弃，此处导入真实 trait 以便方法调用
+use ext::traits::{PathPrefixGen, PathPrefixTrait};
+
+#[batch_impl_only(
+    #ext::traits::PathPrefixTrait: usize #tag{"usize"}, isize #tag{"isize"}
+)]
+trait PathPrefixTrait {
+    fn tag(&self) -> &'static str;
+}
+
+#[test]
+fn cmp_path_prefix_directive() {
+    assert_eq!(0usize.tag(), "usize");
+    assert_eq!(0isize.tag(), "isize");
+}
+
+#[batch_impl_only(
+    #ext::traits::PathPrefixGen: <T: Clone> PathPrefixGen<T> Vec<T>
+    { fn head(&self) -> T { self[0].clone() } }
+)]
+trait PathPrefixGen<T> {
+    fn head(&self) -> T;
+}
+
+#[test]
+fn cmp_path_prefix_trait_generic() {
+    assert_eq!(vec![1i32].head(), 1);
+    assert_eq!(vec![String::from("x")].head(), "x");
 }

@@ -1,0 +1,7 @@
+error: batch-impl: 路径前缀 `#...Other` 的末尾标识符与 trait 名 `MyTrait` 不一致；二者必须相同
+  --> tests/ui/path_prefix_mismatch.rs:11:1
+   |
+11 | #[batch_impl_only(#ext::traits::Other: usize)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl_only` (in Nightly builds, run with -Z macro-backtrace for more info)

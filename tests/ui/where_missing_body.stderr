@@ -1,0 +1,13 @@
+error: batch-impl: `where` 谓词后缺少代码块 {...}
+ --> tests/ui/where_missing_body.rs:4:1
+  |
+4 | #[batch_impl(<T> Sortable<T> Vec<T> where T: Ord)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0601]: `main` function not found in crate `$CRATE`
+ --> tests/ui/where_missing_body.rs:7:2
+  |
+7 | }
+  |  ^ consider adding a `main` function to `$DIR/tests/ui/where_missing_body.rs`

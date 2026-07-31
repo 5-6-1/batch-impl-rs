@@ -342,9 +342,9 @@ fn nested_generic_list() {
 }
 
 // ============================================================
-// 21. `where { ... }` DSL 后缀
+// 21. `where{...}` DSL 后缀
 // ============================================================
-#[batch_impl(<T: Clone> Sortable<T> Vec<T> where { T: Ord } {
+#[batch_impl(<T: Clone> Sortable<T> Vec<T> where{ T: Ord } {
     fn is_sorted(&self) -> bool {
         self.windows(2).all(|w| w[0] <= w[1])
     }
@@ -373,7 +373,7 @@ trait Singleton<T> {
 }
 
 #[test]
-fn directive_where_clause() {
+fn suffix_where_clause() {
     let v: Vec<i32> = vec![42];
     assert_eq!(v.only(), 42);
     let v: Vec<String> = vec![];
@@ -401,3 +401,74 @@ fn nested_generics_merge() {
     assert_eq!(p.pair(), (1u32, String::from("x")));
 }
 
+// ============================================================
+// 24. 列表修饰符 + `where{...}`（where 附着在 Array 外层）
+// ============================================================
+#[batch_impl(
+    <T> WrapOrd<T> [Box, Rc]^Vec<T> where{ T: Ord }
+    { fn is_sorted(&self) -> bool { self.windows(2).all(|w| w[0] <= w[1]) } }
+)]
+trait WrapOrd<T> {
+    fn is_sorted(&self) -> bool;
+}
+
+#[test]
+fn where_with_list_modifier() {
+    use std::rc::Rc;
+    assert!(WrapOrd::<i32>::is_sorted(&Box::new(vec![1, 2, 3])));
+    assert!(!WrapOrd::<i32>::is_sorted(&Rc::new(vec![3, 1, 2])));
+}
+
+// ============================================================
+// 25. 裸 `where 谓词 {body}`（新语法，逗号谓词不被 spec 切分）
+// ============================================================
+#[batch_impl(
+    <A> <B> PairComma<A, B> (A, B)
+    where A: Clone, B: Clone #both{ (self.0.clone(), self.1.clone()) }
+)]
+trait PairComma<A, B> {
+    fn both(&self) -> (A, B);
+}
+
+#[test]
+fn where_bare_comma_predicates() {
+    let p = (1u32, String::from("x"));
+    assert_eq!(PairComma::both(&p), (1u32, String::from("x")));
+}
+
+// ============================================================
+// 26. 裸 where + `m!{}` 宏体（宏调用不是 body 边界）
+// ============================================================
+macro_rules! m {
+    () => {
+        u32
+    };
+}
+
+#[batch_impl(
+    <T> FnRet<T> Vec<T> where T: Fn(u32) -> m!{}
+    { fn ret_is_ok(&self) -> bool { true } }
+)]
+trait FnRet<T> {
+    fn ret_is_ok(&self) -> bool;
+}
+
+#[test]
+fn where_macro_body_excluded() {
+    let v: Vec<fn(u32) -> u32> = vec![|x| x + 1];
+    assert!(v.ret_is_ok());
+}
+
+// ============================================================
+// 27. 裸 where 多段（`where A where B`）+ 空代码块
+// ============================================================
+#[batch_impl(
+    <T> MultiOrd<T> Vec<T> where T: Ord where T: Clone {}
+)]
+trait MultiOrd<T> {}
+
+#[test]
+fn where_bare_multi_clause() {
+    fn check<T: MultiOrd<i32>>() {}
+    check::<Vec<i32>>();
+}
