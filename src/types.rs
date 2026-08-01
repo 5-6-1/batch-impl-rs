@@ -81,7 +81,7 @@ pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
 /// 裸 `fn` / `fn(...)` / `fn(...)->T` — 参数 `None` 表示尚未填入
 pub(crate) struct TyFn(pub(crate) Option<Vec<Ty>>, pub(crate) Option<Box<Ty>>);
 #[derive(Clone, Debug)]
-/// `#[...]`（裸）或 `#[...] T` — 内层 `None` 表示裸属性
+/// `#[...]` — 属性本身
 pub(crate) struct TyAttr(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
 /// `#[...]`（裸）或 `#[...] T` — 内层 `None` 表示裸属性

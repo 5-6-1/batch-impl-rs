@@ -114,7 +114,8 @@ pub(crate) fn scan_with(
         } else if depth == 0
             && matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char()))
         {
-            let is_arrow_dash = matches!(&tokens.get(index), Some(TokenTree::Punct(p)) if p.as_char() == '-' && p.spacing() == Spacing::Joint)
+            let is_arrow_dash = matches!(token, TokenTree::Punct(p)
+                if p.as_char() == '-' && p.spacing() == Spacing::Joint)
                 && matches!(tokens.get(index + 1), Some(next) if is_punct(next, '>'));
             if !is_arrow_dash {
                 return index.into();

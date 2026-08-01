@@ -145,7 +145,9 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         let inner = if rest.is_empty() {
             TyWithAttr(TyAttr(attr), None).into()
         } else {
-            TyWithAttr(TyAttr(attr), None).apply(parse_primitive(rest, trait_name))
+            // 必须 Ty 包裹走顶层数组分发：`#[attr] [A, B]` => `#[attr] A + #[attr] B`
+            Ty::WithAttr(TyWithAttr(TyAttr(attr), None))
+                .apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }
@@ -165,7 +167,9 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         let inner = if rest.is_empty() {
             TyWithPrefix(prefix, None).into()
         } else {
-            TyWithPrefix(prefix, None).apply(parse_primitive(rest, trait_name))
+            // 必须 Ty 包裹走顶层数组分发：`& [A, B]` => `&A + &B`
+            Ty::WithPrefix(TyWithPrefix(prefix, None))
+                .apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }

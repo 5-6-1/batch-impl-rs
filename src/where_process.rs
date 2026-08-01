@@ -6,6 +6,11 @@
 //! `where{谓词}` 后缀；缺代码块时报 `compile_error!`。三个接口
 //! （`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`）共用，
 //! 解析层无需感知新语法。
+//!
+//! **限制**：谓词区边界只按 `<>` 深度扫描，不跟踪 `()`/`[]` 深度——但
+//! proc-macro2 会把平衡的 `(...)`/`[...]` 聚合成单个 Group token（对扫描不透明），
+//! 因此 `Fn({code})` 这类括号内代码块不会误判为 body 边界；仅**不平衡**的
+//! 括号（本就是非法输入）才可能受影响。
 
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 

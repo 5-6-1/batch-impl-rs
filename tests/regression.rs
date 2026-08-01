@@ -478,3 +478,37 @@ fn primitive_array_rules() {
     tg(&Box::new((1u8,)));
     tg(&Box::new((1u8, 2u16)));
 }
+
+// ============================================================
+// 20. 属性/前缀前缀的列表分发：`#[attr] [A, B]` / `& [A, B]`
+//     必须经顶层数组分发展开（否则把列表当整体类型，产生非法 `[A, B]` 目标）
+// ============================================================
+#[batch_impl(#[allow(dead_code)] [u8, u16])]
+trait AttrDistribute {}
+
+#[batch_impl(& [u8, u16])]
+trait RefDistribute {}
+
+#[batch_impl(#[allow(dead_code)] [u8, u16] { fn t(&self) -> &'static str { "x" } })]
+trait AttrBodyDistribute {
+    fn t(&self) -> &'static str;
+}
+
+#[batch_impl(& [u8, u16] { fn t(&self) -> &'static str { "y" } })]
+trait RefBodyDistribute {
+    fn t(&self) -> &'static str;
+}
+
+#[test]
+fn prefix_attr_list_distribution() {
+    fn a<T: AttrDistribute>(_: &T) {}
+    fn r<T: RefDistribute>(_: &T) {}
+    a(&0u8);
+    a(&0u16);
+    r(&(&0u8));
+    r(&(&0u16));
+    assert_eq!(AttrBodyDistribute::t(&0u8), "x");
+    assert_eq!(AttrBodyDistribute::t(&0u16), "x");
+    assert_eq!((&&0u8).t(), "y");
+    assert_eq!((&&0u16).t(), "y");
+}
