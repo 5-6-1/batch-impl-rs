@@ -73,7 +73,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 let mut parts = extract_impl_parts(*inner);
                 match &mut parts.body {
                     Some(t) => t.extend(wc.1.0),
-                    None => parts.body = Some(wc.1.0),
+                    None => parts.body = wc.1.0.into(),
                 }
                 parts
             }
@@ -106,7 +106,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                     // 引用/指针前缀 → 包到目标类型上
                     _ => {
                         parts.target_type =
-                            TyWithPrefix(wp.0, Some(parts.target_type.into())).into()
+                            TyWithPrefix(wp.0, parts.target_type.into()).into()
                     }
                 }
                 parts

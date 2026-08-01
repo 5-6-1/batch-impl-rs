@@ -53,7 +53,7 @@ fn pow_single(template: Ty, n: usize) -> Ty {
         return TyTypeParam {
             params: param_names
                 .into_iter()
-                .map(|n| (n, Some(parse_primitive(&bound_tokens, None))))
+                .map(|n| (n, parse_primitive(&bound_tokens, None).into()))
                 .collect(),
             bindings: vec![],
         }
@@ -90,7 +90,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                 let params = tp
                     .params
                     .iter()
-                    .map(|(b, _)| (name.clone(), Some(TyPrimitive(b.clone()).into())))
+                    .map(|(b, _)| (name.clone(), TyPrimitive(b.clone()).into()))
                     .collect();
                 param_decls.push(TyTypeParam { params, bindings: vec![] });
                 tuple_elems.push(TyPrimitive(name).into());
@@ -143,14 +143,14 @@ impl Apply for TyFn {
         match self {
             // 裸 fn 经 `^` 填入参数
             TyFn(None, None) => match o {
-                Ty::Tuple(t) => TyFn(Some(t.0), None).into(),
-                Ty::Group(t) => TyFn(Some(vec![*t.0]), None).into(),
+                Ty::Tuple(t) => TyFn(t.0.into(), None).into(),
+                Ty::Group(t) => TyFn(vec![*t.0].into(), None).into(),
                 _ => err_ty(
                     "batch-impl: `fn` 前缀右侧必须是元组类型，如 fn^(i32, u32)",
                 ),
             },
             // 已有参数，经 `-` 追加返回类型
-            TyFn(Some(params), None) => TyFn(Some(params), Some(o.into())).into(),
+            TyFn(Some(params), None) => TyFn(params.into(), o.into()).into(),
             TyFn(Some(_), Some(_)) => {
                 err_ty("batch-impl: `fn` 类型已有返回类型，不能重复应用")
             }
@@ -169,14 +169,14 @@ impl Apply for TyWithCode {
             Some(t) => t.apply(o),
             None => o,
         };
-        TyWithCode(Some(inner.into()), self.1).into()
+        TyWithCode(inner.into(), self.1).into()
     }
 }
 
 impl Apply for TyWithAttr {
     /// `#[attr]^T` => `#[attr] T`（附着属性到类型）
     fn apply(self, o: Ty) -> Ty {
-        TyWithAttr(self.0, Some(o.into())).into()
+        TyWithAttr(self.0, o.into()).into()
     }
 }
 
@@ -212,9 +212,9 @@ impl Apply for TyPrimitiveArray {
     /// 列表/范围（经顶层右操作数分发逐项展开）。已完成的数组再应用报错。
     fn apply(self, o: Ty) -> Ty {
         match (self.0, self.1) {
-            (None, None) => TyPrimitiveArray(Some(o.into()), None).into(),
+            (None, None) => TyPrimitiveArray(o.into(), None).into(),
             (Some(elem), None) => {
-                TyPrimitiveArray(Some(elem), Some(o.to_token_stream())).into()
+                TyPrimitiveArray(elem.into(), o.to_token_stream().into()).into()
             }
             _ => err_ty("batch-impl: 定长数组 `[T; N]` 不能作为左侧操作数"),
         }
@@ -239,6 +239,6 @@ impl Apply for TyWithWhere {
             Some(t) => t.apply(o),
             None => o,
         };
-        TyWithWhere(Some(inner.into()), self.1).into()
+        TyWithWhere(inner.into(), self.1).into()
     }
 }

@@ -34,16 +34,17 @@ pub(crate) fn parse_names_from_tokens(
             {
                 Err(None)
             } else {
-                Err(Some(compile_error_str(&format!(
+                Err(compile_error_str(&format!(
                     "batch-impl: 指令参数中期望标识符或逗号，得到 `{}`",
                     t
-                ))))
+                ))
+                .into())
             }
         })
         .filter_map(|r| match r {
-            Ok(v) => Some(Ok(v)),
+            Ok(v) => Ok(v).into(),
             Err(None) => None,
-            Err(Some(e)) => Some(Err(e)),
+            Err(Some(e)) => Err(e).into(),
         })
         .collect()
 }
@@ -107,22 +108,23 @@ pub(crate) fn build_from_item(
         syn::TraitItem::Fn(f) => {
             let mut f = f.clone();
             f.semi_token = None;
-            f.default = Some(syn::Block {
+            f.default = syn::Block {
                 brace_token: syn::token::Brace::default(),
                 stmts: vec![syn::Stmt::Expr(syn::Expr::Verbatim(body.clone()), None)],
-            });
+            }
+            .into();
             quote! {#f}
         }
         syn::TraitItem::Const(c) => {
             let mut c = c.clone();
             c.default =
-                Some((syn::token::Eq::default(), syn::Expr::Verbatim(body.clone())));
+                (syn::token::Eq::default(), syn::Expr::Verbatim(body.clone())).into();
             quote! {#c}
         }
         syn::TraitItem::Type(t) => {
             let mut t = t.clone();
             t.default =
-                Some((syn::token::Eq::default(), syn::Type::Verbatim(body.clone())));
+                (syn::token::Eq::default(), syn::Type::Verbatim(body.clone())).into();
             quote! {#t}
         }
         _ => compile_error_str("item格式错误，不可能出现的错误"),
@@ -136,7 +138,7 @@ pub(crate) fn collect_call_args(sig: &syn::Signature) -> Vec<Ident> {
             if let syn::FnArg::Typed(pat_type) = arg
                 && let syn::Pat::Ident(pat_ident) = &*pat_type.pat
             {
-                return Some(pat_ident.ident.clone());
+                return pat_ident.ident.clone().into();
             }
             None
         })

@@ -107,7 +107,7 @@ pub(crate) fn scan_with(
                 ScanMode::Strict => {
                     depth = depth.checked_sub(1)?;
                     if depth == 0 {
-                        return Some(index);
+                        return index.into();
                     }
                 }
             }
@@ -117,7 +117,7 @@ pub(crate) fn scan_with(
             let is_arrow_dash = matches!(&tokens.get(index), Some(TokenTree::Punct(p)) if p.as_char() == '-' && p.spacing() == Spacing::Joint)
                 && matches!(tokens.get(index + 1), Some(next) if is_punct(next, '>'));
             if !is_arrow_dash {
-                return Some(index);
+                return index.into();
             }
         }
     }

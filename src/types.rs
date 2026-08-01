@@ -154,9 +154,9 @@ impl Ty {
                 Some(inner) => match inner.expand() {
                     Ok(expanded) => Ok(expanded
                         .into_iter()
-                        .map(|e| TyWithCode(Some(e.into()), wc.1.clone()).into())
+                        .map(|e| TyWithCode(e.into(), wc.1.clone()).into())
                         .collect()),
-                    Err(leaf) => Err(TyWithCode(Some(leaf.into()), wc.1).into()),
+                    Err(leaf) => Err(TyWithCode(leaf.into(), wc.1).into()),
                 },
                 None => Err(Ty::WithCode(wc)),
             },
@@ -164,9 +164,9 @@ impl Ty {
                 Some(inner) => match inner.expand() {
                     Ok(expanded) => Ok(expanded
                         .into_iter()
-                        .map(|e| TyWithWhere(Some(e.into()), ww.1.clone()).into())
+                        .map(|e| TyWithWhere(e.into(), ww.1.clone()).into())
                         .collect()),
-                    Err(leaf) => Err(TyWithWhere(Some(leaf.into()), ww.1).into()),
+                    Err(leaf) => Err(TyWithWhere(leaf.into(), ww.1).into()),
                 },
                 None => Err(Ty::WithWhere(ww)),
             },
@@ -205,8 +205,24 @@ macro_rules! impl_from_for_ty {
                     Box::new(value.into())
                 }
             }
+            impl From<$struct> for Option<Ty> {
+                fn from(value: $struct) -> Self {
+                    Some(value.into())
+                }
+            }
+            impl From<$struct> for Option<Box<Ty>> {
+                fn from(value: $struct) -> Self {
+                    Some(value.into())
+                }
+            }
         )*
     };
+}
+
+impl From<Ty> for Option<Box<Ty>> {
+    fn from(ty: Ty) -> Self {
+        Some(ty.into())
+    }
 }
 
 impl_from_for_ty! {

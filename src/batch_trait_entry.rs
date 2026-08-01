@@ -20,7 +20,7 @@ pub(crate) fn parse_batch_trait_entry(
     trait_last_ident: &Ident, is_unsafe_trait: bool, start_trait: Option<ItemTrait>,
 ) -> TokenStream {
     let mut tys = vec![];
-    while let Some(ty) = parse_item(cursor, top_level, Some(trait_last_ident)) {
+    while let Some(ty) = parse_item(cursor, top_level, trait_last_ident.into()) {
         let mut queue = vec![ty];
         while let Some(item) = queue.pop() {
             match item.expand() {

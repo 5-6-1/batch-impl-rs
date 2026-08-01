@@ -33,7 +33,7 @@ pub(crate) fn parse_item(
     match level {
         Op::Semi | Op::Comma => loop {
             if let Some(item) = parse_operand(cursor, level, trait_name) {
-                return Some(item);
+                return item.into();
             }
             if cursor.is_punct(',') {
                 cursor.bump();
@@ -47,7 +47,7 @@ pub(crate) fn parse_item(
                 cursor.bump();
                 result = result.apply(parse_operand(cursor, Op::Dash, trait_name)?);
             }
-            Some(result)
+            result.into()
         }
         Op::Caret => {
             let mut items = vec![parse_operand(cursor, Op::Caret, trait_name)?];
@@ -59,9 +59,9 @@ pub(crate) fn parse_item(
             while let Some(left) = items.pop() {
                 result = left.apply(result);
             }
-            Some(result)
+            result.into()
         }
-        Op::Prim => Some(parse_primitive(cursor.take_rest(), trait_name)),
+        Op::Prim => parse_primitive(cursor.take_rest(), trait_name).into(),
     }
 }
 
@@ -125,13 +125,13 @@ fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
             {
                 return TrailingBody {
                     tokens: &tokens[..tokens.len() - 2],
-                    body: Some(group.stream()),
+                    body: group.stream().into(),
                     is_where: true,
                 };
             }
             TrailingBody {
                 tokens: &tokens[..tokens.len() - 1],
-                body: Some(group.stream()),
+                body: group.stream().into(),
                 is_where: false,
             }
         }

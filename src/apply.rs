@@ -37,16 +37,12 @@ impl Apply for Ty {
             }
             Ty::Group(g) => self.apply(*g.0),
             Ty::WithCode(wc) => match wc.0 {
-                Some(inner) => {
-                    TyWithCode(Some(self.apply(*inner).into()), wc.1).into()
-                }
-                None => TyWithCode(Some(self.into()), wc.1).into(),
+                Some(inner) => TyWithCode(self.apply(*inner).into(), wc.1).into(),
+                None => TyWithCode(self.into(), wc.1).into(),
             },
             Ty::WithWhere(ww) => match ww.0 {
-                Some(inner) => {
-                    TyWithWhere(Some(self.apply(*inner).into()), ww.1).into()
-                }
-                None => TyWithWhere(Some(self.into()), ww.1).into(),
+                Some(inner) => TyWithWhere(self.apply(*inner).into(), ww.1).into(),
+                None => TyWithWhere(self.into(), ww.1).into(),
             },
             // 右操作数为 `WithType`（如 `()^N` 的 fresh 泛型元组）时，
             // 把泛型声明外提到外层：`T^<A>X` => `<A>(T^X)`，
@@ -98,7 +94,7 @@ impl Apply for TyWithPrefix {
                     Some(t) => t.apply(o),
                     None => o,
                 };
-                TyWithPrefix(self.0, Some(inner.into())).into()
+                TyWithPrefix(self.0, inner.into()).into()
             }
             // self^T=>T
             TyPrefix::SelfType => o,

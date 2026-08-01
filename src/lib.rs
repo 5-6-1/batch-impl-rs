@@ -152,7 +152,7 @@ fn expand_attr_macro(
     let expanded = where_process(&mut Cursor::new(&expanded))?;
     cursor = Cursor::new(&expanded);
     let is_unsafe = trait_item.unsafety.is_some();
-    let start_trait = if include_trait { Some(trait_item) } else { None };
+    let start_trait = if include_trait { trait_item.into() } else { None };
     let impls = parse_batch_trait_entry(
         &mut cursor,
         Op::Comma,
@@ -253,7 +253,7 @@ fn expand_batch_trait(
             match trait_path
                 .iter()
                 .filter_map(|tt| {
-                    if let TokenTree::Ident(id) = tt { Some(id) } else { None }
+                    if let TokenTree::Ident(id) = tt { id.into() } else { None }
                 })
                 .next_back()
             {

@@ -24,7 +24,7 @@ pub(crate) fn parse_generic(
     let mut open = None;
     while i < tokens.len() {
         if is_punct(&tokens[i], '<') {
-            open = Some(i);
+            open = i.into();
             break;
         }
         i += 1;
@@ -34,11 +34,12 @@ pub(crate) fn parse_generic(
         return None;
     }
     let close = matching_angle(tokens, open)?;
-    Some((
+    (
         &tokens[..open],
         &tokens[open + 1..close],
         &tokens[close + 1..],
-    ))
+    )
+        .into()
 }
 
 /// 以 `<` 开头的裸泛型参数列表解析
@@ -49,7 +50,7 @@ pub(crate) fn parse_type_params(
         return None;
     }
     let close = matching_angle(tokens, 0)?;
-    Some((&tokens[1..close], &tokens[close + 1..]))
+    (&tokens[1..close], &tokens[close + 1..]).into()
 }
 
 /// 严格配对：找到 open 处 `<` 对应的 `>`；深度失衡返回 None。
@@ -103,14 +104,13 @@ pub(crate) fn parse_angle_bracket_contents(
         } else if let Some(colon) = find_colon_at_depth0(chunk) {
             params.push((
                 chunk[..colon].iter().cloned().collect(),
-                Some(
-                    parse_item(
-                        &mut Cursor::new(&chunk[colon + 1..]),
-                        Op::Dash,
-                        trait_name,
-                    )
-                    .unwrap_or_else(empty),
-                ),
+                parse_item(
+                    &mut Cursor::new(&chunk[colon + 1..]),
+                    Op::Dash,
+                    trait_name,
+                )
+                .unwrap_or_else(empty)
+                .into(),
             ));
         } else {
             params.push((chunk.iter().cloned().collect(), None));

@@ -56,7 +56,7 @@ pub(crate) fn try_parse_path_prefix(
             // 期待的 Ident（紧跟在 `::` 之后）
             Some(TokenTree::Ident(id)) if !expect_sep => {
                 i += 1;
-                last_ident = Some(id.clone());
+                last_ident = id.clone().into();
                 expect_sep = true;
             }
             _ => return None,

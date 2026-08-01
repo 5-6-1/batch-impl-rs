@@ -12,7 +12,7 @@ pub(crate) fn parse_attribute(
         [TokenTree::Punct(hash), TokenTree::Group(group), rest @ ..]
             if hash.as_char() == '#' && group.delimiter() == Delimiter::Bracket =>
         {
-            Some((group.stream(), rest))
+            (group.stream(), rest).into()
         }
         _ => None,
     }
@@ -43,11 +43,11 @@ pub(crate) fn parse_function(
                 && arrow.as_char() == '>'
                 && !return_tokens.is_empty() =>
         {
-            Some(parse_primitive(return_tokens, trait_name).into())
+            parse_primitive(return_tokens, trait_name).into()
         }
         _ => None,
     };
-    Some(TyFn(Some(parameters), return_type).into())
+    TyFn(parameters.into(), return_type).into()
 }
 
 /// 前缀修饰符解析：`&`/`&mut`/`*const`/`*mut`/`self`/`unsafe`
@@ -57,26 +57,26 @@ pub(crate) fn parse_prefix(tokens: &[TokenTree]) -> Option<(TyPrefix, &[TokenTre
         [TokenTree::Punct(p), TokenTree::Ident(name), rest @ ..]
             if p.as_char() == '&' && name == "mut" =>
         {
-            Some((TyPrefix::RefMut, rest))
+            (TyPrefix::RefMut, rest).into()
         }
         [TokenTree::Punct(p), rest @ ..] if p.as_char() == '&' => {
-            Some((TyPrefix::Ref, rest))
+            (TyPrefix::Ref, rest).into()
         }
         [TokenTree::Punct(p), TokenTree::Ident(name), rest @ ..]
             if p.as_char() == '*' && name == "const" =>
         {
-            Some((TyPrefix::PtrConst, rest))
+            (TyPrefix::PtrConst, rest).into()
         }
         [TokenTree::Punct(p), TokenTree::Ident(name), rest @ ..]
             if p.as_char() == '*' && name == "mut" =>
         {
-            Some((TyPrefix::PtrMut, rest))
+            (TyPrefix::PtrMut, rest).into()
         }
         [TokenTree::Ident(name), rest @ ..] if name == "self" => {
-            Some((TyPrefix::SelfType, rest))
+            (TyPrefix::SelfType, rest).into()
         }
         [TokenTree::Ident(name), rest @ ..] if name == "unsafe" => {
-            Some((TyPrefix::Unsafe, rest))
+            (TyPrefix::Unsafe, rest).into()
         }
         _ => None,
     }
@@ -109,7 +109,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
         }
         _ => return None,
     };
-    Some(TyRange { start, end: end.to_string().parse().ok()?, inclusive }.into())
+    TyRange { start, end: end.to_string().parse().ok()?, inclusive }.into()
 }
 
 /// 分组解析：`(A,B)` 元组 / `(A)` 分组 / `[A,B]` 列表 / `[A; N]` 定长数组 / `[A]` 切片 / `{...}` 代码块
@@ -144,9 +144,9 @@ pub(crate) fn parse_group(
                     cursor.bump();
                     let length: TokenStream =
                         cursor.take_rest().iter().cloned().collect();
-                    TyPrimitiveArray(Some(element.into()), Some(length)).into()
+                    TyPrimitiveArray(element.into(), length.into()).into()
                 } else {
-                    TyPrimitiveArray(Some(element.into()), None).into()
+                    TyPrimitiveArray(element.into(), None).into()
                 }
             }
         }

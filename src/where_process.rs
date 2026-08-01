@@ -79,24 +79,26 @@ fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
                     && depth == 0
                     && !is_macro_body(tokens, j) =>
             {
-                return Some((
+                return (
                     Group::new(
                         Delimiter::Brace,
                         result.into_iter().cloned().collect(),
                     )
                     .into(),
                     j,
-                ));
+                )
+                    .into();
             }
             TokenTree::Ident(w) if w == "where" && depth == 0 => {
-                return Some((
+                return (
                     Group::new(
                         Delimiter::Brace,
                         result.into_iter().cloned().collect(),
                     )
                     .into(),
                     j,
-                ));
+                )
+                    .into();
             }
             _ => result.push(&tokens[j]),
         }
