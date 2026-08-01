@@ -186,6 +186,28 @@ impl Ty {
                     .collect()),
                 Err(leaf) => Err(TyWithTrait(wt.0, leaf.into()).into()),
             },
+            // `WithAttr`/`WithPrefix` 同样透明透传（防御性：数组分发在 apply 层已完成，
+            // 当前路径不可达，但保持所有包装变体在 expand 中统一透传，防未来回归）。
+            Ty::WithAttr(wa) => match wa.1 {
+                Some(inner) => match inner.expand() {
+                    Ok(expanded) => Ok(expanded
+                        .into_iter()
+                        .map(|e| TyWithAttr(wa.0.clone(), e.into()).into())
+                        .collect()),
+                    Err(leaf) => Err(TyWithAttr(wa.0, leaf.into()).into()),
+                },
+                None => Err(Ty::WithAttr(wa)),
+            },
+            Ty::WithPrefix(wp) => match wp.1 {
+                Some(inner) => match inner.expand() {
+                    Ok(expanded) => Ok(expanded
+                        .into_iter()
+                        .map(|e| TyWithPrefix(wp.0, e.into()).into())
+                        .collect()),
+                    Err(leaf) => Err(TyWithPrefix(wp.0, leaf.into()).into()),
+                },
+                None => Err(Ty::WithPrefix(wp)),
+            },
             Ty::Group(g) => (*g.0).expand(),
             other => Err(other),
         }
