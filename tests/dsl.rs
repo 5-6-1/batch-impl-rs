@@ -553,6 +553,9 @@ fn directive_except() {
 // 31. 空操作数严格化：合法形态不受影响
 //     （尾随逗号 / 空元组 `()` / 空基座 `[]` 都是真实 token，不是空操作数）
 // ============================================================
+// 尾随逗号必须用 #[rustfmt::skip] 保护：rustfmt 会移除单行宏调用的尾随逗号，
+// 这条用例正是"尾随逗号合法"的回归载体
+#[rustfmt::skip]
 #[batch_impl(usize, isize,)]
 trait TrailingCommaOk {}
 
