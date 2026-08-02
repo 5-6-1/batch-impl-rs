@@ -78,7 +78,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 parts
             }
             // 裸代码块无目标类型，防御性兜底
-            None => ImplParts::leaf(Ty::WithCode(wc)),
+            None => ImplParts::leaf(wc.into()),
         },
         Ty::WithWhere(ww) => match ww.0 {
             Some(inner) => {
@@ -86,7 +86,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 parts.where_clauses.push(ww.1.0);
                 parts
             }
-            None => ImplParts::leaf(Ty::WithWhere(ww)),
+            None => ImplParts::leaf(ww.into()),
         },
         Ty::WithAttr(wa) => match wa.1 {
             Some(inner) => {
@@ -95,7 +95,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 parts.attrs.push(quote!(#[#stream]));
                 parts
             }
-            None => ImplParts::leaf(Ty::WithAttr(wa)),
+            None => ImplParts::leaf(wa.into()),
         },
         Ty::WithPrefix(wp) => match wp.1 {
             Some(inner) => {
@@ -111,7 +111,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 }
                 parts
             }
-            None => ImplParts::leaf(Ty::WithPrefix(wp)),
+            None => ImplParts::leaf(wp.into()),
         },
         Ty::Error(e) => ImplParts::leaf(e.into()),
         o => ImplParts::leaf(o),
@@ -129,56 +129,68 @@ fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
             out.extend(wt.0.params);
             hoist_type_params(*wt.1, out)
         }
-        Ty::Array(a) => Ty::Array(TyArray(
-            a.0.into_iter().map(|e| hoist_type_params(e, out)).collect(),
-        )),
-        Ty::Tuple(t) => Ty::Tuple(TyTuple(
-            t.0.into_iter().map(|e| hoist_type_params(e, out)).collect(),
-        )),
-        Ty::Group(g) => Ty::Group(TyGroup(Box::new(hoist_type_params(*g.0, out)))),
-        Ty::PrimitiveArray(pa) => Ty::PrimitiveArray(TyPrimitiveArray(
-            pa.0.map(|e| Box::new(hoist_type_params(*e, out))),
-            pa.1,
-        )),
+        Ty::Array(a) => {
+            TyArray(a.0.into_iter().map(|e| hoist_type_params(e, out)).collect())
+                .into()
+        }
+        Ty::Tuple(t) => {
+            TyTuple(t.0.into_iter().map(|e| hoist_type_params(e, out)).collect())
+                .into()
+        }
+        Ty::Group(g) => TyGroup(hoist_type_params(*g.0, out).into()).into(),
+        Ty::PrimitiveArray(pa) => {
+            TyPrimitiveArray(pa.0.map(|e| hoist_type_params(*e, out).into()), pa.1)
+                .into()
+        }
         Ty::Generic(g) => {
             let base = hoist_type_params(*g.0, out);
-            Ty::Generic(TyGeneric(Box::new(base), g.1))
+            TyGeneric(base.into(), g.1).into()
         }
-        Ty::WithPrefix(wp) => Ty::WithPrefix(TyWithPrefix(
-            wp.0,
-            wp.1.map(|e| Box::new(hoist_type_params(*e, out))),
-        )),
+        Ty::WithPrefix(wp) => {
+            TyWithPrefix(wp.0, wp.1.map(|e| hoist_type_params(*e, out).into())).into()
+        }
         Ty::WithTrait(wt) => {
-            Ty::WithTrait(TyWithTrait(wt.0, Box::new(hoist_type_params(*wt.1, out))))
+            TyWithTrait(wt.0, hoist_type_params(*wt.1, out).into()).into()
         }
-        Ty::WithCode(wc) => Ty::WithCode(TyWithCode(
-            wc.0.map(|e| Box::new(hoist_type_params(*e, out))),
-            wc.1,
-        )),
-        Ty::WithWhere(ww) => Ty::WithWhere(TyWithWhere(
-            ww.0.map(|e| Box::new(hoist_type_params(*e, out))),
-            ww.1,
-        )),
-        Ty::WithAttr(wa) => Ty::WithAttr(TyWithAttr(
-            wa.0,
-            wa.1.map(|e| Box::new(hoist_type_params(*e, out))),
-        )),
-        Ty::Fn(f) => Ty::Fn(TyFn(
+        Ty::WithCode(wc) => {
+            TyWithCode(wc.0.map(|e| hoist_type_params(*e, out).into()), wc.1).into()
+        }
+        Ty::WithWhere(ww) => {
+            TyWithWhere(ww.0.map(|e| hoist_type_params(*e, out).into()), ww.1).into()
+        }
+        Ty::WithAttr(wa) => {
+            TyWithAttr(wa.0, wa.1.map(|e| hoist_type_params(*e, out).into())).into()
+        }
+        Ty::Fn(f) => TyFn(
             f.0.map(|params| {
                 params.into_iter().map(|p| hoist_type_params(p, out)).collect()
             }),
-            f.1.map(|r| Box::new(hoist_type_params(*r, out))),
-        )),
+            f.1.map(|r| hoist_type_params(*r, out).into()),
+            f.2,
+        )
+        .into(),
         other => other,
     }
 }
 
-/// 生成一个 impl 块：拆解元数据 → 构建泛型参数 / trait 泛型 / impl body → 输出 `quote!` 块
+/// 生成一个 impl 块（对摊平后的单个叶子 `Ty`）。
+///
+/// 三个出口：
+/// - `Ty::Error` → 直接输出 `compile_error!` 流；
+/// - 裸代码块 `WithCode(None, ...)`（开放指令扩展产物）→ 原样作为顶层 item 注入，
+///   不包进 impl；
+/// - 其余 → 拆解元数据（`extract_impl_parts`）→ 嵌套泛型外提
+///   （`hoist_type_params`）→ 构建泛型参数 / trait 泛型 / impl body → 渲染 `quote!` 块。
 pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
 ) -> TokenStream {
     if let Ty::Error(e) = ty {
         return e.0;
+    }
+    // 裸代码块：`{...}` 作为整个 spec（开放指令独立成 spec 的退化形态）时，
+    // 原样输出其内容为顶层 item（如函数式宏调用 `foo!{...}`），不包进 impl 块。
+    if let Ty::WithCode(TyWithCode(None, code)) = &ty {
+        return code.0.clone();
     }
     let mut parts = extract_impl_parts(ty);
 

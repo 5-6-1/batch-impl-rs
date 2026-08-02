@@ -9,7 +9,7 @@
 
 use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 
-use crate::apply::Apply;
+use crate::apply::{Apply, err_ty};
 use crate::generic::{
     is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params,
     primitive,
@@ -37,23 +37,60 @@ pub(crate) fn parse_item(
             }
             if cursor.is_punct(',') {
                 cursor.bump();
+                // 连续逗号（`,,`）：两个分隔符之间无操作数。
+                // 尾随单逗号合法（由调用方判定 `A,` 结束）；双逗号是笔误。
+                if cursor.is_punct(',') {
+                    return err_ty(
+                        "batch-impl: 连续逗号 `,,` 之间缺少操作数（如 `A,,B`）",
+                    )
+                    .into();
+                }
             } else {
                 return None;
             }
         },
         Op::Dash => {
-            let mut result = parse_operand(cursor, Op::Dash, trait_name)?;
+            // 左操作数：parse_operand 返回 None 仅在游标到末尾（合法终止）或
+            // 空段（`-A` 左空，静默吞段）。空段必须报错。
+            let mut result = match parse_operand(cursor, Op::Dash, trait_name) {
+                Some(op) => op,
+                None if cursor.at_end() => return None,
+                None => {
+                    return err_ty("batch-impl: `-` 前缺少操作数（如 `T-U`）").into();
+                }
+            };
+            if is_empty_operand(&result) {
+                return err_ty("batch-impl: `-` 前缺少操作数（如 `T-U`）").into();
+            }
             while cursor.is_punct('-') {
                 cursor.bump();
-                result = result.apply(parse_operand(cursor, Op::Dash, trait_name)?);
+                let Some(op) = parse_operand(cursor, Op::Dash, trait_name) else {
+                    return err_ty("batch-impl: `-` 后缺少操作数（如 `T-U`）").into();
+                };
+                if is_empty_operand(&op) {
+                    return err_ty("batch-impl: `-` 后缺少操作数（如 `T-U`）").into();
+                }
+                result = result.apply(op);
             }
             result.into()
         }
         Op::Caret => {
-            let mut items = vec![parse_operand(cursor, Op::Caret, trait_name)?];
+            // 左操作数：`^A` 的空段会解析为空 Primitive，必须拦截
+            // （否则生成 ` <A>` 垃圾类型，下游报错定位不到 DSL）。
+            let first = parse_operand(cursor, Op::Caret, trait_name)?;
+            if is_empty_operand(&first) {
+                return err_ty("batch-impl: `^` 前缺少操作数（如 `T^U`）").into();
+            }
+            let mut items = vec![first];
             while cursor.is_punct('^') {
                 cursor.bump();
-                items.push(parse_operand(cursor, Op::Caret, trait_name)?);
+                let Some(op) = parse_operand(cursor, Op::Caret, trait_name) else {
+                    return err_ty("batch-impl: `^` 后缺少操作数（如 `T^U`）").into();
+                };
+                if is_empty_operand(&op) {
+                    return err_ty("batch-impl: `^` 后缺少操作数（如 `T^U`）").into();
+                }
+                items.push(op);
             }
             let mut result = items.pop()?;
             while let Some(left) = items.pop() {
@@ -63,6 +100,13 @@ pub(crate) fn parse_item(
         }
         Op::Prim => parse_primitive(cursor.take_rest(), trait_name).into(),
     }
+}
+
+/// 操作数是否为空（`^`/`-` 后紧跟深度 0 的停止符时，`take_segment` 会截出空切片）。
+/// 空操作数即"运算符后缺操作数"；`()`/`[]` 等 Group 虽可为空元组/空基座，
+/// 但它们是一个真实 token，不是空操作数。
+fn is_empty_operand(ty: &Ty) -> bool {
+    matches!(ty, Ty::Primitive(p) if p.0.is_empty())
 }
 
 /// 在 `level` 优先级解析一个操作数（到该层级的停止符为止，停止符不消费）。
@@ -86,9 +130,17 @@ pub(crate) fn parse_primitive(
 ) -> Ty {
     let split = split_trailing_body(tokens);
     match (split.body, split.is_where) {
-        (Some(body), false) => Ty::WithCode(TyWithCode(None, TyCodeBlock(body)))
-            .apply(parse_primitive(split.tokens, trait_name)),
-        (Some(w), true) => Ty::WithWhere(TyWithWhere(None, TyWhere(w)))
+        (Some(body), false) => {
+            let block = TyWithCode(None, TyCodeBlock(body));
+            // 整个操作数就是 `{...}` 裸代码块（开放指令独立成 spec 的退化形态）：
+            // 保持 `None` 内层作为"顶层 item 注入"标记，不附着空目标
+            // （附着到类型时 `T {code}` 是普通 impl body，走下方 apply）
+            if split.tokens.is_empty() {
+                return block.into();
+            }
+            block.apply(parse_primitive(split.tokens, trait_name))
+        }
+        (Some(w), true) => TyWithWhere(None, TyWhere(w))
             .apply(parse_primitive(split.tokens, trait_name)),
         _ => parse_primary(split.tokens, trait_name),
     }
@@ -145,9 +197,7 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         let inner = if rest.is_empty() {
             TyWithAttr(TyAttr(attr), None).into()
         } else {
-            // 必须 Ty 包裹走顶层数组分发：`#[attr] [A, B]` => `#[attr] A + #[attr] B`
-            Ty::WithAttr(TyWithAttr(TyAttr(attr), None))
-                .apply(parse_primitive(rest, trait_name))
+            TyWithAttr(TyAttr(attr), None).apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }
@@ -160,16 +210,36 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let [TokenTree::Ident(name)] = tokens
         && name == "fn"
     {
-        return TyFn(None, None).into();
+        return TyFn(None, None, false).into();
     }
 
     if let Some((prefix, rest)) = parse_prefix(tokens) {
+        // `unsafe` 前缀歧义消解：
+        // - 裸 `unsafe`（rest 空）→ unsafe impl 标记（unsafe^T / unsafe-T），原样透传
+        // - `unsafe fn...` → unsafe fn 类型（TyFn.is_unsafe 置位）
+        // - `unsafe X`（X 非 fn）→ 报错：Rust 中 unsafe 只能修饰 fn 类型，
+        //   并列写其他类型几乎必是忘写 `^` 的笔误（unsafe^Vec<T>）
+        if matches!(prefix, TyPrefix::Unsafe) && !rest.is_empty() {
+            if matches!(rest.first(), Some(TokenTree::Ident(f)) if f == "fn") {
+                let inner = parse_primitive(rest, trait_name);
+                return match inner {
+                    Ty::Fn(mut f) => {
+                        f.2 = true;
+                        f.into()
+                    }
+                    // rest 以 `fn` 开头，parse_primitive 必得 TyFn；防御性兜底
+                    other => other,
+                };
+            }
+            return err_ty(
+                "batch-impl: `unsafe` 只能修饰 fn 类型（如 `unsafe fn(u32) -> u32`）\
+                 或作为裸 impl 标记（如 `unsafe^T`）",
+            );
+        }
         let inner = if rest.is_empty() {
             TyWithPrefix(prefix, None).into()
         } else {
-            // 必须 Ty 包裹走顶层数组分发：`& [A, B]` => `&A + &B`
-            Ty::WithPrefix(TyWithPrefix(prefix, None))
-                .apply(parse_primitive(rest, trait_name))
+            TyWithPrefix(prefix, None).apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }

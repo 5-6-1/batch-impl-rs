@@ -1,0 +1,7 @@
+error: batch-impl: `unsafe` 只能修饰 fn 类型（如 `unsafe fn(u32) -> u32`）或作为裸 impl 标记（如 `unsafe^T`）
+ --> tests/ui/unsafe_non_fn.rs:5:1
+  |
+5 | #[batch_impl(unsafe Vec<u8>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

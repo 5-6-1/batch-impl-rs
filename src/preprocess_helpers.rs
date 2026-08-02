@@ -10,6 +10,40 @@ pub(crate) fn parse_names_from_tokens(
     if tokens.is_empty() {
         return Err(compile_error_str("batch-impl: 指令的参数列表不能为空"));
     }
+    // `#except(保留){排除}`：保留列表减去排除列表。两个列表各自是
+    // `#all` 系列标记或逗号分隔的标识符列表，最终得到一个 item 名列表。
+    // 如 `#fill(#except(#all){foo}){...}` = 所有 item 除 `foo`。
+    if let [TokenTree::Punct(h), TokenTree::Ident(n), rest @ ..] = tokens
+        && h.as_char() == '#'
+        && n == "except"
+    {
+        let [TokenTree::Group(keep), TokenTree::Group(excl)] = rest else {
+            return Err(compile_error_str(
+                "batch-impl: `#except` 期望 `(保留列表){排除列表}` 两个括号参数",
+            ));
+        };
+        let keep_ts = keep.stream().into_iter().collect::<Vec<_>>();
+        let excl_ts = excl.stream().into_iter().collect::<Vec<_>>();
+        let keep_ids =
+            parse_name_tokens(&keep_ts, trait_def, "`#except` 的保留列表")?;
+        let excl_ids =
+            parse_name_tokens(&excl_ts, trait_def, "`#except` 的排除列表")?;
+        return Ok(keep_ids
+            .into_iter()
+            .filter(|id| !excl_ids.iter().any(|e| e == id))
+            .collect());
+    }
+    parse_name_tokens(tokens, trait_def, "指令参数")
+}
+
+/// 解析指令参数为 item 名列表：`#all` 系列标记，或逗号分隔的标识符列表。
+/// `what` 用于诊断措辞（主参数为"指令参数"，`#except` 的子列表各自带上下文）。
+fn parse_name_tokens(
+    tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
+) -> Result<Vec<Ident>, TokenStream> {
+    if tokens.is_empty() {
+        return Err(compile_error_str(&format!("batch-impl: {}不能为空", what)));
+    }
     if tokens.len() == 2
         && let (TokenTree::Punct(p), TokenTree::Ident(id)) = (&tokens[0], &tokens[1])
         && p.as_char() == '#'
@@ -24,29 +58,42 @@ pub(crate) fn parse_names_from_tokens(
             return Ok(get_all_trait_types(trait_def));
         }
     }
-    tokens
-        .iter()
-        .map(|t| {
-            if let TokenTree::Ident(id) = t {
-                Ok(Ident::new(&id.to_string(), id.span()))
-            } else if let TokenTree::Punct(p) = t
-                && p.as_char() == ','
-            {
-                Err(None)
-            } else {
-                Err(compile_error_str(&format!(
-                    "batch-impl: 指令参数中期望标识符或逗号，得到 `{}`",
-                    t
-                ))
-                .into())
+    // 逗号分隔的标识符列表：前导/尾随/连续逗号视为笔误报错，其余 token 必须是标识符。
+    let mut names = vec![];
+    let mut prev_was_comma = true; // 起始视为"刚经过逗号"，用于拦截前导逗号
+    for t in tokens {
+        match t {
+            TokenTree::Ident(id) => {
+                names.push(Ident::new(&id.to_string(), id.span()));
+                prev_was_comma = false;
             }
-        })
-        .filter_map(|r| match r {
-            Ok(v) => Ok(v).into(),
-            Err(None) => None,
-            Err(Some(e)) => Err(e).into(),
-        })
-        .collect()
+            TokenTree::Punct(p) if p.as_char() == ',' => {
+                if prev_was_comma {
+                    return Err(compile_error_str(&format!(
+                        "batch-impl: {}中逗号位置不合法（不允许前导/尾随/连续逗号）",
+                        what
+                    )));
+                }
+                prev_was_comma = true;
+            }
+            _ => {
+                return Err(compile_error_str(&format!(
+                    "batch-impl: {}中期望标识符或逗号，得到 `{}`",
+                    what, t
+                )));
+            }
+        }
+    }
+    if prev_was_comma {
+        return Err(compile_error_str(&format!(
+            "batch-impl: {}中逗号位置不合法（不允许前导/尾随/连续逗号）",
+            what
+        )));
+    }
+    if names.is_empty() {
+        return Err(compile_error_str(&format!("batch-impl: {}不能为空", what)));
+    }
+    Ok(names)
 }
 
 fn get_trait_item_names(
@@ -131,16 +178,23 @@ pub(crate) fn build_from_item(
     }
 }
 
-pub(crate) fn collect_call_args(sig: &syn::Signature) -> Vec<Ident> {
-    sig.inputs
-        .iter()
-        .filter_map(|arg| {
-            if let syn::FnArg::Typed(pat_type) = arg
-                && let syn::Pat::Ident(pat_ident) = &*pat_type.pat
-            {
-                return pat_ident.ident.clone().into();
+/// 收集委托调用要转发的参数标识符（跳过 `self` 接收者）。
+///
+/// 仅支持 `self` 与纯标识符模式；解构模式（如 `(a, b)`、`_`）无法按名转发，
+/// 返回包含该模式文本的 `Err`，由调用方构造诊断。
+pub(crate) fn collect_call_args(sig: &syn::Signature) -> Result<Vec<Ident>, String> {
+    let mut args = vec![];
+    for arg in &sig.inputs {
+        match arg {
+            syn::FnArg::Receiver(_) => {}
+            syn::FnArg::Typed(pat_type) => {
+                if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
+                    args.push(pat_ident.ident.clone());
+                } else {
+                    return Err(quote!(#pat_type).to_string());
+                }
             }
-            None
-        })
-        .collect()
+        }
+    }
+    Ok(args)
 }

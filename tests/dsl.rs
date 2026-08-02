@@ -4,7 +4,7 @@
 // 元组生成、unsafe impl、关联类型绑定、fn 类型、属性支持、# 指令系统。
 // examples/ 下保留完整的逐项 println 风格用例，本文件提供 `#[test]` 化的核心覆盖。
 
-use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+use batch_impl::{batch_impl, batch_impl_only, batch_preprocess_test, batch_trait};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -480,4 +480,97 @@ trait MultiOrd<T> {}
 fn where_bare_multi_clause() {
     fn check<T: MultiOrd<i32>>() {}
     check::<Vec<i32>>();
+}
+
+// ============================================================
+// 28. 开放扩展机制：用户宏根据 trait 展开为需要的 fn 定义
+//     `usize #batch_preprocess_test(add,inc){*self+1}` 展开为
+//     `usize {batch_preprocess_test!{(add,inc){*self+1} trait AddInc {...}}}` —— 宏调用
+//     落在 impl body，由 batch_preprocess_test! 解析方法名/body/trait 生成 fn 定义，
+//     等价于把 `#fill` 的实现交给用户宏（每类型可各挂一个，trait 不重复）
+// ============================================================
+#[batch_impl(usize #batch_preprocess_test(add,inc){*self+1})]
+trait AddInc {
+    fn add(&self) -> Self;
+    fn inc(&self) -> Self;
+}
+
+#[test]
+fn open_extension_fn_like_macro() {
+    assert_eq!(5usize.add(), 6);
+    assert_eq!(5usize.inc(), 6);
+}
+
+// ============================================================
+// 29. `unsafe fn(...)` 类型：`unsafe` 修饰 fn 类型本身
+//     （区别于 `unsafe^T` 的 unsafe impl 标记；`unsafe X` 非 fn 会报错）
+// ============================================================
+#[batch_impl(unsafe fn(u32) -> u32)]
+trait UnsafeFnMarker {}
+
+#[batch_impl(unsafe fn^(u32, i32))]
+trait UnsafeFnPow {}
+
+#[batch_impl(unsafe fn^(u32, i32) - i64)]
+trait UnsafeFnRet {}
+
+#[test]
+fn unsafe_fn_type() {
+    fn check<T: UnsafeFnMarker>(_: &T) {}
+    let f: unsafe fn(u32) -> u32 = |x| x;
+    check(&f);
+
+    fn check_pow<T: UnsafeFnPow>(_: &T) {}
+    let g: unsafe fn(u32, i32) = |_, _| {};
+    check_pow(&g);
+
+    fn check_ret<T: UnsafeFnRet>(_: &T) {}
+    let h: unsafe fn(u32, i32) -> i64 = |a, b| a as i64 + b as i64;
+    check_ret(&h);
+}
+
+// ============================================================
+// 30. `#except(保留){排除}` 指令：保留列表减去排除列表
+//     （排除项走 trait 默认实现，验证未被批量生成）
+// ============================================================
+#[batch_impl(usize #fill(#except(#all){skip_me}){0})]
+trait ExceptDefault {
+    fn keep_me(&self) -> u32;
+    fn skip_me(&self) -> u32 {
+        999
+    }
+    const VALUE: u32;
+}
+
+#[test]
+fn directive_except() {
+    assert_eq!(1usize.keep_me(), 0);
+    assert_eq!(1usize.skip_me(), 999);
+    assert_eq!(<usize as ExceptDefault>::VALUE, 0);
+}
+
+// ============================================================
+// 31. 空操作数严格化：合法形态不受影响
+//     （尾随逗号 / 空元组 `()` / 空基座 `[]` 都是真实 token，不是空操作数）
+// ============================================================
+#[batch_impl(usize, isize,)]
+trait TrailingCommaOk {}
+
+#[batch_impl(())]
+trait EmptyTupleOk {}
+
+#[batch_impl(usize, isize)]
+trait NoTrailingIssue {}
+
+#[test]
+fn strictness_legal_forms() {
+    fn check<T: TrailingCommaOk>() {}
+    check::<usize>();
+    check::<isize>();
+
+    fn check2<T: EmptyTupleOk>() {}
+    check2::<()>();
+
+    fn check3<T: NoTrailingIssue>() {}
+    check3::<isize>();
 }

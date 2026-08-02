@@ -1,0 +1,7 @@
+error: batch-impl: 指令参数中逗号位置不合法（不允许前导/尾随/连续逗号）
+ --> tests/ui/fill_bad_comma.rs:9:1
+  |
+9 | #[batch_impl(usize #fill(m,,n){0})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

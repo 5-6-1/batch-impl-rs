@@ -1,16 +1,20 @@
-//! 解析器无 panic 属性的属性测试（proptest）。
+//! 无 panic 属性的属性测试（proptest）。
 //!
-//! 库的承诺是"不因用户输入 panic"。用随机 token 序列喂给最危险的
-//! 两个入口（`where_process` 裸 where 改写、`parse_item` DSL 解析），
-//! 断言任意输入都不会 panic —— 即便结果是 `Err` / `None` 也接受。
+//! 库的承诺是"不因用户输入 panic"。用随机 token 序列喂给危险入口，
+//! 断言任意输入都不会 panic —— 即便结果是 `Err` / `None` / `compile_error!`
+//! 也接受。覆盖：裸 where 改写、DSL 解析、以及**全管线**（指令预处理 →
+//! where 改写 → 解析/展开 → 生成 impl，含 apply/expand/codegen）。
 
 use proc_macro2::{Delimiter, Group, Ident, Literal, Punct, Spacing, TokenTree};
 use proptest::prelude::*;
+use quote::quote;
 use std::str::FromStr;
 
+use crate::batch_trait_entry::parse_batch_trait_entry;
 use crate::parse::parse_item;
+use crate::preprocess::expand_tokens;
 use crate::scan::Cursor;
-use crate::types::Op;
+use crate::types::{Op, reset_fresh_counter};
 use crate::where_process::where_process;
 
 /// 可递归生成的 token 描述（Groups 里嵌套 Vec<Tok>，深度受限）
@@ -86,16 +90,43 @@ proptest! {
     /// 裸 where 改写：任意 token 输入不 panic
     #[test]
     fn where_process_no_panic(toks in tokens(3)) {
-        let ts: Vec<TokenTree> = toks.iter().map(to_token).collect();
+        let ts = toks.iter().map(to_token).collect::<Vec<_>>();
         let _ = where_process(&mut Cursor::new(&ts));
     }
 
     /// DSL 解析：任意 token 输入不 panic，且能正常推进到结束
     #[test]
     fn parse_no_panic(toks in tokens(3)) {
-        let ts: Vec<TokenTree> = toks.iter().map(to_token).collect();
+        let ts = toks.iter().map(to_token).collect::<Vec<_>>();
         let mut cursor = Cursor::new(&ts);
         while parse_item(&mut cursor, Op::Comma, None).is_some() {}
         prop_assert!(cursor.at_end());
+    }
+
+    /// 全管线：指令预处理 → where 改写 → 解析/展开 → 生成 impl，任意输入不 panic。
+    /// 用固定 dummy trait 作签名真相源；随机 token 里的指令可能查不到 item
+    /// （报 `compile_error!`）或产生非法类型（透传成垃圾），均接受——承诺是"不 panic"。
+    #[test]
+    fn full_pipeline_no_panic(toks in tokens(3)) {
+        let ts = toks.iter().map(to_token).collect::<Vec<_>>();
+        let trait_def: syn::ItemTrait = syn::parse_quote! {
+            trait Fuzz { fn m(&self) -> u32; }
+        };
+        reset_fresh_counter();
+        let expanded =
+            expand_tokens(&mut Cursor::new(&ts), &trait_def).unwrap_or_default();
+        let rewritten = where_process(&mut Cursor::new(&expanded)).unwrap_or_default();
+        let path = quote!(Fuzz);
+        let last = Ident::new("Fuzz", proc_macro2::Span::call_site());
+        let out = parse_batch_trait_entry(
+            &mut Cursor::new(&rewritten),
+            Op::Comma,
+            &path,
+            &last,
+            false,
+            None,
+        );
+        let _ = out;
+        prop_assert!(true);
     }
 }

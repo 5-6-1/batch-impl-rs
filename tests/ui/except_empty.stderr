@@ -1,0 +1,7 @@
+error: batch-impl: `#except` 的排除列表不能为空
+ --> tests/ui/except_empty.rs:4:1
+  |
+4 | #[batch_impl(usize #fill(#except(#all){}){0})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

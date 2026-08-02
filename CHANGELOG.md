@@ -1,5 +1,182 @@
 # Changelog
 
+## 0.5.3 (2026-08-02)
+
+### 修复开放扩展机制（未知 `#name` 指令）
+
+`preprocess.rs` 对不认识的 `#name(args){body}` 展开为一个 `{...}` 代码块，
+内容是**函数式宏调用**——把方法名列表、body 与整个 trait 交给用户的同名宏：
+
+```
+#foo(args1){args2}  →  { foo!{(args1){args2} trait T { ... }} }
+```
+
+- 正确性：函数式宏调用 `foo!{...}` 在 impl body / 顶层都是合法项位置，rustc
+  会在 impl 内展开它生成 fn 定义——不涉及"trait 进 impl"（此前属性 + trait
+  内嵌 impl 的写法必然编译失败）
+- 语义：这是"用户自定义的 `#fill`"——`#fill`/`#delegate` 是库读 trait 生成
+  fn 定义，开放指令把同样的事交给用户宏；每个类型可各挂一个
+  （`usize #foo(...){...}, isize #foo(...){...}`），trait 定义不重复
+- 保留 `parse.rs` 裸代码块分支与 `codegen.rs` 原始 item 注入：仅服务"指令独立
+  成整个 spec"的退化形态（顶层输出宏调用）
+- 测试：`tests/dsl.rs` 第 28 节用函数式宏 `#[batch_preprocess_test]` 验证——`usize
+  #batch_preprocess_test(add,inc){*self+1}` 生成 `impl AddInc for usize` 的两个方法
+
+### preprocess 返回类型收敛
+
+指令展开的每个产物恰好是一个 `{...}` 组 token，`expand_directive` /
+`expand_single` / `expand_fill` / `expand_delegate` 的返回类型由
+`Result<Vec<TokenTree>, TokenStream>` 收敛为 `Result<TokenTree, TokenStream>`，
+`expand_tokens` 内指令分支由 `extend` 改为 `push`。消除无意义的 `Vec` 包装。
+
+### `#delegate` 参数转发加固
+
+`collect_call_args` 原先只收集纯标识符模式，解构模式（`(a, b)` / `_`）被静默
+丢弃，生成错误的委托调用。现改为：遇到非标识符模式返回包含模式文本的错误，
+`expand_delegate` 输出 `compile_error!`（含 trait 名与方法名）。
+新增 `tests/ui/delegate_pattern_arg.rs` 锁定诊断。
+
+### 指令参数解析重构
+
+`parse_names_from_tokens` 原用 `Result<Ident, Option<TokenStream>>` +
+`filter_map` 的别扭写法（把逗号编码成 `Err(None)`）。改为普通迭代收集；
+新增"逗号过滤后参数仍为空则报错"（`#fill(,)` 不再静默生成空实现体）。
+
+### 空范围诊断
+
+`apply_tuple::map_range` 对空范围（起始不小于结束，如 `()^3..2`）原先静默
+生成零个 impl。现输出 `compile_error!` 提示范围为空。
+新增 `tests/ui/empty_range.rs` 锁定诊断；`()^0`、`()^0..3` 等合法用法不受影响。
+
+### 组合展开数量上限（防编译挂起）
+
+`^N` / 笛卡尔积 / 范围批量等展开操作可能指数级膨胀（如 `(T1,..,Tk)^N`、
+`[A,B]^[C,D]^[E,F]`、`()^100000`），误写会挂死编译。新增
+`types::MAX_EXPAND = 1024`（对齐 v0.1 上限），在 `tuple_pow`（`()^N`/`(T,)^N`）、
+`pow_cartesian`（每轮产物数）、`map_range`（范围长度）、`TyArray` 笛卡尔积分支
+校验，超限输出 `compile_error!` 中文诊断。新增 `apply::check_expand_limit` 统一入口。
+
+### `Ty::expand` 返回值改为显式枚举
+
+`expand` 原用 `Result<Vec<Ty>, Ty>` 且以 `Err` 表示"不可展开的叶子"（反直觉）。
+改为 `enum Expand { Leaf(Ty), Many(Vec<Ty>) }`，语义自明；仅 `types.rs` 与
+`batch_trait_entry` 的摊平循环两处改动。
+
+### 指令参数逗号严格化
+
+`parse_names_from_tokens`（`#fill`/`#delegate`/开放指令共用）原先静默跳过任意
+逗号（允许前导/尾随/连续）。现改为：前导/尾随/连续逗号报
+`compile_error!`（"逗号位置不合法"），避免 `#fill(a,,b)` 等笔误被静默吞掉。
+新增 `tests/ui/fill_bad_comma.rs` 锁定诊断。
+
+### fuzz 扩到全管线
+
+`src/fuzz.rs` 新增 `full_pipeline_no_panic`：随机 token 流跑完整管线（指令预处理
+→ where 改写 → DSL 解析/展开 → `generate_impl`，含 apply/expand/codegen），
+断言任意输入不 panic，作为后续重构的安全网。
+
+### `Apply` trait：右操作数提前分发下沉为默认方法
+
+`trait Apply` 的 `apply` 改为**默认方法**，承担右操作数"结构上下文"的提前分发
+（Array 分发 / Group 透明 / WithCode、WithWhere 应用透传 / WithType 泛型外提 /
+Range 展开 / Error 透传）；各变体的组合语义移入 `apply_help`，`impl Apply for Ty`
+只保留左分发（`match self` → 各变体 `apply_help`）。
+
+- 提前分发从"仅 `impl Apply for Ty` 隐式承担、各变体实现隐式依赖它预先分发"
+  升级为 **trait 契约**——任何 `Apply` 实现自动获得，`apply_help` 的右操作数
+  恒为普通类型，不可能误处理数组/组
+- 移除 `TyArray::apply` 中不可达的笛卡尔积分支（数组-数组由默认 Array 分支
+  逐层分发 + `expand` 摊平，见 README 顺序更正）与 `TyFn::apply` 中不可达的
+  Group 分支（`fn^` 右侧必须元组的规则不变）
+- `trait Apply: Clone + Into<Ty>`：分发需复用左操作数 `self`；裸代码块/裸
+  where 作为右操作数时需把左操作数装回目标类型
+- 行为零变化（全量测试通过，fuzz 全管线兜底）
+
+### 尾随运算符静默吞段修复
+
+`parse.rs` 的 `Dash`/`Caret` 分支：`-`/`^` 后缺操作数（如 `f32 Vec^-`、`A^`）原先
+经 `?` 传播返回 `None`，导致**整个段被静默丢弃**（后续 spec 正常、出错段无声消失，
+用户只看到下游 E0599）。现改为报 `compile_error!`（"`-` 后缺少操作数（如 `T-U`）"）；
+`^`/`-` 后紧跟深度 0 停止符的空操作数同样报错（`()`/`[]` 等 Group 是真实 token，
+不受影响）。新增 `tests/ui/dangling_operator.rs` 锁定诊断。
+
+### 数组链式展开产物上限
+
+`[A,B]^[C,D]^[E,F]^...` 的产物随 `^` 链**指数增长**（中间数组每个都小、叶子数
+翻倍），此前无上限。默认 `apply` 的 Array 分支新增 `types::count_leaves` 叶子数
+校验，超 [`MAX_EXPAND`] 报 `compile_error!`。
+
+### 元组笛卡尔积 bound 修复
+
+`apply_tuple::instantiate_combo` 原先误把 TypeParam 的**参数名**当 bound
+（`(A: Clone, T)^N` 会生成 `_Param: A` 而非 `_Param: Clone`）。改为保留真正的 bound。
+
+### 指令减法 `#except(保留){排除}`
+
+`#fill`/`#delegate` 的参数新增 `#except(保留){排除}` 列表减法：保留列表减去排除
+列表，两列表各自是 `#all` 系列标记或逗号分隔的 item 名列表。
+
+- `#fill(#except(#all){skip_me}){body}` = 所有 item 除 `skip_me`——被排除项走
+  trait 默认实现，不被批量生成
+- `#except(#all){#all_methods}` = 仅 const + type 项
+- 两个括号参数缺一报 `compile_error!`；排除/保留列表为空报错
+- 实现：`preprocess_helpers.rs` 抽出 `parse_name_tokens(tokens, trait_def, what)`
+  共享标记+标识符列表解析，`what` 携带诊断上下文；主路径消息措辞不变
+- 测试：`tests/dsl.rs` 第 30 节（排除项走默认值验证）、`tests/ui/except_missing.rs`、
+  `tests/ui/except_empty.rs` 锁定诊断
+
+### `unsafe fn(...)` 类型（`unsafe` 歧义消解）
+
+`unsafe` 前缀三种形态正式区分：
+
+| 形态                        | 语义                     | 示例                                       |
+|-----------------------------|--------------------------|--------------------------------------------|
+| 裸 `unsafe`（后跟 `^`/`-`） | unsafe impl 标记（不变） | `unsafe^T`                                 |
+| `unsafe fn...`              | unsafe fn 类型（新增）   | `unsafe fn(u32)->u32`、`unsafe fn^(A,B)-C` |
+| `unsafe X`（X 非 fn，并列） | 报错（忘写 `^` 的笔误）  | `unsafe Vec<u8>`                           |
+
+- `TyFn` 新增第三字段 `is_unsafe`（types.rs），`apply_help`/`hoist_type_params`/
+  `ToTokens` 透传；parse.rs 对 `TyPrefix::Unsafe` 特判：rest 以 `fn` 开头 → 置位，
+  否则并列 → `compile_error!`
+- 正确区分 `unsafe^fn(A)`（unsafe impl、目标为 fn 类型）与 `unsafe fn(A)`（unsafe fn 类型）：
+  `^` 在 Caret 层切开，parse_primary 只看到裸 `unsafe`；无运算符时同时看到两个 ident
+- 修复实测 bug：此前 `unsafe fn(u32)->u32` 被当作 unsafe impl 标记，且目标类型
+  丢失 `unsafe`（生成 `for fn(u32)->u32`）
+- 测试：`tests/dsl.rs` 第 29 节（三种写法 + 类型签名验证）、`tests/ui/unsafe_non_fn.rs` 锁定诊断
+
+### 空操作数严格化（`^`/`-`/`,` 左右不能空）
+
+实测发现 `^`/`-` 的**左空**此前是漏网的：`-A` 静默吞段（整个 spec 无声消失）、
+`^A` 生成 ` <A>` 垃圾类型（下游报错定位不到 DSL）。现统一严格化：
+
+- `-A`：parse.rs Dash 分支对 `parse_operand` 返回 None 但游标未到末尾（空段）报错；
+  右侧空已由 0.5.3 覆盖
+- `^A`：Caret 分支对首个操作数补 `is_empty_operand` 检查
+- `,A`（前导逗号）：流式游标无法在 parse_item 内区分"前导逗号"与"上一个 spec 后的
+  分隔逗号"，在知道调用序的 3 个入口判定：`batch_trait_entry` / `parse_list` /
+  `parse_function`
+- `A,,B`（连续逗号）：parse_item 逗号分支 bump 后若仍是逗号则报错
+- 尾随逗号（`A,` / `[A, B,]`）、`()`/`[]` 等真实 token 不受影响；`;` 段落边界保持宽松
+- 测试：`tests/ui/leading_operator.rs`、`tests/ui/leading_comma.rs` 锁定诊断，
+  `tests/dsl.rs` 第 31 节锁定合法形态不受影响
+
+### 文档漂移修复
+
+README「元组生成」删除已过时的"u8 范围"（0.5.2 已改 usize）；测试矩阵计数更新为
+当前值（dsl 31、regression 23、ui 20 个 compile_fail）；README 补充 `unsafe fn` 类型、
+`#except` 指令、操作数严格性说明。
+
+### 逻辑精简重构（行为零变化）
+
+- **`Ty::expand` 包装样板压缩**（types.rs）：WithCode/WithWhere/WithAttr/WithPrefix
+  四个 `Option` 内层包装与 WithType/WithTrait 两个非 Option 包装的"递归内层并重包"
+  逻辑抽为 `expand_wrapped` / `expand_rebuild` 两个小辅助，六个臂各压到一行调用，
+  types.rs 净 -27 行
+- **指令展开骨架合并**（preprocess.rs）：`expand_fill` / `expand_delegate` 共用的
+  "解析方法名列表 → 逐 item 构造 → 打包"循环抽为 `expand_many`，消除两份重复骨架
+  （行数基本持平——被共享的是控制流，各指令的 body 构造本就不同）
+- 全量测试通过，fuzz 全管线兜底
+
 ## 0.5.2 (2026-08-01)
 
 ### 解析器 fuzz 验证

@@ -21,8 +21,32 @@ fn ui() {
     // 指令系统错误
     t.compile_fail("tests/ui/directive_bad_follow.rs");
     t.compile_fail("tests/ui/fill_empty_args.rs");
+    t.compile_fail("tests/ui/fill_bad_comma.rs");
     t.compile_fail("tests/ui/single_name_not_found.rs");
     t.compile_fail("tests/ui/delegate_on_non_fn.rs");
+
+    // #delegate 解构模式参数无法转发
+    t.compile_fail("tests/ui/delegate_pattern_arg.rs");
+
+    // DSL 语义错误
+    t.compile_fail("tests/ui/empty_range.rs");
+
+    // 尾随运算符（`-`/`^` 后缺操作数）
+    t.compile_fail("tests/ui/dangling_operator.rs");
+
+    // 运算符/分隔符左空（`-A`/`^A`/`,A`/`A,,B`）
+    t.compile_fail("tests/ui/leading_operator.rs");
+    t.compile_fail("tests/ui/leading_comma.rs");
+
+    // `unsafe` 并列非 fn 类型（应为 unsafe^T 或 unsafe fn(...)）
+    t.compile_fail("tests/ui/unsafe_non_fn.rs");
+
+    // `#except` 参数缺失 / 空排除列表
+    t.compile_fail("tests/ui/except_missing.rs");
+    t.compile_fail("tests/ui/except_empty.rs");
+
+    // 组合展开数量超上限
+    t.compile_fail("tests/ui/expand_limit.rs");
 
     // 裸 where 新语法缺少代码块
     t.compile_fail("tests/ui/where_missing_body.rs");

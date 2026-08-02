@@ -1,0 +1,7 @@
+error: batch-impl: 范围 `3..2` 为空（起始不小于结束），不会生成任何 impl
+ --> tests/ui/empty_range.rs:4:1
+  |
+4 | #[batch_impl(()^3..2)]
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

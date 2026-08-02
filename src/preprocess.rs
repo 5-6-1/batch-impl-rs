@@ -4,7 +4,12 @@
 //! 从 trait 定义自动读取 fn / const / type item 的签名，
 //! 生成等价 `{ ... }` 代码块替换到原 token 流中。内置指令
 //! `#name{body}` / `#fill(args){body}` / `#delegate(args){target}`
-//! 在本模块处理；不认识的 `#name` 自动委托给 Rust 的属性宏系统。
+//! 在本模块处理；不认识的 `#name(args){body}` 是**开放扩展**——展开为
+//! `{ name!{(args){body} trait_def} }`：一个函数式宏调用（位于 impl body
+//! 或顶层），由用户的同名宏解析 args / body / trait 并生成 fn 定义，
+//! 等价于把 `#fill` / `#delegate` 的实现权交给用户。
+//!
+//! 所有指令产物都恰好是一个 `{...}` 组 token，对 DSL 扫描器不透明。
 //!
 //! v0.4.2：诊断改为统一通过 [`crate::diagnostic::compile_error_str`]
 //! 构造；`expand_tokens` 内 `unwrap` 全部消除，预处理层零 panic 点。
@@ -54,8 +59,8 @@ pub(crate) fn expand_tokens(
         if cursor.is_punct('#')
             && let Some(TokenTree::Ident(name)) = cursor.peek_at(1)
         {
-            let expanded = expand_directive(name, cursor, trait_def)?;
-            result.extend(expanded);
+            // 每个指令展开为恰好一个 token（一个 `{...}` 组），直接入列
+            result.push(expand_directive(name, cursor, trait_def)?);
             continue;
         }
         // 当前 token 一定存在（循环条件保证了非 at_end）
@@ -85,9 +90,10 @@ pub(crate) fn expand_tokens(
 }
 
 /// 分派指令：根据 `#` 后的名称和括号结构分派到对应的展开函数。
+/// 每个指令展开为恰好一个 `{...}` 组 token。
 fn expand_directive(
     name: &Ident, cursor: &mut Cursor, trait_def: &ItemTrait,
-) -> Result<Vec<TokenTree>, TokenStream> {
+) -> Result<TokenTree, TokenStream> {
     if let Some(TokenTree::Group(args)) = cursor.peek_at(2) {
         match args.delimiter() {
             Delimiter::Brace => {
@@ -119,11 +125,16 @@ fn expand_directive(
                 match name.to_string().as_str() {
                     "fill" => expand_fill(args, body, trait_def),
                     "delegate" => expand_delegate(args, body, trait_def),
-                    _ => Ok(quote! {
-                        #[#name[#args #body]]#trait_def
+                    // 开放扩展：`#name(args){body}` → `{ name!{(args){body} trait_def} }`
+                    // 一个函数式宏调用，位于 impl body（附着用法）或顶层（独立用法）。
+                    // 与 `#fill`/`#delegate` 同源：把"读 trait → 生成 fn 定义"的实现
+                    // 交给用户的同名宏——它解析 args / body / trait 并生成 impl 项。
+                    _ => {
+                        let inner = quote! {
+                            #name ! { #args #body #trait_def }
+                        };
+                        Ok(Group::new(Delimiter::Brace, inner).into())
                     }
-                    .into_iter()
-                    .collect()),
                 }
             }
         }
@@ -140,11 +151,27 @@ fn expand_directive(
 /// 根据 `name` 在 trait 定义中查找对应的 item，由 `build_from_item` 按 item 类型自动输出。
 fn expand_single(
     method_name: &Ident, body: &Group, trait_def: &ItemTrait,
-) -> Result<Vec<TokenTree>, TokenStream> {
+) -> Result<TokenTree, TokenStream> {
     let item = get_trait_item(trait_def, method_name)?;
-    Ok(vec![
-        Group::new(Delimiter::Brace, build_from_item(item, &body.stream())).into(),
-    ])
+    Ok(Group::new(Delimiter::Brace, build_from_item(item, &body.stream())).into())
+}
+
+/// 多 item 指令展开的公共骨架：解析方法名列表 → 逐 item 构造实现 → 打包为 `{...}` 组。
+/// `build` 按 item 构造实现体（可报错，如 `#delegate` 的非 fn 项/解构参数）。
+fn expand_many(
+    args_group: &Group, trait_def: &ItemTrait,
+    build: impl Fn(&Ident, &syn::TraitItem) -> Result<TokenStream, TokenStream>,
+) -> Result<TokenTree, TokenStream> {
+    let method_names = parse_names_from_tokens(
+        &args_group.stream().into_iter().collect::<Vec<_>>(),
+        trait_def,
+    )?;
+    let mut methods = TokenStream::new();
+    for name in &method_names {
+        let item = get_trait_item(trait_def, name)?;
+        methods.extend(build(name, item)?);
+    }
+    Ok(Group::new(Delimiter::Brace, methods).into())
 }
 
 /// `#fill(args){body}` → `{fn m1(sig){body} fn m2(sig){body} ...}`
@@ -154,17 +181,11 @@ fn expand_single(
 /// 为每个 item 从 trait 定义读取签名/类型，body 作为实现体。
 fn expand_fill(
     args_group: &Group, body: &Group, trait_def: &ItemTrait,
-) -> Result<Vec<TokenTree>, TokenStream> {
-    let method_names = parse_names_from_tokens(
-        &args_group.stream().into_iter().collect::<Vec<_>>(),
-        trait_def,
-    )?;
-    let mut methods = TokenStream::new();
-    for name in &method_names {
-        let item = get_trait_item(trait_def, name)?;
-        methods.extend(build_from_item(item, &body.stream()));
-    }
-    Ok(vec![Group::new(Delimiter::Brace, methods).into()])
+) -> Result<TokenTree, TokenStream> {
+    let body_stream = body.stream();
+    expand_many(args_group, trait_def, |_name, item| {
+        Ok(build_from_item(item, &body_stream))
+    })
 }
 
 /// `#delegate(args){target}` → `{fn m1(sig){(target).m1(params)} ...}`
@@ -172,14 +193,9 @@ fn expand_fill(
 /// 为每个方法生成委托调用：跳过 `self` 参数，将其余参数原样转发。
 fn expand_delegate(
     args_group: &Group, target: &Group, trait_def: &ItemTrait,
-) -> Result<Vec<TokenTree>, TokenStream> {
-    let method_names = parse_names_from_tokens(
-        &args_group.stream().into_iter().collect::<Vec<_>>(),
-        trait_def,
-    )?;
-    let mut methods = TokenStream::new();
-    for name in &method_names {
-        let item = get_trait_item(trait_def, name)?;
+) -> Result<TokenTree, TokenStream> {
+    let target_stream = target.stream();
+    expand_many(args_group, trait_def, |name, item| {
         let syn::TraitItem::Fn(f) = item else {
             return Err(compile_error_str(&format!(
                 "batch-impl: #delegate 只能用于方法，trait `{}` 中的 `{}` 不是方法",
@@ -187,10 +203,14 @@ fn expand_delegate(
             )));
         };
         let sig = f.sig.clone();
-        let call_args = collect_call_args(&sig);
-        let target = target.stream();
-        let body = quote! { (#target) . #name ( #(#call_args),* ) };
-        methods.extend(build_from_item(item, &body));
-    }
-    Ok(vec![Group::new(Delimiter::Brace, methods).into()])
+        let call_args = collect_call_args(&sig).map_err(|pat| {
+            compile_error_str(&format!(
+                "batch-impl: #delegate 方法 `{}::{}` 的参数 `{}` 无法委托转发：\
+                 仅支持 `self` 与纯标识符模式",
+                trait_def.ident, name, pat
+            ))
+        })?;
+        let body = quote! { (#target_stream) . #name ( #(#call_args),* ) };
+        Ok(build_from_item(item, &body))
+    })
 }

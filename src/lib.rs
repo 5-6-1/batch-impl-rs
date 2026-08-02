@@ -30,6 +30,7 @@ mod where_process;
 use batch_trait_entry::parse_batch_trait_entry;
 
 use diagnostic::compile_error_str;
+use preprocess_helpers::{build_from_item, get_trait_item, parse_names_from_tokens};
 use scan::Cursor;
 use types::{Op, reset_fresh_counter};
 use where_process::where_process;
@@ -76,10 +77,12 @@ pub fn batch_impl(
     expand_attr_macro(attr, trait_item, true).unwrap_or_else(Into::into)
 }
 
-/// 与 `#[batch_impl]` 相同，但丢弃 trait 定义本身，只输出 `impl` 块。
+/// 与 `#[batch_impl]` 相同，但丢弃被标注的 trait 定义，只输出 `impl` 块。
 ///
-/// 用于 trait 已在别处定义、只需批量生成 impl 的场景。
-/// 语法与 `#[batch_impl]` 完全一致。
+/// 用于 trait 已在别处定义、只需批量生成 impl 的场景。被标注的 trait 仅作为
+/// 指令系统的"签名真相源"：`#name`/`#fill`/`#delegate` 从它读取 item 签名，
+/// 开放扩展 `#name(args){body}` 把（方法名列表, body, 整个 trait）一起交给
+/// 用户的同名函数式宏（见 README「指令系统」）。语法与 `#[batch_impl]` 完全一致。
 ///
 /// ## 示例
 ///
@@ -283,4 +286,76 @@ fn expand_batch_trait(
         result.extend(impl_code);
     }
     Ok(result.into())
+}
+
+/// 测试用开放扩展宏（函数式）：`name!{(方法名列表){body} trait T {...}}`。
+///
+/// 从宏输入解析方法名列表、body 与 trait 定义，为每个方法生成
+/// `fn 签名 { body }`（沿用 trait 签名）——等价于把 `#fill` 的实现交给用户。
+///
+/// 用于验证开放指令扩展：`#name(args){body}` 展开为 `{name!{(args){body} trait ...}}`，
+/// 宏调用落在 impl body 中，由用户宏根据 trait 展开为需要的 fn 定义
+/// （见 `tests/dsl.rs` 第 28 节）。
+///
+/// 设计要点：这里必须是**函数式宏调用** `name!{...}`，不能是 `#[name[...]] trait ...`
+/// 属性——trait 不是 impl 块内的合法项（`#[attr] trait` 无法出现在 impl 中），
+/// 而函数式宏在 impl body 位置会被 rustc 展开成关联项。
+#[doc(hidden)]
+#[proc_macro]
+pub fn batch_preprocess_test(
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
+    // 形如：`(add, inc) {*self+1} trait AddInc {...}`
+    let Some(TokenTree::Group(names_group)) = tokens.first() else {
+        return compile_error_str(
+            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+        )
+        .into();
+    };
+    if names_group.delimiter() != proc_macro2::Delimiter::Parenthesis {
+        return compile_error_str(
+            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+        )
+        .into();
+    }
+    let Some(TokenTree::Group(body_group)) = tokens.get(1) else {
+        return compile_error_str(
+            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+        )
+        .into();
+    };
+    if body_group.delimiter() != proc_macro2::Delimiter::Brace {
+        return compile_error_str(
+            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+        )
+        .into();
+    }
+    let trait_ts = tokens[2..].iter().cloned().collect();
+    let trait_item = match syn::parse2(trait_ts) {
+        Ok(t) => t,
+        Err(_) => {
+            return compile_error_str(
+                "batch-impl: batch_preprocess_test 无法解析 trait 定义",
+            )
+            .into();
+        }
+    };
+    let names = match parse_names_from_tokens(
+        &names_group.stream().into_iter().collect::<Vec<_>>(),
+        &trait_item,
+    ) {
+        Ok(names) => names,
+        Err(e) => return e.into(),
+    };
+    let body = body_group.stream();
+    let mut methods = TokenStream::new();
+    for name in &names {
+        let item = match get_trait_item(&trait_item, name) {
+            Ok(item) => item,
+            Err(e) => return e.into(),
+        };
+        methods.extend(build_from_item(item, &body));
+    }
+    methods.into()
 }

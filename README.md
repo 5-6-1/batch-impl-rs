@@ -103,11 +103,15 @@ DSL 通过四级优先级解析（从低到高）：
 结合示例：
 
 - `A^B-C,D` = `(A^B)-C,D` = `A<B,C>,D`
-- `[A,B]^[C,D]-E` = `([A,B]^[C,D])-E` = `[A<C>,A<D>,B<C>,B<D>]-E`
+- `[A,B]^[C,D]-E` = `([A,B]^[C,D])-E` = `[A<C>,B<C>,A<D>,B<D>]-E`（数组-数组经逐层分发 + `expand` 摊平，产出 4 项；顺序不影响生成的 impl）
 - `HashMap^K-V` = `(HashMap^K)-V` = `HashMap<K>-V` = `HashMap<K, V>`
 - `fn^(A,B)-C` = `(fn^(A,B))-C` = `fn(A,B)->C`
 
 > **注意**：`Box^Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box^Vec^u32`。
+
+> **操作数严格性**：`^`/`-`/`,` 两侧必须有操作数——`A^`、`^A`、`-A`、`,A`、`A,,B`
+> 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等
+> 括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
 
 ### `^` 修饰符
 
@@ -120,7 +124,7 @@ DSL 通过四级优先级解析（从低到高）：
 | `*const`       | 裸指针（不可变）                                  |
 | `*mut`         | 裸指针（可变）                                    |
 | `self`         | 恒等（不改变类型）                                |
-| `unsafe`       | 标记 impl 为 `unsafe impl`                        |
+| `unsafe`       | 裸 `unsafe^T` 标记 impl 为 `unsafe impl`；`unsafe fn(...)` 则是 unsafe fn 类型 |
 | `fn`           | 函数类型前缀                                      |
 | `#[attr]`      | 属性前缀                                          |
 | `Ident`        | 容器（如 `Box`, `Vec`）                           |
@@ -150,6 +154,9 @@ DSL 通过四级优先级解析（从低到高）：
 | `&^Box^T`                | `&Box<T>`（修饰符链式应用）       |
 | `*const^Vec^T`           | `*const Vec<T>`                   |
 | `fn^(A,B)`               | `fn(A,B)`（函数类型）             |
+| `unsafe fn(A)->B`        | `unsafe fn(A)->B`（unsafe fn 类型）|
+| `unsafe fn^(A,B)-C`      | `unsafe fn(A,B)->C`（unsafe fn 填参 + 返回） |
+| `unsafe^T`               | `unsafe impl Trait for T`（impl 标记，`T` 可为普通类型） |
 | `#[attr]^T`              | 在 impl 块前添加属性              |
 | `[]^T`                   | `[T]`（空基座包出切片）           |
 | `[T]^N`                  | `[T; N]`（定长数组，N 可为数字/const 泛型） |
@@ -184,7 +191,7 @@ trait FixedMatrix {}
 
 ### 元组生成
 
-`^` 右侧是数字或范围时，生成指定长度的元组（数字只作为指数使用，u8 范围）：
+`^` 右侧是数字或范围时，生成指定长度的元组（数字只作为指数使用）：
 
 | 写法          | 展开                                          |
 |---------------|-----------------------------------------------|
@@ -329,6 +336,27 @@ trait HasAll { fn method(&self) -> &str; const VALUE: &str; }
 // → fn method 与 const VALUE 各生成 { "default" } body
 ```
 
+**`#except(保留){排除}` — 列表减法**：`保留列表` 减去 `排除列表`，两列表各自是
+`#all` 系列标记或逗号分隔的 item 名列表。用于"批量实现除了某个 item 之外的所有项"：
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(usize #fill(#except(#all){skip_me}){0})]
+trait HasDefault {
+    fn keep_me(&self) -> u32;
+    fn skip_me(&self) -> u32 { 999 } // 默认实现，被排除后保留
+    const VALUE: u32;
+}
+// → impl HasDefault for usize {
+//       fn keep_me(&self) -> u32 { 0 }
+//       const VALUE: u32 = 0;
+//       // skip_me 不生成，走 trait 默认实现
+//   }
+```
+
+也适用于 `#delegate`（`#delegate(#except(#all){foo}){target}`）。排除列表为空或
+`#except` 缺括号参数会报 `compile_error!`。
+
 **`#delegate(methods){target}` — 委托调用**：把方法委托到 target 表达式上调用同名方法。
 
 ```rust
@@ -362,7 +390,24 @@ trait Tagged { fn name(&self) -> &str; fn kind(&self) -> &str; }
 trait Len { fn t10(&self) -> usize; }
 ```
 
-**扩展机制**：不认识的 `#name` 自动转换为 `#[name[(args){body}]]` 属性，交给用户的属性宏处理。工作流程：预处理器遇到 `#my_handler(args){body}` → 不认识 `my_handler` → 生成 `#[my_handler[(args){body}]]` → DSL 解析器当普通属性节点处理 → 编译器随后调用用户的 `#[my_handler]` 属性宏。这意味着指令系统是**开放的**。
+**扩展机制**：不认识的 `#name(args){body}` 自动转换为一个 `{...}` 代码块，内容是**函数式宏调用** `name!{(args){body} trait ...}`——把方法名列表、body 和整个 trait 定义一起交给用户的同名宏，由它展开为需要的 fn 定义。工作流程：预处理器遇到 `#my_handler(add,inc){*self+1}` → 不认识 `my_handler` → 展开为 `{my_handler!{(add,inc){*self+1} trait ...}}` → 附着到目标类型成为 impl body → 编译器在 impl 内展开 `my_handler!` 得到 fn 定义。这意味着指令系统是**开放的**，与 `#fill` / `#delegate` 完全同源：都是"读 trait → 生成 fn 定义"，只不过实现交给用户（`#fill` 是库实现，开放指令是用户宏实现）。
+
+```rust
+# use batch_impl::batch_impl;
+# use batch_impl::batch_preprocess_test; // 测试用开放扩展宏：解析 (names){body} trait → 生成 fn 定义
+#[batch_impl(usize #batch_preprocess_test(add,inc){*self+1})]
+trait AddInc {
+    fn add(&self) -> Self;
+    fn inc(&self) -> Self;
+}
+// → trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; }
+// → impl AddInc for usize {
+//       batch_preprocess_test!{(add,inc){*self+1} trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; }}
+//   }
+//   → 宏展开为：fn add(&self) -> Self { *self + 1 } fn inc(&self) -> Self { *self + 1 }
+```
+
+> 说明：这是"用户自定义的 `#fill`"——每个类型可各挂一个（`usize #batch_preprocess_test(...){...}, isize #batch_preprocess_test(...){...}`），trait 定义仍只来自 `#[batch_impl]` 输出的 trait，不会重复。
 
 ### `where{...}` — where 子句
 
@@ -414,6 +459,24 @@ trait FnTupleGen {}
 // → impl FnTupleGen for fn(u32, i32) {}
 // → impl FnTupleGen for fn(u32, u32) {}
 ```
+
+`unsafe fn(...)` 类型：`unsafe` 紧跟 `fn` 时修饰 fn 类型本身，与 `unsafe^T` 的
+unsafe impl 标记无关（`unsafe^fn(...)` 才是"unsafe impl，目标为 fn 类型"）：
+
+```rust
+# use batch_impl::{batch_impl, batch_impl_only, batch_trait};
+#[batch_impl(unsafe fn(i32, u32) -> u32)]
+trait UnsafeFnType {}
+// → impl UnsafeFnType for unsafe fn(i32, u32) -> u32 {}
+
+#[batch_impl(unsafe fn^(i32, u32) - i64)]
+trait UnsafeFnType2 {}
+// → impl UnsafeFnType2 for unsafe fn(i32, u32) -> i64 {}
+```
+
+> **`unsafe` 歧义规则**：裸 `unsafe`（后跟 `^`/`-` 或单独出现）= unsafe impl 标记；
+> `unsafe fn...` = unsafe fn 类型；`unsafe 其他类型`（并列、无运算符）= 报错
+> （几乎必是忘写 `^` 的笔误，应写 `unsafe^T`）。
 
 ### unsafe / 指针 / 属性
 
@@ -519,20 +582,20 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
   ├── where_process.rs   裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`（预处理后、解析前，三接口共用）
   ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / collect_call_args
   ├── parse.rs           DSL 解析器：Cursor 游标 + 优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
-  ├── parse_atom.rs      原子层解析：属性 / fn / 分组 / 前缀 / 范围
-  ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents
-  ├── types.rs           AST 节点（Ty 枚举 19 个变体，含 Error）+ Op 优先级定义；前缀/后缀包装内层用 Option<Box<Ty>> 表示裸状态
-  ├── types_render.rs    AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
-  ├── apply.rs           运算符语义：Apply trait + 核心 apply() 折叠规则（^ 右结合 / 数组分发）
-  ├── apply_tuple.rs     元组与容器运算符：TyTuple / TyGroup / TyFn / TyWithPrefix 等的 Apply impl + 元组展开（^N / 笛卡尔积 / 范围）
+  ├── parse_atom.rs      原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
+  ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents / matching_angle（严格配对）
+  ├── types.rs           AST 节点（Ty 枚举 18 个变体，含 Error）+ Op 优先级定义；前缀/后缀包装内层用 Option<Box<Ty>> 表示裸状态
+  ├── types_render.rs    AST 渲染：ToTokens impl for Ty + params_to_tokens 系列（应用形式 vs 声明形式）
+  ├── apply.rs           运算符语义：Apply trait + 核心 apply() 两阶段分发（右操作数"结构"优先：数组分发 / Group 透明 / 泛型外提 / Range 展开；左操作数"语义"兜底）
+  ├── apply_tuple.rs     元组与容器运算符：TyTuple / TyGroup / TyFn / TyWithPrefix 等的 Apply impl + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
   ├── scan.rs            扫描与游标：Cursor<'a> + scan_with + ScanMode::Lossy / Strict
-  ├── batch_trait_entry.rs  共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
+  ├── batch_trait_entry.rs  共享驱动：工作清单（栈）摊平并列列表 → 逐叶子 generate_impl
   ├── path_prefix.rs     外部 trait 路径前缀：#Path::to::Trait: 状态机解析
-  ├── codegen.rs         代码生成：extract_impl_parts 递归拆解 → generate_impl 渲染 impl 块
+  ├── codegen.rs         代码生成：extract_impl_parts 递归拆解 → hoist_type_params 嵌套泛型外提 → generate_impl 渲染 impl 块（裸代码块原样作为顶层 item 注入）
   └── diagnostic.rs      统一 compile_error_str(msg) 用于编译期诊断
 ```
 
-解析流程：**token 流 → 指令预处理 → where 裸写改写 → Cursor 扫描取切片 → parse_item 优先级攀爬 → Ty AST → BFS 展开并列列表 → 逐叶子 generate_impl**
+解析流程：**token 流 → 指令预处理（每条指令展开为恰好一个 `{...}` 组）→ where 裸写改写 → Cursor 扫描取切片 → parse_item 优先级攀爬（`^`/`-` 经 `Apply` 组合：右操作数结构优先分发）→ Ty AST → 工作清单摊平并列列表 → 逐叶子 generate_impl**
 
 ### 错误处理
 
@@ -546,9 +609,9 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
 |-----------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/`     | `quickstart.rs`  | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                      |
 | `src/`          | `fuzz.rs`        | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                       |
-| `tests/`        | `dsl.rs`         | 27 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界）                                                       |
-| `tests/`        | `regression.rs`  | 22 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`        | `ui.rs`          | `trybuild` UI 测试：10 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                      |
+| `tests/`        | `dsl.rs`         | 31 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界、`unsafe fn` 类型、`#except` 指令）                     |
+| `tests/`        | `regression.rs`  | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
+| `tests/`        | `ui.rs`          | `trybuild` UI 测试：20 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                      |
 
 运行：
 

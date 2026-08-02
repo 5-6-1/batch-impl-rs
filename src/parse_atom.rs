@@ -1,3 +1,4 @@
+use crate::apply::err_ty;
 use crate::generic::empty;
 use crate::parse::{parse_item, parse_primitive};
 use crate::scan::{Cursor, contains_punct};
@@ -32,6 +33,9 @@ pub(crate) fn parse_function(
     let args_tokens = args.stream().into_iter().collect::<Vec<_>>();
     let mut cursor = Cursor::new(&args_tokens);
     let mut parameters = vec![];
+    if cursor.is_punct(',') {
+        return err_ty("batch-impl: `fn` 参数列表不能以 `,` 开头").into();
+    }
     while let Some(parameter) = parse_item(&mut cursor, Op::Comma, trait_name) {
         parameters.push(parameter);
     }
@@ -47,7 +51,7 @@ pub(crate) fn parse_function(
         }
         _ => None,
     };
-    TyFn(parameters.into(), return_type).into()
+    TyFn(parameters.into(), return_type, false).into()
 }
 
 /// 前缀修饰符解析：`&`/`&mut`/`*const`/`*mut`/`self`/`unsafe`
@@ -99,7 +103,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     {
         return None;
     }
-    let start = start.to_string().parse::<usize>().ok()?;
+    let start = start.to_string().parse().ok()?;
     let (inclusive, end) = match rest {
         [TokenTree::Literal(end)] => (false, end),
         [TokenTree::Punct(eq), TokenTree::Literal(end)]
@@ -161,6 +165,10 @@ pub(crate) fn parse_list(
 ) -> Vec<Ty> {
     let mut cursor = Cursor::new(tokens);
     let mut items = vec![];
+    // 前导逗号（`[,A]` / `(,A)`）：列表以 `,` 开头是笔误
+    if cursor.is_punct(',') {
+        items.push(err_ty("batch-impl: 列表不能以 `,` 开头"));
+    }
     while let Some(item) = parse_item(&mut cursor, level, trait_name) {
         items.push(item);
     }

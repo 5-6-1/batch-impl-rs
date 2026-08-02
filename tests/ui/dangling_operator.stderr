@@ -1,0 +1,7 @@
+error: batch-impl: `-` 后缺少操作数（如 `T-U`）
+ --> tests/ui/dangling_operator.rs:4:1
+  |
+4 | #[batch_impl(usize, f32 Vec^-)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

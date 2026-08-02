@@ -61,7 +61,10 @@ impl TyTypeParam {
 /// `{...}` — 附着在类型上的代码块
 pub(crate) struct TyCodeBlock(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
-/// `{...}`（裸）或 `T { code }` — 内层 `None` 表示裸代码块
+/// `{...}`（裸）或 `T { code }` — 内层 `None` 表示裸代码块。
+/// 裸代码块在 codegen 阶段**原样作为顶层 item 注入**输出（仅服务于"指令
+/// 独立成整个 spec"的退化形态：开放指令 `#name(args){body}` 展开的
+/// `{name!{...}}` 块附着到类型时是普通 impl body，独立时经此路径顶层输出）。
 pub(crate) struct TyWithCode(pub(crate) Option<Box<Ty>>, pub(crate) TyCodeBlock);
 #[derive(Copy, Clone, Debug)]
 /// `& &mut *const *mut self unsafe` — 类型前缀修饰符
@@ -78,8 +81,14 @@ pub(crate) enum TyPrefix {
 /// 裸前缀（`&`/`unsafe` 等）或 `prefix T` — 内层 `None` 表示裸前缀
 pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
 #[derive(Clone, Debug)]
-/// 裸 `fn` / `fn(...)` / `fn(...)->T` — 参数 `None` 表示尚未填入
-pub(crate) struct TyFn(pub(crate) Option<Vec<Ty>>, pub(crate) Option<Box<Ty>>);
+/// 裸 `fn` / `fn(...)` / `fn(...)->T` — 参数 `None` 表示尚未填入；
+/// 第三字段 `is_unsafe`：`unsafe fn(...)` 类型的标记（`unsafe` 修饰 fn 类型本身，
+/// 区别于 `unsafe^T` 的 unsafe impl 标记）
+pub(crate) struct TyFn(
+    pub(crate) Option<Vec<Ty>>,
+    pub(crate) Option<Box<Ty>>,
+    pub(crate) bool,
+);
 #[derive(Clone, Debug)]
 /// `#[...]` — 属性本身
 pub(crate) struct TyAttr(pub(crate) TokenStream);
@@ -143,73 +152,80 @@ pub(crate) enum Ty {
     Range(TyRange),
     Error(TyError),
 }
+/// [`Ty::expand`] 的结果：`Leaf` = 不可再展开的叶子；`Many` = 展开为多个节点。
+pub(crate) enum Expand {
+    Leaf(Ty),
+    Many(Vec<Ty>),
+}
+
+/// 包装变体的公共"递归内层并重包"逻辑：`make` 由内层重建包装；
+/// `inner` 为 `None`（裸包装）时经 `make(None)` 原样交还（叶子）。
+/// 供 `Ty::expand` 的 WithCode/WithWhere/WithAttr/WithPrefix 臂复用。
+fn expand_wrapped<F>(make: F, inner: Option<Box<Ty>>) -> Expand
+where
+    F: Fn(Option<Box<Ty>>) -> Ty,
+{
+    match inner {
+        Some(i) => match i.expand() {
+            Expand::Many(v) => {
+                Expand::Many(v.into_iter().map(|e| make(Some(e.into()))).collect())
+            }
+            Expand::Leaf(l) => Expand::Leaf(make(Some(l.into()))),
+        },
+        None => Expand::Leaf(make(None)),
+    }
+}
+
+/// 同 [`expand_wrapped`]，但内层必然存在（`WithType`/`WithTrait` 的盒子非 `Option`）。
+fn expand_rebuild<F>(make: F, inner: Ty) -> Expand
+where
+    F: Fn(Box<Ty>) -> Ty,
+{
+    match inner.expand() {
+        Expand::Many(v) => {
+            Expand::Many(v.into_iter().map(|e| make(e.into())).collect())
+        }
+        Expand::Leaf(l) => Expand::Leaf(make(l.into())),
+    }
+}
+
 impl Ty {
-    /// 展开并列列表类节点：Array 直接拆包，WithCode/WithWhere/Group 透传后递归。
-    /// 不可展开的叶子原样经 `Err` 返回（由调用方决定是收集还是继续展开）。
-    /// 裸代码块 / 裸 where（内层 `None`）不可展开，原样 `Err` 返回。
-    pub(crate) fn expand(self) -> Result<Vec<Ty>, Ty> {
+    /// 展开并列列表类节点：Array 直接拆包，包装类（With*）递归内层并重包。
+    ///
+    /// [`Expand::Leaf`] = 不可再展开的叶子，节点原样交还（收集为单个 impl）；
+    /// [`Expand::Many`] = 展开为多个节点。
+    /// 包装类对数组透明透传，使 `<T>[A,B]` 展开为 `<T>A, <T>B`
+    /// （泛型声明不重复进单个 impl）；WithAttr/WithPrefix 的透传是防御性的
+    /// （数组分发已在 apply 层完成，保持统一透传防未来回归）。
+    pub(crate) fn expand(self) -> Expand {
         match self {
-            Ty::Array(ty) => Ok(ty.0),
-            Ty::WithCode(wc) => match wc.0 {
-                Some(inner) => match inner.expand() {
-                    Ok(expanded) => Ok(expanded
-                        .into_iter()
-                        .map(|e| TyWithCode(e.into(), wc.1.clone()).into())
-                        .collect()),
-                    Err(leaf) => Err(TyWithCode(leaf.into(), wc.1).into()),
-                },
-                None => Err(Ty::WithCode(wc)),
-            },
-            Ty::WithWhere(ww) => match ww.0 {
-                Some(inner) => match inner.expand() {
-                    Ok(expanded) => Ok(expanded
-                        .into_iter()
-                        .map(|e| TyWithWhere(e.into(), ww.1.clone()).into())
-                        .collect()),
-                    Err(leaf) => Err(TyWithWhere(leaf.into(), ww.1).into()),
-                },
-                None => Err(Ty::WithWhere(ww)),
-            },
-            // `WithType`/`WithTrait` 透明透传：`<T> [A, B]` 展开为 `<T>A, <T>B`，
-            // 使 `[]-X-N` 等链式应用的数组保持可逐项展开（泛型声明不重复进单个 impl）。
-            Ty::WithType(wt) => match wt.1.expand() {
-                Ok(expanded) => Ok(expanded
-                    .into_iter()
-                    .map(|e| TyWithType(wt.0.clone(), e.into()).into())
-                    .collect()),
-                Err(leaf) => Err(TyWithType(wt.0, leaf.into()).into()),
-            },
-            Ty::WithTrait(wt) => match wt.1.expand() {
-                Ok(expanded) => Ok(expanded
-                    .into_iter()
-                    .map(|e| TyWithTrait(wt.0.clone(), e.into()).into())
-                    .collect()),
-                Err(leaf) => Err(TyWithTrait(wt.0, leaf.into()).into()),
-            },
-            // `WithAttr`/`WithPrefix` 同样透明透传（防御性：数组分发在 apply 层已完成，
-            // 当前路径不可达，但保持所有包装变体在 expand 中统一透传，防未来回归）。
-            Ty::WithAttr(wa) => match wa.1 {
-                Some(inner) => match inner.expand() {
-                    Ok(expanded) => Ok(expanded
-                        .into_iter()
-                        .map(|e| TyWithAttr(wa.0.clone(), e.into()).into())
-                        .collect()),
-                    Err(leaf) => Err(TyWithAttr(wa.0, leaf.into()).into()),
-                },
-                None => Err(Ty::WithAttr(wa)),
-            },
-            Ty::WithPrefix(wp) => match wp.1 {
-                Some(inner) => match inner.expand() {
-                    Ok(expanded) => Ok(expanded
-                        .into_iter()
-                        .map(|e| TyWithPrefix(wp.0, e.into()).into())
-                        .collect()),
-                    Err(leaf) => Err(TyWithPrefix(wp.0, leaf.into()).into()),
-                },
-                None => Err(Ty::WithPrefix(wp)),
-            },
+            Ty::Array(ty) => Expand::Many(ty.0),
+            Ty::WithCode(wc) => {
+                let TyWithCode(inner, payload) = wc;
+                expand_wrapped(move |i| TyWithCode(i, payload.clone()).into(), inner)
+            }
+            Ty::WithWhere(ww) => {
+                let TyWithWhere(inner, payload) = ww;
+                expand_wrapped(move |i| TyWithWhere(i, payload.clone()).into(), inner)
+            }
+            Ty::WithType(wt) => {
+                let TyWithType(params, inner) = wt;
+                expand_rebuild(move |e| TyWithType(params.clone(), e).into(), *inner)
+            }
+            Ty::WithTrait(wt) => {
+                let TyWithTrait(t, inner) = wt;
+                expand_rebuild(move |e| TyWithTrait(t.clone(), e).into(), *inner)
+            }
+            Ty::WithAttr(wa) => {
+                let TyWithAttr(attr, inner) = wa;
+                expand_wrapped(move |i| TyWithAttr(attr.clone(), i).into(), inner)
+            }
+            Ty::WithPrefix(wp) => {
+                let TyWithPrefix(prefix, inner) = wp;
+                expand_wrapped(move |i| TyWithPrefix(prefix, i).into(), inner)
+            }
             Ty::Group(g) => (*g.0).expand(),
-            other => Err(other),
+            other => Expand::Leaf(other),
         }
     }
 }
@@ -303,6 +319,21 @@ impl Op {
             Op::Caret => &['^', '-', ','],
             Op::Prim => &[],
         }
+    }
+}
+
+/// 单个展开操作（`^N` / 笛卡尔积 / 范围批量）产物数量上限。
+/// 防止 `(T1,..,Tk)^N`、`[A,B]^[C,D]^[E,F]` 等误写指数级膨胀挂起编译
+/// （对齐 v0.1 的 1024 上限）。
+pub(crate) const MAX_EXPAND: usize = 1024;
+
+/// 统计 `Ty` 树的叶子数（`Array` 逐元素累加，其余计 1）。
+/// 用于数组链式分发（`[A,B]^[C,D]^...`）的产物数量校验——中间数组每个都小，
+/// 但叶子数随 `^` 链指数增长，必须按叶子数设限。
+pub(crate) fn count_leaves(ty: &Ty) -> usize {
+    match ty {
+        Ty::Array(a) => a.0.iter().map(count_leaves).sum(),
+        _ => 1,
     }
 }
 

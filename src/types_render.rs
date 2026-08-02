@@ -75,22 +75,25 @@ impl ToTokens for Ty {
                 }
                 None => prefix_token(wp.0),
             },
-            Ty::Fn(f) => match &f.0 {
-                Some(params) => {
-                    let params = params
-                        .iter()
-                        .map(|p| p.to_token_stream())
-                        .collect::<Vec<_>>();
-                    match &f.1 {
-                        Some(ret) => {
-                            let ret_tokens = ret.to_token_stream();
-                            quote!(fn(#(#params),*) -> #ret_tokens)
+            Ty::Fn(f) => {
+                let u = f.2.then_some(quote!(unsafe));
+                match &f.0 {
+                    Some(params) => {
+                        let params = params
+                            .iter()
+                            .map(|p| p.to_token_stream())
+                            .collect::<Vec<_>>();
+                        match &f.1 {
+                            Some(ret) => {
+                                let ret_tokens = ret.to_token_stream();
+                                quote!(#u fn(#(#params),*) -> #ret_tokens)
+                            }
+                            None => quote!(#u fn(#(#params),*)),
                         }
-                        None => quote!(fn(#(#params),*)),
                     }
+                    None => quote!(#u fn),
                 }
-                None => quote!(fn),
-            },
+            }
             Ty::TypeParam(tp) => params_to_tokens_no_base(tp),
             Ty::WithAttr(w) => match &w.1 {
                 Some(inner) => {

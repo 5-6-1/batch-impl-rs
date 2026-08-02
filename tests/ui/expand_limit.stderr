@@ -1,0 +1,7 @@
+error: batch-impl: `元组 `^2000`` 的展开产物数量 2000 超过上限 1024，可能是指数/范围/笛卡尔积误写
+ --> tests/ui/expand_limit.rs:4:1
+  |
+4 | #[batch_impl(()^2000)]
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
