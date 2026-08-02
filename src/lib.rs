@@ -169,28 +169,54 @@ fn expand_attr_macro(
     Ok(impls.into())
 }
 
-/// 提取 trait 泛型参数的内联 bound（`trait Foo<T: Clone>` 的 `T: Clone`），
-/// 供 codegen 对**未写 bound 的 impl 泛型参数**按名继承（写了 = 用户负责，
-/// 宏不干预——sub trait 蕴含关系（`trait B: A` 使 `T: B` 隐含 `T: A`）宏无法推理）。
-/// 生命周期/const 参数无继承；trait 级 where 子句不继承（第一版范围）。
-fn extract_trait_bounds(
-    trait_item: &ItemTrait,
-) -> std::collections::HashMap<String, TokenStream> {
-    trait_item
-        .generics
-        .params
-        .iter()
-        .filter_map(|param| match param {
-            syn::GenericParam::Type(tp) if !tp.bounds.is_empty() => {
-                // 注意：quote 插值只支持 `#ident`，不支持字段访问 `#tp.bounds`
-                // （会把 `.bounds` 当字面量输出）。Punctuated 经 ToTokens
-                // 渲染为 `A + B`（分隔符为 `+`）。
-                let bounds = quote::ToTokens::to_token_stream(&tp.bounds);
-                Some((tp.ident.to_string(), bounds))
-            }
-            _ => None,
-        })
-        .collect()
+/// trait 泛型参数的内联 bound，供 codegen 对**未写 bound 的 impl 泛型参数**按名继承。
+///
+/// 拆为两类（`trait Foo<T: Clone + 'a>`）：
+/// - `types`：trait bound（`Clone`），按名直接继承；
+/// - `lifetimes`：生命周期 bound（`'a`），**仅当 impl 声明了同名生命周期时才继承**
+///   ——改名场景（`<'b, T>` vs trait `<'a, T: 'a>`）继承会引用未声明的 `'a`（E0261），
+///   退化为不继承，由 rustc 报 `T: 'b` 不满足引导用户手写；`'static` 全局可用，照常继承。
+///
+/// 继承规则：写了 bound = 用户负责，宏不干预（sub trait 蕴含（`trait B: A` 使
+/// `T: B` 隐含 `T: A`）宏无法推理）。生命周期/const 参数自身无继承；
+/// trait 级 where 子句不继承（第一版范围）。
+#[derive(Default)]
+pub(crate) struct TraitBounds {
+    pub(crate) types: std::collections::HashMap<String, TokenStream>,
+    pub(crate) lifetimes: std::collections::HashMap<String, Vec<TokenStream>>,
+}
+
+fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
+    let mut types = std::collections::HashMap::new();
+    let mut lifetimes = std::collections::HashMap::new();
+    for param in &trait_item.generics.params {
+        let syn::GenericParam::Type(tp) = param else {
+            continue;
+        };
+        // trait bound（过滤掉生命周期 bound；quote 插值只支持 `#ident`，
+        // 不支持字段访问 `#tp.bounds`，Punctuated 经 ToTokens 渲染为 `A + B`）
+        let trait_part: Vec<_> = tp
+            .bounds
+            .iter()
+            .filter(|b| !matches!(b, syn::TypeParamBound::Lifetime(_)))
+            .collect();
+        if !trait_part.is_empty() {
+            types.insert(tp.ident.to_string(), quote!(#(#trait_part)+*));
+        }
+        // 生命周期 bound：记录引用的生命周期 token（`'a`）
+        let lt_part: Vec<TokenStream> = tp
+            .bounds
+            .iter()
+            .filter_map(|b| match b {
+                syn::TypeParamBound::Lifetime(ld) => Some(quote!(#ld)),
+                _ => None,
+            })
+            .collect();
+        if !lt_part.is_empty() {
+            lifetimes.insert(tp.ident.to_string(), lt_part);
+        }
+    }
+    TraitBounds { types, lifetimes }
 }
 
 /// 对已声明的 trait 批量生成 `impl` 块的函数式宏。

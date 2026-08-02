@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.5 (2026-08-03)
+
+### 修复：生命周期 bound 继承在改名场景引用未声明生命周期（E0261）
+
+`trait Lifetime<'a, T: 'a>` + `#[batch_impl(<'b, T> Lifetime<'b, T> ())]` 此前把
+trait 的 `T: 'a` 原样继承进 impl，生成 `impl<'b, T: 'a>` 引用未声明的 `'a`
+（E0261，错误指向 trait 定义、无从修复）。现改为**生命周期 bound 按名匹配**：
+
+- `T: 'a` 仅当 impl 声明了同名生命周期 `'a` 时才继承（同名场景行为不变）
+- `T: 'static` 全局可用，照常继承
+- 改名场景退化为不继承：rustc 报 `T: 'b` 不满足（E0309）并直接建议
+  `<'b, T: 'b>`——可读、可修复
+- 实现：`TraitBounds` 拆为 `types`（trait bound 按名继承）与 `lifetimes`
+  （生命周期 bound 按名匹配 impl 声明的生命周期）；修复 `String` 插值陷阱
+  （quote 插值 String 会渲染为字符串字面量 `"'static"`，改存 TokenStream）
+- 测试：dsl 第 32 节新增改名手写 / `'static` / 混合 `Clone + 'a` 用例
+
 ## 0.5.4 (2026-08-03)
 
 ### 指令参数列表减法 `-name`（取代 `#except`）

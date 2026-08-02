@@ -9,10 +9,10 @@
 //! prepend：`<A>[<B>T1, <C>T2]` 现输出 `impl<A, B>` / `impl<A, C>`，
 //! 与"外层先写"的书写顺序一致。
 
+use crate::TraitBounds;
 use crate::types::*;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
-use std::collections::HashMap;
 
 /// 从 Ty 中递归提取 impl 块所需的各部分。
 ///
@@ -189,7 +189,7 @@ fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
 ///   （`hoist_type_params`）→ 构建泛型参数 / trait 泛型 / impl body → 渲染 `quote!` 块。
 pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
-    trait_bounds: &HashMap<String, TokenStream>,
+    trait_bounds: &TraitBounds,
 ) -> TokenStream {
     if let Ty::Error(e) = ty {
         return e.0;
@@ -207,12 +207,41 @@ pub(crate) fn generate_impl(
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
 
-    // 继承 trait 泛型 bound：仅对 DSL 未写 bound 的参数（fresh 泛型名不匹配，天然跳过）
+    // 继承 trait 泛型 bound：仅对 DSL 未写 bound 的参数（fresh 泛型名不匹配，天然跳过）。
+    // trait bound 直接继承；生命周期 bound（`T: 'a`）需 impl 声明了同名生命周期
+    // （或为 `'static`）才继承——改名场景继承会引用未声明的生命周期（E0261），
+    // 退化为不继承，由 rustc 报 `T: 'b` 不满足引导用户手写。
+    let impl_lts: std::collections::HashSet<String> = parts
+        .impl_generics
+        .iter()
+        .filter_map(|(name, _)| {
+            name.to_string().strip_prefix('\'').map(str::to_string)
+        })
+        .collect();
     for (name, bound) in &mut parts.impl_generics {
-        if bound.is_none()
-            && let Some(b) = trait_bounds.get(&name.to_string())
-        {
-            *bound = Some(Ty::Primitive(TyPrimitive(b.clone())));
+        if bound.is_some() {
+            continue;
+        }
+        let key = name.to_string();
+        let mut parts_vec = vec![];
+        if let Some(b) = trait_bounds.types.get(&key) {
+            parts_vec.push(b.clone());
+        }
+        if let Some(lts) = trait_bounds.lifetimes.get(&key) {
+            let usable: Vec<TokenStream> = lts
+                .iter()
+                .filter(|lt| {
+                    let s = lt.to_string();
+                    s == "'static" || impl_lts.contains(s.trim_start_matches('\''))
+                })
+                .cloned()
+                .collect();
+            if !usable.is_empty() {
+                parts_vec.push(quote!(#(#usable)+*));
+            }
+        }
+        if !parts_vec.is_empty() {
+            *bound = Some(Ty::Primitive(TyPrimitive(quote!(#(#parts_vec)+*))));
         }
     }
 

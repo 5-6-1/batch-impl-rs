@@ -1,8 +1,8 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
-use std::collections::HashMap;
 use syn::ItemTrait;
 
+use crate::TraitBounds;
 use crate::apply::err_ty;
 use crate::codegen::generate_impl;
 use crate::parse::parse_item;
@@ -26,7 +26,7 @@ use crate::types::{Expand, Op};
 pub(crate) fn parse_batch_trait_entry(
     cursor: &mut Cursor, top_level: Op, trait_full_path: &TokenStream,
     trait_last_ident: &Ident, is_unsafe_trait: bool, start_trait: Option<ItemTrait>,
-    trait_bounds: &HashMap<String, TokenStream>,
+    trait_bounds: &TraitBounds,
 ) -> TokenStream {
     let mut tys = vec![];
     // 前导逗号（`#[batch_impl(,usize)]` / `A: ,usize`）：整段列表以 `,` 开头。

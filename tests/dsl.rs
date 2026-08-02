@@ -631,6 +631,19 @@ trait Inherit<T: SupA> {}
 #[batch_impl(<'a, T> Lifetime<'a, T> ())]
 trait Lifetime<'a, T: 'a> {}
 
+// 改名场景：生命周期名改（'b vs 'a），trait 名保持一致——impl 无同名 `'a`，
+// 生命周期 bound 不继承，用户手写 `T: 'b`
+#[batch_impl(<'b, T: 'b> LifetimeRenamed<'b, T> ())]
+trait LifetimeRenamed<'a, T: 'a> {}
+
+// `'static` 全局可用：无需声明，照常继承
+#[batch_impl(<T> StaticT<T> ())]
+trait StaticT<T: 'static> {}
+
+// 混合 bound：Clone + 'a 一并继承
+#[batch_impl(<'a, T> Mix<'a, T> ())]
+trait Mix<'a, T: Clone + 'a> {}
+
 #[test]
 fn trait_bound_inherit() {
     let v: Vec<i32> = vec![42];
@@ -641,4 +654,13 @@ fn trait_bound_inherit() {
 
     fn check2<T: Lifetime<'static, ()>>() {}
     check2::<()>();
+
+    fn check2r<T: LifetimeRenamed<'static, ()>>() {}
+    check2r::<()>();
+
+    fn check3<T: StaticT<()>>() {}
+    check3::<()>();
+
+    fn check4<T: Mix<'static, ()>>() {}
+    check4::<()>();
 }
