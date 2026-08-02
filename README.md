@@ -588,7 +588,7 @@ batch_trait!(
 lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only] / batch_trait!）
   ├── preprocess.rs      指令预处理：#name 指令展开（内置 + 自定义属性委托）
   ├── where_process.rs   裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`（预处理后、解析前，三接口共用）
-  ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / collect_call_args
+  ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
   ├── parse.rs           DSL 解析器：Cursor 游标 + 优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
   ├── parse_atom.rs      原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
   ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents / matching_angle（严格配对）
