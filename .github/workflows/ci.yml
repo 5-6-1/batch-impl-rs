@@ -30,25 +30,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings
 
-  test:
-    name: test
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain: [stable, 1.93.0]
+  test-stable:
+    name: test (stable, full)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@${{ matrix.toolchain }}
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # stable 全量（含 trybuild UI 快照与 doctest）
-      - name: test (stable, full)
-        if: matrix.toolchain == 'stable'
-        run: cargo test
+      # 全量：功能 + 回归 + trybuild UI 快照 + doctest
+      - run: cargo test
+
+  test-msrv:
+    name: test (MSRV 1.93, functional)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: Swatinem/rust-cache@v2
       # MSRV 只跑功能/回归，跳过 trybuild 快照（.stderr 措辞随 rustc 漂移）
-      - name: test (MSRV, functional)
-        if: matrix.toolchain == '1.93.0'
-        run: cargo test --lib --test dsl --test regression
+      - run: cargo test --lib --test dsl --test regression
 
   doc:
     name: doc
