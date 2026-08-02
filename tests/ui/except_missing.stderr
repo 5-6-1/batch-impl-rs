@@ -1,7 +1,0 @@
-error: batch-impl: `#except` 期望 `(保留列表){排除列表}` 两个括号参数
- --> tests/ui/except_missing.rs:4:1
-  |
-4 | #[batch_impl(usize #fill(#except(#all)){0})]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

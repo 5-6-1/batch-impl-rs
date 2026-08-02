@@ -2,6 +2,48 @@
 
 ## 0.5.4 (2026-08-02)
 
+### 指令参数列表减法 `-name`（取代 `#except`）
+
+`#fill`/`#delegate` 参数新增 `-` 前缀排除项：保留列表减去排除列表，排除优先。
+`#except(保留){排除}` 的双括号形式被其取代并移除（0.5.3 当天发布、使用者为零，
+破坏面最小）：
+
+- `#fill(#all,-foo){body}` = 所有 item 除 `foo`（`#fill(#except(#all){foo})` 的等价物）
+- `#fill(#all,-#all_methods)` = 仅 const + type 项（标记也可被排除）
+- `-` 后缺目标（`a,-`）、排除后为空（`#all,-#all`）报 `compile_error!`
+- `-` 只在指令参数域生效（参数此前只解析标识符/逗号，`-` 为自由符号），
+  与类型 DSL 的 `-` 连接运算符互不干扰
+- 实现：`parse_name_tokens` 重写为 keep/exclude 双列表 + `#` 标记展开
+  （`parse_marker` / `parse_minus_target` 辅助），`#except` 分支移除
+- 测试：`tests/dsl.rs` 第 30 节（标识符排除 / 标记排除 / 显式列表）、
+  `tests/ui/minus_bad_target.rs`、`tests/ui/minus_empty.rs` 锁定诊断；
+  `except_missing` / `except_empty` fixture 删除
+
+### trait 泛型 bound 自动继承
+
+`trait Foo<T: Clone>` 时，spec 中**未写 bound** 的 impl 泛型参数按名继承 trait
+的同名参数内联 bound——`#[batch_impl(<T> Foo<T> Vec<T>)]` 直接生成
+`impl<T: Clone> Foo<T> for Vec<T>`，无需手写（此前生成的 impl 缺 bound 报 E0277）。
+
+- 规则：**写了 bound = 用户负责，宏不干预**——sub trait 蕴含（`trait B: A` 使
+  `T: B` 隐含 `T: A`）宏无法推理，交由 rustc 验证；未写才继承，零噪音、零合并
+- 继承 `T: Clone` / `T: 'a` 等内联 bound；trait 级 where 子句不继承（第一版范围）
+- 仅 `#[batch_impl]` / `#[batch_impl_only]` 支持（trait 定义在手边）；
+  `batch_trait!` 无 trait 定义，不继承
+- 实现：`extract_trait_bounds` 从 trait generics 提取 name→bound 映射
+  （Punctuated 经 ToTokens 渲染 `A + B`），经 `parse_batch_trait_entry` 传入
+  `generate_impl`，对 `(name, None)` 参数补 bound
+- 修复实现中 `quote!(#tp.bounds)` 的陷阱：quote 插值不支持字段访问
+  （会把 `.bounds` 当字面量），改用 `to_token_stream`
+- 测试：`tests/dsl.rs` 第 32 节（Clone 继承 / 用户例 `T: SupB` 不干预 /
+  生命周期 `T: 'a` 继承）
+
+### 发布物冒烟验证
+
+临时 crate 依赖 crates.io 发布的 `batch-impl = "0.5.3"`，覆盖基础/泛型/元组/
+指令/delegate/unsafe fn/where/batch_trait 运行通过——此前测试均走本地 path 依赖，
+本次首次验证真实发布物可用。
+
 ### 修复 README 快速开始版本号
 
 README 快速开始示例的依赖版本号停留在 `0.5.1`，与已发布版本不符（0.5.3 发布时

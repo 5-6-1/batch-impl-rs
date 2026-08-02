@@ -530,11 +530,11 @@ fn unsafe_fn_type() {
 }
 
 // ============================================================
-// 30. `#except(保留){排除}` 指令：保留列表减去排除列表
+// 30. 指令参数列表减法：`-name` / `-#all` 排除项（取代 `#except`）
 //     （排除项走 trait 默认实现，验证未被批量生成）
 // ============================================================
-#[batch_impl(usize #fill(#except(#all){skip_me}){0})]
-trait ExceptDefault {
+#[batch_impl(usize #fill(#all,-skip_me){0})]
+trait ExceptInline {
     fn keep_me(&self) -> u32;
     fn skip_me(&self) -> u32 {
         999
@@ -542,11 +542,37 @@ trait ExceptDefault {
     const VALUE: u32;
 }
 
+// 标记减法：#all - #all_methods = const + type
+#[batch_impl(isize #fill(#all,-#all_methods){1})]
+trait MarkMinus {
+    fn m(&self) -> u32 {
+        7
+    }
+    const C: u32;
+}
+
+// 显式列表 + 排除项
+#[batch_impl(u32 #fill(a, -b){2})]
+trait ListMinus {
+    fn a(&self) -> u32;
+    fn b(&self) -> u32 {
+        8
+    }
+}
+
 #[test]
-fn directive_except() {
+fn directive_minus_exclude() {
     assert_eq!(1usize.keep_me(), 0);
     assert_eq!(1usize.skip_me(), 999);
-    assert_eq!(<usize as ExceptDefault>::VALUE, 0);
+    assert_eq!(<usize as ExceptInline>::VALUE, 0);
+
+    // `#all - #all_methods` = const + type：方法走默认实现
+    assert_eq!(<isize as MarkMinus>::C, 1);
+    assert_eq!(0isize.m(), 7);
+
+    let u = 3u32;
+    assert_eq!(u.a(), 2);
+    assert_eq!(u.b(), 8);
 }
 
 // ============================================================
@@ -576,4 +602,43 @@ fn strictness_legal_forms() {
 
     fn check3<T: NoTrailingIssue>() {}
     check3::<isize>();
+}
+
+// ============================================================
+// 32. trait 泛型 bound 自动继承：未写 bound 的 impl 泛型参数按名继承
+//     （写了 = 用户负责，宏不干预——sub trait 蕴含（`trait B: A` 使 `T: B`
+//     隐含 `T: A`）宏无法推理，交由 rustc 验证）
+// ============================================================
+#[batch_impl(<T> Cloned<T> Vec<T> {
+    fn get(&self) -> T {
+        self[0].clone()
+    }
+})]
+trait Cloned<T: Clone> {
+    fn get(&self) -> T;
+}
+
+// 用户已写 bound（B: A 蕴含 T: A）→ 不干预
+trait SupA {}
+trait SupB: SupA {}
+struct SupS;
+impl SupA for SupS {}
+impl SupB for SupS {}
+#[batch_impl(<T: SupB> Inherit<T> ())]
+trait Inherit<T: SupA> {}
+
+// 生命周期 bound 继承：`<'a, T>` → `impl<'a, T: 'a>`
+#[batch_impl(<'a, T> Lifetime<'a, T> ())]
+trait Lifetime<'a, T: 'a> {}
+
+#[test]
+fn trait_bound_inherit() {
+    let v: Vec<i32> = vec![42];
+    assert_eq!(v.get(), 42);
+
+    fn check<T: Inherit<SupS>>() {}
+    check::<()>();
+
+    fn check2<T: Lifetime<'static, ()>>() {}
+    check2::<()>();
 }

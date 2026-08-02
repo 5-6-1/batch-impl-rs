@@ -12,6 +12,7 @@
 use crate::types::*;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
+use std::collections::HashMap;
 
 /// 从 Ty 中递归提取 impl 块所需的各部分。
 ///
@@ -175,6 +176,11 @@ fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
 
 /// 生成一个 impl 块（对摊平后的单个叶子 `Ty`）。
 ///
+/// `trait_bounds`：trait 泛型参数的内联 bound 映射（参数名 → bound token）。
+/// 对**未写 bound** 的 impl 泛型参数按名继承（`trait Foo<T: Clone>` + `<T> Foo<T>`
+/// → `impl<T: Clone>`）；用户已写 bound 的参数不干预（sub trait 蕴含宏无法推理，
+/// 写了 = 用户负责）。
+///
 /// 三个出口：
 /// - `Ty::Error` → 直接输出 `compile_error!` 流；
 /// - 裸代码块 `WithCode(None, ...)`（开放指令扩展产物）→ 原样作为顶层 item 注入，
@@ -183,6 +189,7 @@ fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
 ///   （`hoist_type_params`）→ 构建泛型参数 / trait 泛型 / impl body → 渲染 `quote!` 块。
 pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
+    trait_bounds: &HashMap<String, TokenStream>,
 ) -> TokenStream {
     if let Ty::Error(e) = ty {
         return e.0;
@@ -199,6 +206,15 @@ pub(crate) fn generate_impl(
     let mut nested_params = vec![];
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
+
+    // 继承 trait 泛型 bound：仅对 DSL 未写 bound 的参数（fresh 泛型名不匹配，天然跳过）
+    for (name, bound) in &mut parts.impl_generics {
+        if bound.is_none()
+            && let Some(b) = trait_bounds.get(&name.to_string())
+        {
+            *bound = Some(Ty::Primitive(TyPrimitive(b.clone())));
+        }
+    }
 
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };

@@ -10,62 +10,31 @@ pub(crate) fn parse_names_from_tokens(
     if tokens.is_empty() {
         return Err(compile_error_str("batch-impl: 指令的参数列表不能为空"));
     }
-    // `#except(保留){排除}`：保留列表减去排除列表。两个列表各自是
-    // `#all` 系列标记或逗号分隔的标识符列表，最终得到一个 item 名列表。
-    // 如 `#fill(#except(#all){foo}){...}` = 所有 item 除 `foo`。
-    if let [TokenTree::Punct(h), TokenTree::Ident(n), rest @ ..] = tokens
-        && h.as_char() == '#'
-        && n == "except"
-    {
-        let [TokenTree::Group(keep), TokenTree::Group(excl)] = rest else {
-            return Err(compile_error_str(
-                "batch-impl: `#except` 期望 `(保留列表){排除列表}` 两个括号参数",
-            ));
-        };
-        let keep_ts = keep.stream().into_iter().collect::<Vec<_>>();
-        let excl_ts = excl.stream().into_iter().collect::<Vec<_>>();
-        let keep_ids =
-            parse_name_tokens(&keep_ts, trait_def, "`#except` 的保留列表")?;
-        let excl_ids =
-            parse_name_tokens(&excl_ts, trait_def, "`#except` 的排除列表")?;
-        return Ok(keep_ids
-            .into_iter()
-            .filter(|id| !excl_ids.iter().any(|e| e == id))
-            .collect());
-    }
     parse_name_tokens(tokens, trait_def, "指令参数")
 }
 
-/// 解析指令参数为 item 名列表：`#all` 系列标记，或逗号分隔的标识符列表。
-/// `what` 用于诊断措辞（主参数为"指令参数"，`#except` 的子列表各自带上下文）。
+/// 解析指令参数为 item 名列表：`#all` 系列标记、逗号分隔的标识符列表、
+/// 以及 `-name` 排除项（保留列表减去排除列表，如 `#fill(#all,-foo)`）。
+///
+/// 指令参数域里 `-` 此前无语义（参数只解析标识符/逗号），专用于列表减法，
+/// 不与类型 DSL 的 `-` 连接运算符冲突（DSL 解析不进入指令参数）。
+/// `what` 用于诊断措辞（主参数为"指令参数"）。
 fn parse_name_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
 ) -> Result<Vec<Ident>, TokenStream> {
     if tokens.is_empty() {
         return Err(compile_error_str(&format!("batch-impl: {}不能为空", what)));
     }
-    if tokens.len() == 2
-        && let (TokenTree::Punct(p), TokenTree::Ident(id)) = (&tokens[0], &tokens[1])
-        && p.as_char() == '#'
-    {
-        if id == "all_methods" {
-            return Ok(get_all_trait_methods(trait_def));
-        } else if id == "all" {
-            return Ok(get_all_trait_items(trait_def));
-        } else if id == "all_constants" {
-            return Ok(get_all_trait_constants(trait_def));
-        } else if id == "all_types" {
-            return Ok(get_all_trait_types(trait_def));
-        }
-    }
-    // 逗号分隔的标识符列表：前导/尾随/连续逗号视为笔误报错，其余 token 必须是标识符。
-    let mut names = vec![];
+    let mut keep: Vec<Ident> = vec![];
+    let mut exclude: Vec<Ident> = vec![];
     let mut prev_was_comma = true; // 起始视为"刚经过逗号"，用于拦截前导逗号
-    for t in tokens {
-        match t {
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
             TokenTree::Ident(id) => {
-                names.push(Ident::new(&id.to_string(), id.span()));
+                keep.push(Ident::new(&id.to_string(), id.span()));
                 prev_was_comma = false;
+                i += 1;
             }
             TokenTree::Punct(p) if p.as_char() == ',' => {
                 if prev_was_comma {
@@ -75,11 +44,28 @@ fn parse_name_tokens(
                     )));
                 }
                 prev_was_comma = true;
+                i += 1;
+            }
+            // `-name` / `-#all`：排除项（排除优先于保留）
+            TokenTree::Punct(p) if p.as_char() == '-' => {
+                let (ids, consumed) =
+                    parse_minus_target(&tokens[i + 1..], trait_def, what)?;
+                exclude.extend(ids);
+                i += 1 + consumed;
+                prev_was_comma = false;
+            }
+            // `#all` 系列标记：展开为对应 item 列表（并入保留列表）
+            TokenTree::Punct(p) if p.as_char() == '#' => {
+                let (ids, consumed) =
+                    parse_marker(&tokens[i + 1..], trait_def, what)?;
+                keep.extend(ids);
+                i += 1 + consumed;
+                prev_was_comma = false;
             }
             _ => {
                 return Err(compile_error_str(&format!(
-                    "batch-impl: {}中期望标识符或逗号，得到 `{}`",
-                    what, t
+                    "batch-impl: {}中期望标识符、逗号或 `-` 排除项，得到 `{}`",
+                    what, tokens[i]
                 )));
             }
         }
@@ -90,10 +76,60 @@ fn parse_name_tokens(
             what
         )));
     }
+    let names: Vec<Ident> =
+        keep.into_iter().filter(|id| !exclude.iter().any(|e| e == id)).collect();
     if names.is_empty() {
         return Err(compile_error_str(&format!("batch-impl: {}不能为空", what)));
     }
     Ok(names)
+}
+
+/// `-` 后的目标：标识符（`-foo`）或 `#all` 系列标记（`-#all_methods`）。
+/// 返回（展开的 item 名列表, 消费的 token 数）。
+fn parse_minus_target(
+    tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
+) -> Result<(Vec<Ident>, usize), TokenStream> {
+    match tokens.first() {
+        Some(TokenTree::Ident(id)) => {
+            Ok((vec![Ident::new(&id.to_string(), id.span())], 1))
+        }
+        Some(TokenTree::Punct(p)) if p.as_char() == '#' => {
+            let (ids, n) = parse_marker(&tokens[1..], trait_def, what)?;
+            Ok((ids, 1 + n))
+        }
+        _ => Err(compile_error_str(&format!(
+            "batch-impl: {}中 `-` 后期望标识符或 `#all` 标记（如 `-foo`、`-#all_methods`）",
+            what
+        ))),
+    }
+}
+
+/// `#all` 系列标记展开（`#all` / `#all_methods` / `#all_constants` / `#all_types`）。
+/// 返回（展开的 item 名列表, 消费的 token 数）。
+fn parse_marker(
+    tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
+) -> Result<(Vec<Ident>, usize), TokenStream> {
+    let Some(TokenTree::Ident(id)) = tokens.first() else {
+        return Err(compile_error_str(&format!(
+            "batch-impl: {}中 `#` 后期望 `#all`/`#all_methods`/`#all_constants`/`#all_types` 标记",
+            what
+        )));
+    };
+    let ids = if id == "all_methods" {
+        get_all_trait_methods(trait_def)
+    } else if id == "all" {
+        get_all_trait_items(trait_def)
+    } else if id == "all_constants" {
+        get_all_trait_constants(trait_def)
+    } else if id == "all_types" {
+        get_all_trait_types(trait_def)
+    } else {
+        return Err(compile_error_str(&format!(
+            "batch-impl: {}中未知的 `#{}` 标记（支持 `#all`/`#all_methods`/`#all_constants`/`#all_types`）",
+            what, id
+        )));
+    };
+    Ok((ids, 1))
 }
 
 fn get_trait_item_names(

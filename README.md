@@ -87,6 +87,12 @@ trait Tagged { fn name(&self) -> &str; }
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
+> **泛型 bound 自动继承**：spec 中未写 bound 的 impl 泛型参数会按名继承 trait
+> 定义里同名参数的内联 bound——`trait Foo<T: Clone>` + `#[batch_impl(<T> Foo<T> Vec<T>)]`
+> 直接生成 `impl<T: Clone> Foo<T> for Vec<T>`，无需手写。**已写 bound 的参数宏不干预**
+> （`T: B` 是否蕴含 `T: Clone` 由 rustc 验证，如 `trait B: A` 的父 trait 关系）。
+> `batch_trait!` 无 trait 定义，不继承；trait 级 where 子句不继承。
+
 ### 运算符
 
 DSL 通过四级优先级解析（从低到高）：
@@ -336,12 +342,12 @@ trait HasAll { fn method(&self) -> &str; const VALUE: &str; }
 // → fn method 与 const VALUE 各生成 { "default" } body
 ```
 
-**`#except(保留){排除}` — 列表减法**：`保留列表` 减去 `排除列表`，两列表各自是
-`#all` 系列标记或逗号分隔的 item 名列表。用于"批量实现除了某个 item 之外的所有项"：
+**列表减法 `-name`**：参数中 `-` 前缀表示排除项（保留列表减去排除列表，排除优先）。
+用于"批量实现除了某个 item 之外的所有项"：
 
 ```rust
 # use batch_impl::{batch_impl, batch_impl_only, batch_trait};
-#[batch_impl(usize #fill(#except(#all){skip_me}){0})]
+#[batch_impl(usize #fill(#all,-skip_me){0})]
 trait HasDefault {
     fn keep_me(&self) -> u32;
     fn skip_me(&self) -> u32 { 999 } // 默认实现，被排除后保留
@@ -354,8 +360,10 @@ trait HasDefault {
 //   }
 ```
 
-也适用于 `#delegate`（`#delegate(#except(#all){foo}){target}`）。排除列表为空或
-`#except` 缺括号参数会报 `compile_error!`。
+`-` 后可跟标识符（`-foo`）或 `#all` 系列标记（`-#all_methods` = 排除所有方法）：
+`#fill(#all,-#all_methods)` = 仅 const + type 项。也适用于 `#delegate`
+（`#delegate(#all,-foo){target}`）。排除后为空、`-` 后缺目标会报 `compile_error!`。
+`-` 只在指令参数域生效，与类型 DSL 的 `-` 连接运算符互不干扰。
 
 **`#delegate(methods){target}` — 委托调用**：把方法委托到 target 表达式上调用同名方法。
 
@@ -609,7 +617,7 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
 |-----------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/`     | `quickstart.rs`  | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                      |
 | `src/`          | `fuzz.rs`        | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                       |
-| `tests/`        | `dsl.rs`         | 31 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界、`unsafe fn` 类型、`#except` 指令）                     |
+| `tests/`        | `dsl.rs`         | 32 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、bound 继承）                     |
 | `tests/`        | `regression.rs`  | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
 | `tests/`        | `ui.rs`          | `trybuild` UI 测试：20 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                      |
 

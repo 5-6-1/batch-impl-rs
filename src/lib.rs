@@ -155,6 +155,7 @@ fn expand_attr_macro(
     let expanded = where_process(&mut Cursor::new(&expanded))?;
     cursor = Cursor::new(&expanded);
     let is_unsafe = trait_item.unsafety.is_some();
+    let trait_bounds = extract_trait_bounds(&trait_item);
     let start_trait = if include_trait { trait_item.into() } else { None };
     let impls = parse_batch_trait_entry(
         &mut cursor,
@@ -163,8 +164,33 @@ fn expand_attr_macro(
         &trait_last_ident,
         is_unsafe,
         start_trait,
+        &trait_bounds,
     );
     Ok(impls.into())
+}
+
+/// 提取 trait 泛型参数的内联 bound（`trait Foo<T: Clone>` 的 `T: Clone`），
+/// 供 codegen 对**未写 bound 的 impl 泛型参数**按名继承（写了 = 用户负责，
+/// 宏不干预——sub trait 蕴含关系（`trait B: A` 使 `T: B` 隐含 `T: A`）宏无法推理）。
+/// 生命周期/const 参数无继承；trait 级 where 子句不继承（第一版范围）。
+fn extract_trait_bounds(
+    trait_item: &ItemTrait,
+) -> std::collections::HashMap<String, TokenStream> {
+    trait_item
+        .generics
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            syn::GenericParam::Type(tp) if !tp.bounds.is_empty() => {
+                // 注意：quote 插值只支持 `#ident`，不支持字段访问 `#tp.bounds`
+                // （会把 `.bounds` 当字面量输出）。Punctuated 经 ToTokens
+                // 渲染为 `A + B`（分隔符为 `+`）。
+                let bounds = quote::ToTokens::to_token_stream(&tp.bounds);
+                Some((tp.ident.to_string(), bounds))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// 对已声明的 trait 批量生成 `impl` 块的函数式宏。
@@ -282,6 +308,8 @@ fn expand_batch_trait(
             trait_last_ident,
             is_unsafe,
             None,
+            // batch_trait! 无 trait 定义，无法继承泛型 bound
+            &Default::default(),
         );
         result.extend(impl_code);
     }

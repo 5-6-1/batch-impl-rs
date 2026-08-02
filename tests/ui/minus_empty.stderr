@@ -1,0 +1,7 @@
+error: batch-impl: 指令参数不能为空
+ --> tests/ui/minus_empty.rs:4:1
+  |
+4 | #[batch_impl(usize #fill(#all,-#all){0})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

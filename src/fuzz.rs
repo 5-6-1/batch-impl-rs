@@ -125,6 +125,7 @@ proptest! {
             &last,
             false,
             None,
+            &Default::default(),
         );
         let _ = out;
         prop_assert!(true);

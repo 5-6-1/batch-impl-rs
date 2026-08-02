@@ -41,9 +41,9 @@ fn ui() {
     // `unsafe` 并列非 fn 类型（应为 unsafe^T 或 unsafe fn(...)）
     t.compile_fail("tests/ui/unsafe_non_fn.rs");
 
-    // `#except` 参数缺失 / 空排除列表
-    t.compile_fail("tests/ui/except_missing.rs");
-    t.compile_fail("tests/ui/except_empty.rs");
+    // 指令参数列表减法：`-` 缺目标 / 排除全部后为空
+    t.compile_fail("tests/ui/minus_bad_target.rs");
+    t.compile_fail("tests/ui/minus_empty.rs");
 
     // 组合展开数量超上限
     t.compile_fail("tests/ui/expand_limit.rs");
