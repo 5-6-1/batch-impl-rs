@@ -173,3 +173,79 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proc_macro2::TokenStream as TS2;
+    use std::str::FromStr;
+
+    /// 入口收集 + 出口还原的往返：<...> 配对成组再还原为扁平，token 等价。
+    fn roundtrip(s: &str) -> String {
+        let ts: TS2 = FromStr::from_str(s).unwrap();
+        let v: Vec<_> = ts.into_iter().collect();
+        let collected = angle_collect(&v).unwrap();
+        render_angles(collected.into_iter().collect()).to_string()
+    }
+
+    #[test]
+    fn angle_roundtrip() {
+        assert_eq!(roundtrip("Vec<T>"), "Vec < T >");
+        assert_eq!(roundtrip("A<B<C>>"), "A < B < C > >");
+        assert_eq!(
+            roundtrip("Box<dyn Fn() + Send>"),
+            "Box < dyn Fn () + Send >"
+        );
+        assert_eq!(roundtrip("<T: Clone> A<T>"), "< T : Clone > A < T >");
+        assert_eq!(roundtrip("A<Item=T>"), "A < Item = T >");
+        // -> 箭头的 > 不参与配对
+        assert_eq!(roundtrip("fn(A) -> B"), "fn (A) -> B");
+    }
+
+    #[test]
+    fn angle_unmatched_errors() {
+        // 孤立的 < / > 是非法输入：报 compile_error!（不再透传）
+        let ts: TS2 = FromStr::from_str("A <").unwrap();
+        assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
+        let ts: TS2 = FromStr::from_str("A >").unwrap();
+        assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
+        // `ident![...]` 宏体不进入：内部比较 < 不报错
+        let ts: TS2 = FromStr::from_str("m![a < b]").unwrap();
+        assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
+    }
+
+    #[test]
+    fn bracket_passthrough_guards() {
+        // `ident![...]` 宏体与 `#[...]` 属性均不进入（内容任意 Rust，含比较 <）
+        for s in ["m![a < b]", "#[a < b]", "#[#zzz{1}]"] {
+            let ts: TS2 = FromStr::from_str(s).unwrap();
+            assert!(
+                angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok(),
+                "输入 {s} 应透传"
+            );
+        }
+    }
+
+    #[test]
+    fn none_group_flattened() {
+        // 真实 None 组（宏变量展开产物）：扁平化后内容里的 <...> 照常配对
+        let inner: TS2 = FromStr::from_str("Vec<T>").unwrap();
+        let none = proc_macro2::Group::new(delimiter![none], inner);
+        let collected = angle_collect(&[none.into()]).unwrap();
+        let rendered = render_angles(collected.into_iter().collect());
+        assert_eq!(rendered.to_string(), "Vec < T >");
+    }
+
+    #[test]
+    fn render_rebuilds_nested_groups() {
+        // Paren/Bracket 配对时递归进入过，渲染时重建且内部尖括号组照常还原；
+        // Brace 透传不进入（body 里的 `<` 不配对）。
+        // 注：span 保留无法单测——fallback 模式下 `Span::mixed_site()` 即
+        // call_site，且 `Span::eq` 被 procmacro2_semver_exempt 门控。
+        assert_eq!(
+            roundtrip("[Vec<T>, (U, W<X>)]"),
+            "[Vec < T > , (U , W < X >)]"
+        );
+        assert_eq!(roundtrip("{ a < b }"), "{ a < b }");
+    }
+}

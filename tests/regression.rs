@@ -512,3 +512,18 @@ fn prefix_attr_list_distribution() {
     assert_eq!((&&0u8).t(), "y");
     assert_eq!((&&0u16).t(), "y");
 }
+
+// ============================================================
+// 21. `batch_trait!` 的 `A<>` 透传（无 trait 定义，空实参原样透传）
+//     （`#[batch_impl]` 下 `A<>` 照抄 trait 泛型；`batch_trait!` 无定义
+//     可照抄，`GA<>` 保持空实参渲染为 `GA`——本用例锁定透传行为）
+// ============================================================
+trait PassGen {}
+
+batch_trait!(PassGen: PassGen<> ());
+
+#[test]
+fn batch_trait_empty_angle_passthrough() {
+    fn _check<T: PassGen>() {}
+    _check::<()>();
+}

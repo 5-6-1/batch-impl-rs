@@ -22,6 +22,30 @@
   故置于其父模块 `preprocess` 顶部（文本作用域要求其声明先于所有使用者）
 - 行为零变化（全量测试通过）
 
+### Bracket 守卫对齐 + lib.rs 拆分
+
+- **修复**：`expand_tokens` 与 `where_process` 的 Bracket 递归守卫补 `#`
+  （此前仅排除 `ident![...]`，`#[...]` 属性内的 `#name{body}` 会被误当指令
+  展开报错——实测 `#[batch_impl(#[#zzz{1}] usize)]` 误报
+  `trait 中没有找到 item zzz`；与 `angle_collect` 的属性守卫对齐）
+- **lib.rs 拆分**（632 → 202 行）：`expand.rs`（属性宏/batch_trait 共享
+  实现 + 公共管线 `run_pipeline` = 解析 → 生成 → 尖括号组还原；
+  `angle_collect` 与裸 `where` 改写不进入管线——配对破坏性、where 须先于
+  `A<>` 展开，由入口按序调用）、`trait_bounds.rs`（TraitBounds 提取 +
+  bound 引用检测）、`empty_generics.rs`（`A<>` 照抄展开）；
+  `angle_tests` 迁入 `angle.rs`；`crate::TraitBounds` 等路径经
+  `pub(crate) use` 保持兼容
+- **错误机制分工说明**（expand.rs 模块文档）：入口层 `Result` 传播 vs
+  DSL 层 `Ty::Error` 透传，两层不合并；`batch_trait!` 段级错误统一
+  `return Err`（原 `result.extend + break`）
+- **测试补充**：angle 单测加属性/宏体 Bracket 透传守卫
+  （`#[a < b]` / `#[#zzz{1}]`）、渲染嵌套组重建；regression 加
+  `batch_trait!` 的 `A<>` 透传用例。span 保留无法单测（fallback 模式下
+  `Span::mixed_site()` 即 call_site，`Span::eq` 被 feature 门控），
+  测试中以注释说明
+- **CI**：MSRV job 补 doctest
+- 行为零变化（全量测试通过）
+
 ## 0.5.6 (2026-08-03)
 
 ### src 按层分目录

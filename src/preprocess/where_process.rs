@@ -43,11 +43,12 @@ pub(crate) fn where_process(
             result.push(where_body);
             i += 1 + rest_index;
         } else if let TokenTree::Group(g) = &tokens[i]
-            && g.delimiter() == delimiter![[]]
-            // `ident![...]` 宏调用体是透传的宏参数，不递归（与 `ident!{...}` 一致）
+            && g.delimiter() == delimiter!([])
+            // `ident![...]` 宏调用体与 `#[...]` 属性是透传的宏参数，
+            // 不递归（与 `ident!{...}` 宏体 / angle_collect 的守卫对齐）
             && !(i > 0
                 && matches!(&tokens[i - 1], TokenTree::Punct(p)
-                    if p.as_char() == '!'))
+                    if p.as_char() == '!' || p.as_char() == '#'))
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
             let vt = where_process(&mut Cursor::new(&v))?;

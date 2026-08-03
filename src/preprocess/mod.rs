@@ -95,10 +95,12 @@ pub(crate) fn expand_tokens(
             break;
         };
         // 只递归展开 [...] 内容（`(...)` 和 `{...}` 不递归）；
-        // `ident![...]` 宏调用体是透传的宏参数，不展开其中的指令
+        // `ident![...]` 宏调用体与 `#[...]` 属性是透传的（内容任意 Rust，
+        // 不得展开其中的指令——与 angle_collect 的 Bracket 守卫对齐）
         if let TokenTree::Group(g) = tt
             && g.delimiter() == delimiter![[]]
             && !cursor.prev_is_punct('!')
+            && !cursor.prev_is_punct('#')
         {
             let inner = expand_tokens(
                 &mut Cursor::new(&g.stream().into_iter().collect::<Vec<_>>()),

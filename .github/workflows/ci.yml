@@ -47,8 +47,9 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.93.0
       - uses: Swatinem/rust-cache@v2
-      # MSRV 只跑功能/回归，跳过 trybuild 快照（.stderr 措辞随 rustc 漂移）
+      # MSRV 只跑功能/回归 + doctest，跳过 trybuild 快照（.stderr 措辞随 rustc 漂移）
       - run: cargo test --lib --test dsl --test regression
+      - run: cargo test --doc
 
   doc:
     name: doc
