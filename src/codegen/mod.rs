@@ -217,8 +217,16 @@ pub(crate) fn generate_impl(
     let mut errs: Vec<TokenStream> = vec![];
     let trait_args: Vec<String> =
         parts.trait_generic_names.iter().map(|n| n.to_string()).collect();
-    let impl_names: std::collections::HashSet<String> =
-        parts.impl_generics.iter().map(|(n, _)| n.to_string()).collect();
+    // const 形参在 parse 层的名字是 `const N`（渲染 `const N: usize` 需要关键字），
+    // 归一为 `N` 以匹配 trait 实参与 where 谓词引用
+    let impl_names: std::collections::HashSet<String> = parts
+        .impl_generics
+        .iter()
+        .map(|(n, _)| {
+            let s = n.to_string();
+            s.strip_prefix("const ").unwrap_or(&s).to_string()
+        })
+        .collect();
     for (name, bound) in &mut parts.impl_generics {
         if bound.is_some() {
             continue;

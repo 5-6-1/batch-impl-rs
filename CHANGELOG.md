@@ -59,13 +59,18 @@
   （`T`）与泛型实参（`Vec<T>` 的 `T`）是形参引用位置；`::` 后的路径段
   （关联类型名，`A::B` 的 `B`）、关联类型绑定名（`dyn Trait<Item = T>`
   的 `Item`）、HRTB binder（`for<'a>` 的 `'a`）天然排除——替换原先
-  `bound_refs` 的 token 扫描（顺带修掉内联 bound 的 HRTB 误报）
+  `bound_refs` 的 token 扫描（顺带修掉内联 bound 的 HRTB 误报）；
+  另补 `visit_expr` 收集 const 泛型实参 / 数组长度（`[T; N]` 的 `N`，
+  实测发现漏报会静默生成引用未声明名字的代码）；impl 泛型名
+  `const N` 归一如 `N` 以匹配引用检查
 - 实现：`TraitBounds` 增加 `extra_predicates`（谓词 token + 引用的形参名），
   codegen 引用检查后附加到 impl where（错误消息："继承的 where 谓词 `...`
   引用形参 `...`，请声明或手写 where"）
 - 测试：dsl 第 34 节（复合谓词 `T::Item: Clone` 的 `<T>`/`<>` 两种写法、
-  `A::B` 撞名不误报、内联 + where 合并、生命周期谓词）、
-  `tests/ui/rename_where.rs` 锁定两类改名/引用报错
+  `A::B` 撞名不误报、内联 + where 合并、生命周期谓词、const 数组谓词
+  `[T; N]: Sized`、深递归左侧 `Vec<(T, <U as HasB2>::B)>: Sized`）、
+  `tests/ui/rename_where.rs` / `tests/ui/where_const_ref.rs` 锁定三类
+  改名/引用报错
 - README「泛型自动化」更新（移除"第一版范围"注记）
 
 ## 0.5.6 (2026-08-03)

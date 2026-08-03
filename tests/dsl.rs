@@ -796,6 +796,32 @@ where
 {
 }
 
+// const 泛型数组谓词：`[T; N]: Sized` 的 N 是 const 形参引用（Expr 位置），
+// `A<>` 照抄自动声明 N
+#[batch_impl(WhereArr<> ())]
+trait WhereArr<T, const N: usize>
+where
+    [T; N]: Sized,
+{
+}
+
+// 深递归左侧：元组 + 泛型实参 + 限定投影（`<U as HasB2>::B` 的 U）
+trait HasB2 {
+    type B;
+}
+struct S2;
+impl HasB2 for S2 {
+    type B = u8;
+}
+
+#[batch_impl(Deep<> ())]
+trait Deep<T, U>
+where
+    U: HasB2,
+    Vec<(T, <U as HasB2>::B)>: Sized,
+{
+}
+
 #[test]
 fn trait_where_clause_inherit() {
     let v: Vec<i32> = vec![42];
@@ -814,4 +840,10 @@ fn trait_where_clause_inherit() {
 
     fn check_p<T: ProjAssoc<S, u8>>() {}
     check_p::<()>();
+
+    fn check_a<T: WhereArr<u8, 4>>() {}
+    check_a::<()>();
+
+    fn check_d<T: Deep<S2, S2>>() {}
+    check_d::<()>();
 }

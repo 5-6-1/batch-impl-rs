@@ -235,6 +235,21 @@ impl<'ast> Visit<'ast> for Collector<'_> {
         }
     }
 
+    fn visit_expr(&mut self, node: &'ast syn::Expr) {
+        // const 泛型实参 / 数组长度（`[T; N]` 的 N、`Foo<N>` 的 N）：
+        // 单段路径表达式是 const 形参引用位置（类型形参不能出现在表达式里）
+        if let syn::Expr::Path(ep) = node
+            && ep.qself.is_none()
+            && let Some(seg) = ep.path.segments.first()
+            && ep.path.segments.len() == 1
+            && matches!(&seg.arguments, syn::PathArguments::None)
+            && self.type_const_names.contains(&seg.ident.to_string())
+        {
+            self.refs.push(seg.ident.to_string());
+        }
+        visit::visit_expr(self, node);
+    }
+
     fn visit_trait_bound(&mut self, node: &'ast syn::TraitBound) {
         // `for<'a> Fn(&'a u8)`：binder 内的 'a 是局部名，不收集
         let pushed = self.push_hrtb(node.lifetimes.as_ref());

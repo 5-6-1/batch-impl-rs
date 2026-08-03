@@ -51,6 +51,7 @@ fn ui() {
 
     // where 谓词继承：改名 / 复合谓词引用未声明形参
     t.compile_fail("tests/ui/rename_where.rs");
+    t.compile_fail("tests/ui/where_const_ref.rs");
 
     // 组合展开数量超上限
     t.compile_fail("tests/ui/expand_limit.rs");
