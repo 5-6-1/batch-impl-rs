@@ -92,7 +92,8 @@ TRYBUILD=overwrite cargo test --test ui
 
 ## 发布流程
 
-1. CHANGELOG 按"用户 / 开发者"两节记录
+1. `CHANGELOG.md`（用户视角）与 `docs/dev-changelog.md`（开发者视角）各记
+   一条
 2. `cargo package` 验证打包（docs/ 目录随 git 跟踪自动入包）
 3. `cargo publish`
 4. `git tag vX.Y.Z && git push origin vX.Y.Z`

@@ -111,7 +111,8 @@ trait Tagged { fn name(&self) -> &str; }
   `batch_trait!`（对已声明 trait 批量生成，支持多段）
 - **示例**：`examples/quickstart.rs`（特性 demo）、`examples/simplify.rs`
   （29 个 impl ≈ 15 行 DSL 的真实场景）
-- **开发者**：内部架构与测试见 `docs/architecture.md`
+- **开发者**：内部架构见 `docs/architecture.md`，开发变更记录见
+  `docs/dev-changelog.md`
 
 ## 许可证
 
