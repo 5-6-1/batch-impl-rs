@@ -822,6 +822,50 @@ where
 {
 }
 
+// 元组谓词：`(A, B)` 的 A 和 B 都是形参引用（多类型相关）
+trait TupleT {
+    type Assoc;
+}
+trait TupleT2 {}
+impl TupleT for u8 {
+    type Assoc = u8;
+}
+impl TupleT2 for (u8, u8) {}
+
+#[batch_impl(TuplePred<> ())]
+trait TuplePred<A, B>
+where
+    A: TupleT,
+    (A, B): TupleT2,
+{
+}
+
+// fn 类型谓词：`fn(A) -> B` 的参数/返回类型都是引用位置
+#[batch_impl(FnType<> ())]
+trait FnType<A, B>
+where
+    fn(A) -> B: Sized,
+{
+}
+
+// 引用谓词：`&'a T` 的生命周期与类型都收集
+#[batch_impl(RefPred<> ())]
+trait RefPred<'a, T>
+where
+    T: 'a,
+    &'a T: Sized,
+{
+}
+
+// 列表分发 + 复合谓词：每个叶子独立做引用检查
+#[batch_impl(<T> ListPred2<T> [Vec<T>, <U> HashMap<T, U>])]
+trait ListPred2<T>
+where
+    T: IntoIterator,
+    T::Item: Clone,
+{
+}
+
 #[test]
 fn trait_where_clause_inherit() {
     let v: Vec<i32> = vec![42];
@@ -846,4 +890,17 @@ fn trait_where_clause_inherit() {
 
     fn check_d<T: Deep<S2, S2>>() {}
     check_d::<()>();
+
+    fn check_t<T: TuplePred<u8, u8>>() {}
+    check_t::<()>();
+
+    fn check_f<T: FnType<u8, u8>>() {}
+    check_f::<()>();
+
+    fn check_r<T: RefPred<'static, u8>>() {}
+    check_r::<()>();
+
+    fn check_lp<T: ListPred2<Vec<i32>>>() {}
+    check_lp::<Vec<Vec<i32>>>();
+    check_lp::<HashMap<Vec<i32>, i32>>();
 }
