@@ -68,9 +68,11 @@
   引用形参 `...`，请声明或手写 where"）
 - 测试：dsl 第 34 节（复合谓词 `T::Item: Clone` 的 `<T>`/`<>` 两种写法、
   `A::B` 撞名不误报、内联 + where 合并、生命周期谓词、const 数组谓词
-  `[T; N]: Sized`、深递归左侧 `Vec<(T, <U as HasB2>::B)>: Sized`）、
+  `[T; N]: Sized`、深递归左侧 `Vec<(T, <U as HasB2>::B)>: Sized`、
+  元组 `(A, B)` / fn 类型 / `&'a T` 引用 / 列表分发各叶子独立检查）、
   `tests/ui/rename_where.rs` / `tests/ui/where_const_ref.rs` 锁定三类
-  改名/引用报错
+  改名/引用报错；codegen 单测锁定 `WhereArr<>` const 泛型谓词展开
+  （防"测试过但展开含 compile_error"的 IDE 缓存类误报）
 - README「泛型自动化」更新（移除"第一版范围"注记）
 
 ## 0.5.6 (2026-08-03)

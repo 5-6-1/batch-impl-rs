@@ -51,7 +51,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.5.6"
+batch-impl = "0.5.7"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -603,21 +603,25 @@ batch_trait!(
 | `batch_trait!(A)`      | `batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs` |
 | `batch_trait!(A: B::)` | `batch_trait! 中期望标识符作为 trait 名称`             |
 | 裸 `where` 缺代码块     | `batch-impl: \`where\` 谓词后缺少代码块 {...}`          |
+| where 谓词引用未声明形参 | `batch-impl: 继承的 where 谓词 ... 引用形参 ...，请声明或手写 where` |
 
 ## 内部架构
 
 ```text
-lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait!）+ TraitBounds / A<> 展开
+lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait! / 测试宏）
+  ├── expand.rs             入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
   ├── batch_trait_entry.rs  共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
+  ├── trait_bounds.rs       TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
+  ├── empty_generics.rs     `A<>` 照抄展开（形参渲染用合并后的 bound）
   ├── path_prefix.rs        外部 trait 路径前缀：#Path::to::Trait: 状态机解析
   ├── diagnostic.rs         统一 compile_error_str(msg) 用于编译期诊断
   ├── scan.rs               扫描与游标：Cursor<'a> + scan_stop（尖括号已配对，仅剩 -> 守卫）
   ├── parse/                解析层
   │   ├── mod.rs            DSL 解析器：优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
   │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
-  │   └── generic.rs        泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 Delimiter::None 组）
+  │   └── generic.rs        泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 delimiter![<>]）
   ├── preprocess/           预处理层
-  │   ├── mod.rs            指令预处理：#name 指令展开（内置 + 开放扩展）
+  │   ├── mod.rs            delimiter! 分隔符拼写宏 + 指令预处理：#name 指令展开（内置 + 开放扩展）
   │   ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
   │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
@@ -628,7 +632,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── mod.rs            Apply trait + 核心 apply() 两阶段分发（右操作数"结构"优先）
   │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
   └── codegen/
-      └── mod.rs            代码生成：extract_impl_parts → hoist_type_params → generate_impl
+      └── mod.rs            代码生成：extract_impl_parts → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
 ```
 
 解析流程：**token 流 → 指令预处理（每条指令展开为恰好一个 `{...}` 组）→ where 裸写改写 → Cursor 扫描取切片 → parse_item 优先级攀爬（`^`/`-` 经 `Apply` 组合：右操作数结构优先分发）→ Ty AST → 工作清单摊平并列列表 → 逐叶子 generate_impl**
@@ -645,9 +649,9 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
 |-----------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/`     | `quickstart.rs`  | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                      |
 | `src/`          | `fuzz.rs`        | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                       |
-| `tests/`        | `dsl.rs`         | 33 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承）                     |
+| `tests/`        | `dsl.rs`         | 34 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承） |
 | `tests/`        | `regression.rs`  | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`        | `ui.rs`          | `trybuild` UI 测试：22 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                      |
+| `tests/`        | `ui.rs`          | `trybuild` UI 测试：23 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
 
 运行：
 
