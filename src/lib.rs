@@ -31,7 +31,7 @@ use batch_trait_entry::parse_batch_trait_entry;
 
 use diagnostic::compile_error_str;
 use preprocess_helpers::{build_from_item, get_trait_item, parse_names_from_tokens};
-use scan::Cursor;
+use scan::{Cursor, is_arrow};
 use types::{Op, reset_fresh_counter};
 use where_process::where_process;
 
@@ -153,9 +153,13 @@ fn expand_attr_macro(
     // 裸 `where 谓词 {body}` 新语法 → 统一改写为旧式 `where{谓词}`
     // （指令预处理之后、DSL 解析之前；三个接口共用）
     let expanded = where_process(&mut Cursor::new(&expanded))?;
-    cursor = Cursor::new(&expanded);
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = extract_trait_bounds(&trait_item);
+    // `A<>`：trait 泛型照抄（实参与 bound 全部来自 trait 定义）。
+    // 在指令预处理与 where 改写之后、DSL 解析之前展开为
+    // `<'a, T: bounds, const N> A<'a, T, N>`——展开产物与手写完全等价。
+    let expanded = expand_empty_trait_generics(&expanded, &trait_item)?;
+    cursor = Cursor::new(&expanded);
     let start_trait = if include_trait { trait_item.into() } else { None };
     let impls = parse_batch_trait_entry(
         &mut cursor,
@@ -169,54 +173,179 @@ fn expand_attr_macro(
     Ok(impls.into())
 }
 
-/// trait 泛型参数的内联 bound，供 codegen 对**未写 bound 的 impl 泛型参数**按名继承。
+/// trait 形参：名字 + 内联 bound + bound 引用的形参名（token 级保守检测）。
+#[derive(Default)]
+pub(crate) struct TraitParam {
+    pub(crate) name: String,
+    pub(crate) bound: Option<TokenStream>,
+    pub(crate) refs: Vec<String>,
+}
+
+/// trait 泛型形参列表（按位置对应 spec 中的 trait 实参），供 codegen 对
+/// **未写 bound 的 impl 泛型参数**按位置 + 同名继承。
 ///
-/// 拆为两类（`trait Foo<T: Clone + 'a>`）：
-/// - `types`：trait bound（`Clone`），按名直接继承；
-/// - `lifetimes`：生命周期 bound（`'a`），**仅当 impl 声明了同名生命周期时才继承**
-///   ——改名场景（`<'b, T>` vs trait `<'a, T: 'a>`）继承会引用未声明的 `'a`（E0261），
-///   退化为不继承，由 rustc 报 `T: 'b` 不满足引导用户手写；`'static` 全局可用，照常继承。
+/// 自动化只认同名（`A<>` 照抄 / `<T> A<T>` 同名继承）：
+/// - impl 参数按"名字在 trait 实参中的位置"对应形参；形参有 bound 且同名 → 继承；
+/// - 异名 → `compile_error!`（请改名或手写 bound）；
+/// - 继承的 bound 引用其他形参名（`T: 'a` 的 `'a`、`U: Vec<T>` 的 `T`）而 impl
+///   未声明同名 → `compile_error!`（请声明同名或手写）。
 ///
-/// 继承规则：写了 bound = 用户负责，宏不干预（sub trait 蕴含（`trait B: A` 使
-/// `T: B` 隐含 `T: A`）宏无法推理）。生命周期/const 参数自身无继承；
-/// trait 级 where 子句不继承（第一版范围）。
+/// 写 bound = 用户负责，宏不干预（sub trait 蕴含（`trait B: A` 使 `T: B`
+/// 隐含 `T: A`）宏无法推理）。trait 级 where 子句不继承（第一版范围）。
 #[derive(Default)]
 pub(crate) struct TraitBounds {
-    pub(crate) types: std::collections::HashMap<String, TokenStream>,
-    pub(crate) lifetimes: std::collections::HashMap<String, Vec<TokenStream>>,
+    pub(crate) params: Vec<TraitParam>,
 }
 
 fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
-    let mut types = std::collections::HashMap::new();
-    let mut lifetimes = std::collections::HashMap::new();
-    for param in &trait_item.generics.params {
-        let syn::GenericParam::Type(tp) = param else {
-            continue;
-        };
-        // trait bound（过滤掉生命周期 bound；quote 插值只支持 `#ident`，
-        // 不支持字段访问 `#tp.bounds`，Punctuated 经 ToTokens 渲染为 `A + B`）
-        let trait_part: Vec<_> = tp
-            .bounds
-            .iter()
-            .filter(|b| !matches!(b, syn::TypeParamBound::Lifetime(_)))
-            .collect();
-        if !trait_part.is_empty() {
-            types.insert(tp.ident.to_string(), quote!(#(#trait_part)+*));
-        }
-        // 生命周期 bound：记录引用的生命周期 token（`'a`）
-        let lt_part: Vec<TokenStream> = tp
-            .bounds
-            .iter()
-            .filter_map(|b| match b {
-                syn::TypeParamBound::Lifetime(ld) => Some(quote!(#ld)),
-                _ => None,
-            })
-            .collect();
-        if !lt_part.is_empty() {
-            lifetimes.insert(tp.ident.to_string(), lt_part);
+    // 形参名集合（类型 + const 为 Ident，生命周期带 `'` 前缀）
+    let type_const_names: Vec<String> = trait_item
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            syn::GenericParam::Type(tp) => Some(tp.ident.to_string()),
+            syn::GenericParam::Const(cp) => Some(cp.ident.to_string()),
+            _ => None,
+        })
+        .collect();
+    let lt_names: Vec<String> = trait_item
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            syn::GenericParam::Lifetime(ld) => {
+                Some(format!("'{}", ld.lifetime.ident))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut params = vec![];
+    for p in &trait_item.generics.params {
+        match p {
+            syn::GenericParam::Type(tp) => {
+                let bound = if tp.bounds.is_empty() {
+                    None
+                } else {
+                    // 注意：quote 插值只支持 `#ident`，不支持字段访问
+                    // `#tp.bounds`（会把 `.bounds` 当字面量输出）
+                    let b = &tp.bounds;
+                    Some(quote!(#b))
+                };
+                let refs = bound
+                    .as_ref()
+                    .map(|b| bound_refs(b, &type_const_names, &lt_names))
+                    .unwrap_or_default();
+                params.push(TraitParam { name: tp.ident.to_string(), bound, refs });
+            }
+            syn::GenericParam::Lifetime(ld) => params.push(TraitParam {
+                name: format!("'{}", ld.lifetime.ident),
+                bound: None,
+                refs: vec![],
+            }),
+            syn::GenericParam::Const(cp) => params.push(TraitParam {
+                name: cp.ident.to_string(),
+                bound: None,
+                refs: vec![],
+            }),
         }
     }
-    TraitBounds { types, lifetimes }
+    TraitBounds { params }
+}
+
+/// 保守的 bound 形参引用检测：收集 bound token 中出现的形参名。
+/// 宁可误报（HRTB 局部名与形参撞名等）——误报只导致"拒绝自动继承、引导手写"，
+/// 绝不生成引用错误名字的代码。
+fn bound_refs(
+    bound: &TokenStream, type_const_names: &[String], lt_names: &[String],
+) -> Vec<String> {
+    let mut refs = vec![];
+    let mut iter = bound.clone().into_iter().peekable();
+    while let Some(tt) = iter.next() {
+        match tt {
+            TokenTree::Ident(id) if type_const_names.contains(&id.to_string()) => {
+                refs.push(id.to_string())
+            }
+            TokenTree::Punct(p) if p.as_char() == '\'' => {
+                if let Some(TokenTree::Ident(id)) = iter.peek() {
+                    let name = format!("'{}", id);
+                    if lt_names.contains(&name) {
+                        refs.push(name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    refs
+}
+
+/// `A<>` 预处理：扫描 token 流中深度 0 的 `Ident < >`（空 trait 实参），
+/// 展开为 `<'a, T: bounds, const N> Ident<'a, T, N>`（impl 泛型段 + 实参段）。
+///
+/// - 只处理深度 0 的 `Ident<>`（`B<A<>>` 嵌套不展开）；
+/// - trait 无泛型参数时透传（`A<>` 由 DSL 解析为空实参，渲染 `A`）；
+/// - `->` 箭头的 `>` 不计深度（复用 scan 的箭头守卫）；
+/// - 仅 `#[batch_impl]` / `#[batch_impl_only]` 可用（需要 trait 定义渲染形参）；
+///   `batch_trait!` 无 trait 定义，`A<>` 原样透传。
+fn expand_empty_trait_generics(
+    tokens: &[TokenTree], trait_def: &ItemTrait,
+) -> Result<Vec<TokenTree>, TokenStream> {
+    if trait_def.generics.params.is_empty() {
+        return Ok(tokens.to_vec());
+    }
+    // 预渲染展开段：impl 泛型（含尖括号）+ 实参名列表
+    let generics = &trait_def.generics;
+    let impl_gen = quote!(#generics);
+    let mut arg_names: Vec<TokenStream> = vec![];
+    for p in &trait_def.generics.params {
+        match p {
+            syn::GenericParam::Lifetime(ld) => arg_names.push(quote!(#ld)),
+            syn::GenericParam::Type(tp) => {
+                let id = &tp.ident;
+                arg_names.push(quote!(#id));
+            }
+            syn::GenericParam::Const(cp) => {
+                let id = &cp.ident;
+                arg_names.push(quote!(#id));
+            }
+        }
+    }
+    let mut out = vec![];
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
+            TokenTree::Punct(p) if p.as_char() == '<' => {
+                depth += 1;
+                out.push(tokens[i].clone());
+                i += 1;
+            }
+            TokenTree::Punct(p) if p.as_char() == '>' => {
+                if !is_arrow(tokens, i) {
+                    depth = depth.saturating_sub(1);
+                }
+                out.push(tokens[i].clone());
+                i += 1;
+            }
+            TokenTree::Ident(id)
+                if depth == 0
+                    && matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '<')
+                    && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '>') =>
+            {
+                // `A<>` → `<'a, T: bounds, const N> A<'a, T, N>`
+                let name = quote!(#id);
+                out.extend(impl_gen.clone());
+                out.extend(quote!(#name < #(#arg_names),* >));
+                i += 3;
+            }
+            _ => {
+                out.push(tokens[i].clone());
+                i += 1;
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// 对已声明的 trait 批量生成 `impl` 块的函数式宏。

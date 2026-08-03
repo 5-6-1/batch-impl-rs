@@ -45,6 +45,10 @@ fn ui() {
     t.compile_fail("tests/ui/minus_bad_target.rs");
     t.compile_fail("tests/ui/minus_empty.rs");
 
+    // 泛型自动继承只认同名：改名 / bound 引用未声明形参
+    t.compile_fail("tests/ui/rename_bound.rs");
+    t.compile_fail("tests/ui/rename_ref.rs");
+
     // 组合展开数量超上限
     t.compile_fail("tests/ui/expand_limit.rs");
 

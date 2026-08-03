@@ -2,20 +2,25 @@
 
 ## 0.5.5 (2026-08-03)
 
-### 修复：生命周期 bound 继承在改名场景引用未声明生命周期（E0261）
+### `A<>`：trait 泛型照抄 + 泛型自动化只认同名
 
-`trait Lifetime<'a, T: 'a>` + `#[batch_impl(<'b, T> Lifetime<'b, T> ())]` 此前把
-trait 的 `T: 'a` 原样继承进 impl，生成 `impl<'b, T: 'a>` 引用未声明的 `'a`
-（E0261，错误指向 trait 定义、无从修复）。现改为**生命周期 bound 按名匹配**：
-
-- `T: 'a` 仅当 impl 声明了同名生命周期 `'a` 时才继承（同名场景行为不变）
-- `T: 'static` 全局可用，照常继承
-- 改名场景退化为不继承：rustc 报 `T: 'b` 不满足（E0309）并直接建议
-  `<'b, T: 'b>`——可读、可修复
-- 实现：`TraitBounds` 拆为 `types`（trait bound 按名继承）与 `lifetimes`
-  （生命周期 bound 按名匹配 impl 声明的生命周期）；修复 `String` 插值陷阱
-  （quote 插值 String 会渲染为字符串字面量 `"'static"`，改存 TokenStream）
-- 测试：dsl 第 32 节新增改名手写 / `'static` / 混合 `Clone + 'a` 用例
+- **`A<>` 空实参**：实参与 bound 全部来自 trait 定义——`trait Foo<T: Clone>` +
+  `#[batch_impl(Foo<> ())]` 预处理展开为 `<'T: Clone> Foo<T> ()`（与手写等价），
+  一行都不用写泛型。仅 `#[batch_impl]` / `#[batch_impl_only]` 可用
+  （需要 trait 定义）；`batch_trait!` 无 trait 定义，`A<>` 原样透传
+- **继承规则收敛为"按位置 + 同名"**：impl 参数按"在 trait 实参中的位置"对应
+  trait 形参，同名且未写 bound → 继承内联 bound；**异名** → `compile_error!`
+  （请改名或手写 bound）；**继承的 bound 引用形参名**（`T: 'a` 的 `'a`、
+  `U: Vec<T>` 的 `T`）而 impl 未声明同名 → `compile_error!`——绝不生成引用
+  未声明名字的代码，改名问题从"同名自动/异名静默"的不一致收敛为"只认同名，
+  异名明确报错"
+- 取代初版 0.5.5 的"生命周期按名匹配 + 退化为不继承"：改名场景从静默退化
+  升级为明确报错；`'static` 无需特判（非形参名天然不触发引用检查）
+- 实现：`TraitBounds` 重写为位置结构（`TraitParam`: name / bound / refs）；
+  `bound_refs` 保守 token 级引用检测（宁可误报拒绝自动继承，绝不生成错代码）；
+  `expand_empty_trait_generics` 预处理扫描（深度 0 的 `Ident<>`，`->` 箭头守卫）
+- 测试：dsl 第 33 节（`A<>` 类型/生命周期/目标类型用形参名）、
+  `tests/ui/rename_bound.rs`、`tests/ui/rename_ref.rs` 锁定两种报错
 
 ## 0.5.4 (2026-08-03)
 

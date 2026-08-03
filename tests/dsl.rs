@@ -605,9 +605,9 @@ fn strictness_legal_forms() {
 }
 
 // ============================================================
-// 32. trait 泛型 bound 自动继承：未写 bound 的 impl 泛型参数按名继承
+// 32. trait 泛型 bound 自动继承：未写 bound 的 impl 泛型参数按位置 + 同名继承
 //     （写了 = 用户负责，宏不干预——sub trait 蕴含（`trait B: A` 使 `T: B`
-//     隐含 `T: A`）宏无法推理，交由 rustc 验证）
+//     隐含 `T: A`）宏无法推理，交由 rustc 验证；异名明确报错，绝不静默）
 // ============================================================
 #[batch_impl(<T> Cloned<T> Vec<T> {
     fn get(&self) -> T {
@@ -663,4 +663,29 @@ fn trait_bound_inherit() {
 
     fn check4<T: Mix<'static, ()>>() {}
     check4::<()>();
+}
+
+// ============================================================
+// 33. `A<>`：trait 泛型照抄——实参与 bound 全部来自 trait 定义，
+//     展开为 `<'a, T: bounds, const N> A<'a, T, N>`（与手写等价）
+// ============================================================
+#[batch_impl(EmptyGenA<> ())]
+trait EmptyGenA<T: Clone> {}
+
+#[batch_impl(EmptyGenB<> ())]
+trait EmptyGenB<'a, T: 'a> {}
+
+#[batch_impl(EmptyGenC<> Vec<T>)]
+trait EmptyGenC<T> {}
+
+#[test]
+fn empty_trait_generics() {
+    fn check_a<T: EmptyGenA<i32>>() {}
+    check_a::<()>();
+
+    fn check_b<T: EmptyGenB<'static, ()>>() {}
+    check_b::<()>();
+
+    fn check_c<T: EmptyGenC<i32>>() {}
+    check_c::<Vec<i32>>();
 }

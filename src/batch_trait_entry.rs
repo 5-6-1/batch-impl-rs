@@ -16,7 +16,7 @@ use crate::types::{Expand, Op};
 /// - `Op::Semi` 用于 `batch_trait!` 的单段 specs（按 `,` 分隔，遇到 `;` 段落边界停止）
 ///
 /// `trait_bounds`：trait 泛型参数的内联 bound 映射（参数名 → bound token），
-/// 供 `generate_impl` 对未写 bound 的 impl 泛型参数按名继承；`batch_trait!`
+/// 供 `generate_impl` 对未写 bound 的 impl 泛型参数按位置 + 同名继承；`batch_trait!`
 /// 无 trait 定义传空映射。
 ///
 /// 展开阶段用工作清单（栈，倒序入栈以保持输出顺序）把并列列表 `Ty::Array`

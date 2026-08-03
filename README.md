@@ -87,11 +87,22 @@ trait Tagged { fn name(&self) -> &str; }
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-> **泛型 bound 自动继承**：spec 中未写 bound 的 impl 泛型参数会按名继承 trait
-> 定义里同名参数的内联 bound——`trait Foo<T: Clone>` + `#[batch_impl(<T> Foo<T> Vec<T>)]`
-> 直接生成 `impl<T: Clone> Foo<T> for Vec<T>`，无需手写。**已写 bound 的参数宏不干预**
-> （`T: B` 是否蕴含 `T: Clone` 由 rustc 验证，如 `trait B: A` 的父 trait 关系）。
-> `batch_trait!` 无 trait 定义，不继承；trait 级 where 子句不继承。
+> **泛型自动化只认同名**（trait 定义是唯一真相源）：
+>
+> - **`A<>` — trait 泛型照抄**：空实参列表表示"实参与 bound 全部来自 trait 定义"。
+>   `trait Foo<T: Clone>` + `#[batch_impl(Foo<> ())]` 展开为
+>   `impl<T: Clone> Foo<T> for ()`，一行都不用写泛型。仅 `#[batch_impl]` /
+>   `#[batch_impl_only]` 可用（需要 trait 定义）；`batch_trait!` 无 trait 定义，
+>   `A<>` 原样透传。
+> - **未写 bound 的同名继承**：`<T> Foo<T> Vec<T>` + `trait Foo<T: Clone>` 生成
+>   `impl<T: Clone> Foo<T> for Vec<T>`——impl 参数按"在 trait 实参中的位置"对应
+>   trait 形参，同名且未写 bound 时继承其内联 bound。
+> - **改名 = 明确报错，绝不静默**：实参 `X` 对应形参 `T`（有 bound）但名字不同、
+>   或继承的 bound 引用 `'a`/`U` 等形参名而 impl 未声明同名——均报
+>   `compile_error!` 引导（请改名或手写 bound）。想用其他名字就手写 `<X: ...>`。
+>
+> 已写 bound 的参数宏不干预（`T: B` 是否蕴含 `T: Clone` 由 rustc 验证，
+> 如 `trait B: A` 的父 trait 关系）。trait 级 where 子句不继承（第一版范围）。
 
 ### 运算符
 
@@ -617,9 +628,9 @@ lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only
 |-----------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/`     | `quickstart.rs`  | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                      |
 | `src/`          | `fuzz.rs`        | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                       |
-| `tests/`        | `dsl.rs`         | 32 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、bound 继承）                     |
+| `tests/`        | `dsl.rs`         | 33 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承）                     |
 | `tests/`        | `regression.rs`  | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`        | `ui.rs`          | `trybuild` UI 测试：20 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                      |
+| `tests/`        | `ui.rs`          | `trybuild` UI 测试：22 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                      |
 
 运行：
 

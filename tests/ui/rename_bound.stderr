@@ -1,0 +1,7 @@
+error: batch-impl: trait 实参 `X` 对应形参 `T`（bound `Clone`），自动继承要求同名；请改名为 `T` 或手写 bound
+ --> tests/ui/rename_bound.rs:4:1
+  |
+4 | #[batch_impl(<X> A<X> ())]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

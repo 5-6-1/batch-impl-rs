@@ -10,6 +10,7 @@
 //! 与"外层先写"的书写顺序一致。
 
 use crate::TraitBounds;
+use crate::diagnostic::compile_error_str;
 use crate::types::*;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -176,10 +177,10 @@ fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
 
 /// 生成一个 impl 块（对摊平后的单个叶子 `Ty`）。
 ///
-/// `trait_bounds`：trait 泛型参数的内联 bound 映射（参数名 → bound token）。
-/// 对**未写 bound** 的 impl 泛型参数按名继承（`trait Foo<T: Clone>` + `<T> Foo<T>`
-/// → `impl<T: Clone>`）；用户已写 bound 的参数不干预（sub trait 蕴含宏无法推理，
-/// 写了 = 用户负责）。
+/// `trait_bounds`：trait 泛型形参列表（按位置对应 spec 中的 trait 实参）。
+/// 对**未写 bound** 的 impl 泛型参数按位置 + 同名继承（`trait Foo<T: Clone>` +
+/// `<T> Foo<T>` → `impl<T: Clone>`）；异名 / bound 引用未声明形参名 → 报错，
+/// 用户已写 bound 的参数不干预（sub trait 蕴含宏无法推理，写了 = 用户负责）。
 ///
 /// 三个出口：
 /// - `Ty::Error` → 直接输出 `compile_error!` 流；
@@ -207,42 +208,52 @@ pub(crate) fn generate_impl(
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
 
-    // 继承 trait 泛型 bound：仅对 DSL 未写 bound 的参数（fresh 泛型名不匹配，天然跳过）。
-    // trait bound 直接继承；生命周期 bound（`T: 'a`）需 impl 声明了同名生命周期
-    // （或为 `'static`）才继承——改名场景继承会引用未声明的生命周期（E0261），
-    // 退化为不继承，由 rustc 报 `T: 'b` 不满足引导用户手写。
-    let impl_lts: std::collections::HashSet<String> = parts
-        .impl_generics
-        .iter()
-        .filter_map(|(name, _)| {
-            name.to_string().strip_prefix('\'').map(str::to_string)
-        })
-        .collect();
+    // 继承 trait 泛型 bound：仅对 DSL 未写 bound 的参数（fresh 泛型名不匹配实参，天然跳过）。
+    // 自动化只认同名（`A<>` 照抄 / `<T> A<T>` 同名继承），按位置对应：
+    // impl 参数名 → 在 trait 实参中的位置 → 该位置的形参 bound。
+    // - 异名（实参 `X` 对应形参 `T`）→ compile_error! 引导改名或手写；
+    // - 继承的 bound 引用其他形参名（`T: 'a` 的 `'a`）而 impl 未声明同名 → 报错，
+    //   绝不生成引用未声明名字的代码。
+    let mut errs: Vec<TokenStream> = vec![];
+    let trait_args: Vec<String> =
+        parts.trait_generic_names.iter().map(|n| n.to_string()).collect();
+    let impl_names: std::collections::HashSet<String> =
+        parts.impl_generics.iter().map(|(n, _)| n.to_string()).collect();
     for (name, bound) in &mut parts.impl_generics {
         if bound.is_some() {
             continue;
         }
         let key = name.to_string();
-        let mut parts_vec = vec![];
-        if let Some(b) = trait_bounds.types.get(&key) {
-            parts_vec.push(b.clone());
+        // 该参数作为 trait 实参出现的位置（未出现 = 与 trait 无关，不继承）
+        let Some(pos) = trait_args.iter().position(|a| a == &key) else {
+            continue;
+        };
+        let Some(tp) = trait_bounds.params.get(pos) else {
+            continue;
+        };
+        let Some(b) = &tp.bound else {
+            continue;
+        };
+        if tp.name != key {
+            errs.push(compile_error_str(&format!(
+                "batch-impl: trait 实参 `{}` 对应形参 `{}`（bound `{}`），\
+                 自动继承要求同名；请改名为 `{}` 或手写 bound",
+                key, tp.name, b, tp.name
+            )));
+            continue;
         }
-        if let Some(lts) = trait_bounds.lifetimes.get(&key) {
-            let usable: Vec<TokenStream> = lts
-                .iter()
-                .filter(|lt| {
-                    let s = lt.to_string();
-                    s == "'static" || impl_lts.contains(s.trim_start_matches('\''))
-                })
-                .cloned()
-                .collect();
-            if !usable.is_empty() {
-                parts_vec.push(quote!(#(#usable)+*));
-            }
+        if let Some(r) = tp.refs.iter().find(|r| !impl_names.contains(*r)) {
+            errs.push(compile_error_str(&format!(
+                "batch-impl: 继承的 bound `{}` 引用形参 `{}`，impl 未声明同名参数；\
+                 请声明 `{}` 或手写 bound",
+                b, r, r
+            )));
+            continue;
         }
-        if !parts_vec.is_empty() {
-            *bound = Some(Ty::Primitive(TyPrimitive(quote!(#(#parts_vec)+*))));
-        }
+        *bound = Some(Ty::Primitive(TyPrimitive(b.clone())));
+    }
+    if !errs.is_empty() {
+        return errs.into_iter().collect();
     }
 
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
