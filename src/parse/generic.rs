@@ -5,9 +5,9 @@
 use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 use quote::quote;
 
+use crate::ast::*;
 use crate::parse::parse_item;
 use crate::scan::{Cursor, is_single_colon, scan_stop};
-use crate::types::*;
 
 // ============================================================
 // 尖括号与泛型参数

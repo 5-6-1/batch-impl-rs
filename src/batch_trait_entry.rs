@@ -4,10 +4,10 @@ use syn::ItemTrait;
 
 use crate::TraitBounds;
 use crate::apply::err_ty;
+use crate::ast::{Expand, Op};
 use crate::codegen::generate_impl;
 use crate::parse::parse_item;
 use crate::scan::Cursor;
-use crate::types::{Expand, Op};
 
 /// 共享驱动：从游标解析 impl-specs，展开并列列表，生成 impl 块。
 ///

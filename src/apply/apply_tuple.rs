@@ -1,8 +1,8 @@
 use quote::ToTokens;
 
 use crate::apply::{Apply, check_expand_limit, err_ty};
+use crate::ast::*;
 use crate::parse::parse_primitive;
-use crate::types::*;
 
 /// `N..M` / `N..=M`：对范围内的每个长度 n 调用 f，结果打包为并列列表。
 /// 空范围（`start >= end`）或超上限（长度 > [`MAX_EXPAND`]）视为笔误给诊断。

@@ -10,13 +10,13 @@ use proptest::prelude::*;
 use quote::quote;
 use std::str::FromStr;
 
-use crate::angle::angle_collect;
+use crate::ast::{Op, reset_fresh_counter};
 use crate::batch_trait_entry::parse_batch_trait_entry;
 use crate::parse::parse_item;
+use crate::preprocess::angle_collect;
 use crate::preprocess::expand_tokens;
+use crate::preprocess::where_process;
 use crate::scan::Cursor;
-use crate::types::{Op, reset_fresh_counter};
-use crate::where_process::where_process;
 
 /// 可递归生成的 token 描述（Groups 里嵌套 Vec<Tok>，深度受限）
 #[derive(Clone, Debug)]

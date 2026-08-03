@@ -1,4 +1,4 @@
-//! 代码生成。
+//! 生成层：impl 块代码生成。
 //!
 //! 把展开摊平后的叶子 [`Ty`]（见 `lib::parse_batch_trait_entry`）
 //! 递归拆解为 [`ImplParts`]（impl 泛型、trait 泛型、关联类型绑定、
@@ -10,8 +10,8 @@
 //! 与"外层先写"的书写顺序一致。
 
 use crate::TraitBounds;
+use crate::ast::*;
 use crate::diagnostic::compile_error_str;
-use crate::types::*;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 

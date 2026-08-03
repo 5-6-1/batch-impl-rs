@@ -1,8 +1,8 @@
 use crate::apply::err_ty;
-use crate::generic::empty;
+use crate::ast::*;
+use crate::parse::generic::empty;
 use crate::parse::{parse_item, parse_primitive};
 use crate::scan::{Cursor, contains_punct};
-use crate::types::*;
 use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
 
 /// `#[...]` 属性解析

@@ -11,30 +11,23 @@ use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
 use syn::{ItemTrait, parse_macro_input};
 
-mod angle;
 mod apply;
-mod apply_tuple;
+mod ast;
 mod batch_trait_entry;
 mod codegen;
 mod diagnostic;
-mod generic;
 mod parse;
-mod parse_atom;
 mod path_prefix;
 mod preprocess;
-mod preprocess_helpers;
 mod scan;
-mod types;
-mod types_render;
-mod where_process;
 
 use batch_trait_entry::parse_batch_trait_entry;
 
+use ast::{Op, reset_fresh_counter};
 use diagnostic::compile_error_str;
-use preprocess_helpers::{build_from_item, get_trait_item, parse_names_from_tokens};
+use preprocess::where_process;
+use preprocess::{build_from_item, get_trait_item, parse_names_from_tokens};
 use scan::{Cursor, scan_stop};
-use types::{Op, reset_fresh_counter};
-use where_process::where_process;
 
 /// 为 trait 批量生成 `impl` 块的属性宏。
 ///
@@ -112,7 +105,7 @@ fn expand_attr_macro(
     let attr_vec = TokenStream::from(attr).into_iter().collect::<Vec<_>>();
     // 入口转换：真实 None 组扁平化（宏变量展开产物，内容即 DSL token）
     // + 扁平 `<...>` 配对为尖括号组（`->` 箭头不参与）——下游解析不再管 `<>` 深度
-    let attr_vec = angle::angle_collect(&attr_vec)?;
+    let attr_vec = preprocess::angle_collect(&attr_vec)?;
 
     // `#[batch_impl_only]` 专属：attr 起首若是 `# Path: ` 形式
     // （`#` + `Ident (:: Ident)*` + `:`），则把该路径作为外部 trait 路径，
@@ -175,7 +168,7 @@ fn expand_attr_macro(
         &trait_bounds,
     );
     // 出口转换：尖括号组还原为 `<...>` 扁平 token（rustc 只见扁平）
-    Ok(angle::render_angles(impls).into())
+    Ok(preprocess::render_angles(impls).into())
 }
 
 /// trait 形参：名字 + 内联 bound + bound 引用的形参名（token 级保守检测）。
@@ -427,7 +420,7 @@ fn expand_batch_trait(
 ) -> Result<proc_macro::TokenStream, TokenStream> {
     reset_fresh_counter();
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
-    let tokens = angle::angle_collect(&tokens)?;
+    let tokens = preprocess::angle_collect(&tokens)?;
     let tokens = where_process(&mut Cursor::new(&tokens))?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
@@ -508,7 +501,7 @@ fn expand_batch_trait(
         );
         result.extend(impl_code);
     }
-    Ok(angle::render_angles(result).into())
+    Ok(preprocess::render_angles(result).into())
 }
 
 /// 测试用开放扩展宏（函数式）：`name!{(方法名列表){body} trait T {...}}`。
@@ -529,7 +522,7 @@ pub fn batch_preprocess_test(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
-    let tokens = match angle::angle_collect(&tokens) {
+    let tokens = match preprocess::angle_collect(&tokens) {
         Ok(v) => v,
         Err(e) => return e.into(),
     };
@@ -584,7 +577,7 @@ pub fn batch_preprocess_test(
         };
         methods.extend(build_from_item(item, &body));
     }
-    angle::render_angles(methods).into()
+    preprocess::render_angles(methods).into()
 }
 
 #[cfg(test)]
@@ -597,8 +590,8 @@ mod angle_tests {
     fn roundtrip(s: &str) -> String {
         let ts: TS2 = FromStr::from_str(s).unwrap();
         let v: Vec<_> = ts.into_iter().collect();
-        let collected = angle::angle_collect(&v).unwrap();
-        angle::render_angles(collected.into_iter().collect()).to_string()
+        let collected = preprocess::angle_collect(&v).unwrap();
+        preprocess::render_angles(collected.into_iter().collect()).to_string()
     }
 
     #[test]
@@ -619,12 +612,18 @@ mod angle_tests {
     fn angle_unmatched_errors() {
         // 孤立的 < / > 是非法输入：报 compile_error!（不再透传）
         let ts: TS2 = FromStr::from_str("A <").unwrap();
-        assert!(angle::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
+        assert!(
+            preprocess::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err()
+        );
         let ts: TS2 = FromStr::from_str("A >").unwrap();
-        assert!(angle::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
+        assert!(
+            preprocess::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err()
+        );
         // `ident![...]` 宏体不进入：内部比较 < 不报错
         let ts: TS2 = FromStr::from_str("m![a < b]").unwrap();
-        assert!(angle::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
+        assert!(
+            preprocess::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok()
+        );
     }
 
     #[test]
@@ -632,8 +631,8 @@ mod angle_tests {
         // 真实 None 组（宏变量展开产物）：扁平化后内容里的 <...> 照常配对
         let inner: TS2 = FromStr::from_str("Vec<T>").unwrap();
         let none = proc_macro2::Group::new(proc_macro2::Delimiter::None, inner);
-        let collected = angle::angle_collect(&[none.into()]).unwrap();
-        let rendered = angle::render_angles(collected.into_iter().collect());
+        let collected = preprocess::angle_collect(&[none.into()]).unwrap();
+        let rendered = preprocess::render_angles(collected.into_iter().collect());
         assert_eq!(rendered.to_string(), "Vec < T >");
     }
 }

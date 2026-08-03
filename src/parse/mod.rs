@@ -1,24 +1,20 @@
-//! DSL 解析器。
-//!
-//! 接受 `Cursor`（`&[TokenTree]` 借用切片游标），按四级优先级攀爬
-//! `Op::Semi` < `Op::Comma` < `Op::Dash` < `Op::Caret` < `Op::Prim`
-//! 解析为 `Ty` AST。
-//!
-//! 依赖 [`crate::scan`] 模块提供游标与扫描原语，
-//! 依赖 [`crate::generic`] 模块提供泛型与尖括号解析。
+//! 解析层：DSL 优先级攀爬解析器与尖括号泛型解析。
+
+mod generic;
+mod parse_atom;
 
 use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 
 use crate::apply::{Apply, err_ty};
-use crate::generic::{
+use crate::ast::*;
+use crate::parse::generic::{
     is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params,
     primitive,
 };
-use crate::parse_atom::{
+use crate::parse::parse_atom::{
     parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
 };
 use crate::scan::Cursor;
-use crate::types::*;
 
 // ============================================================
 // 运算符层级解析

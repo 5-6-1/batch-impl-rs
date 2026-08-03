@@ -1,27 +1,18 @@
-//! 指令预处理。
-//!
-//! `#[batch_impl]` 在 DSL 解析前通过 [`expand_tokens`] 扫描 `#` 指令，
-//! 从 trait 定义自动读取 fn / const / type item 的签名，
-//! 生成等价 `{ ... }` 代码块替换到原 token 流中。内置指令
-//! `#name{body}` / `#fill(args){body}` / `#delegate(args){target}`
-//! 在本模块处理；不认识的 `#name(args){body}` 是**开放扩展**——展开为
-//! `{ name!{(args){body} trait_def} }`：一个函数式宏调用（位于 impl body
-//! 或顶层），由用户的同名宏解析 args / body / trait 并生成 fn 定义，
-//! 等价于把 `#fill` / `#delegate` 的实现权交给用户。
-//!
-//! 所有指令产物都恰好是一个 `{...}` 组 token，对 DSL 扫描器不透明。
-//!
-//! v0.4.2：诊断改为统一通过 [`crate::diagnostic::compile_error_str`]
-//! 构造；`expand_tokens` 内 `unwrap` 全部消除，预处理层零 panic 点。
+//! 预处理层：指令展开、裸 where 改写、尖括号组配对。
+
+pub(crate) mod angle;
+pub(crate) mod preprocess_helpers;
+pub(crate) mod where_process;
+
+pub(crate) use angle::*;
+pub(crate) use preprocess_helpers::*;
+pub(crate) use where_process::*;
 
 use proc_macro2::{Delimiter, Group, Ident, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
 use crate::diagnostic::compile_error_str;
-use crate::preprocess_helpers::{
-    build_from_item, collect_call_args, get_trait_item, parse_names_from_tokens,
-};
 use crate::scan::Cursor;
 
 // ============================================================
