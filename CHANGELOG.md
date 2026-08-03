@@ -46,6 +46,22 @@
 - **CI**：MSRV job 补 doctest
 - 行为零变化（全量测试通过）
 
+### trait 级 where 子句继承（E.2）
+
+`trait Foo<T> where T: Clone` 的**单一形参谓词**（`X: Bound`，X 为 trait 形参名）
+合并进对应位置的 bound（内联 + where 拼接），与内联 bound 走同一条继承链路：
+
+- `<T> Foo<T>` → `impl<T: Clone>`（同名继承 / 改名报错 / 引用检查全部复用）
+- `A<>` 照抄同样带上 where bound（`trait WhereGen<T: Clone> where T: Ord` →
+  `impl<T: Clone + Ord> WhereGen<T>`）
+- 复合谓词（`Vec<T>: Clone`、`Self: ...`）保守跳过，请手写
+- 实现：`extract_trait_bounds` 解析 where_clause 谓词
+  （`single_ident_param` 判定单一形参形态）；`A<>` 形参渲染改用
+  `TraitBounds` 合并 bound（生命周期 / const 原样照抄）
+- 测试：dsl 第 34 节（where 继承 / 内联 + where 合并 / 生命周期谓词 /
+  `A<>` 带 where）；改名 / 引用未声明报错路径与内联同消息（实测验证）
+- README「泛型自动化」更新（移除"第一版范围"注记）
+
 ## 0.5.6 (2026-08-03)
 
 ### src 按层分目录

@@ -10,6 +10,7 @@ use quote::quote;
 use syn::ItemTrait;
 
 use crate::scan::scan_stop;
+use crate::trait_bounds::TraitBounds;
 
 /// 实参段是否"纯绑定"（`Item = T, K = U`：每个顶层逗号段都含 `=`）。
 /// 判定为纯绑定才允许 `A<绑定们>` 照抄展开；含位置参数的 `A<T, Item=U>`
@@ -26,6 +27,29 @@ fn args_all_bindings(args: &[TokenTree]) -> bool {
     scan_stop(rest, &['=']).is_some()
 }
 
+/// 渲染 `A<>` 的形参段：类型形参用 [`TraitBounds`] 合并后的 bound
+/// （内联 + where 谓词），生命周期 / const 原样照抄。
+fn render_formals(
+    trait_def: &ItemTrait, trait_bounds: &TraitBounds,
+) -> Vec<TokenStream> {
+    let mut formals = vec![];
+    for (i, p) in trait_def.generics.params.iter().enumerate() {
+        match p {
+            syn::GenericParam::Lifetime(_) | syn::GenericParam::Const(_) => {
+                formals.push(quote!(#p));
+            }
+            syn::GenericParam::Type(tp) => {
+                let id = &tp.ident;
+                match trait_bounds.params.get(i).and_then(|t| t.bound.clone()) {
+                    Some(b) => formals.push(quote!(#id: #b)),
+                    None => formals.push(quote!(#id)),
+                }
+            }
+        }
+    }
+    formals
+}
+
 /// `A<>` / `A<绑定们>` 预处理：扫描顶层 token 流中的 `Ident` + 尖括号组
 /// （`angle_collect` 配对产物，空实参或纯绑定实参），展开为
 /// `尖括号组(形参) Ident 尖括号组(实参 + 绑定)`——与 `angle_collect`
@@ -37,7 +61,7 @@ fn args_all_bindings(args: &[TokenTree]) -> bool {
 /// - 仅 `#[batch_impl]` / `#[batch_impl_only]` 可用（需要 trait 定义渲染形参）；
 ///   `batch_trait!` 无 trait 定义，`A<>` 原样透传。
 pub(crate) fn expand_empty_trait_generics(
-    tokens: &[TokenTree], trait_def: &ItemTrait,
+    tokens: &[TokenTree], trait_def: &ItemTrait, trait_bounds: &TraitBounds,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if trait_def.generics.params.is_empty() {
         return Ok(tokens.to_vec());
@@ -57,6 +81,7 @@ pub(crate) fn expand_empty_trait_generics(
             }
         }
     }
+    let formals = render_formals(trait_def, trait_bounds);
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
@@ -79,12 +104,10 @@ pub(crate) fn expand_empty_trait_generics(
                 if args.is_empty() || bindings_only {
                     // 展开为尖括号组序列（`angle_collect` 的配对产物形态）：
                     // `尖括号组(<'a, T: bounds, const N>) A 尖括号组(<'a, T, N, Item = T>)`
-                    let all_params: Vec<_> =
-                        trait_def.generics.params.iter().collect();
                     out.push(
                         proc_macro2::Group::new(
                             delimiter![<>],
-                            quote!(#(#all_params),*),
+                            quote!(#(#formals),*),
                         )
                         .into(),
                     );

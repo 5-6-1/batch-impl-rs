@@ -101,12 +101,17 @@ trait Tagged { fn name(&self) -> &str; }
 > - **未写 bound 的同名继承**：`<T> Foo<T> Vec<T>` + `trait Foo<T: Clone>` 生成
 >   `impl<T: Clone> Foo<T> for Vec<T>`——impl 参数按"在 trait 实参中的位置"对应
 >   trait 形参，同名且未写 bound 时继承其内联 bound。
+> - **trait 级 where 子句同款继承**：单一形参谓词
+>   （`trait Foo<T> where T: Clone`）合并进 bound（内联 + where 拼接，
+>   `A<>` 照抄同样带上）——`trait Foo<T: Clone> where T: Ord` 生成
+>   `impl<T: Clone + Ord>`。复合谓词（`Vec<T>: Clone`、`Self: ...`）
+>   保守跳过，请手写。
 > - **改名 = 明确报错，绝不静默**：实参 `X` 对应形参 `T`（有 bound）但名字不同、
 >   或继承的 bound 引用 `'a`/`U` 等形参名而 impl 未声明同名——均报
 >   `compile_error!` 引导（请改名或手写 bound）。想用其他名字就手写 `<X: ...>`。
 >
 > 已写 bound 的参数宏不干预（`T: B` 是否蕴含 `T: Clone` 由 rustc 验证，
-> 如 `trait B: A` 的父 trait 关系）。trait 级 where 子句不继承（第一版范围）。
+> 如 `trait B: A` 的父 trait 关系）。
 
 ### 运算符
 

@@ -724,3 +724,60 @@ fn empty_trait_generics() {
     fn check_e<T: AssocGen2<'static, i32, u32, First = i32, Second = u32>>() {}
     check_e::<()>();
 }
+
+// ============================================================
+// 34. trait 级 where 子句继承：单一形参谓词（`X: Bound`）合并进 bound
+//     （`trait Foo<T> where T: Clone` + `<T> Foo<T>` → `impl<T: Clone>`；
+//     `A<>` 照抄同样带上 where bound；复合谓词保守跳过）
+// ============================================================
+#[batch_impl(<T> WhereCloned<T> Vec<T> {
+    fn wget(&self) -> T {
+        self[0].clone()
+    }
+})]
+trait WhereCloned<T>
+where
+    T: Clone,
+{
+    fn wget(&self) -> T;
+}
+
+// where 谓词 + 内联 bound 合并：T: Clone（内联）+ T: Ord（where）
+#[batch_impl(<T> WhereBoth<T> ())]
+trait WhereBoth<T: Clone>
+where
+    T: Ord,
+{
+}
+
+// 生命周期 where 谓词：`T: 'a`
+#[batch_impl(<'a, T> WhereLifetime<'a, T> ())]
+trait WhereLifetime<'a, T>
+where
+    T: 'a,
+{
+}
+
+// `A<>` 照抄带 where bound：`trait WhereGen<T: Clone> where T: Ord`
+// → `impl<T: Clone + Ord> WhereGen<T> for ()`
+#[batch_impl(WhereGen<> ())]
+trait WhereGen<T: Clone>
+where
+    T: Ord,
+{
+}
+
+#[test]
+fn trait_where_clause_inherit() {
+    let v: Vec<i32> = vec![42];
+    assert_eq!(v.wget(), 42);
+
+    fn check_b<T: WhereBoth<i32>>() {}
+    check_b::<()>();
+
+    fn check_l<T: WhereLifetime<'static, ()>>() {}
+    check_l::<()>();
+
+    fn check_g<T: WhereGen<i32>>() {}
+    check_g::<()>();
+}

@@ -2,12 +2,17 @@
 //!
 //! 供 codegen 对**未写 bound 的 impl 泛型参数**按位置 + 同名继承
 //! （`trait Foo<T: Clone>` + `<T> Foo<T>` → `impl<T: Clone>`）。
+//!
+//! trait 级 where 子句的**单一形参谓词**（`trait Foo<T> where T: Clone`）
+//! 合并进对应位置的 bound（内联 + where 拼接），`A<>` 照抄同样带上；
+//! 复合谓词（`Vec<T>: Clone`、`Self: ...`）保守跳过，请手写。
 
 use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
-/// trait 形参：名字 + 内联 bound + bound 引用的形参名（token 级保守检测）。
+/// trait 形参：名字 + 合并后的 bound（内联 + where 谓词）+ bound 引用的形参名
+/// （token 级保守检测）。
 #[derive(Default)]
 pub(crate) struct TraitParam {
     pub(crate) name: String,
@@ -25,7 +30,7 @@ pub(crate) struct TraitParam {
 ///   未声明同名 → `compile_error!`（请声明同名或手写）。
 ///
 /// 写 bound = 用户负责，宏不干预（sub trait 蕴含（`trait B: A` 使 `T: B`
-/// 隐含 `T: A`）宏无法推理）。trait 级 where 子句不继承（第一版范围）。
+/// 隐含 `T: A`）宏无法推理）。trait 级 where 子句仅**单一形参谓词**继承。
 #[derive(Default)]
 pub(crate) struct TraitBounds {
     pub(crate) params: Vec<TraitParam>,
@@ -84,7 +89,47 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
             }),
         }
     }
+    // trait 级 where 子句：单一形参谓词（`X: Bound`）合并进对应位置的 bound
+    // （内联 + where 拼接），refs 同步合并；复合谓词保守跳过。
+    if let Some(wc) = &trait_item.generics.where_clause {
+        for pred in &wc.predicates {
+            let syn::WherePredicate::Type(pt) = pred else {
+                continue;
+            };
+            let Some(name) = single_ident_param(&pt.bounded_ty) else {
+                continue;
+            };
+            let Some(pos) = params.iter().position(|p| p.name == name) else {
+                continue;
+            };
+            let b = &pt.bounds;
+            let extra = quote!(#b);
+            let extra_refs = bound_refs(&extra, &type_const_names, &lt_names);
+            let param = &mut params[pos];
+            param.bound = Some(match &param.bound {
+                Some(inline) => quote!(#inline + #extra),
+                None => extra,
+            });
+            param.refs.extend(extra_refs);
+        }
+    }
     TraitBounds { params }
+}
+
+/// 谓词左侧是否为单一形参名（`T`：无路径、无泛型实参）；返回名字。
+fn single_ident_param(ty: &syn::Type) -> Option<String> {
+    let syn::Type::Path(tp) = ty else { return None };
+    if tp.qself.is_some() {
+        return None;
+    }
+    let seg = tp.path.segments.first()?;
+    if tp.path.segments.len() == 1
+        && matches!(&seg.arguments, syn::PathArguments::None)
+    {
+        Some(seg.ident.to_string())
+    } else {
+        None
+    }
 }
 
 /// 保守的 bound 形参引用检测：收集 bound token 中出现的形参名。

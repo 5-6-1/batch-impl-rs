@@ -100,9 +100,10 @@ pub(crate) fn expand_attr_macro(
     let expanded = where_process(&mut Cursor::new(&expanded))?;
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = crate::trait_bounds::extract_trait_bounds(&trait_item);
-    // `A<>`：trait 泛型照抄（实参与 bound 全部来自 trait 定义），
+    // `A<>`：trait 泛型照抄（实参与 bound 全部来自 trait 定义，含 where 谓词），
     // 展开产物与手写完全等价。
-    let expanded = expand_empty_trait_generics(&expanded, &trait_item)?;
+    let expanded =
+        expand_empty_trait_generics(&expanded, &trait_item, &trait_bounds)?;
     let start_trait = if include_trait { trait_item.into() } else { None };
     run_pipeline(
         &expanded,
