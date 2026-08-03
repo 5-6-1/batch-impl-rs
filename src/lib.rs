@@ -30,8 +30,9 @@ mod where_process;
 use batch_trait_entry::parse_batch_trait_entry;
 
 use diagnostic::compile_error_str;
+use generic::matching_angle;
 use preprocess_helpers::{build_from_item, get_trait_item, parse_names_from_tokens};
-use scan::{Cursor, is_arrow};
+use scan::{Cursor, is_arrow, scan_stop};
 use types::{Op, reset_fresh_counter};
 use where_process::where_process;
 
@@ -280,10 +281,27 @@ fn bound_refs(
     refs
 }
 
-/// `A<>` 预处理：扫描 token 流中深度 0 的 `Ident < >`（空 trait 实参），
-/// 展开为 `<'a, T: bounds, const N> Ident<'a, T, N>`（impl 泛型段 + 实参段）。
+/// 实参段是否"纯绑定"（`Item = T, K = U`：每个顶层逗号段都含 `=`）。
+/// 判定为纯绑定才允许 `A<绑定们>` 照抄展开；含位置参数的 `A<T, Item=U>`
+/// 是普通 DSL 语法（不展开，位置参数由用户声明）。
+fn args_all_bindings(args: &[TokenTree]) -> bool {
+    let mut rest = args;
+    while let Some(idx) = scan_stop(rest, &[',']) {
+        // 段必须含顶层 `=`（绑定）
+        if scan_stop(&rest[..idx], &['=']).is_none() {
+            return false;
+        }
+        rest = &rest[idx + 1..];
+    }
+    scan_stop(rest, &['=']).is_some()
+}
+
+/// `A<>` / `A<绑定们>` 预处理：扫描 token 流中深度 0 的 `Ident<...>`（空实参
+/// 或纯绑定实参），展开为 `<'a, T: bounds, const N> Ident<'a, T, N, Item = T>`
+/// （impl 泛型段 + 实参段 + 绑定原样保留）。
 ///
-/// - 只处理深度 0 的 `Ident<>`（`B<A<>>` 嵌套不展开）；
+/// - 只处理深度 0 的 `Ident<>` / `Ident<Item=T>`（`B<A<>>` 嵌套不展开；
+///   含位置参数的 `A<T, Item=U>` 是普通 DSL 语法，不展开）；
 /// - trait 无泛型参数时透传（`A<>` 由 DSL 解析为空实参，渲染 `A`）；
 /// - `->` 箭头的 `>` 不计深度（复用 scan 的箭头守卫）；
 /// - 仅 `#[batch_impl]` / `#[batch_impl_only]` 可用（需要 trait 定义渲染形参）；
@@ -330,14 +348,36 @@ fn expand_empty_trait_generics(
             }
             TokenTree::Ident(id)
                 if depth == 0
-                    && matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '<')
-                    && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '>') =>
+                    && matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '<') =>
             {
-                // `A<>` → `<'a, T: bounds, const N> A<'a, T, N>`
-                let name = quote!(#id);
-                out.extend(impl_gen.clone());
-                out.extend(quote!(#name < #(#arg_names),* >));
-                i += 3;
+                // 候选：`Ident<...>`——空实参（`A<>`）或**纯绑定实参**
+                // （`A<Item=T>`：无位置参数，只有 `name = value`）。两者都展开：
+                // 位置实参照抄 trait 形参，绑定原样保留。
+                let Some(close) = matching_angle(tokens, i + 1) else {
+                    // 尖括号失衡：交给 DSL 解析兜底
+                    out.push(tokens[i].clone());
+                    i += 1;
+                    continue;
+                };
+                let args = &tokens[i + 2..close];
+                let bindings_only = !args.is_empty() && args_all_bindings(args);
+                if args.is_empty() || bindings_only {
+                    // `A<>` → `<'a, T: bounds, const N> A<'a, T, N>`
+                    // `A<Item=T>` → `<'a, T: bounds, const N> A<'a, T, N, Item = T>`
+                    // （绑定原样保留，作为 DSL 绑定语法进 TyTrait）
+                    let name = quote!(#id);
+                    out.extend(impl_gen.clone());
+                    if args.is_empty() {
+                        out.extend(quote!(#name < #(#arg_names),* >));
+                    } else {
+                        let args_ts: TokenStream = args.iter().cloned().collect();
+                        out.extend(quote!(#name < #(#arg_names),* , #args_ts >));
+                    }
+                    i = close + 1;
+                } else {
+                    out.push(tokens[i].clone());
+                    i += 1;
+                }
             }
             _ => {
                 out.push(tokens[i].clone());

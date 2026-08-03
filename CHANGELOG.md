@@ -4,9 +4,10 @@
 
 ### `A<>`：trait 泛型照抄 + 泛型自动化只认同名
 
-- **`A<>` 空实参**：实参与 bound 全部来自 trait 定义——`trait Foo<T: Clone>` +
+- **`A<>` 空实参 / `A<绑定们>`**：实参与 bound 全部来自 trait 定义——`trait Foo<T: Clone>` +
   `#[batch_impl(Foo<> ())]` 预处理展开为 `<'T: Clone> Foo<T> ()`（与手写等价），
-  一行都不用写泛型。仅 `#[batch_impl]` / `#[batch_impl_only]` 可用
+  一行都不用写泛型；纯关联类型绑定（`Foo<Item=T>`，无位置参数）同款照抄，
+  位置实参照抄 + 绑定原样保留。仅 `#[batch_impl]` / `#[batch_impl_only]` 可用
   （需要 trait 定义）；`batch_trait!` 无 trait 定义，`A<>` 原样透传
 - **继承规则收敛为"按位置 + 同名"**：impl 参数按"在 trait 实参中的位置"对应
   trait 形参，同名且未写 bound → 继承内联 bound；**异名** → `compile_error!`

@@ -94,6 +94,10 @@ trait Tagged { fn name(&self) -> &str; }
 >   `impl<T: Clone> Foo<T> for ()`，一行都不用写泛型。仅 `#[batch_impl]` /
 >   `#[batch_impl_only]` 可用（需要 trait 定义）；`batch_trait!` 无 trait 定义，
 >   `A<>` 原样透传。
+> - **`A<绑定们>` 同款照抄**：纯关联类型绑定（`A<Item=T>`，无位置参数）同样
+>   照抄位置实参、绑定原样保留——`trait Foo<T: Clone> { type Item; }` +
+>   `#[batch_impl(Foo<Item=T> ())]` → `impl<T: Clone> Foo<T> for () { type Item = T; }`。
+>   含位置参数的 `A<T, Item=U>` 是普通 DSL 语法（不展开）。
 > - **未写 bound 的同名继承**：`<T> Foo<T> Vec<T>` + `trait Foo<T: Clone>` 生成
 >   `impl<T: Clone> Foo<T> for Vec<T>`——impl 参数按"在 trait 实参中的位置"对应
 >   trait 形参，同名且未写 bound 时继承其内联 bound。

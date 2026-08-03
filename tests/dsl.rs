@@ -678,6 +678,19 @@ trait EmptyGenB<'a, T: 'a> {}
 #[batch_impl(EmptyGenC<> Vec<T>)]
 trait EmptyGenC<T> {}
 
+// `A<绑定们>`：位置实参照抄 + 关联类型绑定保留
+// `AssocGen<Item=T>` → `<'T: Clone> AssocGen<T, Item = T>`
+#[batch_impl(AssocGen<Item=T> ())]
+trait AssocGen<T: Clone> {
+    type Item;
+}
+
+#[batch_impl(AssocGen2<First=T, Second=U> ())]
+trait AssocGen2<'a, T: Clone + 'a, U: Ord> {
+    type First;
+    type Second;
+}
+
 #[test]
 fn empty_trait_generics() {
     fn check_a<T: EmptyGenA<i32>>() {}
@@ -688,4 +701,10 @@ fn empty_trait_generics() {
 
     fn check_c<T: EmptyGenC<i32>>() {}
     check_c::<Vec<i32>>();
+
+    fn check_d<T: AssocGen<i32, Item = i32>>() {}
+    check_d::<()>();
+
+    fn check_e<T: AssocGen2<'static, i32, u32, First = i32, Second = u32>>() {}
+    check_e::<()>();
 }
