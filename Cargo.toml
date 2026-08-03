@@ -21,7 +21,7 @@ proc-macro = true
 # 无法在 doctest 的 fn main 中编译，标记为 `ignore`。
 
 [dependencies]
-syn = { version = "3", features = ["full"] }
+syn = { version = "3", features = ["full", "visit"] }
 quote = "1"
 proc-macro2 = "1"
 

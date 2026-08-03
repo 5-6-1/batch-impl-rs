@@ -104,8 +104,10 @@ trait Tagged { fn name(&self) -> &str; }
 > - **trait 级 where 子句同款继承**：单一形参谓词
 >   （`trait Foo<T> where T: Clone`）合并进 bound（内联 + where 拼接，
 >   `A<>` 照抄同样带上）——`trait Foo<T: Clone> where T: Ord` 生成
->   `impl<T: Clone + Ord>`。复合谓词（`Vec<T>: Clone`、`Self: ...`）
->   保守跳过，请手写。
+>   `impl<T: Clone + Ord>`；**其余谓词原样透传**到 impl 的 where 子句
+>   （`T::Item: Clone`、`Vec<T>: ...`、生命周期谓词等），`<T>` 与 `<>`
+>   两种写法同效。引用检查在 syn AST 上做：`A::B` 的 B 是关联类型名
+>   不是形参，HRTB `for<'a>` 的 `'a` 是局部名，均不误判。
 > - **改名 = 明确报错，绝不静默**：实参 `X` 对应形参 `T`（有 bound）但名字不同、
 >   或继承的 bound 引用 `'a`/`U` 等形参名而 impl 未声明同名——均报
 >   `compile_error!` 引导（请改名或手写 bound）。想用其他名字就手写 `<X: ...>`。

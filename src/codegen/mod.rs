@@ -252,6 +252,18 @@ pub(crate) fn generate_impl(
         }
         *bound = Some(Ty::Primitive(TyPrimitive(b.clone())));
     }
+    // 未合并的 where 谓词（复合谓词 / 生命周期谓词）：引用检查后附加到 impl where
+    for (pred, refs) in &trait_bounds.extra_predicates {
+        if let Some(r) = refs.iter().find(|r| !impl_names.contains(*r)) {
+            errs.push(compile_error_str(&format!(
+                "batch-impl: 继承的 where 谓词 `{}` 引用形参 `{}`，\
+                 impl 未声明同名参数；请声明 `{}` 或手写 where",
+                pred, r, r
+            )));
+            continue;
+        }
+        parts.where_clauses.push(pred.clone());
+    }
     if !errs.is_empty() {
         return errs.into_iter().collect();
     }

@@ -49,6 +49,9 @@ fn ui() {
     t.compile_fail("tests/ui/rename_bound.rs");
     t.compile_fail("tests/ui/rename_ref.rs");
 
+    // where 谓词继承：改名 / 复合谓词引用未声明形参
+    t.compile_fail("tests/ui/rename_where.rs");
+
     // 组合展开数量超上限
     t.compile_fail("tests/ui/expand_limit.rs");
 

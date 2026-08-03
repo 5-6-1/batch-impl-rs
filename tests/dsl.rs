@@ -726,9 +726,10 @@ fn empty_trait_generics() {
 }
 
 // ============================================================
-// 34. trait 级 where 子句继承：单一形参谓词（`X: Bound`）合并进 bound
-//     （`trait Foo<T> where T: Clone` + `<T> Foo<T>` → `impl<T: Clone>`；
-//     `A<>` 照抄同样带上 where bound；复合谓词保守跳过）
+// 34. trait 级 where 子句继承：单一形参谓词合并进 bound，其余谓词原样透传
+//     （`trait Foo<T> where T: Clone` → `impl<T: Clone>`；
+//     `T::Item: Clone` 等复合谓词 → impl 的 where 子句，`<T>` 与 `<>` 同效；
+//     引用收集在 syn AST 上做：`A::B` 的 B 是关联类型名，不误判为形参）
 // ============================================================
 #[batch_impl(<T> WhereCloned<T> Vec<T> {
     fn wget(&self) -> T {
@@ -758,12 +759,40 @@ where
 {
 }
 
-// `A<>` 照抄带 where bound：`trait WhereGen<T: Clone> where T: Ord`
-// → `impl<T: Clone + Ord> WhereGen<T> for ()`
-#[batch_impl(WhereGen<> ())]
+// 复合谓词 `T::Item: Clone` 原样透传（`<T>` 写法）
+#[batch_impl(<T> WhereGen<T> ())]
 trait WhereGen<T: Clone>
 where
-    T: Ord,
+    T: IntoIterator,
+    T::Item: Clone,
+{
+}
+
+// 复合谓词同款（`A<>` 照抄写法）
+#[batch_impl(WhereGen2<> ())]
+trait WhereGen2<T: Clone>
+where
+    T: IntoIterator,
+    T::Item: Clone,
+{
+}
+
+// 撞名：`A::B` 的 B 是关联类型名（非形参引用）——impl 只声明 A 也不报错
+trait HasB {
+    type B;
+}
+trait OtherTrait {}
+struct S;
+impl HasB for S {
+    type B = u8;
+}
+impl OtherTrait for u8 {}
+
+#[batch_impl(<A> ProjAssoc<A, u8> ())]
+trait ProjAssoc<A, B>
+where
+    A: HasB,
+    A::B: OtherTrait,
 {
 }
 
@@ -778,6 +807,11 @@ fn trait_where_clause_inherit() {
     fn check_l<T: WhereLifetime<'static, ()>>() {}
     check_l::<()>();
 
-    fn check_g<T: WhereGen<i32>>() {}
+    fn check_g<T: WhereGen<Vec<i32>>>() {}
     check_g::<()>();
+    fn check_g2<T: WhereGen2<Vec<i32>>>() {}
+    check_g2::<()>();
+
+    fn check_p<T: ProjAssoc<S, u8>>() {}
+    check_p::<()>();
 }

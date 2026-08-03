@@ -1,0 +1,15 @@
+error: batch-impl: trait 实参 `X` 对应形参 `T`（bound `IntoIterator`），自动继承要求同名；请改名为 `T` 或手写 bound
+ --> tests/ui/rename_where.rs:6:1
+  |
+6 | #[batch_impl(<X> A<X> ())]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: 继承的 where 谓词 `'a : 'b` 引用形参 `'a`，impl 未声明同名参数；请声明 `'a` 或手写 where
+  --> tests/ui/rename_where.rs:14:1
+   |
+14 | #[batch_impl(<'x> B<'x, 'static> ())]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
