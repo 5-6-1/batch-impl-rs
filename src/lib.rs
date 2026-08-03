@@ -293,14 +293,14 @@ fn args_all_bindings(args: &[TokenTree]) -> bool {
     scan_stop(rest, &['=']).is_some()
 }
 
-/// `A<>` / `A<绑定们>` 预处理：扫描 token 流中深度 0 的 `Ident<...>`（空实参
-/// 或纯绑定实参），展开为 `<'a, T: bounds, const N> Ident<'a, T, N, Item = T>`
-/// （impl 泛型段 + 实参段 + 绑定原样保留）。
+/// `A<>` / `A<绑定们>` 预处理：扫描顶层 token 流中的 `Ident` + 尖括号组
+/// （`angle_collect` 配对产物，空实参或纯绑定实参），展开为
+/// `Group(None, <'a, T: bounds, const N>) Ident Group(None, <'a, T, N, Item = T>)`
+/// ——与 `angle_collect` 的配对产物形态一致，parse 层无需区分来源。
 ///
-/// - 只处理深度 0 的 `Ident<>` / `Ident<Item=T>`（`B<A<>>` 嵌套不展开；
+/// - 只处理**顶层**的 `Ident` + 尖括号组（`B<A<>>` 嵌套在组内，不展开；
 ///   含位置参数的 `A<T, Item=U>` 是普通 DSL 语法，不展开）；
 /// - trait 无泛型参数时透传（`A<>` 由 DSL 解析为空实参，渲染 `A`）；
-/// - `->` 箭头的 `>` 不计深度（复用 scan 的箭头守卫）；
 /// - 仅 `#[batch_impl]` / `#[batch_impl_only]` 可用（需要 trait 定义渲染形参）；
 ///   `batch_trait!` 无 trait 定义，`A<>` 原样透传。
 fn expand_empty_trait_generics(

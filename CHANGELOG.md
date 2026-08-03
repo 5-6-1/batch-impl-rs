@@ -2,6 +2,31 @@
 
 ## 0.5.6 (2026-08-03)
 
+### src 按层分目录
+
+管线分层组织，入口与全局工具留根：
+
+- 根：`lib.rs` / `batch_trait_entry.rs` / `path_prefix.rs` / `diagnostic.rs` /
+  `scan.rs` / `fuzz.rs`
+- `parse/`（解析器 + 原子层 + 泛型解析）、`preprocess/`（指令预处理 + 辅助 +
+  裸 where + 尖括号组）、`ast/`（Ty 定义 + 渲染）、`apply/`（Apply trait +
+  元组容器实现）、`codegen/`（代码生成）
+- 同名文件（`parse/parse.rs` 等）内容并入 `mod.rs`（消除
+  `module_has_same_name`）；子模块经 `pub(crate) use` 重导出，
+  外部路径（`crate::parse::parse_item` 等）不变
+- 行为零变化（全量测试通过）
+
+### 尖括号组预处理收尾（angle.rs 优化）
+
+- `angle_collect` 对未配对的 `<`/`>` 报 `compile_error!`（非法输入不再透传，
+  解锁下游深度逻辑删除）；`Bracket` 递归加守卫：`ident![...]` 宏体 /
+  `#[...]` 属性不进入（内容可能是任意 Rust，含比较 `<`，不得配对/误报）
+- `scan_with` 删除 `<>` 深度分支（仅剩停止符扫描 + `->` 箭头守卫）；
+  `where_process::scan_body_boundary` 与 `expand_batch_trait` 路径扫描同步删除
+  深度分支——尖括号配对后的流不再需要任何 `<>` 深度概念
+- fuzz 全管线补 `angle_collect`（真实管线入口）；测试：`angle_unmatched_errors`
+  （孤立 `<>` 报错、宏体守卫不误报）
+
 ### 尖括号组预处理（angle.rs）
 
 proc-macro2 的 tokenizer 只对 `()`/`[]`/`{}` 分组，`<>` 是扁平 Punct——此前

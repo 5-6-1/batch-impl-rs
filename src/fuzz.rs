@@ -40,7 +40,7 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         prop::strategy::Just(Tok::Ident("fn")),
         prop::strategy::Just(Tok::Ident("self")),
         prop::strategy::Just(Tok::Ident("unsafe")),
-        // 数字字面量（u8 范围内的 DSL 指数）
+        // 数字字面量（小整数 DSL 指数）
         prop::strategy::Just(Tok::Literal("0")),
         prop::strategy::Just(Tok::Literal("1")),
         prop::strategy::Just(Tok::Literal("3")),

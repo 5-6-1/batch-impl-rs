@@ -1,9 +1,9 @@
 //! 扫描与游标模块。
 //!
-//! 提供轻量 [`Cursor`]（`&[TokenTree]` 借用切片游标）和统一扫描原语
-//! [`scan_with`] / [`ScanMode`]。深度跟踪统一通过 `scan_with` 完成；
-//! `scan_stop`（宽松）与 `matching_angle`（严格，见 `generic` 模块）
-//! 是其两个对外语义别名，行为同旧版本但共用同一份循环。
+//! 提供轻量 [`Cursor`]（`&[TokenTree]` 借用切片游标）和统一停止符扫描
+//! [`scan_with`] / [`scan_stop`]。尖括号已由 `angle_collect` 配对为
+//! 不透明组，扫描不再跟踪 `<>` 深度；唯一保留的守卫是 `->` 箭头
+//! （`-` 后接 `>` 时 `-` 不是 Dash 停止符）。
 
 use proc_macro2::{Spacing, TokenTree};
 
