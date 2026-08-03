@@ -83,23 +83,13 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// 统一的 `<>` 深度扫描：返回第一个 depth-0 且属于 stop 集合的 token 索引。
+/// 统一的停止符扫描：返回第一个 depth-0 且属于 stop 集合的 token 索引。
 ///
-/// - `->` 的 `>` 不计深度；`-` 后接 `>` 是箭头而非停止符；
-/// - 失衡（孤立 `>`）用饱和减忽略。
-///
-/// 注意：正常输入的 `<...>` 已由 `angle_collect` 配对为尖括号组，此处的
-/// 深度分支只兜底"孤立的 `<`/`>`"（非法输入透传场景）。
+/// 尖括号已由 `angle_collect` 配对为组（不透明），此处不再跟踪 `<>` 深度；
+/// 唯一保留的守卫是 `->` 箭头：`-` 后接 `>` 时 `-` 不是 Dash 停止符。
 pub(crate) fn scan_with(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
-    let mut depth = 0usize;
     for (index, token) in tokens.iter().enumerate() {
-        if is_punct(token, '<') {
-            depth += 1;
-        } else if is_punct(token, '>') && !is_arrow(tokens, index) {
-            depth = depth.saturating_sub(1);
-        } else if depth == 0
-            && matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char()))
-        {
+        if matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char())) {
             let is_arrow_dash = matches!(token, TokenTree::Punct(p)
                 if p.as_char() == '-' && p.spacing() == Spacing::Joint)
                 && matches!(tokens.get(index + 1), Some(next) if is_punct(next, '>'));
@@ -111,7 +101,7 @@ pub(crate) fn scan_with(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     None
 }
 
-/// 返回第一个 depth-0 且属于 stop 集合的 token 索引（失衡忽略）。
+/// 返回第一个 depth-0 且属于 stop 集合的 token 索引。
 pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     scan_with(tokens, stop)
 }

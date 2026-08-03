@@ -112,7 +112,7 @@ fn expand_attr_macro(
     let attr_vec = TokenStream::from(attr).into_iter().collect::<Vec<_>>();
     // 入口转换：真实 None 组扁平化（宏变量展开产物，内容即 DSL token）
     // + 扁平 `<...>` 配对为尖括号组（`->` 箭头不参与）——下游解析不再管 `<>` 深度
-    let attr_vec = angle::angle_collect(&attr_vec);
+    let attr_vec = angle::angle_collect(&attr_vec)?;
 
     // `#[batch_impl_only]` 专属：attr 起首若是 `# Path: ` 形式
     // （`#` + `Ident (:: Ident)*` + `:`），则把该路径作为外部 trait 路径，
@@ -427,7 +427,7 @@ fn expand_batch_trait(
 ) -> Result<proc_macro::TokenStream, TokenStream> {
     reset_fresh_counter();
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
-    let tokens = angle::angle_collect(&tokens);
+    let tokens = angle::angle_collect(&tokens)?;
     let tokens = where_process(&mut Cursor::new(&tokens))?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
@@ -449,20 +449,12 @@ fn expand_batch_trait(
             false
         };
 
-        // 收集 trait 路径（遇到 `<>` 深度为 0 的 `:` 停止；`::` 路径分隔符一并收集）
+        // 收集 trait 路径（遇到 `:` 停止；`::` 路径分隔符一并收集）。
+        // 尖括号已由 angle_collect 配对为不透明组，无需跟踪 `<>` 深度。
         let path_start = cursor.pos();
-        let mut depth = 0i32;
         while let Some(token) = cursor.peek() {
             match token {
-                TokenTree::Punct(p) if p.as_char() == '<' => {
-                    depth += 1;
-                    cursor.bump();
-                }
-                TokenTree::Punct(p) if p.as_char() == '>' => {
-                    depth -= 1;
-                    cursor.bump();
-                }
-                TokenTree::Punct(p) if p.as_char() == ':' && depth == 0 => {
+                TokenTree::Punct(p) if p.as_char() == ':' => {
                     if cursor.is_single_colon() {
                         break;
                     } else {
@@ -537,7 +529,10 @@ pub fn batch_preprocess_test(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
-    let tokens = angle::angle_collect(&tokens);
+    let tokens = match angle::angle_collect(&tokens) {
+        Ok(v) => v,
+        Err(e) => return e.into(),
+    };
     // 形如：`(add, inc) {*self+1} trait AddInc {...}`
     let Some(TokenTree::Group(names_group)) = tokens.first() else {
         return compile_error_str(
@@ -602,7 +597,7 @@ mod angle_tests {
     fn roundtrip(s: &str) -> String {
         let ts: TS2 = FromStr::from_str(s).unwrap();
         let v: Vec<_> = ts.into_iter().collect();
-        let collected = angle::angle_collect(&v);
+        let collected = angle::angle_collect(&v).unwrap();
         angle::render_angles(collected.into_iter().collect()).to_string()
     }
 
@@ -618,8 +613,18 @@ mod angle_tests {
         assert_eq!(roundtrip("A<Item=T>"), "A < Item = T >");
         // -> 箭头的 > 不参与配对
         assert_eq!(roundtrip("fn(A) -> B"), "fn (A) -> B");
-        // 孤立 < 保持扁平
-        assert_eq!(roundtrip("A <"), "A <");
+    }
+
+    #[test]
+    fn angle_unmatched_errors() {
+        // 孤立的 < / > 是非法输入：报 compile_error!（不再透传）
+        let ts: TS2 = FromStr::from_str("A <").unwrap();
+        assert!(angle::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
+        let ts: TS2 = FromStr::from_str("A >").unwrap();
+        assert!(angle::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
+        // `ident![...]` 宏体不进入：内部比较 < 不报错
+        let ts: TS2 = FromStr::from_str("m![a < b]").unwrap();
+        assert!(angle::angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
     }
 
     #[test]
@@ -627,7 +632,7 @@ mod angle_tests {
         // 真实 None 组（宏变量展开产物）：扁平化后内容里的 <...> 照常配对
         let inner: TS2 = FromStr::from_str("Vec<T>").unwrap();
         let none = proc_macro2::Group::new(proc_macro2::Delimiter::None, inner);
-        let collected = angle::angle_collect(&[none.into()]);
+        let collected = angle::angle_collect(&[none.into()]).unwrap();
         let rendered = angle::render_angles(collected.into_iter().collect());
         assert_eq!(rendered.to_string(), "Vec < T >");
     }

@@ -20,12 +20,20 @@
 
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 
+use crate::diagnostic::compile_error_str;
 use crate::scan::is_arrow;
 
 /// 入口转换：一趟扫描完成 None 组扁平化与 `<...>` 配对。
 ///
-/// `Brace` 组（透传代码）不进入；`Paren`/`Bracket` 组（DSL 容器）递归。
-pub(crate) fn angle_collect(tokens: &[TokenTree]) -> Vec<TokenTree> {
+/// - `Brace` 组（透传代码）不进入；
+/// - `Paren` 组（DSL 元组）递归；`Bracket` 组（DSL 列表）递归，
+///   但 `ident![...]` 宏体 / `#[...]` 属性**不进入**（内容可能是任意 Rust，
+///   含比较 `<`）；
+/// - 扁平 `<`/`>` 必须配对（`->` 箭头的 `>` 不参与）；孤立（未配对）报错——
+///   这是非法输入，且报错后下游（scan/where/路径扫描）不再需要 `<>` 深度跟踪。
+pub(crate) fn angle_collect(
+    tokens: &[TokenTree],
+) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
@@ -33,24 +41,38 @@ pub(crate) fn angle_collect(tokens: &[TokenTree]) -> Vec<TokenTree> {
             // 真实 None 组：内容就是 DSL token，扁平化（内容里的 `<` 由本趟配对）
             TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
-                out.extend(angle_collect(&inner));
+                out.extend(angle_collect(&inner)?);
                 i += 1;
             }
-            // DSL 容器：递归进入（元组/列表内容含类型表达式）
-            TokenTree::Group(g)
-                if matches!(
-                    g.delimiter(),
-                    Delimiter::Parenthesis | Delimiter::Bracket
-                ) =>
-            {
+            // DSL 元组：递归进入（内容含类型表达式）
+            TokenTree::Group(g) if g.delimiter() == Delimiter::Parenthesis => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
                 out.push(
                     Group::new(
                         g.delimiter(),
-                        angle_collect(&inner).into_iter().collect(),
+                        angle_collect(&inner)?.into_iter().collect(),
                     )
                     .into(),
                 );
+                i += 1;
+            }
+            // DSL 列表 / 宏体 / 属性：`ident![...]` 与 `#[...]` 透传（内容任意 Rust）
+            TokenTree::Group(g) if g.delimiter() == Delimiter::Bracket => {
+                if i > 0
+                    && matches!(&tokens[i - 1], TokenTree::Punct(p)
+                        if p.as_char() == '!' || p.as_char() == '#')
+                {
+                    out.push(tokens[i].clone());
+                } else {
+                    let inner: Vec<_> = g.stream().into_iter().collect();
+                    out.push(
+                        Group::new(
+                            g.delimiter(),
+                            angle_collect(&inner)?.into_iter().collect(),
+                        )
+                        .into(),
+                    );
+                }
                 i += 1;
             }
             // 透传代码（body）：不进入，原样保留
@@ -58,25 +80,28 @@ pub(crate) fn angle_collect(tokens: &[TokenTree]) -> Vec<TokenTree> {
                 out.push(tokens[i].clone());
                 i += 1;
             }
-            // 扁平 `<`：配对到匹配的 `>`（`->` 箭头的 `>` 不参与；未配对则原样保留）
+            // 扁平 `<`：配对到匹配的 `>`（`->` 箭头的 `>` 不参与）
             TokenTree::Punct(p) if p.as_char() == '<' => {
-                match find_angle_close(tokens, i) {
-                    Some(close) => {
-                        let inner: Vec<_> = tokens[i + 1..close].to_vec();
-                        out.push(
-                            Group::new(
-                                Delimiter::None,
-                                angle_collect(&inner).into_iter().collect(),
-                            )
-                            .into(),
-                        );
-                        i = close + 1;
-                    }
-                    None => {
-                        out.push(tokens[i].clone());
-                        i += 1;
-                    }
-                }
+                let Some(close) = find_angle_close(tokens, i) else {
+                    return Err(compile_error_str(
+                        "batch-impl: 未闭合的 `<`（缺少匹配的 `>`）",
+                    ));
+                };
+                let inner: Vec<_> = tokens[i + 1..close].to_vec();
+                out.push(
+                    Group::new(
+                        Delimiter::None,
+                        angle_collect(&inner)?.into_iter().collect(),
+                    )
+                    .into(),
+                );
+                i = close + 1;
+            }
+            // 多余的 `>`（非箭头）：非法输入
+            TokenTree::Punct(p) if p.as_char() == '>' && !is_arrow(tokens, i) => {
+                return Err(compile_error_str(
+                    "batch-impl: 多余的 `>`（缺少匹配的 `<`）",
+                ));
             }
             _ => {
                 out.push(tokens[i].clone());
@@ -84,7 +109,7 @@ pub(crate) fn angle_collect(tokens: &[TokenTree]) -> Vec<TokenTree> {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// 找 `tokens[open]`（`<`）的匹配 `>`：嵌套 `<` 深度跟踪，`->` 箭头的

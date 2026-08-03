@@ -15,7 +15,7 @@
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 
 use crate::diagnostic::compile_error_str;
-use crate::scan::{Cursor, is_arrow};
+use crate::scan::Cursor;
 
 pub(crate) fn where_process(
     cursor: &mut Cursor,
@@ -62,27 +62,15 @@ pub(crate) fn where_process(
     }
     Ok(result)
 }
-/// 谓词区边界 = 首个深度0 {group}，排除 ident!{...}
+/// 谓词区边界 = 首个 `{...}` 组（排除 `ident!{...}` 宏体）。
+/// 尖括号已由 `angle_collect` 配对为不透明组，无需再跟踪 `<>` 深度。
 fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
-    let mut depth = 0usize;
     let mut j = 0;
     let mut result = vec![];
     while j < tokens.len() {
         match &tokens[j] {
-            TokenTree::Punct(p) if p.as_char() == '<' => {
-                depth += 1;
-                result.push(&tokens[j])
-            }
-            TokenTree::Punct(p) if p.as_char() == '>' => {
-                if !is_arrow(tokens, j) {
-                    depth = depth.saturating_sub(1);
-                }
-                result.push(&tokens[j])
-            }
             TokenTree::Group(g)
-                if g.delimiter() == Delimiter::Brace
-                    && depth == 0
-                    && !is_macro_body(tokens, j) =>
+                if g.delimiter() == Delimiter::Brace && !is_macro_body(tokens, j) =>
             {
                 return (
                     Group::new(
@@ -94,7 +82,7 @@ fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
                 )
                     .into();
             }
-            TokenTree::Ident(w) if w == "where" && depth == 0 => {
+            TokenTree::Ident(w) if w == "where" => {
                 return (
                     Group::new(
                         Delimiter::Brace,

@@ -55,7 +55,7 @@ pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> b
     )
 }
 
-/// 在 depth-0 按 separator 切分（`->` 中的 `>` 不改变深度）
+/// 按 separator 切分（尖括号已配对为不透明组，仅按扁平 token 切）
 fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
     let mut chunks = vec![];
     let mut rest = tokens;
@@ -67,7 +67,7 @@ fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
     chunks
 }
 
-/// 找到第一个 depth-0 的 `:` 且不是 `::` 的位置（用于 `T: Bound` 切分）
+/// 找到第一个 `:` 且不是 `::` 的位置（用于 `T: Bound` 切分）
 fn find_colon_at_depth0(tokens: &[TokenTree]) -> Option<usize> {
     scan_stop(tokens, &[':']).filter(|&index| is_single_colon(tokens, index))
 }

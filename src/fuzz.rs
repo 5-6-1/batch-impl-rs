@@ -10,6 +10,7 @@ use proptest::prelude::*;
 use quote::quote;
 use std::str::FromStr;
 
+use crate::angle::angle_collect;
 use crate::batch_trait_entry::parse_batch_trait_entry;
 use crate::parse::parse_item;
 use crate::preprocess::expand_tokens;
@@ -105,9 +106,10 @@ proptest! {
         prop_assert!(cursor.at_end());
     }
 
-    /// 全管线：指令预处理 → where 改写 → 解析/展开 → 生成 impl，任意输入不 panic。
-    /// 用固定 dummy trait 作签名真相源；随机 token 里的指令可能查不到 item
-    /// （报 `compile_error!`）或产生非法类型（透传成垃圾），均接受——承诺是"不 panic"。
+    /// 全管线：角度配对 → 指令预处理 → where 改写 → 解析/展开 → 生成 impl，
+    /// 任意输入不 panic。用固定 dummy trait 作签名真相源；随机 token 里的指令
+    /// 可能查不到 item（报 `compile_error!`）或产生非法类型（透传成垃圾），
+    /// 均接受——承诺是"不 panic"。
     #[test]
     fn full_pipeline_no_panic(toks in tokens(3)) {
         let ts = toks.iter().map(to_token).collect::<Vec<_>>();
@@ -115,8 +117,9 @@ proptest! {
             trait Fuzz { fn m(&self) -> u32; }
         };
         reset_fresh_counter();
+        let collected = angle_collect(&ts).unwrap_or_default();
         let expanded =
-            expand_tokens(&mut Cursor::new(&ts), &trait_def).unwrap_or_default();
+            expand_tokens(&mut Cursor::new(&collected), &trait_def).unwrap_or_default();
         let rewritten = where_process(&mut Cursor::new(&expanded)).unwrap_or_default();
         let path = quote!(Fuzz);
         let last = Ident::new("Fuzz", proc_macro2::Span::call_site());
