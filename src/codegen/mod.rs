@@ -335,3 +335,61 @@ pub(crate) fn generate_impl(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::trait_bounds::extract_trait_bounds;
+    use syn::parse_quote;
+
+    /// `WhereArr<>` 展开场景：impl 泛型 `[T, const N: usize]`（parse 层名字
+    /// 为 `const N`，渲染需关键字）、trait 实参 `[T, N]`、谓词 `[T; N]: Sized`
+    /// 引用 N——归一化后检查通过，展开无 compile_error（防 IDE/旧产物误报回归）
+    #[test]
+    fn const_param_where_predicate_no_error() {
+        let trait_def: syn::ItemTrait = parse_quote!(
+            trait WhereArr<T, const N: usize>
+            where
+                [T; N]: Sized,
+            {
+            }
+        );
+        let tb = extract_trait_bounds(&trait_def);
+        let target: Ty = TyTuple(vec![]).into();
+        let trait_ty = TyTrait(
+            quote!(WhereArr),
+            TyTypeParam {
+                params: vec![(quote!(T), None), (quote!(N), None)],
+                bindings: vec![],
+            },
+        );
+        let wrapped = TyWithTrait(trait_ty, target.into());
+        let impl_ty = TyWithType(
+            TyTypeParam {
+                params: vec![
+                    (quote!(T), None),
+                    (
+                        quote!(const N),
+                        Some(Ty::Primitive(TyPrimitive(quote!(usize)))),
+                    ),
+                ],
+                bindings: vec![],
+            },
+            wrapped.into(),
+        )
+        .into();
+        let out = generate_impl(impl_ty, &quote!(WhereArr), false, &tb).to_string();
+        assert!(
+            !out.contains("compile_error"),
+            "展开不应含 compile_error：{out}"
+        );
+        assert!(
+            out.contains("where [T ; N] : Sized"),
+            "缺少 where 谓词：{out}"
+        );
+        assert!(
+            out.contains("impl < T , const N : usize > WhereArr < T , N >"),
+            "impl 泛型异常：{out}"
+        );
+    }
+}
