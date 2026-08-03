@@ -644,6 +644,16 @@ trait StaticT<T: 'static> {}
 #[batch_impl(<'a, T> Mix<'a, T> ())]
 trait Mix<'a, T: Clone + 'a> {}
 
+// 部分绑定：T 用户写 bound（B 蕴含 A，rustc 验证），U 未写（同名继承 A）——
+// 继承按参数独立判断，部分写/部分继承天然混合
+#[batch_impl(<T: SupB, U> PartialBound<T, U> ())]
+trait PartialBound<T: SupA, U: SupA> {}
+
+#[batch_impl(<T, U: SupB> PartialBound2<T, U> ())]
+trait PartialBound2<T: SupA, U: SupA> {}
+
+impl SupA for i32 {}
+
 #[test]
 fn trait_bound_inherit() {
     let v: Vec<i32> = vec![42];
@@ -663,6 +673,12 @@ fn trait_bound_inherit() {
 
     fn check4<T: Mix<'static, ()>>() {}
     check4::<()>();
+
+    // 部分绑定：impl<T: SupB, U: SupA> / impl<T: SupA, U: SupB>
+    fn check_p<T: PartialBound<SupS, i32>>() {}
+    check_p::<()>();
+    fn check_p2<T: PartialBound2<i32, SupS>>() {}
+    check_p2::<()>();
 }
 
 // ============================================================
