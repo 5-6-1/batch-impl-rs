@@ -1,4 +1,5 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
+#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/tutorial.md"))]
 // 库不使用任何 unsafe；缺失文档按错误拒绝（仅作用于 pub 项，内部 pub(crate) 不受限）。
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]

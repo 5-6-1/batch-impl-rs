@@ -2,77 +2,58 @@
 
 ## 0.5.7 (2026-08-03)
 
-### `delimiter!` 分隔符拼写宏
+### 用户（升级须知）
 
-`macro_rules! delimiter` 定义在 `preprocess/mod.rs` 顶部（经
-`#[macro_use] mod preprocess;` 导入 crate 根），用源码分隔符拼写统一取缔
-散落的 `Delimiter::*` 字面量，调用统一用 `[]` 定界：
-`delimiter![{}]` / `delimiter![[]]` / `delimiter![()]` 与源码一一对应。
-`Delimiter::None` 在本 crate 有**两种语义**，用两种拼写区分，避免割裂：
+**trait 级 where 子句继承**（自动生效，无需改代码）：
 
-- `delimiter![<>]`：**尖括号组**载体（`angle_collect` 配对产物）；
-- `delimiter![none]`：**真实透明组**（宏变量 `$var:ty` 展开产物，需扁平化）。
+- `trait Foo<T> where T: Clone` 的谓词**全形态**继承到生成的 impl：
+  - **单一形参谓词**（`T: Clone`）合并进泛型 bound——`<T> Foo<T>` →
+    `impl<T: Clone>`，与内联 bound（`trait Foo<T: Clone>`）同一条继承链路
+    （同名继承 / 改名报错 / 引用检查全部复用）；
+  - **其余谓词原样透传**到 impl 的 where 子句：`T::Item: Clone`、
+    `Vec<T>: ...`、生命周期谓词（`'a: 'b`）等全部覆盖，`<T>` 与 `A<>`
+    两种写法同效。
+- **行为变化**：此前复合谓词（`T::Item: Clone` 等）被静默丢弃，生成缺约束的
+  impl 导致 rustc E0277（且定位模糊）；现在自动附加到 impl where，与手写
+  等价。此前因此报错的代码升级后直接可用。
+- 新增错误消息：`继承的 where 谓词 ... 引用形参 ...，请声明或手写 where`
+  （改名场景引导）。
+- 无破坏性变化；`batch_trait!` 无 trait 定义，不受影响。
 
-- 全库 43 处 `Delimiter` 使用点收敛（`fuzz.rs` 的枚举类型字段保留；
-  二者展开值相同，不可在同一条 `match` 中作两个臂——实际分布在不同
-  上下文，无冲突）
-- 修 angle.rs 模块文档中悬空的 `ANGLE_BRACKET` 引用（改为 `delimiter![<>]`）
-- 说明：proc-macro crate 禁止 `#[macro_export]`（`cannot export macro_rules!
-  from a proc-macro crate`），宏无法定义在 `angle.rs` 并全 crate 可见；
-  故置于其父模块 `preprocess` 顶部（文本作用域要求其声明先于所有使用者）
-- 行为零变化（全量测试通过）
+### 开发者（内部）
 
-### Bracket 守卫对齐 + lib.rs 拆分
-
-- **修复**：`expand_tokens` 与 `where_process` 的 Bracket 递归守卫补 `#`
-  （此前仅排除 `ident![...]`，`#[...]` 属性内的 `#name{body}` 会被误当指令
-  展开报错——实测 `#[batch_impl(#[#zzz{1}] usize)]` 误报
-  `trait 中没有找到 item zzz`；与 `angle_collect` 的属性守卫对齐）
-- **lib.rs 拆分**（632 → 202 行）：`expand.rs`（属性宏/batch_trait 共享
-  实现 + 公共管线 `run_pipeline` = 解析 → 生成 → 尖括号组还原；
-  `angle_collect` 与裸 `where` 改写不进入管线——配对破坏性、where 须先于
-  `A<>` 展开，由入口按序调用）、`trait_bounds.rs`（TraitBounds 提取 +
-  bound 引用检测）、`empty_generics.rs`（`A<>` 照抄展开）；
-  `angle_tests` 迁入 `angle.rs`；`crate::TraitBounds` 等路径经
-  `pub(crate) use` 保持兼容
+- **`delimiter!` 分隔符拼写宏**：定义于 `preprocess/mod.rs` 顶部（经
+  `#[macro_use]` 导入 crate 根），用源码分隔符拼写统一取缔散落的
+  `Delimiter::*` 字面量，调用统一用 `[]` 定界。`Delimiter::None` 在本 crate
+  有**两种语义**，用两种拼写区分：`delimiter![<>]`（尖括号组载体）与
+  `delimiter![none]`（真实透明组，宏变量展开产物）。全库 43 处收敛；
+  修 angle.rs 模块文档悬空的 `ANGLE_BRACKET` 引用。说明：proc-macro crate
+  禁止 `#[macro_export]`，宏无法定义在 `angle.rs` 并全 crate 可见，故置于
+  其父模块顶部（文本作用域要求声明先于所有使用者）
+- **Bracket 守卫对齐**：`expand_tokens` 与 `where_process` 的 Bracket 递归
+  守卫补 `#`（此前仅排除 `ident![...]`，`#[...]` 属性内的 `#name{body}`
+  会被误当指令展开报错；与 `angle_collect` 的属性守卫对齐）
+- **lib.rs 拆分**（632 → 202 行）：`expand.rs`（入口实现 + 公共管线
+  `run_pipeline`）、`trait_bounds.rs`（TraitBounds + syn AST 引用收集）、
+  `empty_generics.rs`（`A<>` 照抄展开）；`angle_tests` 迁入 `angle.rs`；
+  `crate::TraitBounds` 等路径经 `pub(crate) use` 保持兼容
 - **错误机制分工说明**（expand.rs 模块文档）：入口层 `Result` 传播 vs
   DSL 层 `Ty::Error` 透传，两层不合并；`batch_trait!` 段级错误统一
-  `return Err`（原 `result.extend + break`）
-- **测试补充**：angle 单测加属性/宏体 Bracket 透传守卫
-  （`#[a < b]` / `#[#zzz{1}]`）、渲染嵌套组重建；regression 加
-  `batch_trait!` 的 `A<>` 透传用例。span 保留无法单测（fallback 模式下
-  `Span::mixed_site()` 即 call_site，`Span::eq` 被 feature 门控），
-  测试中以注释说明
+  `return Err`
+- **syn AST 引用收集**（新增 `syn` 的 `visit` feature）：单段路径与泛型实参
+  是形参引用位置；`::` 后的路径段（关联类型名，`A::B` 的 `B`）、关联类型
+  绑定名（`dyn Trait<Item = T>` 的 `Item`）、HRTB binder（`for<'a>` 的
+  `'a`）天然排除——替换原先 `bound_refs` 的 token 扫描（顺带修掉内联 bound
+  的 HRTB 误报）；另补 `visit_expr` 收集 const 泛型实参 / 数组长度
+  （`[T; N]` 的 `N`，实测发现漏报会静默生成引用未声明名字的代码）；
+  impl 泛型名 `const N` 归一如 `N` 以匹配引用检查
 - **CI**：MSRV job 补 doctest
-- 行为零变化（全量测试通过）
-
-### trait 级 where 子句继承（E.2）
-
-`trait Foo<T> where T: Clone` 的 **where 谓词全形态继承**：
-
-- **单一形参谓词**（`X: Bound`，X 为 trait 形参名）合并进对应位置的 bound
-  （内联 + where 拼接），与内联 bound 走同一条继承链路：
-  `<T> Foo<T>` → `impl<T: Clone>`（同名继承 / 改名报错 / 引用检查全部复用）
-- **其余谓词原样透传**到 impl 的 where 子句（不再丢弃）：`T::Item: Clone`、
-  `Vec<T>: ...`、生命周期谓词（`'a: 'b`）等全部覆盖，`<T>` 与 `<>` 同效
-- **引用检查在 syn AST 上做**（新增 `syn` 的 `visit` feature）：单段路径
-  （`T`）与泛型实参（`Vec<T>` 的 `T`）是形参引用位置；`::` 后的路径段
-  （关联类型名，`A::B` 的 `B`）、关联类型绑定名（`dyn Trait<Item = T>`
-  的 `Item`）、HRTB binder（`for<'a>` 的 `'a`）天然排除——替换原先
-  `bound_refs` 的 token 扫描（顺带修掉内联 bound 的 HRTB 误报）；
-  另补 `visit_expr` 收集 const 泛型实参 / 数组长度（`[T; N]` 的 `N`，
-  实测发现漏报会静默生成引用未声明名字的代码）；impl 泛型名
-  `const N` 归一如 `N` 以匹配引用检查
-- 实现：`TraitBounds` 增加 `extra_predicates`（谓词 token + 引用的形参名），
-  codegen 引用检查后附加到 impl where（错误消息："继承的 where 谓词 `...`
-  引用形参 `...`，请声明或手写 where"）
-- 测试：dsl 第 34 节（复合谓词 `T::Item: Clone` 的 `<T>`/`<>` 两种写法、
-  `A::B` 撞名不误报、内联 + where 合并、生命周期谓词、const 数组谓词
-  `[T; N]: Sized`、深递归左侧 `Vec<(T, <U as HasB2>::B)>: Sized`、
-  元组 `(A, B)` / fn 类型 / `&'a T` 引用 / 列表分发各叶子独立检查）、
-  `tests/ui/rename_where.rs` / `tests/ui/where_const_ref.rs` 锁定三类
-  改名/引用报错；codegen 单测锁定 `WhereArr<>` const 泛型谓词展开
-  （防"测试过但展开含 compile_error"的 IDE 缓存类误报）
+- **测试**：angle 单测（属性/宏体 Bracket 守卫、渲染嵌套组重建、span 保留
+  不可测说明）；regression 加 `batch_trait!` 的 `A<>` 透传用例；dsl 第 34 节
+  覆盖矩阵（`T::Item: Clone` 的 `<T>`/`<>`、`A::B` 撞名、内联 + where 合并、
+  生命周期、const 数组、深递归左侧、元组 / fn 类型 / 引用 / 列表分发）；
+  ui 新增 `rename_where.rs` / `where_const_ref.rs`；codegen 单测锁定
+  `WhereArr<>` 展开（防"测试过但 IDE 展开含 compile_error"的缓存类误报）
 - README「泛型自动化」更新（移除"第一版范围"注记）
 
 ## 0.5.6 (2026-08-03)
