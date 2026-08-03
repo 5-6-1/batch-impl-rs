@@ -11,6 +11,7 @@ use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
 use syn::{ItemTrait, parse_macro_input};
 
+mod angle;
 mod apply;
 mod apply_tuple;
 mod batch_trait_entry;
@@ -30,9 +31,8 @@ mod where_process;
 use batch_trait_entry::parse_batch_trait_entry;
 
 use diagnostic::compile_error_str;
-use generic::matching_angle;
 use preprocess_helpers::{build_from_item, get_trait_item, parse_names_from_tokens};
-use scan::{Cursor, is_arrow, scan_stop};
+use scan::{Cursor, scan_stop};
 use types::{Op, reset_fresh_counter};
 use where_process::where_process;
 
@@ -110,6 +110,9 @@ fn expand_attr_macro(
     reset_fresh_counter();
     let trait_name = trait_item.ident.clone();
     let attr_vec = TokenStream::from(attr).into_iter().collect::<Vec<_>>();
+    // 入口转换：真实 None 组扁平化（宏变量展开产物，内容即 DSL token）
+    // + 扁平 `<...>` 配对为尖括号组（`->` 箭头不参与）——下游解析不再管 `<>` 深度
+    let attr_vec = angle::angle_collect(&attr_vec);
 
     // `#[batch_impl_only]` 专属：attr 起首若是 `# Path: ` 形式
     // （`#` + `Ident (:: Ident)*` + `:`），则把该路径作为外部 trait 路径，
@@ -171,7 +174,8 @@ fn expand_attr_macro(
         start_trait,
         &trait_bounds,
     );
-    Ok(impls.into())
+    // 出口转换：尖括号组还原为 `<...>` 扁平 token（rustc 只见扁平）
+    Ok(angle::render_angles(impls).into())
 }
 
 /// trait 形参：名字 + 内联 bound + bound 引用的形参名（token 级保守检测）。
@@ -312,9 +316,7 @@ fn expand_empty_trait_generics(
     if trait_def.generics.params.is_empty() {
         return Ok(tokens.to_vec());
     }
-    // 预渲染展开段：impl 泛型（含尖括号）+ 实参名列表
-    let generics = &trait_def.generics;
-    let impl_gen = quote!(#generics);
+    // 预渲染实参名列表（展开时作为尖括号组的实参段）
     let mut arg_names: Vec<TokenStream> = vec![];
     for p in &trait_def.generics.params {
         match p {
@@ -330,50 +332,55 @@ fn expand_empty_trait_generics(
         }
     }
     let mut out = vec![];
-    let mut depth = 0usize;
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
-            TokenTree::Punct(p) if p.as_char() == '<' => {
-                depth += 1;
-                out.push(tokens[i].clone());
-                i += 1;
-            }
-            TokenTree::Punct(p) if p.as_char() == '>' => {
-                if !is_arrow(tokens, i) {
-                    depth = depth.saturating_sub(1);
-                }
-                out.push(tokens[i].clone());
-                i += 1;
-            }
-            TokenTree::Ident(id)
-                if depth == 0
-                    && matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '<') =>
-            {
-                // 候选：`Ident<...>`——空实参（`A<>`）或**纯绑定实参**
-                // （`A<Item=T>`：无位置参数，只有 `name = value`）。两者都展开：
-                // 位置实参照抄 trait 形参，绑定原样保留。
-                let Some(close) = matching_angle(tokens, i + 1) else {
-                    // 尖括号失衡：交给 DSL 解析兜底
-                    out.push(tokens[i].clone());
-                    i += 1;
-                    continue;
-                };
-                let args = &tokens[i + 2..close];
-                let bindings_only = !args.is_empty() && args_all_bindings(args);
-                if args.is_empty() || bindings_only {
-                    // `A<>` → `<'a, T: bounds, const N> A<'a, T, N>`
-                    // `A<Item=T>` → `<'a, T: bounds, const N> A<'a, T, N, Item = T>`
-                    // （绑定原样保留，作为 DSL 绑定语法进 TyTrait）
-                    let name = quote!(#id);
-                    out.extend(impl_gen.clone());
-                    if args.is_empty() {
-                        out.extend(quote!(#name < #(#arg_names),* >));
-                    } else {
-                        let args_ts: TokenStream = args.iter().cloned().collect();
-                        out.extend(quote!(#name < #(#arg_names),* , #args_ts >));
+            // `Ident` + 尖括号组（`angle_collect` 配对产物）——顶层才展开：
+            // 空实参（`A<>`）或**纯绑定实参**（`A<Item=T>`）→ 位置实参照抄
+            // trait 形参，绑定原样保留；含位置参数的 `A<T, Item=U>` 是普通
+            // DSL 语法（不展开）。组内的 `Ident<>`（嵌套如 `B<A<>>`）不处理。
+            TokenTree::Ident(id) => {
+                let group = match tokens.get(i + 1) {
+                    Some(TokenTree::Group(g))
+                        if g.delimiter() == proc_macro2::Delimiter::None =>
+                    {
+                        g
                     }
-                    i = close + 1;
+                    _ => {
+                        out.push(tokens[i].clone());
+                        i += 1;
+                        continue;
+                    }
+                };
+                let args: Vec<TokenTree> = group.stream().into_iter().collect();
+                let bindings_only = !args.is_empty() && args_all_bindings(&args);
+                if args.is_empty() || bindings_only {
+                    // 展开为尖括号组序列（`angle_collect` 的配对产物形态）：
+                    // `Group(None, <'a, T: bounds, const N>) A Group(None, <'a, T, N, Item = T>)`
+                    let all_params: Vec<_> =
+                        trait_def.generics.params.iter().collect();
+                    out.push(
+                        proc_macro2::Group::new(
+                            proc_macro2::Delimiter::None,
+                            quote!(#(#all_params),*),
+                        )
+                        .into(),
+                    );
+                    out.extend(quote!(#id));
+                    let args_ts: TokenStream = if args.is_empty() {
+                        quote!(#(#arg_names),*)
+                    } else {
+                        let bind_ts: TokenStream = args.iter().cloned().collect();
+                        quote!(#(#arg_names),* , #bind_ts)
+                    };
+                    out.push(
+                        proc_macro2::Group::new(
+                            proc_macro2::Delimiter::None,
+                            args_ts,
+                        )
+                        .into(),
+                    );
+                    i += 2;
                 } else {
                     out.push(tokens[i].clone());
                     i += 1;
@@ -420,6 +427,7 @@ fn expand_batch_trait(
 ) -> Result<proc_macro::TokenStream, TokenStream> {
     reset_fresh_counter();
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
+    let tokens = angle::angle_collect(&tokens);
     let tokens = where_process(&mut Cursor::new(&tokens))?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
@@ -508,7 +516,7 @@ fn expand_batch_trait(
         );
         result.extend(impl_code);
     }
-    Ok(result.into())
+    Ok(angle::render_angles(result).into())
 }
 
 /// 测试用开放扩展宏（函数式）：`name!{(方法名列表){body} trait T {...}}`。
@@ -529,6 +537,7 @@ pub fn batch_preprocess_test(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
+    let tokens = angle::angle_collect(&tokens);
     // 形如：`(add, inc) {*self+1} trait AddInc {...}`
     let Some(TokenTree::Group(names_group)) = tokens.first() else {
         return compile_error_str(
@@ -580,5 +589,46 @@ pub fn batch_preprocess_test(
         };
         methods.extend(build_from_item(item, &body));
     }
-    methods.into()
+    angle::render_angles(methods).into()
+}
+
+#[cfg(test)]
+mod angle_tests {
+    use super::*;
+    use proc_macro2::TokenStream as TS2;
+    use std::str::FromStr;
+
+    /// 入口收集 + 出口还原的往返：<...> 配对成组再还原为扁平，token 等价。
+    fn roundtrip(s: &str) -> String {
+        let ts: TS2 = FromStr::from_str(s).unwrap();
+        let v: Vec<_> = ts.into_iter().collect();
+        let collected = angle::angle_collect(&v);
+        angle::render_angles(collected.into_iter().collect()).to_string()
+    }
+
+    #[test]
+    fn angle_roundtrip() {
+        assert_eq!(roundtrip("Vec<T>"), "Vec < T >");
+        assert_eq!(roundtrip("A<B<C>>"), "A < B < C > >");
+        assert_eq!(
+            roundtrip("Box<dyn Fn() + Send>"),
+            "Box < dyn Fn () + Send >"
+        );
+        assert_eq!(roundtrip("<T: Clone> A<T>"), "< T : Clone > A < T >");
+        assert_eq!(roundtrip("A<Item=T>"), "A < Item = T >");
+        // -> 箭头的 > 不参与配对
+        assert_eq!(roundtrip("fn(A) -> B"), "fn (A) -> B");
+        // 孤立 < 保持扁平
+        assert_eq!(roundtrip("A <"), "A <");
+    }
+
+    #[test]
+    fn none_group_flattened() {
+        // 真实 None 组（宏变量展开产物）：扁平化后内容里的 <...> 照常配对
+        let inner: TS2 = FromStr::from_str("Vec<T>").unwrap();
+        let none = proc_macro2::Group::new(proc_macro2::Delimiter::None, inner);
+        let collected = angle::angle_collect(&[none.into()]);
+        let rendered = angle::render_angles(collected.into_iter().collect());
+        assert_eq!(rendered.to_string(), "Vec < T >");
+    }
 }

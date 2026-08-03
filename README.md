@@ -601,17 +601,18 @@ batch_trait!(
 
 ```text
 lib.rs              宏入口 + 共享驱动（#[batch_impl] / #[batch_impl_only] / batch_trait!）
+  ├── angle.rs          尖括号组预处理：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
   ├── preprocess.rs      指令预处理：#name 指令展开（内置 + 自定义属性委托）
   ├── where_process.rs   裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`（预处理后、解析前，三接口共用）
   ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
   ├── parse.rs           DSL 解析器：Cursor 游标 + 优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
   ├── parse_atom.rs      原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
-  ├── generic.rs         泛型与尖括号解析：parse_generic / parse_angle_bracket_contents / matching_angle（严格配对）
+  ├── generic.rs         泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 `Delimiter::None` 组）
   ├── types.rs           AST 节点（Ty 枚举 18 个变体，含 Error）+ Op 优先级定义；前缀/后缀包装内层用 Option<Box<Ty>> 表示裸状态
   ├── types_render.rs    AST 渲染：ToTokens impl for Ty + params_to_tokens 系列（应用形式 vs 声明形式）
   ├── apply.rs           运算符语义：Apply trait + 核心 apply() 两阶段分发（右操作数"结构"优先：数组分发 / Group 透明 / 泛型外提 / Range 展开；左操作数"语义"兜底）
   ├── apply_tuple.rs     元组与容器运算符：TyTuple / TyGroup / TyFn / TyWithPrefix 等的 Apply impl + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
-  ├── scan.rs            扫描与游标：Cursor<'a> + scan_with + ScanMode::Lossy / Strict
+  ├── scan.rs            扫描与游标：Cursor<'a> + scan_with（深度分支仅兜底孤立 `<>`）
   ├── batch_trait_entry.rs  共享驱动：工作清单（栈）摊平并列列表 → 逐叶子 generate_impl
   ├── path_prefix.rs     外部 trait 路径前缀：#Path::to::Trait: 状态机解析
   ├── codegen.rs         代码生成：extract_impl_parts 递归拆解 → hoist_type_params 嵌套泛型外提 → generate_impl 渲染 impl 块（裸代码块原样作为顶层 item 注入）

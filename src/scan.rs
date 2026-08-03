@@ -83,34 +83,20 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// `<>` 深度扫描模式：Lossy 宽松（饱和减）、Strict 严格（失衡返回 None）。
-pub(crate) enum ScanMode {
-    Lossy,
-    Strict,
-}
-
 /// 统一的 `<>` 深度扫描：返回第一个 depth-0 且属于 stop 集合的 token 索引。
 ///
-/// - `->` 的 `>` 不计深度；`-` 后接 `>` 是箭头而非停止符。
-/// - Lossy：遇到停止符或失衡也用饱和减忽略（用于 `scan_stop`）。
-/// - Strict：尖括号严格配对，失衡返回 None（用于 `matching_angle`）。
-pub(crate) fn scan_with(
-    tokens: &[TokenTree], stop: &[char], mode: ScanMode,
-) -> Option<usize> {
+/// - `->` 的 `>` 不计深度；`-` 后接 `>` 是箭头而非停止符；
+/// - 失衡（孤立 `>`）用饱和减忽略。
+///
+/// 注意：正常输入的 `<...>` 已由 `angle_collect` 配对为尖括号组，此处的
+/// 深度分支只兜底"孤立的 `<`/`>`"（非法输入透传场景）。
+pub(crate) fn scan_with(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     let mut depth = 0usize;
     for (index, token) in tokens.iter().enumerate() {
         if is_punct(token, '<') {
             depth += 1;
         } else if is_punct(token, '>') && !is_arrow(tokens, index) {
-            match mode {
-                ScanMode::Lossy => depth = depth.saturating_sub(1),
-                ScanMode::Strict => {
-                    depth = depth.checked_sub(1)?;
-                    if depth == 0 {
-                        return index.into();
-                    }
-                }
-            }
+            depth = depth.saturating_sub(1);
         } else if depth == 0
             && matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char()))
         {
@@ -125,9 +111,9 @@ pub(crate) fn scan_with(
     None
 }
 
-/// 宽松版：返回第一个 depth-0 且属于 stop 集合的 token 索引（失衡忽略）。
+/// 返回第一个 depth-0 且属于 stop 集合的 token 索引（失衡忽略）。
 pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
-    scan_with(tokens, stop, ScanMode::Lossy)
+    scan_with(tokens, stop)
 }
 
 /// 判断单个 token 是否为指定标点符号

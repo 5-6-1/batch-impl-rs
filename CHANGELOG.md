@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.6 (2026-08-03)
+
+### 尖括号组预处理（angle.rs）
+
+proc-macro2 的 tokenizer 只对 `()`/`[]`/`{}` 分组，`<>` 是扁平 Punct——此前
+DSL 全链路自行跟踪 `<>` 深度配对。新增 `angle.rs` 在管线入口一趟扫描：
+
+- **`angle_collect`**：真实 `None` 组扁平化（宏变量展开产物，内容即 DSL token，
+  内容里的 `<` 照常配对）+ 扁平 `<...>` 配对为 `None` 组（`->` 箭头不参与；
+  孤立 `<` 保持扁平）；`Paren`/`Bracket` 递归进入（DSL 容器）、`Brace` 不进入
+  （body 透传，`a < b` 是真实代码）
+- **`render_angles`**：输出侧镜像（`None` 组 → `<...>` 扁平），三个宏入口
+  出口统一收口；重建 `Paren`/`Bracket` 时**保留原 span**（修复 doc 属性等
+  Bracket 组 span 变 call_site 导致的 clippy 诊断映射问题）
+- **parse 层简化**：`parse_generic` / `parse_type_params` 直接找尖括号组；
+  `matching_angle` / `ScanMode::Strict` 删除；`scan_with` 深度分支仅兜底
+  孤立 `<>`（非法输入透传兼容）
+- **`A<>` 展开**：识别尖括号组（空 / 纯绑定），产物直接构造尖括号组
+- 测试：`angle.rs` 往返单测（配对 / 嵌套 / 箭头守卫 / 孤立 `<` /
+  None 组扁平化）、fuzz 生成器加 `None` 组变体（宏变量展开产物模拟）
+- 行为零变化（全量测试通过，fuzz 全管线兜底）
+
 ## 0.5.5 (2026-08-03)
 
 ### `A<>`：trait 泛型照抄 + 泛型自动化只认同名

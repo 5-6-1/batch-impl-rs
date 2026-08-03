@@ -2,64 +2,50 @@
 //!
 //! 提供 `<...>` 泛型参数的匹配、解析与相关辅助函数。
 
-use proc_macro2::{Ident, TokenTree};
+use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::parse::parse_item;
-use crate::scan::{
-    Cursor, ScanMode, is_punct, is_single_colon, scan_stop, scan_with,
-};
+use crate::scan::{Cursor, is_single_colon, scan_stop};
 use crate::types::*;
 
 // ============================================================
 // 尖括号与泛型参数
 // ============================================================
 
-/// 在 base 后找 `<...>` 泛型参数（base 不能为空，返回 (base, args, rest)）
+/// 在 base 后找尖括号组（`Delimiter::None`，由 `angle_collect` 配对产生），
+/// 返回 (base, args, rest)。base 不能为空（空 = 类型参数列表，走 [`parse_type_params`]）。
 pub(crate) fn parse_generic(
     tokens: &[TokenTree],
-) -> Option<(&[TokenTree], &[TokenTree], &[TokenTree])> {
-    // 找第一个 `<`
-    let mut i = 0usize;
-    let mut open = None;
-    while i < tokens.len() {
-        if is_punct(&tokens[i], '<') {
-            open = i.into();
-            break;
+) -> Option<(Vec<TokenTree>, TokenStream, Vec<TokenTree>)> {
+    for (i, token) in tokens.iter().enumerate() {
+        if let TokenTree::Group(g) = token
+            && g.delimiter() == Delimiter::None
+        {
+            if i == 0 {
+                return None;
+            }
+            return Some((
+                tokens[..i].to_vec(),
+                g.stream(),
+                tokens[i + 1..].to_vec(),
+            ));
         }
-        i += 1;
     }
-    let open = open?;
-    if open == 0 {
-        return None;
-    }
-    let close = matching_angle(tokens, open)?;
-    (
-        &tokens[..open],
-        &tokens[open + 1..close],
-        &tokens[close + 1..],
-    )
-        .into()
+    None
 }
 
-/// 以 `<` 开头的裸泛型参数列表解析
+/// 以尖括号组开头的裸泛型参数列表解析（`<'a, T: Clone>`）。
 pub(crate) fn parse_type_params(
     tokens: &[TokenTree],
-) -> Option<(&[TokenTree], &[TokenTree])> {
-    if !matches!(tokens.first(), Some(token) if is_punct(token, '<')) {
+) -> Option<(TokenStream, Vec<TokenTree>)> {
+    let TokenTree::Group(g) = tokens.first()? else {
+        return None;
+    };
+    if g.delimiter() != Delimiter::None {
         return None;
     }
-    let close = matching_angle(tokens, 0)?;
-    (&tokens[1..close], &tokens[close + 1..]).into()
-}
-
-/// 严格配对：找到 open 处 `<` 对应的 `>`；深度失衡返回 None。
-///
-/// 基于 `scan_with(Strict)` 实现：截取 `tokens[open..]` 后扫描，
-/// 找到的索引加回 `open` 还原到原 token 序列的位置。
-pub(crate) fn matching_angle(tokens: &[TokenTree], open: usize) -> Option<usize> {
-    let sub = &tokens[open..];
-    scan_with(sub, &[], ScanMode::Strict).map(|i| i + open)
+    Some((g.stream(), tokens[1..].to_vec()))
 }
 
 /// 判断 base 是否与 trait_name 重名（用于区分 `TraitName<T>` 与普通泛型）

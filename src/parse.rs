@@ -17,7 +17,7 @@ use crate::generic::{
 use crate::parse_atom::{
     parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
 };
-use crate::scan::{Cursor, is_punct};
+use crate::scan::Cursor;
 use crate::types::*;
 
 // ============================================================
@@ -259,31 +259,35 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     }
 
     if let Some((base, args, rest)) = parse_generic(tokens) {
-        let params = parse_angle_bracket_contents(args, trait_name);
-        let generic = if is_trait_base(base, trait_name) {
+        let args_vec: Vec<_> = args.into_iter().collect();
+        let params = parse_angle_bracket_contents(&args_vec, trait_name);
+        let generic = if is_trait_base(&base, trait_name) {
             TyTrait(base.iter().cloned().collect(), params).into()
         } else {
+            // rest 非空且不是尖括号组（`Vec<T><U>` 是连续泛型，走 apply）：
+            // 其他（如 `Vec<T>U`）视为透传
             if !rest.is_empty()
-                && !matches!(rest.first(), Some(t) if is_punct(t, '<'))
+                && !matches!(rest.first(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::None)
             {
                 return primitive(tokens);
             }
-            TyGeneric(primitive(base).into(), params).into()
+            TyGeneric(primitive(&base).into(), params).into()
         };
         return if rest.is_empty() {
             generic
         } else {
-            generic.apply(parse_primitive(rest, trait_name))
+            generic.apply(parse_primitive(&rest, trait_name))
         };
     }
 
     if let Some((args, rest)) = parse_type_params(tokens) {
-        let params = parse_angle_bracket_contents(args, trait_name);
+        let args_vec: Vec<_> = args.into_iter().collect();
+        let params = parse_angle_bracket_contents(&args_vec, trait_name);
         let params = params.into();
         return if rest.is_empty() {
             params
         } else {
-            params.apply(parse_primitive(rest, trait_name))
+            params.apply(parse_primitive(&rest, trait_name))
         };
     }
 

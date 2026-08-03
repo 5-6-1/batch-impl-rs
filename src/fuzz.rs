@@ -66,6 +66,8 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
             prop::strategy::Just(Delimiter::Parenthesis),
             prop::strategy::Just(Delimiter::Bracket),
             prop::strategy::Just(Delimiter::Brace),
+            // None 组模拟宏变量展开产物——angle_collect 应扁平化（内容即 DSL token）
+            prop::strategy::Just(Delimiter::None),
         ]
         .prop_flat_map(move |d| {
             tokens(depth - 1).prop_map(move |inner| Tok::Group(d, inner))
