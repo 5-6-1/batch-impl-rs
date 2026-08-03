@@ -3,7 +3,7 @@
 mod generic;
 mod parse_atom;
 
-use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 
 use crate::apply::{Apply, err_ty};
 use crate::ast::*;
@@ -159,7 +159,7 @@ struct TrailingBody<'a> {
 /// 分离尾部 `{...}` 代码块（`macro!{...}` 不是尾部代码块；`where{...}` 记为谓词）
 fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
     match tokens.last() {
-        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
+        Some(TokenTree::Group(group)) if group.delimiter() == delimiter![{}] => {
             // macro!{...} 不是尾部代码块，排除
             if tokens.len() >= 2
                 && let TokenTree::Punct(p) = &tokens[tokens.len() - 2]
@@ -263,7 +263,7 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
             // rest 非空且不是尖括号组（`Vec<T><U>` 是连续泛型，走 apply）：
             // 其他（如 `Vec<T>U`）视为透传
             if !rest.is_empty()
-                && !matches!(rest.first(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::None)
+                && !matches!(rest.first(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>])
             {
                 return primitive(tokens);
             }

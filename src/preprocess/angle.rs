@@ -1,24 +1,25 @@
 //! 尖括号收集预处理。
 //!
 //! proc-macro2 的 tokenizer 只对 `()`/`[]`/`{}` 分组，`<>` 是扁平 Punct——
-//! 本模块在 DSL 解析前把扁平 `<...>` 配对收集为 `Delimiter::None` 组
-//! （内部称"尖括号组"），使下游 parse 层不再需要 `<>` 深度跟踪。
+//! 本模块在 DSL 解析前把扁平 `<...>` 配对收集为尖括号组
+//! （载体是 `delimiter![<>]` = `Delimiter::None`），使下游 parse 层
+//! 不再需要 `<>` 深度跟踪。
 //!
 //! [`angle_collect`] 一趟扫描同时做两件事：
 //! - **真实 `None` 组扁平化**：输入（源码 token）本不该有 `None` 组，
 //!   它只来自宏变量（`$var:ty`）展开——其内容就是 DSL token，扁平化后
 //!   与直接书写等价（内容里的 `<` 会被本趟配对还原）；
 //! - **`<...>` 配对**：扁平 `<` 找匹配 `>`（`->` 箭头的 `>` 不参与配对），
-//!   内容递归处理（嵌套 `<`、Paren/Bracket 组），结果包为 `None` 组。
+//!   内容递归处理（嵌套 `<`、Paren/Bracket 组），结果包为尖括号组。
 //!
 //! 递归规则：`Paren`/`Bracket` 是 DSL 容器（元组/列表，内含类型表达式）
 //! → 递归进入；`Brace` 是透传代码（body，`a < b` 是真实比较）→ 不进入。
 //!
-//! [`render_angles`] 是输出侧镜像：把 `None` 组还原为 `<` + 内容 + `>`
-//! 扁平 token（输出里 `None` 组只可能来自本模块配对——输入的真实
+//! [`render_angles`] 是输出侧镜像：把尖括号组还原为 `<` + 内容 + `>`
+//! 扁平 token（输出里的尖括号组只可能来自本模块配对——输入的真实
 //! `None` 组已被 [`angle_collect`] 扁平化）。
 
-use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
+use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::diagnostic::compile_error_str;
 use crate::scan::is_arrow;
@@ -39,13 +40,13 @@ pub(crate) fn angle_collect(
     while i < tokens.len() {
         match &tokens[i] {
             // 真实 None 组：内容就是 DSL token，扁平化（内容里的 `<` 由本趟配对）
-            TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
+            TokenTree::Group(g) if g.delimiter() == delimiter![none] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
                 out.extend(angle_collect(&inner)?);
                 i += 1;
             }
             // DSL 元组：递归进入（内容含类型表达式）
-            TokenTree::Group(g) if g.delimiter() == Delimiter::Parenthesis => {
+            TokenTree::Group(g) if g.delimiter() == delimiter![()] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
                 out.push(
                     Group::new(
@@ -57,7 +58,7 @@ pub(crate) fn angle_collect(
                 i += 1;
             }
             // DSL 列表 / 宏体 / 属性：`ident![...]` 与 `#[...]` 透传（内容任意 Rust）
-            TokenTree::Group(g) if g.delimiter() == Delimiter::Bracket => {
+            TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
                 if i > 0
                     && matches!(&tokens[i - 1], TokenTree::Punct(p)
                         if p.as_char() == '!' || p.as_char() == '#')
@@ -90,7 +91,7 @@ pub(crate) fn angle_collect(
                 let inner: Vec<_> = tokens[i + 1..close].to_vec();
                 out.push(
                     Group::new(
-                        Delimiter::None,
+                        delimiter![<>],
                         angle_collect(&inner)?.into_iter().collect(),
                     )
                     .into(),
@@ -133,18 +134,18 @@ fn is_punct(token: &TokenTree, ch: char) -> bool {
     matches!(token, TokenTree::Punct(p) if p.as_char() == ch)
 }
 
-/// 输出转换：递归把 `None` 组还原为 `<` + 内容 + `>` 扁平 token。
-/// 供三个宏入口的返回值收口（quote 插值会把 `None` 组散布到输出各处）。
+/// 输出转换：递归把尖括号组（`delimiter![<>]`）还原为 `<` + 内容 + `>` 扁平 token。
+/// 供三个宏入口的返回值收口（quote 插值会把尖括号组散布到输出各处）。
 ///
-/// 递归规则与 [`angle_collect`] 一致：`None` 组 → 转 `<...>`（内部递归）；
-/// `Paren`/`Bracket`（配对时递归进入过，内部可能有嵌套 `None` 组）→ 重建并递归；
-/// `Brace`（透传代码，`angle_collect` 从未进入 → 内部不可能有 `None` 组）→
+/// 递归规则与 [`angle_collect`] 一致：尖括号组 → 转 `<...>`（内部递归）；
+/// `Paren`/`Bracket`（配对时递归进入过，内部可能有嵌套尖括号组）→ 重建并递归；
+/// `Brace`（透传代码，`angle_collect` 从未进入 → 内部不可能有尖括号组）→
 /// **原样透传，不重建**（保留 span，避免影响透传代码与诊断映射）。
 pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
     let mut out = TokenStream::new();
     for tt in stream {
         match tt {
-            TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
+            TokenTree::Group(g) if g.delimiter() == delimiter![<>] => {
                 let inner = render_angles(g.stream());
                 out.extend([TokenTree::from(proc_macro2::Punct::new(
                     '<',
@@ -157,10 +158,7 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
                 ))]);
             }
             TokenTree::Group(g)
-                if matches!(
-                    g.delimiter(),
-                    Delimiter::Parenthesis | Delimiter::Bracket
-                ) =>
+                if matches!(g.delimiter(), delimiter![()] | delimiter![[]]) =>
             {
                 let inner = render_angles(g.stream());
                 // 重建并恢复原 span（否则 doc 属性等 Bracket 组 span 变 call_site，

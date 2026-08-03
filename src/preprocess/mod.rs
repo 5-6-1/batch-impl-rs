@@ -1,5 +1,40 @@
 //! 预处理层：指令展开、裸 where 改写、尖括号组配对。
 
+// ============================================================
+// 分隔符拼写宏
+// ============================================================
+
+/// 分隔符拼写宏：统一 `Delimiter::*` 字面量为源码分隔符拼写
+/// （调用统一用 `[]`）——`delimiter![{}]` / `delimiter![[]]` /
+/// `delimiter![()]` 与源码一一对应。
+///
+/// proc-macro2 的 `Delimiter` 无"尖括号"变体，`<>` 必须借用 `Delimiter::None`
+/// 承载——而 `None` 本身也是真实"透明组"的拼写。为避免两义，宏用两种拼写
+/// 区分：
+/// - `delimiter![<>]`：**尖括号组**载体（`angle_collect` 配对产物）；
+/// - `delimiter![none]`：**真实透明组**（宏变量 `$var:ty` 展开产物，
+///   内容即 DSL token，需扁平化）。
+///
+/// 二者展开值相同（`Delimiter::None`），不可在同一条 `match` 中作两个臂
+/// （会报 unreachable pattern）；实际用法分布在互斥的上下文，无冲突。
+macro_rules! delimiter {
+    ({}) => {
+        ::proc_macro2::Delimiter::Brace
+    };
+    ([]) => {
+        ::proc_macro2::Delimiter::Bracket
+    };
+    (()) => {
+        ::proc_macro2::Delimiter::Parenthesis
+    };
+    (<>) => {
+        ::proc_macro2::Delimiter::None
+    };
+    (none) => {
+        ::proc_macro2::Delimiter::None
+    };
+}
+
 pub(crate) mod angle;
 pub(crate) mod preprocess_helpers;
 pub(crate) mod where_process;
@@ -8,7 +43,7 @@ pub(crate) use angle::*;
 pub(crate) use preprocess_helpers::*;
 pub(crate) use where_process::*;
 
-use proc_macro2::{Delimiter, Group, Ident, TokenStream, TokenTree};
+use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
@@ -62,7 +97,7 @@ pub(crate) fn expand_tokens(
         // 只递归展开 [...] 内容（`(...)` 和 `{...}` 不递归）；
         // `ident![...]` 宏调用体是透传的宏参数，不展开其中的指令
         if let TokenTree::Group(g) = tt
-            && g.delimiter() == Delimiter::Bracket
+            && g.delimiter() == delimiter![[]]
             && !cursor.prev_is_punct('!')
         {
             let inner = expand_tokens(
@@ -87,7 +122,7 @@ fn expand_directive(
 ) -> Result<TokenTree, TokenStream> {
     if let Some(TokenTree::Group(args)) = cursor.peek_at(2) {
         match args.delimiter() {
-            Delimiter::Brace => {
+            delimiter![{}] => {
                 // `#name{body}` — item 名紧跟 `{body}`（fn / const / type 通用）
                 cursor.bump(); // #
                 cursor.bump(); // method_name
@@ -103,7 +138,7 @@ fn expand_directive(
                         name
                     )));
                 };
-                if body.delimiter() != Delimiter::Brace {
+                if body.delimiter() != delimiter![{}] {
                     return Err(compile_error_str(&format!(
                         "`#{}` 后期望 `(args)` + `{{body}}` 或直接 `{{body}}`",
                         name
@@ -124,7 +159,7 @@ fn expand_directive(
                         let inner = quote! {
                             #name ! { #args #body #trait_def }
                         };
-                        Ok(Group::new(Delimiter::Brace, inner).into())
+                        Ok(Group::new(delimiter![{}], inner).into())
                     }
                 }
             }
@@ -144,7 +179,7 @@ fn expand_single(
     method_name: &Ident, body: &Group, trait_def: &ItemTrait,
 ) -> Result<TokenTree, TokenStream> {
     let item = get_trait_item(trait_def, method_name)?;
-    Ok(Group::new(Delimiter::Brace, build_from_item(item, &body.stream())).into())
+    Ok(Group::new(delimiter![{}], build_from_item(item, &body.stream())).into())
 }
 
 /// 多 item 指令展开的公共骨架：解析方法名列表 → 逐 item 构造实现 → 打包为 `{...}` 组。
@@ -162,7 +197,7 @@ fn expand_many(
         let item = get_trait_item(trait_def, name)?;
         methods.extend(build(name, item)?);
     }
-    Ok(Group::new(Delimiter::Brace, methods).into())
+    Ok(Group::new(delimiter![{}], methods).into())
 }
 
 /// `#fill(args){body}` → `{fn m1(sig){body} fn m2(sig){body} ...}`

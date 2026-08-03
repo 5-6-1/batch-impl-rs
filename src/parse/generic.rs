@@ -2,7 +2,7 @@
 //!
 //! 提供 `<...>` 泛型参数的匹配、解析与相关辅助函数。
 
-use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::ast::*;
@@ -13,14 +13,14 @@ use crate::scan::{Cursor, is_single_colon, scan_stop};
 // 尖括号与泛型参数
 // ============================================================
 
-/// 在 base 后找尖括号组（`Delimiter::None`，由 `angle_collect` 配对产生），
+/// 在 base 后找尖括号组（`delimiter![<>]`，由 `angle_collect` 配对产生），
 /// 返回 (base, args, rest)。base 不能为空（空 = 类型参数列表，走 [`parse_type_params`]）。
 pub(crate) fn parse_generic(
     tokens: &[TokenTree],
 ) -> Option<(Vec<TokenTree>, TokenStream, Vec<TokenTree>)> {
     for (i, token) in tokens.iter().enumerate() {
         if let TokenTree::Group(g) = token
-            && g.delimiter() == Delimiter::None
+            && g.delimiter() == delimiter![<>]
         {
             if i == 0 {
                 return None;
@@ -42,7 +42,7 @@ pub(crate) fn parse_type_params(
     let TokenTree::Group(g) = tokens.first()? else {
         return None;
     };
-    if g.delimiter() != Delimiter::None {
+    if g.delimiter() != delimiter![<>] {
         return None;
     }
     Some((g.stream(), tokens[1..].to_vec()))

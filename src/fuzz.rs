@@ -64,11 +64,11 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         prop::collection::vec(leaf, 0..6).boxed()
     } else {
         let grouped = prop_oneof![
-            prop::strategy::Just(Delimiter::Parenthesis),
-            prop::strategy::Just(Delimiter::Bracket),
-            prop::strategy::Just(Delimiter::Brace),
-            // None 组模拟宏变量展开产物——angle_collect 应扁平化（内容即 DSL token）
-            prop::strategy::Just(Delimiter::None),
+            prop::strategy::Just(delimiter![()]),
+            prop::strategy::Just(delimiter![[]]),
+            prop::strategy::Just(delimiter![{}]),
+            // 真实 None 组模拟宏变量展开产物——angle_collect 应扁平化（内容即 DSL token）
+            prop::strategy::Just(delimiter![none]),
         ]
         .prop_flat_map(move |d| {
             tokens(depth - 1).prop_map(move |inner| Tok::Group(d, inner))

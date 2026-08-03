@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.7 (2026-08-03)
+
+### `delimiter!` 分隔符拼写宏
+
+`macro_rules! delimiter` 定义在 `preprocess/mod.rs` 顶部（经
+`#[macro_use] mod preprocess;` 导入 crate 根），用源码分隔符拼写统一取缔
+散落的 `Delimiter::*` 字面量，调用统一用 `[]` 定界：
+`delimiter![{}]` / `delimiter![[]]` / `delimiter![()]` 与源码一一对应。
+`Delimiter::None` 在本 crate 有**两种语义**，用两种拼写区分，避免割裂：
+
+- `delimiter![<>]`：**尖括号组**载体（`angle_collect` 配对产物）；
+- `delimiter![none]`：**真实透明组**（宏变量 `$var:ty` 展开产物，需扁平化）。
+
+- 全库 43 处 `Delimiter` 使用点收敛（`fuzz.rs` 的枚举类型字段保留；
+  二者展开值相同，不可在同一条 `match` 中作两个臂——实际分布在不同
+  上下文，无冲突）
+- 修 angle.rs 模块文档中悬空的 `ANGLE_BRACKET` 引用（改为 `delimiter![<>]`）
+- 说明：proc-macro crate 禁止 `#[macro_export]`（`cannot export macro_rules!
+  from a proc-macro crate`），宏无法定义在 `angle.rs` 并全 crate 可见；
+  故置于其父模块 `preprocess` 顶部（文本作用域要求其声明先于所有使用者）
+- 行为零变化（全量测试通过）
+
 ## 0.5.6 (2026-08-03)
 
 ### src 按层分目录

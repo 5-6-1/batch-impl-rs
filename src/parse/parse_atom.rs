@@ -3,7 +3,7 @@ use crate::ast::*;
 use crate::parse::generic::empty;
 use crate::parse::{parse_item, parse_primitive};
 use crate::scan::{Cursor, contains_punct};
-use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
 
 /// `#[...]` 属性解析
 pub(crate) fn parse_attribute(
@@ -11,7 +11,7 @@ pub(crate) fn parse_attribute(
 ) -> Option<(TokenStream, &[TokenTree])> {
     match tokens {
         [TokenTree::Punct(hash), TokenTree::Group(group), rest @ ..]
-            if hash.as_char() == '#' && group.delimiter() == Delimiter::Bracket =>
+            if hash.as_char() == '#' && group.delimiter() == delimiter![[]] =>
         {
             (group.stream(), rest).into()
         }
@@ -26,7 +26,7 @@ pub(crate) fn parse_function(
     let [TokenTree::Ident(name), TokenTree::Group(args), rest @ ..] = tokens else {
         return None;
     };
-    if name != "fn" || args.delimiter() != Delimiter::Parenthesis {
+    if name != "fn" || args.delimiter() != delimiter![()] {
         return None;
     }
 
@@ -122,7 +122,7 @@ pub(crate) fn parse_group(
 ) -> Ty {
     let contents = group.stream().into_iter().collect::<Vec<_>>();
     match group.delimiter() {
-        Delimiter::Parenthesis => {
+        delimiter![()] => {
             if contents.is_empty() || contains_punct(&contents, ',') {
                 TyTuple(parse_list(&contents, Op::Comma, trait_name)).into()
             } else {
@@ -133,7 +133,7 @@ pub(crate) fn parse_group(
                 .into()
             }
         }
-        Delimiter::Bracket => {
+        delimiter![[]] => {
             // 有逗号是并列列表；否则以 `;`（Op::Semi）区分定长数组与切片。
             // 空 `[]` 是数组/切片 builder 基座 `(None, None)`。
             if contains_punct(&contents, ',') {
@@ -154,7 +154,7 @@ pub(crate) fn parse_group(
                 }
             }
         }
-        Delimiter::Brace => TyWithCode(None, TyCodeBlock(group.stream())).into(),
+        delimiter![{}] => TyWithCode(None, TyCodeBlock(group.stream())).into(),
         _ => empty(),
     }
 }

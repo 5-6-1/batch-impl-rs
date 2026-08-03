@@ -12,7 +12,7 @@
 //! 因此 `Fn({code})` 这类括号内代码块不会误判为 body 边界；仅**不平衡**的
 //! 括号（本就是非法输入）才可能受影响。
 
-use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
+use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::diagnostic::compile_error_str;
 use crate::scan::Cursor;
@@ -31,7 +31,7 @@ pub(crate) fn where_process(
             && ident == "where"
             && i + 1 < tokens.len()
             && !matches!(&tokens[i+1],TokenTree::Group(g)
-                if g.delimiter() == Delimiter::Brace)
+                if g.delimiter() == delimiter![{}])
         {
             let Some((where_body, rest_index)) = scan_body_boundary(&tokens[i + 1..])
             else {
@@ -43,7 +43,7 @@ pub(crate) fn where_process(
             result.push(where_body);
             i += 1 + rest_index;
         } else if let TokenTree::Group(g) = &tokens[i]
-            && g.delimiter() == Delimiter::Bracket
+            && g.delimiter() == delimiter![[]]
             // `ident![...]` 宏调用体是透传的宏参数，不递归（与 `ident!{...}` 一致）
             && !(i > 0
                 && matches!(&tokens[i - 1], TokenTree::Punct(p)
@@ -51,9 +51,7 @@ pub(crate) fn where_process(
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
             let vt = where_process(&mut Cursor::new(&v))?;
-            result.push(
-                Group::new(Delimiter::Bracket, vt.into_iter().collect()).into(),
-            );
+            result.push(Group::new(delimiter![[]], vt.into_iter().collect()).into());
             i += 1
         } else {
             result.push(tokens[i].clone());
@@ -70,25 +68,19 @@ fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
     while j < tokens.len() {
         match &tokens[j] {
             TokenTree::Group(g)
-                if g.delimiter() == Delimiter::Brace && !is_macro_body(tokens, j) =>
+                if g.delimiter() == delimiter![{}] && !is_macro_body(tokens, j) =>
             {
                 return (
-                    Group::new(
-                        Delimiter::Brace,
-                        result.into_iter().cloned().collect(),
-                    )
-                    .into(),
+                    Group::new(delimiter![{}], result.into_iter().cloned().collect())
+                        .into(),
                     j,
                 )
                     .into();
             }
             TokenTree::Ident(w) if w == "where" => {
                 return (
-                    Group::new(
-                        Delimiter::Brace,
-                        result.into_iter().cloned().collect(),
-                    )
-                    .into(),
+                    Group::new(delimiter![{}], result.into_iter().cloned().collect())
+                        .into(),
                     j,
                 )
                     .into();

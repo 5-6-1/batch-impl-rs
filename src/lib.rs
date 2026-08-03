@@ -5,6 +5,10 @@
 // MSVC 链接器输出"正在创建库…和对象…"到 stdout，被 rustc 当 linker_messages 告警，
 // 属于无害的 Windows 链接产物提示，全局抑制。
 #![allow(linker_messages)]
+// `delimiter!` 宏定义在 preprocess 顶部，经 `#[macro_use]` 导入 crate 根；
+// 文本作用域要求其声明先于所有使用者（fuzz / parse / 本模块）。
+#[macro_use]
+pub(crate) mod preprocess;
 #[cfg(test)]
 mod fuzz;
 use proc_macro2::{TokenStream, TokenTree};
@@ -18,15 +22,15 @@ mod codegen;
 mod diagnostic;
 mod parse;
 mod path_prefix;
-mod preprocess;
 mod scan;
 
 use batch_trait_entry::parse_batch_trait_entry;
 
 use ast::{Op, reset_fresh_counter};
 use diagnostic::compile_error_str;
-use preprocess::where_process;
-use preprocess::{build_from_item, get_trait_item, parse_names_from_tokens};
+use preprocess::{
+    build_from_item, get_trait_item, parse_names_from_tokens, where_process,
+};
 use scan::{Cursor, scan_stop};
 
 /// 为 trait 批量生成 `impl` 块的属性宏。
@@ -334,11 +338,7 @@ fn expand_empty_trait_generics(
             // DSL 语法（不展开）。组内的 `Ident<>`（嵌套如 `B<A<>>`）不处理。
             TokenTree::Ident(id) => {
                 let group = match tokens.get(i + 1) {
-                    Some(TokenTree::Group(g))
-                        if g.delimiter() == proc_macro2::Delimiter::None =>
-                    {
-                        g
-                    }
+                    Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>] => g,
                     _ => {
                         out.push(tokens[i].clone());
                         i += 1;
@@ -354,7 +354,7 @@ fn expand_empty_trait_generics(
                         trait_def.generics.params.iter().collect();
                     out.push(
                         proc_macro2::Group::new(
-                            proc_macro2::Delimiter::None,
+                            delimiter![<>],
                             quote!(#(#all_params),*),
                         )
                         .into(),
@@ -366,13 +366,7 @@ fn expand_empty_trait_generics(
                         let bind_ts: TokenStream = args.iter().cloned().collect();
                         quote!(#(#arg_names),* , #bind_ts)
                     };
-                    out.push(
-                        proc_macro2::Group::new(
-                            proc_macro2::Delimiter::None,
-                            args_ts,
-                        )
-                        .into(),
-                    );
+                    out.push(proc_macro2::Group::new(delimiter![<>], args_ts).into());
                     i += 2;
                 } else {
                     out.push(tokens[i].clone());
@@ -533,7 +527,7 @@ pub fn batch_preprocess_test(
         )
         .into();
     };
-    if names_group.delimiter() != proc_macro2::Delimiter::Parenthesis {
+    if names_group.delimiter() != delimiter![()] {
         return compile_error_str(
             "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
         )
@@ -545,7 +539,7 @@ pub fn batch_preprocess_test(
         )
         .into();
     };
-    if body_group.delimiter() != proc_macro2::Delimiter::Brace {
+    if body_group.delimiter() != delimiter![{}] {
         return compile_error_str(
             "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
         )
@@ -630,7 +624,7 @@ mod angle_tests {
     fn none_group_flattened() {
         // 真实 None 组（宏变量展开产物）：扁平化后内容里的 <...> 照常配对
         let inner: TS2 = FromStr::from_str("Vec<T>").unwrap();
-        let none = proc_macro2::Group::new(proc_macro2::Delimiter::None, inner);
+        let none = proc_macro2::Group::new(delimiter![none], inner);
         let collected = preprocess::angle_collect(&[none.into()]).unwrap();
         let rendered = preprocess::render_angles(collected.into_iter().collect());
         assert_eq!(rendered.to_string(), "Vec < T >");
