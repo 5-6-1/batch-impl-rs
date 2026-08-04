@@ -2,14 +2,55 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## 0.5.8 (2026-08-03)
+## 0.6.0 (2026-08-04)
 
-### 文档重组
+### 新特性：`@` 常量系统（类型矩阵命名复用）
+
+`@` 常量在预处理阶段展开为字面列表，与手写逐 token 等价：
+
+- **内置名字族**：`@uint` / `@int` / `@float` / `@num` / `@scalar`
+  （如 `#[batch_impl(@scalar)]` 一行生成 16 个 impl：u8..char）；
+- **内置范围族**：`@u8..u128` / `@i8..i128` / `@f32..f64`（**含端点**，
+  宽度校验；`@u8..u128` = `[u8, u16, u32, u64, u128]`）；
+- **用户自定义**（仅 `batch_trait!`）：前导 `@name=值;` 段，后续段落跨
+  trait 复用。值是**任意 token**（**懒展开**——原样入库，引用处拼接后递归
+  展开），可直接写 DSL 运算（`@wrapped=[Box,Rc]^@num`）或链式引用其他常量
+  （`@chain=@wrapped`）；循环引用（`@a=@a`）与前向引用（`@a=@b` 定义在后）
+  在定义处报错；
+- 未知 `@xxx`、范围端点非法、自定义与内置重名均 `compile_error!`。
+
+### 新特性：`#blanket(methods){包装列表}` — 覆盖式委托
+
+`#blanket(#all){&,Box,Rc}` 为每个包装类型生成一段完整委托 spec——免写包装
+矩阵与委托体。先给内部类型实现 trait，再 blanket 覆盖包装
+（`impl<T: Trait> Trait for Box<T>` 等）。
+
+- **包装元素为任意类型表达式**：`&`/`&mut`/`Box`/`Rc`/`Arc`/自定义智能指针/
+  嵌套（`Box^Arc:2` → `Box<Arc<T>>`）/预填（`Cow<'_>` → `Cow<'_, T>`）；
+- **`:N` 深度标注**：委托体 `*` 数量 = N + 1（`Box^Arc:2` → `***self`），
+  默认 1——宏不猜包装内部 Deref 层数，嵌套须显式标注；
+- **泛型 trait 支持**（`trait Foo<X: Clone>`）：trait 形参照抄为 impl 泛型 +
+  实参填参数名 + trait 级 where 谓词透传（`impl<X: Clone, T: Foo<X>>
+  Foo<X> for 包装<T> where ...`）；
+- **assoc type / const 委托**：`#all` 含 const/type 项时生成投影
+  `type Item = <T as Foo<X>>::Item;` / `const N: Ty = <T as Foo<X>>::N;`——
+  带必需关联类型的 trait 也能 blanket 覆盖；
+- `*const`/`*mut`、`self`、空元素/非法 `:N` 报错，引导手写 `#delegate`；
+  by-value receiver 方法委托语义依赖包装的 Deref/move 能力，维持全放行 +
+  rustc 兜底（文档警示）。
+
+### 行为变化
+
+- 指令展开协议改为 `Vec<TokenTree>`（内部）：既有指令产物不变（单 `{...}`
+  组），`#blanket` 等多产物指令成为可能。用户无感知。
+
+### 文档
 
 - README 精简为推销版（为什么要用它、心智模型、快速开始、特性一览），
   完整教程独立到 `docs/tutorial.md`，开发者文档独立到 `docs/architecture.md`
 - CHANGELOG 拆分为本文件（用户视角）与 `docs/dev-changelog.md`（开发者视角）
-- 无代码变化
+- 教程新增 `@` 常量与 `#blanket` 章节；架构文档新增「语法域隔离」与
+  「附着语义」章节
 
 ## 0.5.7 (2026-08-03)
 

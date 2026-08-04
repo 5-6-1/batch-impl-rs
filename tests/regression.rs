@@ -423,6 +423,22 @@ fn cmp_path_prefix_trait_generic() {
     assert_eq!(vec![String::from("x")].head(), "x");
 }
 
+// 路径前缀 + #blanket：委托 bound 须用完整外部路径（裸 dummy 名解析不到）
+#[batch_impl_only(
+    #ext::traits::PathPrefixTrait: u8 #tag{"u8"},
+    #blanket(#all){&, Box}
+)]
+trait PathPrefixTrait {
+    fn tag(&self) -> &'static str;
+}
+
+#[test]
+fn cmp_path_prefix_blanket() {
+    // `&u8` 同时匹配 u8 自身 impl 与 blanket `&T` impl，需 UFCS 消歧
+    assert_eq!(<&u8 as PathPrefixTrait>::tag(&&0u8), "u8");
+    assert_eq!(Box::new(1u8).tag(), "u8");
+}
+
 // ============================================================
 // 19. 数组/切片 builder：`TyPrimitiveArray` 合并 TySlice + TyFixedArray
 //     - `[]^T` => `[T]`（空基座包出切片）

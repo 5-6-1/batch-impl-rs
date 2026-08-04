@@ -75,20 +75,20 @@ trait Zero {
 
 优先级从低到高：`;` < `,` < `-` < `^`，`()` 分组在所有运算符之上。
 
-| 写法                     | 展开                              |
-|--------------------------|-----------------------------------|
-| `Box^T`                  | `Box<T>`                          |
-| `Box^<X,Y>`              | `Box<X, Y>`（多参容器）           |
-| `Box^Box^T`              | `Box<Box<T>>`（右结合嵌套）       |
-| `HashMap<K>^V`           | `HashMap<K, V>`（预填泛型追加）   |
-| `&^Box^T`                | `&Box<T>`（修饰符链式应用）       |
-| `Vec-u32`                | `Vec<u32>`                        |
+| 写法                     | 展开                                 |
+|--------------------------|--------------------------------------|
+| `Box^T`                  | `Box<T>`                             |
+| `Box^<X,Y>`              | `Box<X, Y>`（多参容器）              |
+| `Box^Box^T`              | `Box<Box<T>>`（右结合嵌套）          |
+| `HashMap<K>^V`           | `HashMap<K, V>`（预填泛型追加）      |
+| `&^Box^T`                | `&Box<T>`（修饰符链式应用）          |
+| `Vec-u32`                | `Vec<u32>`                           |
 | `HashMap-u32-String`     | `HashMap<u32, String>`（左结合累加） |
-| `fn^(A,B)-C`             | `fn(A,B)->C`                      |
-| `[Box, Vec]^T`           | `Box<T>, Vec<T>`                  |
-| `Box^[T1, T2]`           | `Box<T1>, Box<T2>`                |
-| `[Box, Vec]^[T1, T2]`    | 笛卡尔积共 4 项                   |
-| `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>`        |
+| `fn^(A,B)-C`             | `fn(A,B)->C`                         |
+| `[Box, Vec]^T`           | `Box<T>, Vec<T>`                     |
+| `Box^[T1, T2]`           | `Box<T1>, Box<T2>`                   |
+| `[Box, Vec]^[T1, T2]`    | 笛卡尔积共 4 项                      |
+| `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>`           |
 
 > **注意**：`Box^Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box^Vec^u32`。
 
@@ -376,6 +376,77 @@ trait AddInc {
 > （`usize #batch_preprocess_test(...){...}, isize #batch_preprocess_test(...){...}`），
 > trait 定义仍只来自 `#[batch_impl]` 输出的 trait，不会重复。
 
+### `#blanket(methods){包装列表}` — 覆盖式委托
+
+为包装类型批量生成委托 impl：`{包装列表}` 里的每个元素**可以是任意类型
+表达式**（`&` / `&mut` / `Box` / `Rc` / `Arc` / `MyPtr` / `Box^Arc` /
+`Cow<'_>`…），各生成一段完整委托 spec。先给内部类型实现 trait，再 blanket
+覆盖包装：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl(u32 { fn name(&self) -> String { self.to_string() } })]
+#[batch_impl(#blanket(#all){&, Box, Rc})]
+trait Name {
+    fn name(&self) -> String;
+}
+// → impl Name for u32 { ... }                       // 第一个 batch_impl
+// → impl<T: Name> Name for &T    { fn name(&self) -> String { (**self).name() } }
+// → impl<T: Name> Name for Box<T> { ... }           // blanket 各包装一段委托
+// → impl<T: Name> Name for Rc<T>  { ... }
+```
+
+**嵌套包装用 `^` 链**（目标类型 = 包装表达式 `^T`，T 为 fresh 泛型），
+`<` 预填是追加语义（`Box<Arc>^T` = `Box<Arc, T>`，错误）：
+`Box^Arc:2` → `Box<Arc<T>>`；`Cow<'_>` → `Cow<'_, T>`。
+
+**委托体解引用层数**：默认 1（`**self`）；嵌套须显式 `:N`（`*` 数量 =
+N + 1，如 `Box^Arc:2` → `***self`）。宏不猜包装内部的 Deref 层数——嵌套
+包装忘标 `:N` 会退化为 rustc 方法不存在错误。
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl(u32 { fn deep(&self) -> u32 { *self } })]
+#[batch_impl(#blanket(deep){Box^Rc:2, Box^Box^Box:3})]
+trait Deep {
+    fn deep(&self) -> u32;
+}
+```
+
+`methods` 与 `#delegate` 相同（`#all` / `#all_methods` / 显式方法名列表）。
+
+**泛型 trait 支持**（`trait Foo<X: Clone>`）：trait 形参照抄为 impl 泛型
+（`impl<X: Clone, T: Foo<X>> Foo<X> for 包装<T> where ...`），trait 级
+where 谓词透传。
+
+**assoc type / const 委托**：`#all` 含 const/type 项时生成投影
+`type Item = <T as Foo<X>>::Item;` / `const N: Ty = <T as Foo<X>>::N;`——
+带必需关联类型的 trait 也能 blanket 覆盖。
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(Foo<u32> u32 {
+    type Item = u8;
+    fn m(&self) -> u32 { *self }
+})]
+#[batch_impl(#blanket(#all){&, Box})]
+trait Foo<X: Clone> {
+    type Item;
+    fn m(&self) -> X;
+}
+// → impl<X: Clone, T: Foo<X>> Foo<X> for Box<T> {
+//     type Item = <T as Foo<X>>::Item;
+//     fn m(&self) -> X { (**self).m() }
+//   }
+```
+
+约束：`*const`/`*mut`（安全代码无法解引用裸指针委托）、`self`（无意义）、
+空元素 / 非法 `:N` 均报错，请手写 `#delegate`。by-value receiver 方法
+（`fn consume(self)`）委托语义取决于包装的 Deref/move 能力，宏展开期无法
+区分——维持全放行，由 rustc 兜底。
+
 ## 8. where 子句
 
 ### `where{...}` 后缀
@@ -453,17 +524,17 @@ trait UnsafeFnType2 {}
 
 ## 10. 修饰符大全
 
-| 修饰符    | 含义                                            |
-|-----------|-------------------------------------------------|
-| `&`       | 引用（`&^T` → `&T`）                            |
-| `&mut`    | 可变引用（`&mut^T` → `&mut T`）                 |
-| `*const`  | 裸指针（`*const^T` → `*const T`）               |
-| `*mut`    | 可变裸指针（`*mut^T` → `*mut T`）               |
-| `self`    | 恒等（`self^T` → `T`）                          |
-| `unsafe`  | 裸 `unsafe^T` = unsafe impl 标记                |
-| `#[attr]` | 属性前缀（`#[attr]^T` → impl 前加属性）          |
-| `[]`      | 空基座（`[]^T` → `[T]`，`[]-T-N` → `[T; N]`）   |
-| `[T]`     | 切片（`[T]^N` → 定长数组 `[T; N]`）             |
+| 修饰符    | 含义                                          |
+|-----------|-----------------------------------------------|
+| `&`       | 引用（`&^T` → `&T`）                          |
+| `&mut`    | 可变引用（`&mut^T` → `&mut T`）               |
+| `*const`  | 裸指针（`*const^T` → `*const T`）             |
+| `*mut`    | 可变裸指针（`*mut^T` → `*mut T`）             |
+| `self`    | 恒等（`self^T` → `T`）                        |
+| `unsafe`  | 裸 `unsafe^T` = unsafe impl 标记              |
+| `#[attr]` | 属性前缀（`#[attr]^T` → impl 前加属性）       |
+| `[]`      | 空基座（`[]^T` → `[T]`，`[]-T-N` → `[T; N]`） |
+| `[T]`     | 切片（`[T]^N` → 定长数组 `[T; N]`）           |
 
 ```rust
 # use batch_impl::batch_impl;
@@ -554,6 +625,52 @@ trait FixedMatrix {}
 // → ...
 ```
 
+### `@` 常量 — 内置类型族命名
+
+常用类型矩阵不必手写：`@` 常量在预处理阶段展开为字面列表，与手写等价。
+
+| 常量 | 展开 |
+|------|------|
+| `@uint` | `[u8, u16, u32, u64, u128, usize]` |
+| `@int` | `[i8, i16, i32, i64, i128, isize]` |
+| `@float` | `[f32, f64]` |
+| `@num` | `@uint + @int + @float`（14 个） |
+| `@scalar` | `@num + [bool, char]`（16 个） |
+| `@u8..u128` | `[u8, u16, u32, u64, u128]`（**含端点**；`@i8..i128` / `@f32..f64` 同款） |
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(@scalar)]
+trait ScalarTrait {}
+// → 16 个 impl：u8..char 各一个
+```
+
+三个入口（`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`）都支持内置
+常量。`batch_trait!` 额外支持**自定义常量**：宏参数前导 `@name=值;` 段定义，
+后续段落复用。值是**任意 token**（**懒展开**——原样入库，引用处拼接后递归
+展开），因此值里可以直接写 DSL 运算、链式引用其他常量：
+
+```rust
+# use batch_impl::batch_trait;
+# use std::rc::Rc;
+trait TraitA {}
+trait TraitB {}
+batch_trait!(
+    @nums=[u8, u16, u32];
+    @uints=@uint;                      // 引用内置常量
+    @wrapped=[Box, Rc]^@nums;          // 值含 DSL 运算（引用处求值）
+    @chain=@wrapped;                   // 链式引用用户常量
+    TraitA: @chain;
+    TraitB: [Box, Rc]^@uints;
+);
+```
+
+**引用可见性**：常量定义内只能引用**内置常量或此前已定义**的用户常量——
+循环引用（`@a=@a`）与前向引用（`@a=@b` 且 `@b` 定义在后）在定义处报错。
+
+未知 `@xxx`、范围端点非法、自定义与内置重名、循环/前向引用均报
+`compile_error!`。
+
 ## 12. 三个入口
 
 | 宏                   | 用途                                                     |
@@ -613,10 +730,10 @@ batch_trait!(
 
 所有 DSL 语法错误通过 `compile_error!()` 输出中文提示并指向源码位置，永不 panic：
 
-| 错误输入               | 错误信息                                               |
-|------------------------|--------------------------------------------------------|
-| `batch_trait!(;)`      | `batch_trait! 中期望 trait 名称`                       |
-| `batch_trait!(A)`      | `batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs` |
-| `batch_trait!(A: B::)` | `batch_trait! 中期望标识符作为 trait 名称`             |
-| 裸 `where` 缺代码块     | `batch-impl: \`where\` 谓词后缺少代码块 {...}`          |
+| 错误输入                 | 错误信息                                                             |
+|--------------------------|----------------------------------------------------------------------|
+| `batch_trait!(;)`        | `batch_trait! 中期望 trait 名称`                                     |
+| `batch_trait!(A)`        | `batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs`               |
+| `batch_trait!(A: B::)`   | `batch_trait! 中期望标识符作为 trait 名称`                           |
+| 裸 `where` 缺代码块      | `batch-impl: \`where\` 谓词后缺少代码块 {...}`                       |
 | where 谓词引用未声明形参 | `batch-impl: 继承的 where 谓词 ... 引用形参 ...，请声明或手写 where` |

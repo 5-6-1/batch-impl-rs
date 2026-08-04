@@ -22,7 +22,7 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::diagnostic::compile_error_str;
-use crate::scan::is_arrow;
+use crate::scan::{bracket_is_passthrough, is_arrow};
 
 /// 入口转换：一趟扫描完成 None 组扁平化与 `<...>` 配对。
 ///
@@ -59,10 +59,7 @@ pub(crate) fn angle_collect(
             }
             // DSL 列表 / 宏体 / 属性：`ident![...]` 与 `#[...]` 透传（内容任意 Rust）
             TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
-                if i > 0
-                    && matches!(&tokens[i - 1], TokenTree::Punct(p)
-                        if p.as_char() == '!' || p.as_char() == '#')
-                {
+                if bracket_is_passthrough(tokens, i) {
                     out.push(tokens[i].clone());
                 } else {
                     let inner: Vec<_> = g.stream().into_iter().collect();

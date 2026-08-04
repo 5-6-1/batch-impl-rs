@@ -1,0 +1,16 @@
+error: batch-impl: 常量 `@a` 引用未知的 `@a`（未定义或定义在其后；常量定义内只能引用内置常量或此前已定义的常量）
+ --> tests/ui/const_cycle.rs:4:1
+  |
+4 | / batch_trait!(
+5 | |     @a=@a;
+6 | |     T: @a;
+7 | | );
+  | |_^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0601]: `main` function not found in crate `$CRATE`
+ --> tests/ui/const_cycle.rs:7:3
+  |
+7 | );
+  |   ^ consider adding a `main` function to `$DIR/tests/ui/const_cycle.rs`

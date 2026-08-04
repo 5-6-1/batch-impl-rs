@@ -56,6 +56,13 @@ pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> b
 }
 
 /// 按 separator 切分（尖括号已配对为不透明组，仅按扁平 token 切）
+///
+/// **注意**：配对组内宏生成的尖括号内容必须保持配对形态——扁平 `<A, B>`
+/// 会在逗号处被错误切分（`T: Two<A, B>` → `T: Two<A` / `B>`）。0.6.0 曾有
+/// 此缺陷（blanket 的 `T: Trait<X>` bound 实参扁平，靠渲染幂等侥幸正确，
+/// dev-changelog F4），已修复为实参组化（preprocess/mod.rs `t_bound`）；
+/// 未来宏生成泛型组内容时若含尖括号，须先配对（`Group::new(delimiter![<>], ...)`）
+/// 再插入，不得散播扁平 `<...>`。
 fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
     let mut chunks = vec![];
     let mut rest = tokens;

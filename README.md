@@ -7,7 +7,7 @@ use batch_impl::batch_impl;
 # use std::rc::Rc;
 
 // 一个 body，为 4 种类型各生成一个 impl
-#[batch_impl(<T> Sortable<T> [Box, Rc]^Vec<T> where{ T: Ord } {
+#[batch_impl(<T> Sortable<T> [Box, Rc]^Vec<T> where T: Ord  {
     fn is_sorted(&self) -> bool { self.windows(2).all(|w| w[0] <= w[1]) }
 })]
 trait Sortable<T> { fn is_sorted(&self) -> bool; }
@@ -68,7 +68,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.5.7"
+batch-impl = "0.6.0"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -79,10 +79,10 @@ use batch_impl::batch_impl;
 // 1. 定义 trait，方法签名只写一次
 trait Describe { fn describe(&self) -> String; }
 
-// 2. 写一条 DSL：目标类型 + body（方法签名用 #fill 自动从 trait 抄）
+// 2. 写一条 DSL：目标类型 + body（方法签名用 #name 自动从 trait 抄）
 #[batch_impl(
-    [usize, isize] #fill(name){"number"},
-    String #fill(name){"string"}
+    [usize, isize] #name{"number"},
+    String #name{"string"}
 )]
 trait Tagged { fn name(&self) -> &str; }
 // → impl Tagged for usize  { fn name(&self) -> &str { "number" } }
@@ -92,17 +92,19 @@ trait Tagged { fn name(&self) -> &str; }
 
 ## 特性一览
 
-| 特性 | 一句话 | 教程章节 |
-|------|--------|----------|
-| 并列列表 `[A, B]` | 为多个类型同时实现，body 复用 | 列表与 body |
-| `^` / `-` 运算符 | 同一运算的右/左结合：嵌套与累加 | 运算符 |
-| 泛型自动化 | `A<>` 照抄、同名继承、trait where 子句继承 | 泛型自动化 |
-| 关联类型绑定 | `Iter<Item=T>` → `type Item = T;` | 关联类型 |
-| 指令系统 `#name`/`#fill`/`#delegate` | 签名自动抄、body 批量填、委托调用 | 指令系统 |
-| 开放扩展 | 不认识的 `#name(args){body}` 交给你的同名宏 | 指令系统 |
-| `where{...}` | 为生成的 impl 附加 where 子句 | where 子句 |
-| 元组生成 | `()^3`、`(T,)^N`、笛卡尔积、范围 | 元组生成 |
-| fn 类型 / unsafe / 指针 / 属性 | 类型级修饰符全支持 | 修饰符 |
+| 特性                                 | 一句话                                      | 教程章节    |
+|--------------------------------------|---------------------------------------------|-------------|
+| 并列列表 `[A, B]`                    | 为多个类型同时实现，body 复用               | 列表与 body |
+| `^` / `-` 运算符                     | 同一运算的右/左结合：嵌套与累加             | 运算符      |
+| 泛型自动化                           | `A<>` 照抄、同名继承、trait where 子句继承  | 泛型自动化  |
+| 关联类型绑定                         | `Iter<Item=T>` → `type Item = T;`           | 关联类型    |
+| 指令系统 `#name`/`#fill`/`#delegate` | 签名自动抄、body 批量填、委托调用           | 指令系统    |
+| 覆盖式委托 `#blanket`                | 包装矩阵一行生成委托 impl（任意包装 + `:N`、泛型 trait、assoc 投影） | 指令系统    |
+| 开放扩展                             | 不认识的 `#name(args){body}` 交给你的同名宏 | 指令系统    |
+| `@` 常量                             | `@uint`/`@scalar`/`@u8..u128` + batch_trait! 自定义（懒展开、链式引用） | 常量系统    |
+| `where{...}`                         | 为生成的 impl 附加 where 子句               | where 子句  |
+| 元组生成                             | `()^3`、`(T,)^N`、笛卡尔积、范围            | 元组生成    |
+| fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持                          | 修饰符      |
 
 ## 下一步
 

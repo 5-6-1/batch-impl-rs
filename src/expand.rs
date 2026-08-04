@@ -94,7 +94,9 @@ pub(crate) fn expand_attr_macro(
         (quote![#trait_name], trait_name.clone(), attr_vec.clone())
     };
 
-    let expanded = expand_tokens(&mut Cursor::new(&rest_tokens), &trait_item)?;
+    let expanded = crate::consts::expand_consts(&rest_tokens, None)?;
+    let expanded =
+        expand_tokens(&mut Cursor::new(&expanded), &trait_item, &trait_full_path)?;
     // 裸 `where 谓词 {body}` 新语法 → 统一改写为旧式 `where{谓词}`
     // （先于 `A<>` 展开：谓词里的 `Foo<>` 须透传，不得照抄展开）
     let expanded = where_process(&mut Cursor::new(&expanded))?;
@@ -123,8 +125,11 @@ pub(crate) fn expand_batch_trait(
 ) -> Result<proc_macro::TokenStream, TokenStream> {
     reset_fresh_counter();
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
-    // 全局预处理：配对尖括号组 + 裸 where 改写（分段前一次完成）
+    // 全局预处理：配对尖括号组 + 用户常量定义段收集/引用替换 + 裸 where 改写
+    // （分段前一次完成）
     let tokens = angle_collect(&tokens)?;
+    let (tokens, user_consts) = crate::consts::collect_user_consts(&tokens)?;
+    let tokens = crate::consts::expand_consts(&tokens, Some(&user_consts))?;
     let tokens = where_process(&mut Cursor::new(&tokens))?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];

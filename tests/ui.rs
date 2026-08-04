@@ -59,6 +59,16 @@ fn ui() {
     // 裸 where 新语法缺少代码块
     t.compile_fail("tests/ui/where_missing_body.rs");
 
+    // @ 常量系统：未知常量 / 范围端点错误 / 引用可见性（循环 / 前向）
+    t.compile_fail("tests/ui/const_unknown.rs");
+    t.compile_fail("tests/ui/const_range_bad.rs");
+    t.compile_fail("tests/ui/const_cycle.rs");
+    t.compile_fail("tests/ui/const_forward.rs");
+
+    // #blanket：非 Deref 包装 / `:N` 非法
+    t.compile_fail("tests/ui/blanket_ptr.rs");
+    t.compile_fail("tests/ui/blanket_bad_depth.rs");
+
     // 一个 pass 路径，确保正常用例不被破坏
     t.pass("tests/ui/pass/basic.rs");
 }

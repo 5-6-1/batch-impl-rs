@@ -904,3 +904,248 @@ fn trait_where_clause_inherit() {
     check_lp::<Vec<Vec<i32>>>();
     check_lp::<HashMap<Vec<i32>, i32>>();
 }
+
+// ============================================================
+// 35. @ 常量系统：内置名字族 / 范围族 / batch_trait! 自定义
+// ============================================================
+#[batch_impl(@u8..u128)]
+trait UintConst {}
+
+#[batch_impl(@scalar)]
+trait ScalarConst {}
+
+#[batch_impl(@num)]
+trait NumConst {}
+
+trait ConstA {}
+trait ConstB {}
+batch_trait!(
+    @nums=[u8, u16, u32];
+    @uints=@uint;
+    ConstA: @nums;
+    ConstB: [Box, Rc]^@uints;
+);
+
+#[test]
+fn const_system() {
+    fn _u<T: UintConst>(_: &T) {}
+    _u(&0u8);
+    _u(&0u64);
+    _u(&0u128);
+
+    fn _s<T: ScalarConst>(_: &T) {}
+    _s(&true);
+    _s(&'a');
+    _s(&0f64);
+    _s(&0usize);
+    _s(&0i16);
+
+    fn _n<T: NumConst>(_: &T) {}
+    _n(&0f32);
+    _n(&0i128);
+
+    fn _a<T: ConstA>(_: &T) {}
+    _a(&0u8);
+    _a(&0u32);
+    fn _b<T: ConstB>(_: &T) {}
+    _b(&Box::new(0u8));
+    _b(&Rc::new(0usize));
+}
+
+// ============================================================
+// 36. #blanket 覆盖式委托（先给内部类型实现，再覆盖包装）
+// ============================================================
+#[batch_impl(u32 { fn name(&self) -> String { self.to_string() } })]
+#[batch_impl(#blanket(#all){&,Box,Rc})]
+trait BlanketName {
+    fn name(&self) -> String;
+}
+
+#[batch_impl(u16 { fn inc(&mut self) -> u16 { *self += 1; *self } })]
+#[batch_impl(#blanket(inc){&mut})]
+trait BlanketInc {
+    fn inc(&mut self) -> u16;
+}
+
+// 嵌套包装与 `:N` 深度标注：`Box^Rc:2` → `Box<Rc<T>>`（委托 `***self`）、
+// `Box^Box^Box:3` → `Box<Box<Box<T>>>`（委托 `****self`）
+#[batch_impl(u32 { fn deep(&self) -> u32 { *self } })]
+#[batch_impl(#blanket(deep){Box^Rc:2, Box^Box^Box:3})]
+trait BlanketDeep {
+    fn deep(&self) -> u32;
+}
+
+#[test]
+fn blanket_delegate() {
+    let v = 42u32;
+    assert_eq!(v.name(), "42");
+    assert_eq!(Box::new(7u32).name(), "7");
+    assert_eq!(Rc::new(9u32).name(), "9");
+
+    let mut b = Box::new(2u16);
+    b.inc(); // Deref 到 u16 自身 impl
+    assert_eq!(*b, 3);
+
+    // BlanketInc 的 blanket `&mut` 委托路径（`impl<T: BlanketInc> BlanketInc for &mut T`；
+    // `&mut u16` 同时命中 u16 自身 impl 与 blanket impl，需 UFCS 消歧）
+    let mut x = 2u16;
+    let mut xr: &mut u16 = &mut x;
+    BlanketInc::inc(&mut xr); // 委托 (**self).inc() → u16 自身 impl
+    assert_eq!(x, 3);
+
+    let br: Box<Rc<u32>> = Box::new(Rc::new(1u32));
+    assert_eq!(br.deep(), 1);
+    let bbb: Box<Box<Box<u32>>> = Box::new(Box::new(Box::new(2u32)));
+    assert_eq!(bbb.deep(), 2);
+}
+
+// ============================================================
+// 37. 懒展开（常量值含 DSL 运算 / 链式引用）+ blanket 泛型 trait / assoc 委托
+// ============================================================
+trait LazyA {}
+trait LazyB {}
+batch_trait!(
+    @lazy_nums=[u8, u16];
+    @lazy_wrapped=[Box, Rc]^@lazy_nums;
+    @lazy_chain=@lazy_wrapped;
+    LazyA: @lazy_chain;
+    LazyB: @lazy_nums;
+);
+
+// blanket 泛型 trait：形参照抄 + where 透传 + type/const 投影委托（#all）
+#[batch_impl(Foo<u32> u32 {
+    type Item = u8;
+    const LIMIT: usize = 42;
+    fn m(&self) -> u32 { *self }
+})]
+#[batch_impl(#blanket(#all){&})]
+trait Foo<X: Clone>
+where
+    X: Send,
+{
+    type Item;
+    const LIMIT: usize;
+    fn m(&self) -> X;
+}
+
+#[test]
+fn lazy_const_and_generic_blanket() {
+    fn _a<T: LazyA>(_: &T) {}
+    _a(&Box::new(0u8));
+    _a(&Rc::new(0u16));
+    fn _b<T: LazyB>(_: &T) {}
+    _b(&0u8);
+    _b(&0u16);
+
+    assert_eq!(<u32 as Foo<u32>>::m(&5u32), 5);
+    assert_eq!(<&u32 as Foo<u32>>::m(&&5u32), 5); // blanket 委托
+    assert_eq!(<&u32 as Foo<u32>>::LIMIT, 42); // const 投影
+    let _: <&u32 as Foo<u32>>::Item = 8u8; // type 投影
+}
+
+// ============================================================
+// 38. 评审补充：懒展开值形态 + blanket 泛型 trait 全形态
+//     （值内嵌范围族引用 / 裸列表值 / 列表内嵌引用；多类型参数 /
+//     const 泛型 / 生命周期 trait；&mut 委托；非泛型 assoc 全委托）
+// ============================================================
+
+// 值内嵌范围族引用：`@rv=@u8..u128;`（check_value_refs 的端点判定走
+// split_range_endpoint——`@u8` 裸名不在内置名字族里）；定义段必须全部
+// 位于 trait 段之前（前导语法，收集循环遇首个非定义段即停止）
+trait RangeVal {}
+trait RangeValNested {}
+trait BareVal {}
+batch_trait!(
+    @rv=@u8..u128;
+    @nested=[bool, @rv];
+    @bare=u8, u32;
+    RangeVal: @rv;
+    RangeValNested: @nested;
+    BareVal: @bare;
+);
+
+#[test]
+fn lazy_value_forms() {
+    fn _r<T: RangeVal>() {}
+    _r::<u8>();
+    _r::<u64>();
+    _r::<u128>();
+
+    fn _n<T: RangeValNested>() {}
+    _n::<bool>();
+    _n::<u16>();
+
+    fn _b<T: BareVal>() {}
+    _b::<u8>();
+    _b::<u32>();
+}
+
+// blanket 泛型 trait：双类型参数（bound `T: Two<A, B>` 的实参已组化为
+// 尖括号组——0.6.1 修复：扁平 `<A, B>` 曾被 depth-0 逗号切分错误切断，
+// 靠渲染幂等侥幸正确；此用例回归锁定组化后解析正确）。
+// 注：`#pair` 指令按 trait 签名原样拷贝（A/B 为形参名），直接 impl 须
+// 手写具体实参签名（无参数替换机制）；泛型 `impl<A, B> for (A, B)` 会与
+// 第 23 节 PairAB 的 `.pair()` 方法解析冲突，故只 impl 具体元组
+#[batch_impl(Two<u8, u16> (u8, u16) { fn pair(&self) -> (u8, u16) { (self.0, self.1) } })]
+#[batch_impl(#blanket(pair){Box})]
+trait Two<A, B> {
+    fn pair(&self) -> (A, B);
+}
+
+// blanket const 泛型 trait：`ArrWrap<4>` 直接 impl + `<const N: usize, T: ArrWrap<N>>`
+struct Arr4;
+#[batch_impl(ArrWrap<4> Arr4 { fn len(&self) -> usize { 4 } })]
+#[batch_impl(#blanket(len){Box})]
+trait ArrWrap<const N: usize> {
+    fn len(&self) -> usize;
+}
+
+// blanket 生命周期泛型 trait：`impl<'a, X: Clone, T: LtWrap<'a, X>>`，
+// `'a` 仅出现在 trait 实参（未约束的 impl 生命周期合法）
+#[batch_impl(LtWrap<'static, u32> u32 { fn m(&self) -> &'static str { "u32" } })]
+#[batch_impl(#blanket(m){Box})]
+trait LtWrap<'a, X: Clone> {
+    fn m(&self) -> &'a str;
+}
+
+// blanket 泛型 trait + `&mut self` 方法（Box: DerefMut 委托 `(**self).inc()`）
+#[batch_impl(IncGen<u16> u16 { fn inc(&mut self) -> u16 { *self += 1; *self } })]
+#[batch_impl(#blanket(inc){Box})]
+trait IncGen<X: Clone> {
+    fn inc(&mut self) -> X;
+}
+
+// blanket 非泛型 trait + assoc type/const 全委托（as_trait 无实参形态
+// `<T as Trait>::Item` / `::TAG`）
+#[batch_impl(u16 {
+    type Item = u32;
+    const TAG: u8 = 7;
+    fn tag(&self) -> u8 { 9 }
+})]
+#[batch_impl(#blanket(#all){Box})]
+trait HasAssoc {
+    type Item;
+    const TAG: u8;
+    fn tag(&self) -> u8;
+}
+
+#[test]
+fn blanket_generic_full_forms() {
+    let b: Box<(u8, u16)> = Box::new((1, 2));
+    assert_eq!(b.pair(), (1u8, 2u16));
+    let t = Two::<u8, u16>::pair(&(3u8, 4u16));
+    assert_eq!(t, (3u8, 4u16));
+
+    assert_eq!(Box::new(Arr4).len(), 4);
+    assert_eq!(ArrWrap::<4>::len(&Arr4), 4);
+
+    assert_eq!(Box::new(7u32).m(), "u32");
+
+    let mut b = Box::new(5u16);
+    assert_eq!(b.inc(), 6);
+    assert_eq!(*b, 6);
+
+    assert_eq!(Box::new(3u16).tag(), 9);
+    assert_eq!(<Box<u16> as HasAssoc>::TAG, 7);
+    let _: <Box<u16> as HasAssoc>::Item = 5u32;
+}

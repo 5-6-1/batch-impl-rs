@@ -41,10 +41,10 @@ impl<'a> Cursor<'a> {
         matches!(self.tokens.get(self.pos), Some(t) if is_punct(t, ch))
     }
 
-    /// 当前位置的前一个 token 是否为指定标点（用于识别 `ident!` 宏调用体）
-    pub(crate) fn prev_is_punct(&self, ch: char) -> bool {
-        self.pos > 0
-            && matches!(self.tokens.get(self.pos - 1), Some(t) if is_punct(t, ch))
+    /// 当前位置的 Bracket 组是否透传（前一个 token 是 `!` 或 `#`），
+    /// 与 [`bracket_is_passthrough`] 同义，供游标式遍历使用。
+    pub(crate) fn prev_bracket_passthrough(&self) -> bool {
+        bracket_is_passthrough(self.tokens, self.pos)
     }
 
     /// 当前位置的 `:` 是否为独立单冒号（非 `::` 的组成部分）
@@ -109,6 +109,16 @@ pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
 /// 判断单个 token 是否为指定标点符号
 pub(crate) fn is_punct(token: &TokenTree, punctuation: char) -> bool {
     matches!(token, TokenTree::Punct(p) if p.as_char() == punctuation)
+}
+
+/// Bracket 组（`[...]`）是否"透传"：前一个 token 是 `!`（`ident![...]` 宏调用体）
+/// 或 `#`（`#[...]` 属性）时，组内容可能是任意 Rust（含比较 `<`、`#name` 指令），
+/// 三个递归入口（`angle_collect` / `expand_tokens` / `where_process`）统一判定，
+/// 防各自维护近似守卫漂移（0.5.7 曾因 `#[...]` 守卫缺失误展开 `#name` 指令）。
+pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool {
+    index > 0
+        && matches!(&tokens[index - 1], TokenTree::Punct(p)
+            if p.as_char() == '!' || p.as_char() == '#')
 }
 
 /// 判断 `tokens[index]` 是否为 `->` 的 `>`（前一个 token 是 Joint 的 `-`）。

@@ -15,7 +15,7 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::diagnostic::compile_error_str;
-use crate::scan::Cursor;
+use crate::scan::{Cursor, bracket_is_passthrough};
 
 pub(crate) fn where_process(
     cursor: &mut Cursor,
@@ -46,9 +46,7 @@ pub(crate) fn where_process(
             && g.delimiter() == delimiter!([])
             // `ident![...]` 宏调用体与 `#[...]` 属性是透传的宏参数，
             // 不递归（与 `ident!{...}` 宏体 / angle_collect 的守卫对齐）
-            && !(i > 0
-                && matches!(&tokens[i - 1], TokenTree::Punct(p)
-                    if p.as_char() == '!' || p.as_char() == '#'))
+            && !bracket_is_passthrough(tokens, i)
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
             let vt = where_process(&mut Cursor::new(&v))?;

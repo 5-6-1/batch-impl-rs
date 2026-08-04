@@ -2,9 +2,94 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.5.8 (2026-08-03)
+## 0.6.0 (2026-08-04)
 
-### 文档体系重构
+### 新特性：`@` 常量系统（src/consts.rs）
+
+- 内置名字族（`@uint`/`@int`/`@float`/`@num`/`@scalar`）+ 范围族
+  （`@u8..u128` 等，含端点、宽度/族/顺序校验），展开为 Bracket 列表与
+  手写等价，走原管线（宏元层只做词法替换，不参与域内解析）
+- `batch_trait!` 前导 `@name=值;` 定义段（`collect_user_consts`）：**懒展开**
+  ——值任意 token 原样入库，引用处拼接后递归展开（`expand_consts` 引用分支
+  先递归再 extend）；`check_value_refs` 定义处校验引用可见性（循环/前向
+  引用拦截——懒展开下 `@a=@a` 会无限递归）
+- 引用替换（`expand_consts`）递归进入 `Paren`/`Bracket`、透传 Brace 与
+  `ident![...]`/`#[...]`（复用 `bracket_is_passthrough`）
+- 管线位置：`angle_collect` 之后、指令预处理之前（两个入口各插一次；
+  `batch_trait!` 在 `where_process` 之前）
+- 教训×2：`expand_consts` 初版误加 `delimiter![none]` 分支把尖括号组
+  （同值）当真实 None 组扁平化，已删；懒展开后值形态校验取消（B1/B2 的
+  定义处拒绝语义被引用处 DSL 报错取代，评审认可）
+
+### 新特性：`#blanket` 覆盖式委托
+
+- `expand_directive` 返回类型 `TokenTree` → `Vec<TokenTree>`（指令可产出
+  多 token；既有五种指令在分发处包 `vec!`，内部零改动）
+- `expand_blanket`：**包装元素普适化**（任意类型表达式 + 可选尾 `:N` 深度
+  标注，`parse_blanket_wrappers` 返回 `BlanketWrapper { ty, depth }`；
+  `is_single_colon` 区分 `::` 路径）、fresh 泛型、逐包装生成
+  `<T: Trait> 包装^T { 委托体 }` 多段 spec
+- 委托体 `*` 数量 = depth + 1（`"*".repeat(depth + 1) + "self"` parse）；
+  目标类型 = 包装 `^T`（`Box^Arc:2` → `Box<Arc<T>>`、`Cow<'_>` → `Cow<'_, T>`）
+- **泛型 trait**：trait 形参照抄为 impl 泛型（形参在前、fresh `T` 在后，
+  `T: Trait<X>` 反序 E0401）+ trait 实参填参数名 + where 谓词透传；
+  spec 的 trait 名部分仅泛型时输出（非泛型省略——`Trait &^T` 前缀目标
+  跟在 trait 名后无法解析，回归曾破坏 `{&,Box,Rc}`）
+- **assoc type/const 委托**：`TraitItem::Fn` 窄匹配放开，Type/Const 走
+  `build_from_item` 既有输出形态，body 用 `<T as Trait<X>>::name` 投影
+- 关键修复×2：blanket 在 `angle_collect` 之后运行——泛型声明手动构造尖括号组
+  （`Group::new(delimiter![<>], ...)`）；body 是 Brace 组（angle_collect 不进入），
+  其内 `Cow<'_>` 等扁平 `<...>` 补一次 `angle_collect` 配对
+- 坑：`quote!(#tp.ident)` 字段访问插值（`.ident` 当字面量），先取引用再插值
+- 边界：`*const`/`*mut` / `self` / 空元素 / 非法 `:N` 报错引导手写
+  `#delegate`；默认 depth 1（宏不猜 Deref 层数）；by-value receiver 放行
+  （Deref/move 语义信息不对称，rustc 兜底）
+
+### 测试与文档
+
+- dsl 第 35/36 节（const 系统、blanket 双属性叠加）；ui 新增 fixture
+  （const_unknown / const_range_bad / blanket_ptr / blanket_bad_depth；
+  blanket_generic 随泛型 trait 支持移除；const_cycle / const_forward 见评审修复节）
+- architecture.md：模块图加 consts.rs、管线更新（const 展开、多 token 指令）、
+  域隔离表格宏元层落地、新增「附着语义」章节
+- tutorial.md：第 7 章 `#blanket` 小节、第 11 章 `@` 常量小节
+
+### 评审修复（发布前）
+
+- **F1**：`cargo +nightly fmt` 修复 consts.rs / preprocess/mod.rs 格式差异
+- **F2**：dsl.rs `BlanketInc` dead_code（clippy -D warnings 阻断）——`b.inc()`
+  走 Deref 到 u16 自身 impl、blanket `&mut` impl 从未被调用；测试改为 UFCS
+  直接测 blanket 委托路径（`&mut u16` 同时命中两个 impl 需消歧）
+- **F3**：`@name=值;` 定义段写在 trait 段之后时，`try_expand_at` 定义段分支
+  按上下文区分诊断——batch_trait! 报「常量定义必须位于所有 trait 段之前」，
+  batch_impl/batch_impl_only 保留「不支持自定义常量」
+- **F4**：blanket 泛型 bound `T: Trait<X>` 的实参扁平 `<A, B>` 会被
+  `split_at_depth0` 在逗号处错误切分（`T: Two<A` / `B>`），初版靠渲染幂等
+  侥幸正确（脆点）；修复为**实参组化**（`t_bound` 与 `trait_part` 同款
+  `Group::new(delimiter![<>], ...)`），解析即正确不依赖幂等；dsl 38 的
+  `Two<A, B>` 用例回归锁定；parse/generic.rs 注释改为「组内宏生成尖括号
+  必须预配对」的通用警告
+
+- **B1**：`collect_user_consts` 的 `@` 引用值校验 `consumed == value.len()`
+  ——`@a=@num garbage` 报"引用后有多余 token"，不再静默丢弃尾随内容
+  （**已被懒展开取代**：值形态放开为任意 token，见本版本新特性节）
+- **B2**：常量**列表**值内嵌 `@`（`[@uint, u16]`）在定义处拒绝——接受但不
+  展开会推迟到使用处才报错（诊断远离源头）；列表是原子值，请用 `@name` 形态
+  （**已被懒展开取代**：列表值内嵌引用现在正常展开，见 dsl 38）
+- **B3**：`#blanket` 的委托 bound 改用 `trait_full_path`——`#[batch_impl_only
+  (#ext::Trait: ...)]` 路径前缀场景裸 dummy 名解析不到（E0412/E0277）；
+  `expand_tokens`/`expand_directive`/`expand_blanket` 签名链加 `trait_full_path`
+  参数（fuzz 同步）
+- **B4**：未知 `@` 常量诊断在 batch_trait! 场景追加"用户常量须在引用前定义"
+  （懒展开后由 `check_value_refs` 的定义处可见性校验接管，见新特性节）
+- **B6**：`contains_at` 递归进所有组（`[Foo<@uint>]` 的 `@uint` 被 angle_collect
+  配对进 None 组，扁平检查会漏过）——**已被 `check_value_refs` 取代**（懒展开
+  后定义处统一做引用可见性校验，递归进所有组）
+- 测试：regression 加路径前缀 + blanket pass 用例（`cmp_path_prefix_blanket`，
+  `&u8` 与 u8 自身 impl 的方法歧义用 UFCS 消歧）；ui 加
+  const_cycle / const_forward 两个 fixture（循环/前向引用定义处报错）
+
+### 文档体系重构（并入自原 0.5.8）
 
 - README 重写为推销版（669 → 117 行）：为什么用它 / 心智模型 / 快速开始 /
   特性一览表 / 链接

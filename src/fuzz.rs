@@ -118,10 +118,10 @@ proptest! {
         };
         reset_fresh_counter();
         let collected = angle_collect(&ts).unwrap_or_default();
-        let expanded =
-            expand_tokens(&mut Cursor::new(&collected), &trait_def).unwrap_or_default();
-        let rewritten = where_process(&mut Cursor::new(&expanded)).unwrap_or_default();
         let path = quote!(Fuzz);
+        let expanded =
+            expand_tokens(&mut Cursor::new(&collected), &trait_def, &path).unwrap_or_default();
+        let rewritten = where_process(&mut Cursor::new(&expanded)).unwrap_or_default();
         let last = Ident::new("Fuzz", proc_macro2::Span::call_site());
         let out = parse_batch_trait_entry(
             &mut Cursor::new(&rewritten),

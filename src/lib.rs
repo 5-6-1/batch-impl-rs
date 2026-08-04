@@ -19,6 +19,7 @@ mod apply;
 mod ast;
 mod batch_trait_entry;
 mod codegen;
+mod consts;
 mod diagnostic;
 mod empty_generics;
 mod expand;

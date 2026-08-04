@@ -10,6 +10,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   ├── batch_trait_entry.rs  共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
   ├── trait_bounds.rs       TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
   ├── empty_generics.rs     `A<>` 照抄展开（形参渲染用合并后的 bound）
+  ├── consts.rs             `@` 常量系统：内置类型族（@uint/@scalar/@u8..u128）+ batch_trait! 自定义定义段
   ├── path_prefix.rs        外部 trait 路径前缀：#Path::to::Trait: 状态机解析
   ├── diagnostic.rs         统一 compile_error_str(msg) 用于编译期诊断
   ├── scan.rs               扫描与游标：Cursor<'a> + scan_stop（尖括号已配对，仅剩 -> 守卫）
@@ -34,7 +35,9 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
 
 ## 解析流程
 
-**token 流 → 指令预处理（每条指令展开为恰好一个 `{...}` 组）→ where 裸写改写
+**token 流 → angle_collect 配对尖括号组 → const 展开（`@` 常量：内置 +
+batch_trait! 自定义表）→ 指令预处理（每条指令展开为 0..n 个 token：既有
+指令恰一 `{...}` 组，`#blanket` 多段 spec）→ where 裸写改写 → `A<>` 照抄
 → Cursor 扫描取切片 → parse_item 优先级攀爬（`^`/`-` 经 `Apply` 组合：
 右操作数结构优先分发）→ Ty AST → 工作清单摊平并列列表 → 逐叶子 generate_impl**
 
@@ -57,6 +60,42 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   HRTB binder（`for<'a>`）天然排除；const 泛型实参 / 数组长度经 `visit_expr`
   收集。`impl_names` 中 `const N` 归一如 `N` 以匹配引用检查。
 
+## 语法域隔离
+
+DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号自洽、语义独立：
+
+| 域 | 记号 | 语义 | 由谁解析 |
+|----|------|------|----------|
+| **类型域**（spec 表达式） | `^`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
+| **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(#all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`#all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
+| **宏元层**（`@` 常量） | `@uint`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
+
+### 隔离规则
+
+- **同记号、分域、各义**：`-` 在类型域是 apply 链接（`HashMap-K-V` = `HashMap<K, V>`），
+  在指令域是排除记号（`#fill(#all,-foo)`）——两域解析互不进入，语义永不冲突；
+- **域边界即模块边界**：类型域解析（`parse_item` 优先级攀爬）永远不递归进入
+  指令参数；指令预处理（`expand_tokens`）只展开 `#` 指令，不解释 DSL 运算符；
+  `@` 常量（`consts.rs`）只做词法替换，不进入任何域；
+- **透传守卫统一**：`ident![...]` 宏体与 `#[...]` 属性内的内容是任意 Rust，
+  三个递归入口（`angle_collect` / `expand_tokens` / `where_process`）一律不进入，
+  判定收敛在 `scan::bracket_is_passthrough`（0.5.7 曾因一处守卫缺失误展开
+  `#[...]` 内的 `#name` 指令）。
+
+### 附着语义
+
+指令展开产物分两类：**单组产物**（`#name`/`#fill`/`#delegate`/开放扩展的
+`{...}` 组）可附着到类型后（`T {body}`）或独立成 spec；**多 token 产物**
+（`#blanket` 的完整 spec 段）自含泛型/目标/委托，只能独立成 spec，附着
+无意义。
+
+### 扩展准则
+
+新语法只能**在既有域内延伸既有机制**（如 `^`/`-` 系补充差集、指令域补充新
+指令、宏元层补充新常量），不得跨域复用记号、不得改变既有记号的域内语义。
+`@` 绑定与 `#blanket` 均遵循此准则：前者是宏元层纯词法替换，后者是指令域
+内 `#delegate` 的自动化形态。
+
 ## 错误机制
 
 所有 DSL 语法错误均通过 `compile_error!()` 输出友好的编译错误，**永不 panic**。
@@ -71,13 +110,13 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
 
 四层：
 
-| 目录            | 文件             | 用途                                                                                                                                     |
-|-----------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `examples/`     | `quickstart.rs`  | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                      |
-| `src/`          | `fuzz.rs`        | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                       |
-| `tests/`        | `dsl.rs`         | 34 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承） |
-| `tests/`        | `regression.rs`  | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`        | `ui.rs`          | `trybuild` UI 测试：23 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
+| 目录        | 文件            | 用途                                                                                                                                                                         |
+|-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                                                         |
+| `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                                                          |
+| `tests/`    | `dsl.rs`        | 34 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承）                                     |
+| `tests/`    | `regression.rs` | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：23 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                                                          |
 
 运行：
 
