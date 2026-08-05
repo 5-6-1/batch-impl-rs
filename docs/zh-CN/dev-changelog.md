@@ -2,6 +2,19 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.6.4 (2026-08-05)
+
+### 常量名字族改名（用户拍板）
+
+- 提案：`@i*`/`@u*`/`@f*` 取代 `@uint`/`@int`/`@float`（族符号统一——原
+  `uint` 与范围族 `u8` 的 `u` 不一致）；`@u8..64` 宽度缩写提案被否（收益小、
+  引入"族从左端点继承"的隐藏规则）。
+- 实现：`builtin_named` 的 `"u*"`/`"i*"`/`"f*"` 通配（try_expand_at 检测
+  `tokens[2]` 为 `*`，lookup = `name*`，consumed 3）；`check_value_refs` 同步
+  通配识别（`@uints=@u*` 值内引用曾误报 "unknown @u"——修后懒展开链完整）。
+  错误消息 builtins 列表与 `@` 后缺名示例更新；ui `const_unknown` 快照重生成。
+- 测试：dsl `@uints=@u*`（batch_trait 值内通配引用）、`[Box, Rc]^@u*`（宏变量
+  None 组内通配）全部更新通过；直接 `@u*` 探针验证 usize 含入。
 ## 0.6.3 (2026-08-05)
 
 ### 文档修正

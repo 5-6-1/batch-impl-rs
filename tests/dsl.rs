@@ -979,7 +979,7 @@ trait ConstA {}
 trait ConstB {}
 batch_trait!(
     @nums=[u8, u16, u32];
-    @uints=@uint;
+    @uints=@u*;
     ConstA: @nums;
     ConstB: [Box, Rc]^@uints;
 );
@@ -1471,7 +1471,7 @@ impl WhereAtTrait<u32> for u32 {
 }
 
 // B2: macro-variable expansion produces real None groups ($($spec)* repeated expansion);
-// @uint inside groups must expand
+// @u* inside groups must expand
 macro_rules! make_impls {
     ($($spec:tt)*) => {
         #[batch_impl($($spec)*)]
@@ -1480,7 +1480,7 @@ macro_rules! make_impls {
         }
     };
 }
-make_impls!([Box, Rc]^@uint { fn gm(&self) -> u32 { 9 } });
+make_impls!([Box, Rc]^@u* { fn gm(&self) -> u32 { 9 } });
 
 #[test]
 fn review_fixes_locked() {
@@ -1488,7 +1488,7 @@ fn review_fixes_locked() {
     assert_eq!(v.wn(), 1); // B1: @trait expands correctly in ordinary where
     let b = Box::new(1u32);
     let r = Rc::new(1u32);
-    assert_eq!(b.gm(), 9); // B2: @uint expands inside macro-variable None groups
+    assert_eq!(b.gm(), 9); // B2: @u* expands inside macro-variable None groups
     assert_eq!(r.gm(), 9);
 }
 

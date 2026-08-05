@@ -760,7 +760,7 @@ trait TraitA {}
 trait TraitB {}
 batch_trait!(
     @nums=[u8, u16, u32];
-    @uints=@uint;                      // references a built-in constant
+    @uints=@u*;                       // references a built-in constant (wildcard family)
     @wrapped=[Box, Rc]^@nums;          // value contains DSL operations (evaluated at the reference site)
     @chain=@wrapped;                   // chained reference to a user constant
     TraitA: @chain;
@@ -903,7 +903,7 @@ return path show the macro invocation line), and never panic:
 | `3..2` (empty range) | `batch-impl: range '3..2' is empty (start not below end); no impls will be generated` |
 | `^2000` (over the limit) | `batch-impl: tuple '^2000' expands to 2000 items (limit 1024); likely exponential/range/Cartesian typo` |
 | nesting depth over 128 | `batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket)` |
-| `@unknown` | `batch-impl: unknown @ constant '@unknown'; built-ins: '@uint' ...` |
+| `@unknown` | `batch-impl: unknown @ constant '@unknown'; built-ins: '@u*' ...` |
 | `@u32..u8` (endpoints reversed) | `batch-impl: range start is greater than end: 'u32..u8'` |
 | `@a=@a` (circular reference) | `batch-impl: constant '@a' references unknown '@a' (undefined or defined later; ...)` |
 | `#fill()` (empty arguments) | `batch-impl: the directive's argument list cannot be empty` |

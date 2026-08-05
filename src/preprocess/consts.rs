@@ -2,7 +2,7 @@
 //! user-defined constants.
 //!
 //! Syntax (at the token-stream level):
-//! - **Name families**: `@uint` / `@int` / `@float` / `@num` / `@scalar`
+//! - **Name families**: `@u*` / `@i*` / `@f*` / `@num` / `@scalar`
 //! - **Range families**: `@u8..u128` / `@i8..i128` / `@f32..f64` (inclusive; width validated)
 //! - **User-defined** (only `batch_trait!`): a leading `@name=value;` segment
 //!   whose value is any DSL expression (may reference built-in constants;
@@ -30,9 +30,9 @@ use crate::util::{compile_err, compile_err_at, compile_error_str};
 /// Built-in name families: `@name` → list of type identifiers.
 fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
     match name {
-        "uint" => Some(vec!["u8", "u16", "u32", "u64", "u128", "usize"]),
-        "int" => Some(vec!["i8", "i16", "i32", "i64", "i128", "isize"]),
-        "float" => Some(vec!["f32", "f64"]),
+        "u*" => Some(vec!["u8", "u16", "u32", "u64", "u128", "usize"]),
+        "i*" => Some(vec!["i8", "i16", "i32", "i64", "i128", "isize"]),
+        "f*" => Some(vec!["f32", "f64"]),
         "num" => Some(vec![
             "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64",
             "i128", "isize", "f32", "f64",
@@ -136,7 +136,7 @@ fn try_expand_at(
             .map(|t| t.span())
             .unwrap_or_else(proc_macro2::Span::call_site);
         return Err(compile_error_str(
-            "batch-impl: `@` must be followed by a constant name (e.g. `@uint`, \
+            "batch-impl: `@` must be followed by a constant name (e.g. `@u*`, \
              `@u8..u128`)",
             sp,
         ));
@@ -212,7 +212,7 @@ fn try_expand_at(
         };
     }
     // `@all` family: expands to a Bracket group `[a,b,c]` (uniform with
-    // `@uint` list forms), batch_impl-only (needs trait_def to select items);
+    // `@u*` list forms), batch_impl-only (needs trait_def to select items);
     // batch_trait! errors.
     if let Some((kinds, default, receiver)) =
         crate::preprocess::resolve_all_marker(&name_str)
@@ -238,15 +238,21 @@ fn try_expand_at(
     if let Some(expanded) = ctx.user_table().and_then(|t| t.get(&name_str)) {
         return Ok(Some((expanded.clone(), 2)));
     }
-    match builtin_named(&name_str) {
-        Some(types) => Ok(Some((vec![render_list(types.iter().copied())], 2))),
+    // `@u*` / `@i*` / `@f*`: wildcard name family (Ident + `*`); consumed = 3
+    let star =
+        matches!(tokens.get(2), Some(TokenTree::Punct(p)) if p.as_char() == '*');
+    let lookup = if star { format!("{}*", name_str) } else { name_str.clone() };
+    match builtin_named(&lookup) {
+        Some(types) => Ok(Some((
+            vec![render_list(types.iter().copied())],
+            if star { 3 } else { 2 },
+        ))),
         None => Err(compile_err_at!(
             tokens[0].span(),
-            "batch-impl: unknown @ constant `@{}`; built-ins: `@uint` `@int` \
-             `@float` `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` \
-             `@f32..f64`\
+            "batch-impl: unknown @ constant `@{}`; built-ins: `@u*` `@i*` `@f*` \
+             `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` `@f32..f64`\
              {}",
-            name_str,
+            lookup,
             if ctx.user_table().is_some() {
                 "; batch_trait! user constants must be defined before the \
                  reference (defining them later has no effect)"
@@ -263,7 +269,7 @@ fn try_expand_at(
 /// (`@a=@b` with `@b` defined later) are intercepted here — under lazy
 /// expansion a circular ref would recurse forever, and erroring at the
 /// definition beats erroring at the use site. Recurses into all groups (the
-/// `@uint` of `[Vec<@uint>]` is inside an angle group).
+/// `@u*` of `[Vec<@u*>]` is inside an angle group).
 fn check_value_refs(
     tokens: &[TokenTree], table: &HashMap<String, Vec<TokenTree>>, def_name: &str,
 ) -> Result<(), TokenStream> {
@@ -274,17 +280,21 @@ fn check_value_refs(
                 let Some(TokenTree::Ident(name)) = tokens.get(i + 1) else {
                     return Err(compile_error_str(
                         "batch-impl: inside a constant value, `@` must be followed \
-                     by a constant name (e.g. `@uint`, `@u8..u128`)",
+                     by a constant name (e.g. `@u*`, `@u8..u128`)",
                         tokens[i].span(),
                     ));
                 };
                 let name_str = name.to_string();
+                // `@u*` / `@i*` / `@f*` wildcard: Ident + `*` consumes 3 tokens
+                let star = matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '*');
+                let lookup =
+                    if star { format!("{}*", name_str) } else { name_str.clone() };
                 // `@trait` is a segment-level special marker (replaced with
                 // the current segment's trait path after batch_trait!
                 // segmentation), not a constant reference — skip the
                 // visibility check
                 let known = name_str == "trait"
-                    || builtin_named(&name_str).is_some()
+                    || builtin_named(&lookup).is_some()
                     || split_range_endpoint(&name_str).is_some()
                     || table.contains_key(&name_str);
                 if !known {
@@ -297,7 +307,7 @@ fn check_value_refs(
                         name_str
                     ));
                 }
-                i += 2;
+                i += if star { 3 } else { 2 };
             }
             TokenTree::Group(g) => {
                 check_value_refs(

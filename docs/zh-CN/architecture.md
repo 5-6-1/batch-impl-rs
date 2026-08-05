@@ -23,7 +23,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── generic.rs        泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 delimiter![<>]）
   ├── preprocess/           预处理层（token 重写器，一个趟一个文件；mod.rs 聚合 re-export）
   │   ├── mod.rs            delimiter! 分隔符拼写宏 + 指令预处理：#name 指令展开（内置 + 开放扩展）
-  │   ├── consts.rs         `@` 常量系统：内置类型族（@uint/@scalar/@u8..u128）+ batch_trait! 自定义定义段
+  │   ├── consts.rs         `@` 常量系统：内置类型族（@u*/@scalar/@u8..u128）+ batch_trait! 自定义定义段
   │   ├── empty_generics.rs `A<>` 照抄展开（形参渲染用合并后的 bound）
   │   ├── helpers.rs        预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
@@ -90,7 +90,7 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 |----|------|------|----------|
 | **类型域**（spec 表达式） | `^`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
 | **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`@all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
-| **宏元层**（`@` 常量） | `@uint`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
+| **宏元层**（`@` 常量） | `@u*`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
 
 ### 隔离规则
 
@@ -123,7 +123,7 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 - **`#` 只剩指令名一种格式**：`#all` 系范围标记全部迁移到宏元层
   （`@all` 系）——选择（选哪些 item）是宏元层操作，动作（填体/委托/覆盖）
   是指令——`#fill(@all)` / `#fill(@all, -[a,b])`；
-- `@all` 系展开为 **Bracket 组**（`[a,b,c]`，与 `@uint` 形态统一）后走
+- `@all` 系展开为 **Bracket 组**（`[a,b,c]`，与 `@u*` 形态统一）后走
   指令参数解析——指令参数因此天然支持手写 `[a, b]` 与 `-[a, b]` 排除；
 - **trait 感知常量**：`@trait`（batch_impl=本地名、batch_impl_only=外部
   路径；**batch_trait! 段级**——分段后逐段替换为本段 trait 路径，支持

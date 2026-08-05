@@ -759,10 +759,10 @@ trait FixedMatrix {}
 
 | 常量 | 展开 |
 |------|------|
-| `@uint` | `[u8, u16, u32, u64, u128, usize]` |
-| `@int` | `[i8, i16, i32, i64, i128, isize]` |
-| `@float` | `[f32, f64]` |
-| `@num` | `@uint + @int + @float`（14 个） |
+| `@u*` | `[u8, u16, u32, u64, u128, usize]`（无符号族通配） |
+| `@i*` | `[i8, i16, i32, i64, i128, isize]`（有符号族通配） |
+| `@f*` | `[f32, f64]`（浮点族通配） |
+| `@num` | `@u* + @i* + @f*`（14 个） |
 | `@scalar` | `@num + [bool, char]`（16 个） |
 | `@u8..u128` | `[u8, u16, u32, u64, u128]`（**含端点**；`@i8..i128` / `@f32..f64` 同款） |
 
@@ -785,7 +785,7 @@ trait TraitA {}
 trait TraitB {}
 batch_trait!(
     @nums=[u8, u16, u32];
-    @uints=@uint;                      // 引用内置常量
+    @uints=@u*;                      // 引用内置常量（通配族）
     @wrapped=[Box, Rc]^@nums;          // 值含 DSL 运算（引用处求值）
     @chain=@wrapped;                   // 链式引用用户常量
     TraitA: @chain;
@@ -930,7 +930,7 @@ batch_trait!(
 | `3..2`（空范围） | `batch-impl: range '3..2' is empty (start not below end); no impls will be generated` |
 | `^2000`（超上限） | `batch-impl: tuple '^2000' expands to 2000 items (limit 1024); likely exponential/range/Cartesian typo` |
 | 深度超 128 | `batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket)` |
-| `@unknown` | `batch-impl: unknown @ constant '@unknown'; built-ins: '@uint' ...` |
+| `@unknown` | `batch-impl: unknown @ constant '@unknown'; built-ins: '@u*' ...` |
 | `@u32..u8`（端点反序） | `batch-impl: range start is greater than end: 'u32..u8'` |
 | `@a=@a`（循环引用） | `batch-impl: constant '@a' references unknown '@a' (undefined or defined later; ...)` |
 | `#fill()`（空参数） | `batch-impl: the directive's argument list cannot be empty` |

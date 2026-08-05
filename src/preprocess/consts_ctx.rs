@@ -2,7 +2,7 @@
 //! pass, unioned: built-in name families, range families, `@trait`/`@all`/
 //! `@Cow`, and the user table).
 //!
-//! Built-in constants (`@uint`/`@scalar`/range families) work in both
+//! Built-in constants (`@u*`/`@scalar`/range families) work in both
 //! contexts; trait-aware constants (`@trait`/`@all` family/`@Cow`) resolve
 //! only in the attribute macro entry (`@trait` is kept as a segment marker in
 //! `batch_trait!`).

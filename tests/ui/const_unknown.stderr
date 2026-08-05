@@ -1,4 +1,4 @@
-error: batch-impl: unknown @ constant `@unknown`; built-ins: `@uint` `@int` `@float` `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` `@f32..f64`
+error: batch-impl: unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` `@f32..f64`
  --> tests/ui/const_unknown.rs:3:1
   |
 3 | #[batch_impl(@unknown)]
