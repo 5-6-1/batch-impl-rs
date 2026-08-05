@@ -16,12 +16,9 @@ trait Sortable<T> { fn is_sorted(&self) -> bool; }
 // → impl<T> Sortable<T> for Box<Vec<T>> where T: Ord { ... }
 // → impl<T> Sortable<T> for Rc<Vec<T>>  where T: Ord { ... }
 
-// One line generates 4 generic tuple impls
+// One line generates a single 4-generic tuple impl (length ranges use `()^1..=4`)
 #[batch_impl(()^4)]
 trait TupleTrait {}
-// → impl<A>       TupleTrait for (A,) {}
-// → impl<A, B>    TupleTrait for (A, B) {}
-// → impl<A, B, C> TupleTrait for (A, B, C) {}
 // → impl<A, B, C, D> TupleTrait for (A, B, C, D) {}
 ```
 

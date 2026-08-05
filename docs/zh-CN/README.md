@@ -16,12 +16,9 @@ trait Sortable<T> { fn is_sorted(&self) -> bool; }
 // → impl<T> Sortable<T> for Box<Vec<T>> where T: Ord { ... }
 // → impl<T> Sortable<T> for Rc<Vec<T>>  where T: Ord { ... }
 
-// 一行生成 4 个带泛型的元组 impl
+// 一行生成单个带 4 个泛型参数的元组 impl（长度范围请用 `()^1..=4`）
 #[batch_impl(()^4)]
 trait TupleTrait {}
-// → impl<A>       TupleTrait for (A,) {}
-// → impl<A, B>    TupleTrait for (A, B) {}
-// → impl<A, B, C> TupleTrait for (A, B, C) {}
 // → impl<A, B, C, D> TupleTrait for (A, B, C, D) {}
 ```
 
