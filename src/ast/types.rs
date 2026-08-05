@@ -328,8 +328,7 @@ impl Op {
 pub(crate) const MAX_EXPAND: usize = 1024;
 
 /// 统计 `Ty` 树的叶子数（`Array` 逐元素累加，其余计 1）。
-/// 用于数组链式分发（`[A,B]^[C,D]^...`）的产物数量校验——中间数组每个都小，
-/// 但叶子数随 `^` 链指数增长，必须按叶子数设限。
+/// 用于数组链式分发的产物上限校验。
 pub(crate) fn count_leaves(ty: &Ty) -> usize {
     match ty {
         Ty::Array(a) => a.0.iter().map(count_leaves).sum(),

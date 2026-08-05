@@ -14,13 +14,18 @@ use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
+use crate::analyze::TraitBounds;
 use crate::ast::{Op, reset_fresh_counter};
-use crate::batch_trait_entry::parse_batch_trait_entry;
-use crate::diagnostic::compile_error_str;
-use crate::empty_generics::expand_empty_trait_generics;
-use crate::preprocess::{angle_collect, expand_tokens, render_angles, where_process};
-use crate::scan::Cursor;
-use crate::trait_bounds::TraitBounds;
+use crate::preprocess::{
+    angle_collect, expand_empty_trait_generics, expand_tokens, render_angles,
+    where_process,
+};
+use crate::util::{Cursor, compile_error_str};
+
+use crate::entry::driver::parse_batch_trait_entry;
+
+pub(crate) mod driver;
+pub(crate) mod path_prefix;
 
 /// 公共管线：DSL 解析/展开 → 生成 impl → 尖括号组还原。
 ///
@@ -41,27 +46,28 @@ fn run_pipeline(
         start_trait,
         trait_bounds,
     );
-    // 出口转换：尖括号组还原为 `<...>` 扁平 token（rustc 只见扁平）
+    // 出口转换：尖括号组还原为 `<...>` 扁平（见 render_angles）
     Ok(render_angles(impls))
 }
 
 /// 两个属性宏的共享实现（错误经 `compile_error!` token 流返回）
+/// 参数用 proc_macro2 类型：单元测试（fuzz）可直接调用而无需 proc-macro 运行时；
+/// 属性宏入口（lib.rs）在展开时转换。
 pub(crate) fn expand_attr_macro(
-    attr: proc_macro::TokenStream, trait_item: ItemTrait, include_trait: bool,
-) -> Result<proc_macro::TokenStream, TokenStream> {
+    attr: TokenStream, trait_item: ItemTrait, include_trait: bool,
+) -> Result<TokenStream, TokenStream> {
     reset_fresh_counter();
     let trait_name = trait_item.ident.clone();
-    let attr_vec = TokenStream::from(attr).into_iter().collect::<Vec<_>>();
-    // 入口转换：真实 None 组扁平化（宏变量展开产物，内容即 DSL token）
-    // + 扁平 `<...>` 配对为尖括号组（`->` 箭头不参与）——下游解析不再管 `<>` 深度
-    let attr_vec = angle_collect(&attr_vec)?;
+    let attr_vec = attr.into_iter().collect::<Vec<_>>();
 
     // `#[batch_impl_only]` 专属：attr 起首若是 `# Path: ` 形式
     // （`#` + `Ident (:: Ident)*` + `:`），则把该路径作为外部 trait 路径，
     // 余下 attr 作为 DSL spec。`#[batch_impl]` 不支持此前缀
     // （它输出本地 trait 定义，路径前缀无意义）。
+    // 提前到 `@` 展开前：`@trait` 需要 trait_full_path（batch_impl_only
+    // 展开为外部路径，batch_impl 为本地名）。
     let (trait_full_path, trait_last_ident, rest_tokens) = if !include_trait {
-        match crate::path_prefix::try_parse_path_prefix(&attr_vec) {
+        match crate::entry::path_prefix::try_parse_path_prefix(&attr_vec) {
             Some((path, last_ident, rest)) => {
                 // 路径前缀的 last ident 必须与本地 dummy trait 名一致，
                 // 否则后续 DSL 中的 `Trait<T>` 匹配会失败。
@@ -94,14 +100,30 @@ pub(crate) fn expand_attr_macro(
         (quote![#trait_name], trait_name.clone(), attr_vec.clone())
     };
 
-    let expanded = crate::consts::expand_consts(&rest_tokens, None)?;
-    let expanded =
-        expand_tokens(&mut Cursor::new(&expanded), &trait_item, &trait_full_path)?;
+    // 宏元层最外：`@` 常量展开（纯词法替换）先于 `<>` 配对——
+    // 展开产物可能含扁平 `<...>`（如 `@map = HashMap<u32, String>` 的值），
+    // 必须由后续 angle_collect 统一配对；反序则 `Vec<@inner>` 的 `@inner`
+    // 被配对进 `<>` 组、expand_consts 不进入组而残留（实测编译错）。
+    let rest_tokens = crate::preprocess::expand_consts(
+        &rest_tokens,
+        crate::preprocess::ConstCtx::Attribute {
+            trait_def: &trait_item,
+            trait_full_path: &trait_full_path,
+        },
+    )?;
+    // 入口转换：None 组扁平化 + `<...>` 配对（见 angle_collect）
+    let rest_tokens = angle_collect(&rest_tokens)?;
+
+    let expanded = expand_tokens(
+        &mut Cursor::new(&rest_tokens),
+        &trait_item,
+        &trait_full_path,
+    )?;
     // 裸 `where 谓词 {body}` 新语法 → 统一改写为旧式 `where{谓词}`
     // （先于 `A<>` 展开：谓词里的 `Foo<>` 须透传，不得照抄展开）
     let expanded = where_process(&mut Cursor::new(&expanded))?;
     let is_unsafe = trait_item.unsafety.is_some();
-    let trait_bounds = crate::trait_bounds::extract_trait_bounds(&trait_item);
+    let trait_bounds = crate::analyze::extract_trait_bounds(&trait_item);
     // `A<>`：trait 泛型照抄（实参与 bound 全部来自 trait 定义，含 where 谓词），
     // 展开产物与手写完全等价。
     let expanded =
@@ -116,7 +138,29 @@ pub(crate) fn expand_attr_macro(
         start_trait,
         &trait_bounds,
     )
-    .map(Into::into)
+}
+
+/// 段级 `@trait` → 本段 trait 完整路径（batch_trait! 专用；常量值
+/// `<T>@trait<T>` 经懒展开保留 `@trait`，此处按段替换——多段各用自己的名）。
+fn replace_segment_trait(
+    tokens: Vec<TokenTree>, trait_full_path: &TokenStream,
+) -> Result<Vec<TokenTree>, TokenStream> {
+    let mut out = vec![];
+    let mut i = 0;
+    while i < tokens.len() {
+        if let TokenTree::Punct(p) = &tokens[i]
+            && p.as_char() == '@'
+            && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
+            && id == "trait"
+        {
+            out.extend(trait_full_path.clone());
+            i += 2;
+        } else {
+            out.push(tokens[i].clone());
+            i += 1;
+        }
+    }
+    Ok(out)
 }
 
 /// `batch_trait!` 的实际展开（错误经 `compile_error!` token 流返回）
@@ -125,11 +169,16 @@ pub(crate) fn expand_batch_trait(
 ) -> Result<proc_macro::TokenStream, TokenStream> {
     reset_fresh_counter();
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
-    // 全局预处理：配对尖括号组 + 用户常量定义段收集/引用替换 + 裸 where 改写
-    // （分段前一次完成）
+    // 全局预处理：`@` 常量（宏元层最外）→ 尖括号配对 → 裸 where 改写
+    // （分段前一次完成；`@` 先于配对：展开产物可能含扁平 `<...>`，
+    //  须由 angle_collect 统一配对——反序则 `Vec<@inner>` 的 `@inner`
+    //  进组后不被展开，实测编译错）
+    let (tokens, user_consts) = crate::preprocess::collect_user_consts(&tokens)?;
+    let tokens = crate::preprocess::expand_consts(
+        &tokens,
+        crate::preprocess::ConstCtx::Trait { user_table: &user_consts },
+    )?;
     let tokens = angle_collect(&tokens)?;
-    let (tokens, user_consts) = crate::consts::collect_user_consts(&tokens)?;
-    let tokens = crate::consts::expand_consts(&tokens, Some(&user_consts))?;
     let tokens = where_process(&mut Cursor::new(&tokens))?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
@@ -196,9 +245,13 @@ pub(crate) fn expand_batch_trait(
         }
         cursor.bump();
         // 段边界 = 首个深度 0 的 `;`（不消费，由循环头部跳过）
-        let spec = cursor.take_segment(&[';']);
+        let spec = cursor.take_segment(&[';']).to_vec();
+        // 段级 `@trait` 替换：batch_trait! 的 `@trait` 在常量阶段保留原样
+        // （多段每段 trait 名不同），此处展开为本段 trait 完整路径——
+        // `@type_t=<T>@trait<T>` 跨段复用场景（`A: @type_t ...` / `B: @type_t ...`）。
+        let spec = replace_segment_trait(spec, &trait_full_path)?;
         result.extend(run_pipeline(
-            spec,
+            &spec,
             Op::Comma,
             &trait_full_path,
             trait_last_ident,

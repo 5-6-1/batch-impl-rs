@@ -426,7 +426,7 @@ fn cmp_path_prefix_trait_generic() {
 // 路径前缀 + #blanket：委托 bound 须用完整外部路径（裸 dummy 名解析不到）
 #[batch_impl_only(
     #ext::traits::PathPrefixTrait: u8 #tag{"u8"},
-    #blanket(#all){&, Box}
+    #blanket(@all){&, Box}
 )]
 trait PathPrefixTrait {
     fn tag(&self) -> &'static str;
@@ -542,4 +542,24 @@ batch_trait!(PassGen: PassGen<> ());
 fn batch_trait_empty_angle_passthrough() {
     fn _check<T: PassGen>() {}
     _check::<()>();
+}
+
+// ============================================================
+// 22. `T^<A,B>` caret 后跟泛型参数列表（旧语法遗留用例）
+//     （曾因 parse_primary 的 `[Group] → parse_group` 抢先拦截单个
+//     尖括号组，右操作数被吞成空导致 `<u32, String>` 静默丢失，
+//     输出裸 `HashMap`；修复后按设计语义 `T^<A,B> => T<A,B>`）
+// ============================================================
+use std::collections::HashMap;
+
+#[batch_impl(HashMap^<u32, String> { fn klen(&self) -> usize { self.len() } })]
+trait CaretAngleList {
+    fn klen(&self) -> usize;
+}
+
+#[test]
+fn caret_angle_param_list() {
+    let m: HashMap<u32, String> = HashMap::new();
+    assert_eq!(m.klen(), 0);
+    m.contains_key(&1u32); // 确保 impl 落在 HashMap<u32, String> 而非裸 HashMap
 }

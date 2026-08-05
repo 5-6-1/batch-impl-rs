@@ -5,24 +5,19 @@
 //! （载体是 `delimiter![<>]` = `Delimiter::None`），使下游 parse 层
 //! 不再需要 `<>` 深度跟踪。
 //!
-//! [`angle_collect`] 一趟扫描同时做两件事：
-//! - **真实 `None` 组扁平化**：输入（源码 token）本不该有 `None` 组，
-//!   它只来自宏变量（`$var:ty`）展开——其内容就是 DSL token，扁平化后
-//!   与直接书写等价（内容里的 `<` 会被本趟配对还原）；
-//! - **`<...>` 配对**：扁平 `<` 找匹配 `>`（`->` 箭头的 `>` 不参与配对），
-//!   内容递归处理（嵌套 `<`、Paren/Bracket 组），结果包为尖括号组。
-//!
-//! 递归规则：`Paren`/`Bracket` 是 DSL 容器（元组/列表，内含类型表达式）
-//! → 递归进入；`Brace` 是透传代码（body，`a < b` 是真实比较）→ 不进入。
-//!
-//! [`render_angles`] 是输出侧镜像：把尖括号组还原为 `<` + 内容 + `>`
-//! 扁平 token（输出里的尖括号组只可能来自本模块配对——输入的真实
-//! `None` 组已被 [`angle_collect`] 扁平化）。
+//! 职责与递归规则见 [`angle_collect`]；[`render_angles`] 是输出侧镜像。
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
-use crate::diagnostic::compile_error_str;
-use crate::scan::{bracket_is_passthrough, is_arrow};
+use crate::util::compile_error_str;
+use crate::util::{bracket_is_passthrough, is_arrow};
+
+/// 递归深度上限（对齐 v0.1 的 128 层）。
+///
+/// 嵌套组（`[[[...]]]`）与嵌套 `<>`（`Vec<Vec<...>>`）经 [`angle_collect`]
+/// 递归处理，深嵌套会让编译器栈溢出（实测 30000 层 STATUS_STACK_OVERFLOW）——
+/// 入口计数拦截，合法 DSL（组嵌套 ≤ 5 层）完全不受影响。
+pub(crate) const MAX_NEST_DEPTH: usize = 128;
 
 /// 入口转换：一趟扫描完成 None 组扁平化与 `<...>` 配对。
 ///
@@ -35,29 +30,41 @@ use crate::scan::{bracket_is_passthrough, is_arrow};
 pub(crate) fn angle_collect(
     tokens: &[TokenTree],
 ) -> Result<Vec<TokenTree>, TokenStream> {
+    angle_collect_at(tokens, 0)
+}
+
+fn angle_collect_at(
+    tokens: &[TokenTree], depth: usize,
+) -> Result<Vec<TokenTree>, TokenStream> {
+    if depth > MAX_NEST_DEPTH {
+        return Err(compile_error_str(&format!(
+            "batch-impl: 嵌套深度超过 {} 层（可能是不小心多写了一层括号）",
+            MAX_NEST_DEPTH
+        )));
+    }
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
-            // 真实 None 组：内容就是 DSL token，扁平化（内容里的 `<` 由本趟配对）
+            // 真实 None 组（宏变量产物）：内容即 DSL token，扁平化
             TokenTree::Group(g) if g.delimiter() == delimiter![none] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
-                out.extend(angle_collect(&inner)?);
+                out.extend(angle_collect_at(&inner, depth + 1)?);
                 i += 1;
             }
-            // DSL 元组：递归进入（内容含类型表达式）
+            // DSL 元组：递归
             TokenTree::Group(g) if g.delimiter() == delimiter![()] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
                 out.push(
                     Group::new(
                         g.delimiter(),
-                        angle_collect(&inner)?.into_iter().collect(),
+                        angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
                     )
                     .into(),
                 );
                 i += 1;
             }
-            // DSL 列表 / 宏体 / 属性：`ident![...]` 与 `#[...]` 透传（内容任意 Rust）
+            // DSL 列表；`ident![...]` / `#[...]` 透传（内容任意 Rust）
             TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
                 if bracket_is_passthrough(tokens, i) {
                     out.push(tokens[i].clone());
@@ -66,19 +73,21 @@ pub(crate) fn angle_collect(
                     out.push(
                         Group::new(
                             g.delimiter(),
-                            angle_collect(&inner)?.into_iter().collect(),
+                            angle_collect_at(&inner, depth + 1)?
+                                .into_iter()
+                                .collect(),
                         )
                         .into(),
                     );
                 }
                 i += 1;
             }
-            // 透传代码（body）：不进入，原样保留
+            // 透传代码（body）：不进入
             TokenTree::Group(_) => {
                 out.push(tokens[i].clone());
                 i += 1;
             }
-            // 扁平 `<`：配对到匹配的 `>`（`->` 箭头的 `>` 不参与）
+            // 扁平 `<`：配对到匹配 `>`（`->` 的 `>` 不参与）
             TokenTree::Punct(p) if p.as_char() == '<' => {
                 let Some(close) = find_angle_close(tokens, i) else {
                     return Err(compile_error_str(
@@ -89,13 +98,13 @@ pub(crate) fn angle_collect(
                 out.push(
                     Group::new(
                         delimiter![<>],
-                        angle_collect(&inner)?.into_iter().collect(),
+                        angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
                     )
                     .into(),
                 );
                 i = close + 1;
             }
-            // 多余的 `>`（非箭头）：非法输入
+            // 多余的 `>`（非箭头）：非法
             TokenTree::Punct(p) if p.as_char() == '>' && !is_arrow(tokens, i) => {
                 return Err(compile_error_str(
                     "batch-impl: 多余的 `>`（缺少匹配的 `<`）",
@@ -183,6 +192,23 @@ mod tests {
         let v: Vec<_> = ts.into_iter().collect();
         let collected = angle_collect(&v).unwrap();
         render_angles(collected.into_iter().collect()).to_string()
+    }
+
+    /// 递归深度护栏：129 层嵌套组（> MAX_NEST_DEPTH）报错而非栈溢出。
+    #[test]
+    fn angle_nesting_limit() {
+        let ts: TS2 = FromStr::from_str(&format!(
+            "{}0{}",
+            "[".repeat(MAX_NEST_DEPTH + 1),
+            "]".repeat(MAX_NEST_DEPTH + 1)
+        ))
+        .unwrap();
+        let v: Vec<_> = ts.into_iter().collect();
+        let err = angle_collect(&v).unwrap_err().to_string();
+        assert!(
+            err.contains("嵌套深度超过"),
+            "预期深度超限诊断，实际: {err}"
+        );
     }
 
     #[test]

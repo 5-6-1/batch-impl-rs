@@ -1,5 +1,7 @@
 # batch-impl
 
+**v0.6.1**（2026-08-05）——`@` 唯一宏元记号 + blanket 约束合并 + trait 感知常量（`@trait`/`@all` 系/`@Cow`/`@0`）。
+
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
 ```rust
@@ -68,7 +70,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.6.0"
+batch-impl = "0.6.1"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -99,10 +101,11 @@ trait Tagged { fn name(&self) -> &str; }
 | 泛型自动化                           | `A<>` 照抄、同名继承、trait where 子句继承  | 泛型自动化  |
 | 关联类型绑定                         | `Iter<Item=T>` → `type Item = T;`           | 关联类型    |
 | 指令系统 `#name`/`#fill`/`#delegate` | 签名自动抄、body 批量填、委托调用           | 指令系统    |
-| 覆盖式委托 `#blanket`                | 包装矩阵一行生成委托 impl（任意包装 + `:N`、泛型 trait、assoc 投影） | 指令系统    |
+| 覆盖式委托 `#blanket`                | 包装矩阵一行生成委托 impl（任意包装 + `:N`、泛型 trait、assoc 投影、包装 where 谓词） | 指令系统    |
 | 开放扩展                             | 不认识的 `#name(args){body}` 交给你的同名宏 | 指令系统    |
-| `@` 常量                             | `@uint`/`@scalar`/`@u8..u128` + batch_trait! 自定义（懒展开、链式引用） | 常量系统    |
-| `where{...}`                         | 为生成的 impl 附加 where 子句               | where 子句  |
+| `@` 常量                             | 内置族 `@uint`/`@scalar`/`@u8..u128` + `@trait`/`@all` 系/`@Cow` + batch_trait! 自定义（懒展开、链式引用） | 常量系统    |
+| 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系）与位置引用（`@0`）归宏元层 | 常量系统    |
+| `where{...}`                         | 约束容器统一（`<>` 只留名字），blanket 约束并列合并 | where 子句  |
 | 元组生成                             | `()^3`、`(T,)^N`、笛卡尔积、范围            | 元组生成    |
 | fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持                          | 修饰符      |
 

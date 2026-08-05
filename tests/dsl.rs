@@ -530,10 +530,10 @@ fn unsafe_fn_type() {
 }
 
 // ============================================================
-// 30. 指令参数列表减法：`-name` / `-#all` 排除项（取代 `#except`）
+// 30. 指令参数列表减法：`-name` / `-@all` 排除项（取代 `#except`）
 //     （排除项走 trait 默认实现，验证未被批量生成）
 // ============================================================
-#[batch_impl(usize #fill(#all,-skip_me){0})]
+#[batch_impl(usize #fill(@all,-skip_me){0})]
 trait ExceptInline {
     fn keep_me(&self) -> u32;
     fn skip_me(&self) -> u32 {
@@ -542,8 +542,8 @@ trait ExceptInline {
     const VALUE: u32;
 }
 
-// 标记减法：#all - #all_methods = const + type
-#[batch_impl(isize #fill(#all,-#all_methods){1})]
+// 标记减法：@all - @all_methods = const + type
+#[batch_impl(isize #fill(@all,-@all_methods){1})]
 trait MarkMinus {
     fn m(&self) -> u32 {
         7
@@ -566,13 +566,62 @@ fn directive_minus_exclude() {
     assert_eq!(1usize.skip_me(), 999);
     assert_eq!(<usize as ExceptInline>::VALUE, 0);
 
-    // `#all - #all_methods` = const + type：方法走默认实现
+    // `@all - @all_methods` = const + type：方法走默认实现
     assert_eq!(<isize as MarkMinus>::C, 1);
     assert_eq!(0isize.m(), 7);
 
     let u = 3u32;
     assert_eq!(u.a(), 2);
     assert_eq!(u.b(), 8);
+}
+
+// ============================================================
+// 30b. `@all_default*` / `@all_required*`：按默认实现状态过滤 item
+//     （trait item 的 `default` 字段：fn=默认体、const=默认值、type=默认类型；
+//      required ∪ default = all，二分闭合）
+// ============================================================
+// 组合：required 填 1、default 覆盖成 2（u32）
+#[batch_impl(u32 #fill(@all_required_methods){1} #fill(@all_default_methods){2})]
+trait ReqDefMix {
+    fn req(&self) -> u32;
+    fn opt(&self) -> u32 {
+        100
+    }
+}
+
+// 只 required：default 方法保留 trait 默认实现（最常见用法，u64）
+#[batch_impl(u64 #fill(@all_required_methods){3})]
+trait ReqOnly {
+    fn req(&self) -> u32;
+    fn opt(&self) -> u32 {
+        7
+    }
+}
+
+// blanket + required：只委托必须实现的，默认方法保留 trait 默认（u16）
+#[batch_impl(#blanket(@all_required_methods){Box})]
+trait BlanketReq {
+    fn req(&self) -> u32;
+    fn opt(&self) -> u32 {
+        7
+    }
+}
+
+impl BlanketReq for u16 {
+    fn req(&self) -> u32 {
+        1
+    }
+}
+
+#[test]
+fn all_default_required_markers() {
+    assert_eq!(0u32.req(), 1);
+    assert_eq!(0u32.opt(), 2); // 默认 100 被覆盖 → 2
+    assert_eq!(0u64.req(), 3);
+    assert_eq!(0u64.opt(), 7); // 默认保留
+    let b = Box::new(1u16);
+    assert_eq!(b.req(), 1); // 委托 (*self).req()
+    assert_eq!(b.opt(), 7); // 默认保留
 }
 
 // ============================================================
@@ -956,7 +1005,7 @@ fn const_system() {
 // 36. #blanket 覆盖式委托（先给内部类型实现，再覆盖包装）
 // ============================================================
 #[batch_impl(u32 { fn name(&self) -> String { self.to_string() } })]
-#[batch_impl(#blanket(#all){&,Box,Rc})]
+#[batch_impl(#blanket(@all){&,Box,Rc})]
 trait BlanketName {
     fn name(&self) -> String;
 }
@@ -1012,13 +1061,13 @@ batch_trait!(
     LazyB: @lazy_nums;
 );
 
-// blanket 泛型 trait：形参照抄 + where 透传 + type/const 投影委托（#all）
+// blanket 泛型 trait：形参照抄 + where 透传 + type/const 投影委托（@all）
 #[batch_impl(Foo<u32> u32 {
     type Item = u8;
     const LIMIT: usize = 42;
     fn m(&self) -> u32 { *self }
 })]
-#[batch_impl(#blanket(#all){&})]
+#[batch_impl(#blanket(@all){&})]
 trait Foo<X: Clone>
 where
     X: Send,
@@ -1122,7 +1171,7 @@ trait IncGen<X: Clone> {
     const TAG: u8 = 7;
     fn tag(&self) -> u8 { 9 }
 })]
-#[batch_impl(#blanket(#all){Box})]
+#[batch_impl(#blanket(@all){Box})]
 trait HasAssoc {
     type Item;
     const TAG: u8;
@@ -1148,4 +1197,279 @@ fn blanket_generic_full_forms() {
     assert_eq!(Box::new(3u16).tag(), 9);
     assert_eq!(<Box<u16> as HasAssoc>::TAG, 7);
     let _: <Box<u16> as HasAssoc>::Item = 5u32;
+}
+
+// ============================================================
+// 32. batch_trait! 自定义 @ 常量值含 <...>（`@` 先于 `<>` 配对）
+//     （0.6.1 修正管线顺序 `@ <> # where` 前，`Vec<@inner>` 的 @inner
+//     被配对进 <> 组、expand_consts 不进入组而残留——实测编译错）
+// ============================================================
+trait FooMap {}
+trait FooNest {}
+
+batch_trait!(
+    @map = HashMap<u32, String>;
+    FooMap: @map
+);
+
+// 嵌套：@inner 值含 <...>，@outer 引用 @inner——懒展开递归
+batch_trait!(
+    @inner = Vec<u8>;
+    @outer = Vec<@inner>;
+    FooNest: @outer
+);
+
+#[test]
+fn trait_const_value_with_angles() {
+    fn _check_map<T: FooMap>() {}
+    fn _check_nest<T: FooNest>() {}
+    _check_map::<HashMap<u32, String>>();
+    _check_nest::<Vec<Vec<u8>>>();
+}
+
+// ============================================================
+// 33. 宏元层完整化：@trait / @Cow / blanket 包装 where / [a,b] 参数 / where 规范
+// ============================================================
+use std::borrow::Cow;
+
+// @trait：batch_impl 展开本地 trait 名（blanket 包装 where 谓词中引用）
+#[batch_impl(#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}})]
+trait CowWhereTrait {
+    fn klen(&self) -> usize;
+}
+impl CowWhereTrait for str {
+    fn klen(&self) -> usize {
+        self.len()
+    }
+}
+impl CowWhereTrait for String {
+    fn klen(&self) -> usize {
+        self.len()
+    }
+}
+
+// @Cow：内置常量（Cow<'_> + 固有约束，deref target = T::Owned）
+#[batch_impl(#blanket(@all_methods){@Cow})]
+trait CowConstTrait {
+    fn clen(&self) -> usize;
+}
+impl CowConstTrait for str {
+    fn clen(&self) -> usize {
+        self.len()
+    }
+}
+impl CowConstTrait for String {
+    fn clen(&self) -> usize {
+        self.len()
+    }
+}
+
+// [a,b] 手写指令参数 + @all 减法 -[a,b] 排除
+#[batch_impl(u8 #fill([m1, m2]){1} #fill(@all, -[m1, m2]){3})]
+trait BracketArgs {
+    fn m1(&self) -> u32;
+    fn m2(&self) -> u32;
+    fn m3(&self) -> u32;
+}
+
+// where 规范写法：<> 只留名字，约束在 where
+#[batch_impl(<T> WhereStyle<T> Vec<T> where{T: Clone} { fn wdup(&self) -> usize { self.len() } })]
+trait WhereStyle<T: Clone> {
+    fn wdup(&self) -> usize;
+}
+
+#[test]
+fn macro_meta_complete() {
+    let c: Cow<'static, str> = Cow::Borrowed("abc");
+    assert_eq!(c.klen(), 3); // @trait 谓词（@0::Owned: @trait → T::Owned: CowWhereTrait）
+    assert_eq!(c.clen(), 3); // @Cow 内置
+    let s: Cow<'static, str> = Cow::Owned("xy".to_string());
+    assert_eq!(s.klen(), 2);
+    assert_eq!(s.clen(), 2);
+    assert_eq!(0u8.m1(), 1); // [m1, m2] 填 1
+    assert_eq!(0u8.m2(), 1);
+    assert_eq!(0u8.m3(), 3); // @all -[m1, m2] → m3 填 3
+    let v = vec![1u32];
+    assert_eq!(v.wdup(), 1); // where 规范
+}
+
+// @0 通用化：位置引用在普通 where 谓词可用（元组生成泛型 / 用户泛型）
+#[batch_impl(()^2 where{@0: Clone, @1: Copy} { fn tmk() -> u32 { 2 } })]
+trait TupleWhereAt {
+    fn tmk() -> u32;
+}
+
+#[batch_impl(<T> AtWhere<T> Vec<T> where{@0: Default} { fn an(&self) -> usize { self.len() } })]
+trait AtWhere<T: Clone> {
+    fn an(&self) -> usize;
+}
+
+#[test]
+fn where_position_refs() {
+    assert_eq!(<(u32, u32) as TupleWhereAt>::tmk(), 2);
+    let v = vec![1u32];
+    assert_eq!(v.an(), 1);
+}
+
+// ============================================================
+// 34. batch_trait! 段级 @trait：跨段复用「泛型声明 + trait 名」打包
+//     （常量值里的 @trait 由 entry 分段后逐段替换为本段 trait 路径）
+// ============================================================
+trait SegA<T> {}
+trait SegB<T> {}
+
+batch_trait! {
+    @type_t = <T> @trait <T>;
+    SegA: @type_t [&, Box]^T;
+    SegB: @type_t Box^[T, Vec<T>];
+}
+
+#[test]
+fn trait_const_segment() {
+    fn check_a<T: SegA<u8>>() {}
+    fn check_b<T: SegB<u8>>() {}
+    check_a::<&u8>();
+    check_a::<Box<u8>>();
+    check_b::<Box<u8>>();
+    check_b::<Box<Vec<u8>>>();
+}
+
+// ============================================================
+// 35. 评审补充：@all 状态标记全种类 / 标记减法 / @trait 顶层 spec /
+//     [a,b] 委托参数 / blanket 包装 where 的 @0 / 多参数元组 @N
+// ============================================================
+
+// @all_required（fn + const 全种类）只填 required，默认保留
+#[batch_impl(u32 #fill(@all_required){4})]
+trait ReqMix2 {
+    fn rfn(&self) -> u32;
+    fn dfn(&self) -> u32 {
+        1
+    }
+    const RC: u32;
+    const DC: u32 = 2;
+}
+
+// @all_default_constants：只覆盖带默认值的 const（方法不参与）
+#[batch_impl(u64 #fill(@all_default_constants){8})]
+trait DefConstOnly {
+    fn m(&self) -> u32 {
+        3
+    }
+    const C: u32 = 7;
+}
+
+// @all_required_types：只填必需类型（trait 关联类型默认值是 nightly feature
+// E0658，`@all_default_types` 在 stable 不可用——const/fn 的默认 stable）
+#[batch_impl(u16 #fill(@all_required_types){u16})]
+trait ReqTypesOnly {
+    type RT;
+}
+
+// 标记减法：@all_methods - @all_default_methods = 仅 required 方法
+#[batch_impl(u8 #fill(@all_methods, -@all_default_methods){1})]
+trait MarkerMinus2 {
+    fn r1(&self) -> u32;
+    fn r2(&self) -> u32;
+    fn d1(&self) -> u32 {
+        9
+    }
+}
+
+// @trait 顶层展开：spec 的 trait 名部分写作 `@trait<T>`（懒展开消费 2 token，
+// 余下 `<T>` 由 angle_collect 配对）
+#[batch_impl(<T> @trait<T> Vec<T> { fn tl(&self) -> usize { self.len() } })]
+trait AtTraitSpec<T> {
+    fn tl(&self) -> usize;
+}
+
+// [a,b] 参数在 #delegate：Box<Vec<u32>> 委托 dl1/dl2
+#[batch_impl(
+    Vec<u32> {
+        fn dl1(&self) -> usize { self.len() }
+        fn dl2(&self) -> usize { self.len() }
+    },
+    Box^Vec^u32 #delegate([dl1, dl2]){**self}
+)]
+trait DelBr {
+    fn dl1(&self) -> usize;
+    fn dl2(&self) -> usize;
+}
+
+// blanket 包装 where 只含 @0（无 @trait）：`Box where{@0: Copy}`
+#[batch_impl(u32 { fn own(&self) -> u32 { *self } })]
+#[batch_impl(#blanket(own){Box where{@0: Copy}})]
+trait OwnAt0 {
+    fn own(&self) -> u32;
+}
+
+// @N 位置引用：()^3 where{@2: Clone}（第三位 fresh 泛型）
+#[batch_impl(()^3 where{@2: Clone} { fn tk3() -> u32 { 3 } })]
+trait TupleWhereAt3 {
+    fn tk3() -> u32;
+}
+
+#[test]
+fn macro_meta_review_extras() {
+    assert_eq!(0u32.rfn(), 4);
+    assert_eq!(0u32.dfn(), 1); // 默认保留
+    assert_eq!(<u32 as ReqMix2>::RC, 4);
+    assert_eq!(<u32 as ReqMix2>::DC, 2); // 默认保留
+
+    assert_eq!(<u64 as DefConstOnly>::C, 8); // 默认 const 被覆盖
+    assert_eq!(0u64.m(), 3); // 方法不参与
+
+    fn _check_t<T: ReqTypesOnly>() {}
+    _check_t::<u16>();
+    let _: <u16 as ReqTypesOnly>::RT = 5u16;
+
+    assert_eq!(0u8.r1(), 1);
+    assert_eq!(0u8.r2(), 1);
+    assert_eq!(0u8.d1(), 9); // 默认方法保留
+
+    let v = vec![1u32, 2];
+    assert_eq!(v.tl(), 2);
+
+    let b: Box<Vec<u32>> = Box::new(vec![1, 2, 3]);
+    assert_eq!(b.dl1(), 3);
+    assert_eq!(b.dl2(), 3);
+
+    assert_eq!(Box::new(5u32).own(), 5);
+    assert_eq!(<(u8, u16, u32) as TupleWhereAt3>::tk3(), 3);
+}
+
+// ============================================================
+// 36. 评测修复锁定：B1（codegen @trait 大小写）+ B2（宏变量 None 组内 @）
+// ============================================================
+// B1：普通 where 谓词的 @trait（codegen resolve_where_at 路径——
+// 曾写 id == "Trait" 大写，@trait 被错误拒绝）
+#[batch_impl(<T> WhereAtTrait<T> Vec<T> where{@0: @trait<T>} { fn wn(&self) -> usize { self.len() } })]
+trait WhereAtTrait<T: Clone> {
+    fn wn(&self) -> usize;
+}
+impl WhereAtTrait<u32> for u32 {
+    fn wn(&self) -> usize {
+        1
+    }
+}
+
+// B2：宏变量展开产生真实 None 组（$($spec)* 重复展开），组内 @uint 须展开
+macro_rules! make_impls {
+    ($($spec:tt)*) => {
+        #[batch_impl($($spec)*)]
+        trait MacroGenTrait {
+            fn gm(&self) -> u32;
+        }
+    };
+}
+make_impls!([Box, Rc]^@uint { fn gm(&self) -> u32 { 9 } });
+
+#[test]
+fn review_fixes_locked() {
+    let v = vec![1u32];
+    assert_eq!(v.wn(), 1); // B1：@trait 在普通 where 正确展开
+    let b = Box::new(1u32);
+    let r = Rc::new(1u32);
+    assert_eq!(b.gm(), 9); // B2：宏变量 None 组内 @uint 展开
+    assert_eq!(r.gm(), 9);
 }

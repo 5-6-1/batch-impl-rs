@@ -2,7 +2,7 @@ use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
-use crate::diagnostic::compile_error_str;
+use crate::util::{compile_err, compile_error_str};
 
 pub(crate) fn parse_names_from_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait,
@@ -13,8 +13,8 @@ pub(crate) fn parse_names_from_tokens(
     parse_name_tokens(tokens, trait_def, "指令参数")
 }
 
-/// 解析指令参数为 item 名列表：`#all` 系列标记、逗号分隔的标识符列表、
-/// 以及 `-name` 排除项（保留列表减去排除列表，如 `#fill(#all,-foo)`）。
+/// 解析指令参数为 item 名列表：`@all` 系列标记、逗号分隔的标识符列表、
+/// 以及 `-name` 排除项（保留列表减去排除列表，如 `#fill(@all,-foo)`）。
 ///
 /// 指令参数域里 `-` 此前无语义（参数只解析标识符/逗号），专用于列表减法，
 /// 不与类型 DSL 的 `-` 连接运算符冲突（DSL 解析不进入指令参数）。
@@ -23,7 +23,7 @@ fn parse_name_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
 ) -> Result<Vec<Ident>, TokenStream> {
     if tokens.is_empty() {
-        return Err(compile_error_str(&format!("batch-impl: {}不能为空", what)));
+        return Err(compile_err!("batch-impl: {}不能为空", what));
     }
     let mut keep: Vec<Ident> = vec![];
     let mut exclude: Vec<Ident> = vec![];
@@ -36,17 +36,25 @@ fn parse_name_tokens(
                 prev_was_comma = false;
                 i += 1;
             }
+            // `[a, b]` 列表：递归解析组内容为名字（`@all` 系展开产物即此形态；
+            // 用户也可手写 `[a,b]` 或 `-[a,b]` 排除；空组经递归报"不能为空"）
+            TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
+                let inner: Vec<_> = g.stream().into_iter().collect();
+                keep.extend(parse_name_tokens(&inner, trait_def, what)?);
+                prev_was_comma = false;
+                i += 1;
+            }
             TokenTree::Punct(p) if p.as_char() == ',' => {
                 if prev_was_comma {
-                    return Err(compile_error_str(&format!(
+                    return Err(compile_err!(
                         "batch-impl: {}中逗号位置不合法（不允许前导/尾随/连续逗号）",
                         what
-                    )));
+                    ));
                 }
                 prev_was_comma = true;
                 i += 1;
             }
-            // `-name` / `-#all`：排除项（排除优先于保留）
+            // `-name` / `-[a,b]` / `-@all`（@all 展开为 Bracket 组后走组分支）：排除项
             TokenTree::Punct(p) if p.as_char() == '-' => {
                 let (ids, consumed) =
                     parse_minus_target(&tokens[i + 1..], trait_def, what)?;
@@ -54,37 +62,31 @@ fn parse_name_tokens(
                 i += 1 + consumed;
                 prev_was_comma = false;
             }
-            // `#all` 系列标记：展开为对应 item 列表（并入保留列表）
-            TokenTree::Punct(p) if p.as_char() == '#' => {
-                let (ids, consumed) =
-                    parse_marker(&tokens[i + 1..], trait_def, what)?;
-                keep.extend(ids);
-                i += 1 + consumed;
-                prev_was_comma = false;
-            }
+            // `#` 不再出现在指令参数域：`#` 只剩指令名一种格式，范围选择归 `@all` 系
             _ => {
-                return Err(compile_error_str(&format!(
-                    "batch-impl: {}中期望标识符、逗号或 `-` 排除项，得到 `{}`",
-                    what, tokens[i]
-                )));
+                return Err(compile_err!(
+                    "batch-impl: {}中期望标识符、逗号、`[...]` 列表或 `-` 排除项，得到 `{}`",
+                    what,
+                    tokens[i]
+                ));
             }
         }
     }
     if prev_was_comma {
-        return Err(compile_error_str(&format!(
+        return Err(compile_err!(
             "batch-impl: {}中逗号位置不合法（不允许前导/尾随/连续逗号）",
             what
-        )));
+        ));
     }
     let names: Vec<Ident> =
         keep.into_iter().filter(|id| !exclude.iter().any(|e| e == id)).collect();
     if names.is_empty() {
-        return Err(compile_error_str(&format!("batch-impl: {}不能为空", what)));
+        return Err(compile_err!("batch-impl: {}不能为空", what));
     }
     Ok(names)
 }
 
-/// `-` 后的目标：标识符（`-foo`）或 `#all` 系列标记（`-#all_methods`）。
+/// `-` 后的目标：标识符（`-foo`）或 `@all` 系列标记（`-@all_methods`）。
 /// 返回（展开的 item 名列表, 消费的 token 数）。
 fn parse_minus_target(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
@@ -93,75 +95,72 @@ fn parse_minus_target(
         Some(TokenTree::Ident(id)) => {
             Ok((vec![Ident::new(&id.to_string(), id.span())], 1))
         }
-        Some(TokenTree::Punct(p)) if p.as_char() == '#' => {
-            let (ids, n) = parse_marker(&tokens[1..], trait_def, what)?;
-            Ok((ids, 1 + n))
+        Some(TokenTree::Group(g)) if g.delimiter() == delimiter![[]] => {
+            let inner: Vec<_> = g.stream().into_iter().collect();
+            let ids = parse_name_tokens(&inner, trait_def, what)?;
+            Ok((ids, 1))
         }
-        _ => Err(compile_error_str(&format!(
-            "batch-impl: {}中 `-` 后期望标识符或 `#all` 标记（如 `-foo`、`-#all_methods`）",
+        _ => Err(compile_err!(
+            "batch-impl: {}中 `-` 后期望标识符或 `[...]` 列表（如 `-foo`、`-[a,b]`）",
             what
-        ))),
+        )),
     }
 }
 
-/// `#all` 系列标记展开（`#all` / `#all_methods` / `#all_constants` / `#all_types`）。
-/// 返回（展开的 item 名列表, 消费的 token 数）。
-fn parse_marker(
-    tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
-) -> Result<(Vec<Ident>, usize), TokenStream> {
-    let Some(TokenTree::Ident(id)) = tokens.first() else {
-        return Err(compile_error_str(&format!(
-            "batch-impl: {}中 `#` 后期望 `#all`/`#all_methods`/`#all_constants`/`#all_types` 标记",
-            what
-        )));
-    };
-    let ids = if id == "all_methods" {
-        get_all_trait_methods(trait_def)
-    } else if id == "all" {
-        get_all_trait_items(trait_def)
-    } else if id == "all_constants" {
-        get_all_trait_constants(trait_def)
-    } else if id == "all_types" {
-        get_all_trait_types(trait_def)
-    } else {
-        return Err(compile_error_str(&format!(
-            "batch-impl: {}中未知的 `#{}` 标记（支持 `#all`/`#all_methods`/`#all_constants`/`#all_types`）",
-            what, id
-        )));
-    };
-    Ok((ids, 1))
+/// `all` 系标记 → (include_fn, include_const, include_type, default 过滤)。
+/// `default=None` 全含；`Some(true)` 仅默认实现；`Some(false)` 仅无默认（required）。
+/// 指令域（`@all`）与宏元层（`@all`）共用同一张表。
+pub(crate) fn resolve_all_marker(
+    name: &str,
+) -> Option<((bool, bool, bool), Option<bool>)> {
+    match name {
+        "all" => Some(((true, true, true), None)),
+        "all_methods" => Some(((true, false, false), None)),
+        "all_constants" => Some(((false, true, false), None)),
+        "all_types" => Some(((false, false, true), None)),
+        "all_default" => Some(((true, true, true), Some(true))),
+        "all_default_methods" => Some(((true, false, false), Some(true))),
+        "all_default_constants" => Some(((false, true, false), Some(true))),
+        "all_default_types" => Some(((false, false, true), Some(true))),
+        "all_required" => Some(((true, true, true), Some(false))),
+        "all_required_methods" => Some(((true, false, false), Some(false))),
+        "all_required_constants" => Some(((false, true, false), Some(false))),
+        "all_required_types" => Some(((false, false, true), Some(false))),
+        _ => None,
+    }
 }
 
-fn get_trait_item_names(
+/// 收集 trait item 名。`include_*` 控制种类；`default` 过滤默认实现状态：
+/// `Some(true)` 仅含带默认实现的、`Some(false)` 仅含无默认（required）、
+/// `None` 全含（syn 的 `default` 字段：fn=默认体、const=默认值、type=默认类型）。
+pub(crate) fn get_trait_item_names(
     trait_def: &ItemTrait, include_fn: bool, include_const: bool, include_type: bool,
+    default: Option<bool>,
 ) -> Vec<Ident> {
     let mut names = vec![];
     for item in &trait_def.items {
-        if include_fn && let syn::TraitItem::Fn(f) = item {
-            names.push(f.sig.ident.clone());
-        } else if include_const && let syn::TraitItem::Const(c) = item {
-            names.push(c.ident.clone());
-        } else if include_type && let syn::TraitItem::Type(t) = item {
-            names.push(t.ident.clone());
+        let (kind, has_default) = match item {
+            syn::TraitItem::Fn(f) => (0u8, f.default.is_some()),
+            syn::TraitItem::Const(c) => (1, c.default.is_some()),
+            syn::TraitItem::Type(t) => (2, t.default.is_some()),
+            _ => (3, false),
+        };
+        let include = match kind {
+            0 => include_fn,
+            1 => include_const,
+            2 => include_type,
+            _ => false,
+        };
+        if include && default.is_none_or(|d| d == has_default) {
+            match item {
+                syn::TraitItem::Fn(f) => names.push(f.sig.ident.clone()),
+                syn::TraitItem::Const(c) => names.push(c.ident.clone()),
+                syn::TraitItem::Type(t) => names.push(t.ident.clone()),
+                _ => {}
+            }
         }
     }
     names
-}
-
-fn get_all_trait_methods(trait_def: &ItemTrait) -> Vec<Ident> {
-    get_trait_item_names(trait_def, true, false, false)
-}
-
-fn get_all_trait_items(trait_def: &ItemTrait) -> Vec<Ident> {
-    get_trait_item_names(trait_def, true, true, true)
-}
-
-fn get_all_trait_constants(trait_def: &ItemTrait) -> Vec<Ident> {
-    get_trait_item_names(trait_def, false, true, false)
-}
-
-fn get_all_trait_types(trait_def: &ItemTrait) -> Vec<Ident> {
-    get_trait_item_names(trait_def, false, false, true)
 }
 
 pub(crate) fn get_trait_item<'a>(
@@ -178,10 +177,11 @@ pub(crate) fn get_trait_item<'a>(
             return Ok(item);
         }
     }
-    Err(compile_error_str(&format!(
+    Err(compile_err!(
         "batch-impl: trait `{}` 中没有找到 item `{}`",
-        trait_def.ident, name
-    )))
+        trait_def.ident,
+        name
+    ))
 }
 
 pub(crate) fn build_from_item(

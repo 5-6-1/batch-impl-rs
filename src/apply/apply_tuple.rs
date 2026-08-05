@@ -189,17 +189,6 @@ impl Apply for TyFn {
     }
 }
 
-impl Apply for TyWithCode {
-    /// `{code}^T` => `T { code }`；`T{body}^U` => `(T^U){body}`（body 不变）
-    fn apply_help(self, o: Ty) -> Ty {
-        let inner = match self.0 {
-            Some(t) => t.apply(o),
-            None => o,
-        };
-        TyWithCode(inner.into(), self.1).into()
-    }
-}
-
 impl Apply for TyWithAttr {
     /// `#[attr]^T` => `#[attr] T`（附着属性到类型）
     fn apply_help(self, o: Ty) -> Ty {
@@ -247,25 +236,39 @@ impl Apply for TyPrimitiveArray {
         }
     }
 }
-impl Apply for TyWithTrait {
-    /// `Trait<T> U^V` => `Trait<T> (U^V)`（外部应用透传到内部目标）
-    fn apply_help(self, o: Ty) -> Ty {
-        TyWithTrait(self.0, self.1.apply(o).into()).into()
-    }
+
+/// 「透传到内层再重包」的包装类型 apply 生成宏——四类包装
+/// （WithTrait/WithType 必含内层、WithCode/WithWhere 可选内层）的
+/// apply_help 是同构骨架，收敛为宏：新增包装类型只需一行调用，
+/// 且"外部应用透传到内部目标"的语义在宏定义处声明一次。
+/// 可选内层形态：`None` 时右侧操作数直接顶替内层。
+/// 注意：`self.1` 写在宏体内（定义处 hygiene），不能作宏参数传入——
+/// 参数 token 保留调用处上下文，`self` 会解析为模块 self（E0424）。
+macro_rules! impl_apply_optional_inner {
+    ($ty:ident) => {
+        impl Apply for $ty {
+            fn apply_help(self, o: Ty) -> Ty {
+                let inner = match self.0 {
+                    Some(t) => t.apply(o),
+                    None => o,
+                };
+                $ty(inner.into(), self.1).into()
+            }
+        }
+    };
 }
-impl Apply for TyWithType {
-    /// `<T> U^V` => `<T> (U^V)`（外部应用透传到内部目标）
-    fn apply_help(self, o: Ty) -> Ty {
-        TyWithType(self.0, self.1.apply(o).into()).into()
-    }
+/// 必含内层形态：右侧操作数应用到内层后重包。
+macro_rules! impl_apply_inner {
+    ($ty:ident) => {
+        impl Apply for $ty {
+            fn apply_help(self, o: Ty) -> Ty {
+                $ty(self.0, self.1.apply(o).into()).into()
+            }
+        }
+    };
 }
-impl Apply for TyWithWhere {
-    /// `where{...}^T` => `T where{...}`；`T where{...}^U` => `(T^U) where{...}`（where 不变）
-    fn apply_help(self, o: Ty) -> Ty {
-        let inner = match self.0 {
-            Some(t) => t.apply(o),
-            None => o,
-        };
-        TyWithWhere(inner.into(), self.1).into()
-    }
-}
+
+impl_apply_inner!(TyWithTrait);
+impl_apply_inner!(TyWithType);
+impl_apply_optional_inner!(TyWithCode);
+impl_apply_optional_inner!(TyWithWhere);

@@ -11,28 +11,23 @@
 #[macro_use]
 pub(crate) mod preprocess;
 #[cfg(test)]
-mod fuzz;
+mod testing;
 use proc_macro2::{TokenStream, TokenTree};
 use syn::{ItemTrait, parse_macro_input};
 
+mod analyze;
 mod apply;
 mod ast;
-mod batch_trait_entry;
 mod codegen;
-mod consts;
-mod diagnostic;
-mod empty_generics;
-mod expand;
+mod entry;
 mod parse;
-mod path_prefix;
-mod scan;
-mod trait_bounds;
+mod util;
 
-pub(crate) use expand::{expand_attr_macro, expand_batch_trait};
-pub(crate) use trait_bounds::TraitBounds;
+pub(crate) use analyze::TraitBounds;
+pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 
-use diagnostic::compile_error_str;
 use preprocess::{build_from_item, get_trait_item, parse_names_from_tokens};
+use util::compile_error_str;
 
 /// 为 trait 批量生成 `impl` 块的属性宏。
 ///
@@ -73,7 +68,9 @@ pub fn batch_impl(
     attr: proc_macro::TokenStream, item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let trait_item = parse_macro_input!(item as ItemTrait);
-    expand_attr_macro(attr, trait_item, true).unwrap_or_else(Into::into)
+    expand_attr_macro(attr.into(), trait_item, true)
+        .map(proc_macro::TokenStream::from)
+        .unwrap_or_else(Into::into)
 }
 
 /// 与 `#[batch_impl]` 相同，但丢弃被标注的 trait 定义，只输出 `impl` 块。
@@ -98,13 +95,19 @@ pub fn batch_impl_only(
     attr: proc_macro::TokenStream, item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let trait_item = parse_macro_input!(item as ItemTrait);
-    expand_attr_macro(attr, trait_item, false).unwrap_or_else(Into::into)
+    expand_attr_macro(attr.into(), trait_item, false)
+        .map(proc_macro::TokenStream::from)
+        .unwrap_or_else(Into::into)
 }
 
 /// 对已声明的 trait 批量生成 `impl` 块的函数式宏。
 ///
 /// 语法：`unsafe? Trait路径: impl-specs;`，以 `;` 分隔多个 trait 段。
-/// 每段的 `:` 之后是 DSL 表达式，与 `#[batch_impl]` 接受相同的语法。
+/// 每段的 `:` 之后是 DSL 表达式（类型 DSL + `@` 常量，与 `#[batch_impl]` 相同）。
+///
+/// **不支持 `#` 指令**（`#fill`/`#delegate`/`#blanket`/开放扩展）：指令需要
+/// trait 定义作签名真相源，`batch_trait!` 作为函数式宏拿不到定义；需要指令时
+/// 请用 `#[batch_impl]` / `#[batch_impl_only]`。
 ///
 /// ## 示例
 ///

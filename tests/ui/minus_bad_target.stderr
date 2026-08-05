@@ -1,4 +1,4 @@
-error: batch-impl: 指令参数中 `-` 后期望标识符或 `#all` 标记（如 `-foo`、`-#all_methods`）
+error: batch-impl: 指令参数中 `-` 后期望标识符或 `[...]` 列表（如 `-foo`、`-[a,b]`）
  --> tests/ui/minus_bad_target.rs:4:1
   |
 4 | #[batch_impl(usize #fill(a, -){0})]

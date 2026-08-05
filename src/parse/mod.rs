@@ -14,7 +14,7 @@ use crate::parse::generic::{
 use crate::parse::parse_atom::{
     parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
 };
-use crate::scan::Cursor;
+use crate::util::Cursor;
 
 // ============================================================
 // 运算符层级解析
@@ -45,56 +45,59 @@ pub(crate) fn parse_item(
                 return None;
             }
         },
-        Op::Dash => {
-            // 左操作数：parse_operand 返回 None 仅在游标到末尾（合法终止）或
-            // 空段（`-A` 左空，静默吞段）。空段必须报错。
-            let mut result = match parse_operand(cursor, Op::Dash, trait_name) {
-                Some(op) => op,
-                None if cursor.at_end() => return None,
-                None => {
-                    return err_ty("batch-impl: `-` 前缺少操作数（如 `T-U`）").into();
-                }
-            };
-            if is_empty_operand(&result) {
-                return err_ty("batch-impl: `-` 前缺少操作数（如 `T-U`）").into();
-            }
-            while cursor.is_punct('-') {
-                cursor.bump();
-                let Some(op) = parse_operand(cursor, Op::Dash, trait_name) else {
-                    return err_ty("batch-impl: `-` 后缺少操作数（如 `T-U`）").into();
-                };
-                if is_empty_operand(&op) {
-                    return err_ty("batch-impl: `-` 后缺少操作数（如 `T-U`）").into();
-                }
-                result = result.apply(op);
-            }
-            result.into()
-        }
-        Op::Caret => {
-            // 左操作数：`^A` 的空段会解析为空 Primitive，必须拦截
-            // （否则生成 ` <A>` 垃圾类型，下游报错定位不到 DSL）。
-            let first = parse_operand(cursor, Op::Caret, trait_name)?;
-            if is_empty_operand(&first) {
-                return err_ty("batch-impl: `^` 前缺少操作数（如 `T^U`）").into();
-            }
-            let mut items = vec![first];
-            while cursor.is_punct('^') {
-                cursor.bump();
-                let Some(op) = parse_operand(cursor, Op::Caret, trait_name) else {
-                    return err_ty("batch-impl: `^` 后缺少操作数（如 `T^U`）").into();
-                };
-                if is_empty_operand(&op) {
-                    return err_ty("batch-impl: `^` 后缺少操作数（如 `T^U`）").into();
-                }
-                items.push(op);
-            }
-            let mut result = items.pop()?;
-            while let Some(left) = items.pop() {
-                result = left.apply(result);
-            }
-            result.into()
-        }
+        Op::Dash => parse_binary_chain(cursor, Op::Dash, trait_name, '-', false),
+        Op::Caret => parse_binary_chain(cursor, Op::Caret, trait_name, '^', true),
         Op::Prim => parse_primitive(cursor.take_rest(), trait_name).into(),
+    }
+}
+
+/// `-` 与 `^` 的公共骨架：左操作数 → while 停止符循环收集操作数 → 折叠。
+/// 区别仅结合性：`-` 左结合（`A-B-C = (A-B)-C`），`^` 右结合
+/// （`A^B^C = A^(B^C)`——容器在左，嵌套向内）。
+fn parse_binary_chain(
+    cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>, op_punct: char,
+    right_assoc: bool,
+) -> Option<Ty> {
+    // 左操作数：parse_operand 返回 None 仅在游标到末尾（合法终止）或
+    // 空段（`-A`/`^A` 左空，静默吞段）。空段必须报错。
+    let hint = if op_punct == '-' { "（如 `T-U`）" } else { "（如 `T^U`）" };
+    let mut items = match parse_operand(cursor, level, trait_name) {
+        Some(op) => vec![op],
+        None if cursor.at_end() => return None,
+        None => {
+            return err_ty(&format!(
+                "batch-impl: `{}` 前缺少操作数{}",
+                op_punct, hint
+            ))
+            .into();
+        }
+    };
+    if is_empty_operand(&items[0]) {
+        return err_ty(&format!("batch-impl: `{}` 前缺少操作数{}", op_punct, hint))
+            .into();
+    }
+    while cursor.is_punct(op_punct) {
+        cursor.bump();
+        let Some(op) = parse_operand(cursor, level, trait_name) else {
+            return err_ty(&format!(
+                "batch-impl: `{}` 后缺少操作数{}",
+                op_punct, hint
+            ))
+            .into();
+        };
+        if is_empty_operand(&op) {
+            return err_ty(&format!(
+                "batch-impl: `{}` 后缺少操作数{}",
+                op_punct, hint
+            ))
+            .into();
+        }
+        items.push(op);
+    }
+    if right_assoc {
+        items.into_iter().rev().reduce(|acc, x| x.apply(acc))
+    } else {
+        items.into_iter().reduce(|acc, x| acc.apply(x))
     }
 }
 
@@ -120,26 +123,45 @@ fn parse_operand(
 }
 
 /// DSL 解析入口：剥离尾部 `{...}` 代码块 / `where{...}` 后缀，
-/// 通过 apply 附着到剩余部分解析出的类型上（递归支持连续附着）
+/// 通过 apply 附着到剩余部分解析出的类型上。
+///
+/// 连续附着（`T{a}{b}` / `T where{...}`）是**线性链**：迭代剥离（消除
+/// 递归——深层连续 body 会让递归版栈溢出；迭代后无深度限制需求）。
 pub(crate) fn parse_primitive(
     tokens: &[TokenTree], trait_name: Option<&Ident>,
 ) -> Ty {
-    let split = split_trailing_body(tokens);
-    match (split.body, split.is_where) {
-        (Some(body), false) => {
-            let block = TyWithCode(None, TyCodeBlock(body));
-            // 整个操作数就是 `{...}` 裸代码块（开放指令独立成 spec 的退化形态）：
-            // 保持 `None` 内层作为"顶层 item 注入"标记，不附着空目标
-            // （附着到类型时 `T {code}` 是普通 impl body，走下方 apply）
-            if split.tokens.is_empty() {
-                return block.into();
+    // 从外到内收集附着块（先剥的是外层）；`rest` 收敛到最内层基础
+    let mut attaches = vec![];
+    let mut rest = tokens;
+    loop {
+        let split = split_trailing_body(rest);
+        match (split.body, split.is_where) {
+            (Some(body), false) => {
+                attaches.push(TyWithCode(None, TyCodeBlock(body)).into());
+                rest = split.tokens;
             }
-            block.apply(parse_primitive(split.tokens, trait_name))
+            (Some(w), true) => {
+                attaches.push(TyWithWhere(None, TyWhere(w)).into());
+                rest = split.tokens;
+            }
+            _ => break,
         }
-        (Some(w), true) => TyWithWhere(None, TyWhere(w))
-            .apply(parse_primitive(split.tokens, trait_name)),
-        _ => parse_primary(split.tokens, trait_name),
     }
+    let mut ty = if rest.is_empty() {
+        // 整个操作数是裸块链（`{a}{b}`）：最内层块即"顶层 item 注入"基础
+        // （`None` 内层标记）；attaches 空 = 输入本身为空，走原子解析
+        match attaches.pop() {
+            Some(inner) => inner,
+            None => parse_primary(rest, trait_name),
+        }
+    } else {
+        parse_primary(rest, trait_name)
+    };
+    // 从内到外 apply（attaches 尾部 = 最内层）
+    while let Some(block) = attaches.pop() {
+        ty = block.apply(ty);
+    }
+    ty
 }
 
 // ============================================================
@@ -250,7 +272,11 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         return TyNum(number).into();
     }
 
-    if let [TokenTree::Group(group)] = tokens {
+    // 尖括号组（`delimiter![<>]`）是泛型/类型参数列表，须走 parse_type_params
+    // （否则 `HashMap^<A,B>` 的右操作数被 parse_group 吞成空、参数静默丢失）
+    if let [TokenTree::Group(group)] = tokens
+        && group.delimiter() != delimiter![<>]
+    {
         return parse_group(group, trait_name);
     }
 

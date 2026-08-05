@@ -14,16 +14,22 @@ pub(crate) fn params_to_tokens(base: &TokenStream, tp: &TyTypeParam) -> TokenStr
     quote!(#base < #(#all),* >)
 }
 
+/// 渲染单条泛型声明：`name: bound`（有 bound）或裸 `name`。
+/// TyTypeParam 渲染（本文件）与 codegen 的 impl 泛型复用。
+pub(crate) fn render_param(name: &TokenStream, bound: Option<&Ty>) -> TokenStream {
+    match bound {
+        Some(b) => {
+            let b_tokens = b.to_token_stream();
+            quote!(#name: #b_tokens)
+        }
+        None => name.clone(),
+    }
+}
+
 pub(crate) fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
     let mut all = vec![];
     for (name, bound) in &tp.params {
-        match bound {
-            Some(b) => {
-                let b_tokens = b.to_token_stream();
-                all.push(quote!(#name: #b_tokens));
-            }
-            None => all.push(name.clone()),
-        }
+        all.push(render_param(name, bound.as_ref()));
     }
     for (name, value) in &tp.bindings {
         all.push(quote!(#name = #value));
@@ -33,6 +39,25 @@ pub(crate) fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
         return quote!();
     }
     quote!(<#(#all),*>)
+}
+
+/// 可选内层双态渲染：`Some(inner)` 时 inner 与 payload 拼接（顺序由
+/// `inner_first` 定），`None` 时裸 payload。WithPrefix/WithAttr/WithCode/
+/// WithWhere 四臂同构，收敛于此。
+fn render_optional(
+    inner: Option<&Ty>, payload: TokenStream, inner_first: bool,
+) -> TokenStream {
+    match inner {
+        Some(i) => {
+            let inner = i.to_token_stream();
+            if inner_first {
+                quote!(#inner #payload)
+            } else {
+                quote!(#payload #inner)
+            }
+        }
+        None => payload,
+    }
 }
 
 impl ToTokens for Ty {
@@ -67,14 +92,9 @@ impl ToTokens for Ty {
                 // 空基座 `[]` 不是有效类型，防御性渲染
                 (None, _) => quote!([]),
             },
-            Ty::WithPrefix(wp) => match &wp.1 {
-                Some(inner) => {
-                    let prefix = prefix_token(wp.0);
-                    let inner = inner.to_token_stream();
-                    quote!(#prefix #inner)
-                }
-                None => prefix_token(wp.0),
-            },
+            Ty::WithPrefix(wp) => {
+                render_optional(wp.1.as_deref(), prefix_token(wp.0), false)
+            }
             Ty::Fn(f) => {
                 let u = f.2.then_some(quote!(unsafe));
                 match &f.0 {
@@ -95,17 +115,10 @@ impl ToTokens for Ty {
                 }
             }
             Ty::TypeParam(tp) => params_to_tokens_no_base(tp),
-            Ty::WithAttr(w) => match &w.1 {
-                Some(inner) => {
-                    let stream = &w.0.0;
-                    let inner = inner.to_token_stream();
-                    quote!(#[#stream] #inner)
-                }
-                None => {
-                    let stream = &w.0.0;
-                    quote!(#[#stream])
-                }
-            },
+            Ty::WithAttr(w) => {
+                let stream = &w.0.0;
+                render_optional(w.1.as_deref(), quote!(#[#stream]), false)
+            }
             Ty::Num(n) => {
                 let n = n.0;
                 quote!(#n)
@@ -129,28 +142,14 @@ impl ToTokens for Ty {
                 let inner = wt.1.to_token_stream();
                 quote!(#tp_tokens #inner)
             }
-            Ty::WithCode(wc) => match &wc.0 {
-                Some(inner) => {
-                    let inner = inner.to_token_stream();
-                    let stream = &wc.1.0;
-                    quote!(#inner {#stream})
-                }
-                None => {
-                    let stream = &wc.1.0;
-                    quote!({#stream})
-                }
-            },
-            Ty::WithWhere(ww) => match &ww.0 {
-                Some(inner) => {
-                    let inner = inner.to_token_stream();
-                    let stream = &ww.1.0;
-                    quote!(#inner where #stream)
-                }
-                None => {
-                    let stream = &ww.1.0;
-                    quote!(where #stream)
-                }
-            },
+            Ty::WithCode(wc) => {
+                let stream = &wc.1.0;
+                render_optional(wc.0.as_deref(), quote!({#stream}), true)
+            }
+            Ty::WithWhere(ww) => {
+                let stream = &ww.1.0;
+                render_optional(ww.0.as_deref(), quote!(where #stream), true)
+            }
             Ty::Error(e) => e.0.clone(),
         })
     }

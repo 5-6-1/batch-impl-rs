@@ -50,6 +50,30 @@ pub(crate) struct TraitBounds {
     pub(crate) extra_predicates: Vec<(TokenStream, Vec<String>)>,
 }
 
+/// 收集泛型参数名（Lifetime → `'a`，Type/Const → ident）。
+///
+/// 供 `A<>` 照抄实参（empty_generics.rs）与 `#blanket` 泛型实参
+/// （blanket.rs）复用——两处逐行同构的实现收敛于此。
+/// 注意：quote 插值不支持字段访问（`#tp.ident` 会把 `.ident` 当字面量），
+/// 先取引用再插值。
+pub(crate) fn generic_param_names(generics: &syn::Generics) -> Vec<TokenStream> {
+    generics
+        .params
+        .iter()
+        .map(|p| match p {
+            syn::GenericParam::Lifetime(ld) => quote!(#ld),
+            syn::GenericParam::Type(tp) => {
+                let id = &tp.ident;
+                quote!(#id)
+            }
+            syn::GenericParam::Const(cp) => {
+                let id = &cp.ident;
+                quote!(#id)
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
     // 形参名集合（类型 + const 为 Ident，生命周期带 `'` 前缀）
     let type_const_names: Vec<String> = trait_item
@@ -80,8 +104,7 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
                 let bound = if tp.bounds.is_empty() {
                     None
                 } else {
-                    // 注意：quote 插值只支持 `#ident`，不支持字段访问
-                    // `#tp.bounds`（会把 `.bounds` 当字面量输出）
+                    // 注意：（quote 插值不支持字段访问，先取引用）
                     let b = &tp.bounds;
                     Some(quote!(#b))
                 };

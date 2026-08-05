@@ -17,8 +17,9 @@ use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::quote;
 use std::collections::HashMap;
 
-use crate::diagnostic::compile_error_str;
-use crate::scan::bracket_is_passthrough;
+use crate::preprocess::consts_ctx::{ConstCtx, UserConsts};
+use crate::util::bracket_is_passthrough;
+use crate::util::{compile_err, compile_error_str};
 
 /// 内置名字族：`@name` → 类型标识符列表。
 fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
@@ -91,30 +92,37 @@ fn render_list<'a>(names: impl IntoIterator<Item = &'a str>) -> TokenTree {
     Group::new(delimiter![[]], quote!(#(#idents),*)).into()
 }
 
-/// 识别并展开 `tokens[i]` 处的 `@` 常量引用；返回（展开产物, 消费的 token 数）。
+/// 同上，接收 `String` 迭代器（`@all` 系 item 名）。
+fn render_list_strings(names: impl IntoIterator<Item = String>) -> TokenTree {
+    let idents: Vec<Ident> =
+        names.into_iter().map(|s| Ident::new(&s, Span::call_site())).collect();
+    Group::new(delimiter![[]], quote!(#(#idents),*)).into()
+}
+
+/// 识别并展开 `tokens[i]` 处的 `@` 常量引用；返回 `Some((展开产物, 消费的
+/// token 数))`；`None` 表示原样保留（batch_trait! 的 `@trait`——段级替换处理）。
 ///
 /// 形态（`@` 为 `tokens[i]`）：
 /// - `@` Ident `=` … → 用户定义段（仅 `collect_user_consts` 前导收集期出现；
-///   此处视为错误——batch_impl 不支持自定义常量）
+///   此处视为错误——属性宏入口不支持自定义常量）
 /// - `@` Ident `..` Ident → 范围族
+/// - `@trait` → trait 完整路径（属性宏入口；batch_trait! 返回 `None` 保留）
 /// - `@` Ident → 名字族 / 用户表
 fn try_expand_at(
-    tokens: &[TokenTree], user_table: Option<&HashMap<String, Vec<TokenTree>>>,
-) -> Result<(Vec<TokenTree>, usize), TokenStream> {
+    tokens: &[TokenTree], ctx: ConstCtx,
+) -> Result<Option<(Vec<TokenTree>, usize)>, TokenStream> {
     let Some(TokenTree::Ident(name)) = tokens.get(1) else {
         return Err(compile_error_str(
             "batch-impl: `@` 后必须跟常量名（如 `@uint`、`@u8..u128`）",
         ));
     };
     let name_str = name.to_string();
-    // 定义段：`@name=...`。仅 `collect_user_consts` 的前导收集期消费；
-    // 此处出现意味着定义段位置错误——按上下文区分诊断：
-    // - `batch_trait!`（user_table 非 None）：定义段未位于前导 → 位置错误；
-    // - `#[batch_impl]` / `#[batch_impl_only]`（user_table 为 None）：不支持自定义。
+    // 定义段：`@name=...` 仅 `collect_user_consts` 的前导收集期消费；此处出现
+    // 即按上下文区分诊断——user_table 非 None=位置错误，None=不支持自定义。
     if let Some(TokenTree::Punct(eq)) = tokens.get(2)
         && eq.as_char() == '='
     {
-        let msg = if user_table.is_some() {
+        let msg = if ctx.user_table().is_some() {
             format!(
                 "batch-impl: 常量定义 `@{}=...` 必须位于 `batch_trait!` 的\
                  所有 trait 段之前（仅前导位置可定义）",
@@ -142,35 +150,66 @@ fn try_expand_at(
             4
         };
         let Some(TokenTree::Ident(end)) = tokens.get(end_idx) else {
-            return Err(compile_error_str(&format!(
+            return Err(compile_err!(
                 "batch-impl: 范围常量 `@{}{}..` 后缺少终点（如 `@u8..u128`）",
-                name_str, ".."
-            )));
+                name_str,
+                ".."
+            ));
         };
         let types = builtin_range(&name_str, &end.to_string())
-            .map_err(|msg| compile_error_str(&format!("batch-impl: {}", msg)))?;
-        return Ok((
+            .map_err(|msg| compile_err!("batch-impl: {}", msg))?;
+        return Ok(Some((
             vec![render_list(types.iter().map(|s| s.as_str()))],
             end_idx + 1,
-        ));
+        )));
     }
-    // 名字族 / 用户表
-    if let Some(expanded) = user_table.and_then(|t| t.get(&name_str)) {
-        return Ok((expanded.clone(), 2));
+    // `@trait`：Attribute（batch_impl/only）= trait 完整路径（本地名或
+    // `#ext::Trait:` 外部路径）；Trait（batch_trait!）= 返回 None 原样保留
+    // ——batch_trait! 多段每段 trait 名不同，`@trait` 由 entry 分段后的
+    // 段级替换展开为本段路径（`@type_t=<T>@trait<T>` 跨段复用场景）。
+    // None 同时避免懒展开递归对 `@trait` 自身死循环（展开为原样→再遇→递归）。
+    if name_str == "trait" {
+        return match ctx.trait_full_path() {
+            Some(path) => Ok(Some((path.clone().into_iter().collect(), 2))),
+            None => Ok(None),
+        };
+    }
+    // `@all` 系：展开为 Bracket 组 `[a,b,c]`（与 `@uint` 等列表形态统一），
+    // batch_impl 专属（需 trait_def 选 item）；batch_trait! 报错。
+    if let Some((kinds, default)) = crate::preprocess::resolve_all_marker(&name_str) {
+        return match ctx.trait_def() {
+            Some(td) => {
+                let ids = crate::preprocess::get_trait_item_names(
+                    td, kinds.0, kinds.1, kinds.2, default,
+                );
+                Ok(Some((
+                    vec![render_list_strings(ids.iter().map(|i| i.to_string()))],
+                    2,
+                )))
+            }
+            None => Err(compile_err!(
+                "batch-impl: `@{}` 仅 `#[batch_impl]` / `#[batch_impl_only]` 支持\
+                 （需要 trait 定义选取 item；`batch_trait!` 是函数式宏拿不到）",
+                name_str
+            )),
+        };
+    }
+    if let Some(expanded) = ctx.user_table().and_then(|t| t.get(&name_str)) {
+        return Ok(Some((expanded.clone(), 2)));
     }
     match builtin_named(&name_str) {
-        Some(types) => Ok((vec![render_list(types.iter().copied())], 2)),
-        None => Err(compile_error_str(&format!(
+        Some(types) => Ok(Some((vec![render_list(types.iter().copied())], 2))),
+        None => Err(compile_err!(
             "batch-impl: 未知的 @ 常量 `@{}`；内置：`@uint` `@int` `@float` `@num` \
              `@scalar` 与范围 `@u8..u128` `@i8..i128` `@f32..f64`\
              {}",
             name_str,
-            if user_table.is_some() {
+            if ctx.user_table().is_some() {
                 "；batch_trait! 用户常量须在引用前定义（定义在其后不生效）"
             } else {
                 ""
             }
-        ))),
+        )),
     }
 }
 
@@ -191,15 +230,19 @@ fn check_value_refs(
                     ));
                 };
                 let name_str = name.to_string();
-                let known = builtin_named(&name_str).is_some()
+                // `@trait` 是段级特殊记号（batch_trait! 分段后替换为本段
+                // trait 路径），不是常量引用——跳过可见性检查
+                let known = name_str == "trait"
+                    || builtin_named(&name_str).is_some()
                     || split_range_endpoint(&name_str).is_some()
                     || table.contains_key(&name_str);
                 if !known {
-                    return Err(compile_error_str(&format!(
+                    return Err(compile_err!(
                         "batch-impl: 常量 `@{}` 引用未知的 `@{}`（未定义或定义在其后；\
                          常量定义内只能引用内置常量或此前已定义的常量）",
-                        def_name, name_str
-                    )));
+                        def_name,
+                        name_str
+                    ));
                 }
                 i += 2;
             }
@@ -219,24 +262,25 @@ fn check_value_refs(
 
 /// 展开 token 流中的 `@` 常量引用（内置 + 用户表）。
 ///
-/// 递归规则与 `angle_collect` / `where_process` 一致：`Paren`/`Bracket`（非
-/// 透传）递归进入；`Brace`（透传代码，body 里 `@` 是模式语法 `x @ pat`）与
-/// `ident![...]` / `#[...]`（任意 Rust）不进入。
+/// 递归规则与 `angle_collect` / `where_process` 一致；仅 `Brace` 不进入
+/// （body 里 `@` 是模式语法 `x @ pat`）。
 pub(crate) fn expand_consts(
-    tokens: &[TokenTree], user_table: Option<&HashMap<String, Vec<TokenTree>>>,
+    tokens: &[TokenTree], ctx: ConstCtx,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
-            // DSL 容器（元组 / 列表）：递归进入。
-            // 注意：没有 `delimiter![none]`（真实透明组）分支——它与本模块
-            // 不相关的尖括号组（`delimiter![<>]`）展开值相同，二者不可同臂
-            // 区分（architecture.md「关键设计决策」）；且真实 None 组已由
-            // `angle_collect` 在入口扁平化，此处永远不会出现。
+            // `delimiter![<>]` 与 `delimiter![none]` 是同一值（Delimiter::None）。
+            // 新顺序（`@` 先于 `<>` 配对）下 expand_consts 运行时流中尚无
+            // 尖括号组（angle_collect 未运行），出现的 None 组必是真实透明组
+            // （宏变量产物 `$(...)*`/`$x:ty` 展开）——须递归展开组内 `@`
+            // （0.6.0 的 `<> @` 顺序由 angle_collect 先扁平化，此处不进入；
+            // 顺序修正后不显式递归则组内 `@` 残留）。
             TokenTree::Group(g)
                 if g.delimiter() == delimiter![()]
-                    || g.delimiter() == delimiter![[]] =>
+                    || g.delimiter() == delimiter![[]]
+                    || g.delimiter() == delimiter![none] =>
             {
                 if g.delimiter() == delimiter![[]]
                     && bracket_is_passthrough(tokens, i)
@@ -247,21 +291,30 @@ pub(crate) fn expand_consts(
                     result.push(
                         Group::new(
                             g.delimiter(),
-                            expand_consts(&inner, user_table)?.into_iter().collect(),
+                            expand_consts(&inner, ctx)?.into_iter().collect(),
                         )
                         .into(),
                     );
                 }
                 i += 1;
             }
-            // 透传代码（body）与其余：原样保留
             TokenTree::Punct(p) if p.as_char() == '@' => {
-                let (expanded, consumed) = try_expand_at(&tokens[i..], user_table)?;
-                // 懒展开：用户常量值存原样 token（可含嵌套 `@` 引用与 DSL 运算），
-                // 拼接后递归展开（循环引用已在定义处拦截，递归必然终止）。
-                let expanded = expand_consts(&expanded, user_table)?;
-                result.extend(expanded);
-                i += consumed;
+                match try_expand_at(&tokens[i..], ctx)? {
+                    // 懒展开：用户常量值存原样 token（可含嵌套 `@` 引用与
+                    // DSL 运算），拼接后递归展开（循环引用已在定义处拦截，
+                    // 递归必然终止）。
+                    Some((expanded, consumed)) => {
+                        let expanded = expand_consts(&expanded, ctx)?;
+                        result.extend(expanded);
+                        i += consumed;
+                    }
+                    // `None`（batch_trait! 的 `@trait`）：原样保留且不递归
+                    // （否则 `@trait` 展开为原样→再遇→无限递归）
+                    None => {
+                        result.push(tokens[i].clone());
+                        i += 1;
+                    }
+                }
             }
             _ => {
                 result.push(tokens[i].clone());
@@ -273,17 +326,11 @@ pub(crate) fn expand_consts(
 }
 
 /// 收集 `batch_trait!` 前导的用户常量定义段：`@name=值;`（零个或多个）。
-///
-/// 返回（剩余 token 流, 用户表）。定义段的值做展开后入库（内置常量 +
-/// 此前已定义的用户常量按序可用）；与内置常量同名报错。
-pub(crate) type UserConsts = HashMap<String, Vec<TokenTree>>;
-
 pub(crate) fn collect_user_consts(
     tokens: &[TokenTree],
 ) -> Result<(Vec<TokenTree>, UserConsts), TokenStream> {
     let mut i = 0;
     let mut table = UserConsts::new();
-    // 定义段形态：`@` Ident `=`（否则不是定义段，停止收集）
     while let Some(TokenTree::Punct(at)) = tokens.get(i) {
         if at.as_char() != '@' {
             break;
@@ -294,14 +341,21 @@ pub(crate) fn collect_user_consts(
             break;
         }
         let name_str = name.to_string();
+        // `@trait` 是段级特殊记号（batch_trait! 分段后替换为本段 trait 路径），
+        // 不可用作常量名（否则被特殊记号拦截、段级替换静默遮蔽）
+        if name_str == "trait" {
+            return Err(compile_err!(
+                "batch-impl: 常量名 `@trait` 是保留记号（段级替换为 trait 路径）；请换名"
+            ));
+        }
         // 与内置常量重名 → 报错（防意外覆盖）
         if builtin_named(&name_str).is_some() {
-            return Err(compile_error_str(&format!(
+            return Err(compile_err!(
                 "batch-impl: 用户常量 `@{}` 与内置常量重名；请换名",
                 name_str
-            )));
+            ));
         }
-        // 值：到深度 0 的 `;` 为止（尖括号已由 angle_collect 配对，无深度问题）
+        // 值：到深度 0 的 `;` 为止
         let mut j = i + 3;
         let mut end = None;
         while j < tokens.len() {
@@ -314,16 +368,13 @@ pub(crate) fn collect_user_consts(
             j += 1;
         }
         let Some(end) = end else {
-            return Err(compile_error_str(&format!(
+            return Err(compile_err!(
                 "batch-impl: 常量定义 `@{}=...` 缺少结尾 `;`",
                 name_str
-            )));
+            ));
         };
         let value: Vec<TokenTree> = tokens[i + 3..end].to_vec();
-        // 值形态：**任意 token**（懒展开——原样入库，引用处拼接 + 递归展开；
-        // DSL 运算如 `[Box,Rc]^@num` 定义处接受，使用处展开后由 DSL 层求值）。
-        // 唯一定义处校验：引用可见性（循环/前向引用在此拦截——懒展开下
-        // `@a=@a` 会无限递归，`@a=@b`（@b 在后）定义处报错优于使用处报错）。
+        // 值任意 token（懒展开）；引用可见性校验见 `check_value_refs`
         check_value_refs(&value, &table, &name_str)?;
         table.insert(name_str, value);
         i = end + 1;

@@ -8,16 +8,8 @@ pub(crate) mod apply_tuple;
 // 关联参数生成等。**右操作数"结构上下文"的提前分发**（Array 分发 / Group 透明 /
 // WithCode、WithWhere 应用透传 / WithType 泛型外提 / Range 展开 / Error 透传）
 // 由 [`Apply::apply`] 的默认实现承担——所有 `Apply` 实现自动获得，无需重复。
-// 两阶段分工：
 //
-// 1. [`Apply::apply`]（默认）：先看**右操作数**的结构——右操作数是"上下文"，
-//    必须无条件先处理；
-// 2. [`Apply::apply_help`]：右操作数是普通类型时才看**左操作数**的语义。
-//    默认 `apply` 保证 `apply_help` 的 `o` 恒为普通类型。
-//
-// v0.4.2 中由 `Type` 更名为 `Apply`；v0.5.3 将提前分发下沉为默认方法，使
-// "右操作数结构分发"成为 trait 契约（此前仅 `impl Apply for Ty` 隐式承担，
-// 各变体实现隐式依赖它预先分发）。
+// 右操作数结构分发是 trait 契约。
 
 use quote::quote;
 

@@ -9,8 +9,8 @@ use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
-use crate::scan::scan_stop;
-use crate::trait_bounds::TraitBounds;
+use crate::analyze::TraitBounds;
+use crate::util::scan_stop;
 
 /// 实参段是否"纯绑定"（`Item = T, K = U`：每个顶层逗号段都含 `=`）。
 /// 判定为纯绑定才允许 `A<绑定们>` 照抄展开；含位置参数的 `A<T, Item=U>`
@@ -67,20 +67,7 @@ pub(crate) fn expand_empty_trait_generics(
         return Ok(tokens.to_vec());
     }
     // 预渲染实参名列表（展开时作为尖括号组的实参段）
-    let mut arg_names: Vec<TokenStream> = vec![];
-    for p in &trait_def.generics.params {
-        match p {
-            syn::GenericParam::Lifetime(ld) => arg_names.push(quote!(#ld)),
-            syn::GenericParam::Type(tp) => {
-                let id = &tp.ident;
-                arg_names.push(quote!(#id));
-            }
-            syn::GenericParam::Const(cp) => {
-                let id = &cp.ident;
-                arg_names.push(quote!(#id));
-            }
-        }
-    }
+    let arg_names = crate::analyze::generic_param_names(&trait_def.generics);
     let formals = render_formals(trait_def, trait_bounds);
     let mut out = vec![];
     let mut i = 0;

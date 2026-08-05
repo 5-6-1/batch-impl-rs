@@ -5,18 +5,17 @@
 //! 也接受。覆盖：裸 where 改写、DSL 解析、以及**全管线**（指令预处理 →
 //! where 改写 → 解析/展开 → 生成 impl，含 apply/expand/codegen）。
 
-use proc_macro2::{Delimiter, Group, Ident, Literal, Punct, Spacing, TokenTree};
+use proc_macro2::{
+    Delimiter, Group, Ident, Literal, Punct, Spacing, TokenStream, TokenTree,
+};
 use proptest::prelude::*;
-use quote::quote;
 use std::str::FromStr;
 
-use crate::ast::{Op, reset_fresh_counter};
-use crate::batch_trait_entry::parse_batch_trait_entry;
+use crate::ast::Op;
+use crate::entry::expand_attr_macro;
 use crate::parse::parse_item;
-use crate::preprocess::angle_collect;
-use crate::preprocess::expand_tokens;
 use crate::preprocess::where_process;
-use crate::scan::Cursor;
+use crate::util::Cursor;
 
 /// 可递归生成的 token 描述（Groups 里嵌套 Vec<Tok>，深度受限）
 #[derive(Clone, Debug)]
@@ -106,33 +105,18 @@ proptest! {
         prop_assert!(cursor.at_end());
     }
 
-    /// 全管线：角度配对 → 指令预处理 → where 改写 → 解析/展开 → 生成 impl，
+    /// 全管线：走真实宏入口 `expand_attr_macro`（angle_collect → 常量展开 →
+    /// 指令预处理 → where 改写 → `A<>` 照抄 → 解析/展开 → 生成 impl），
     /// 任意输入不 panic。用固定 dummy trait 作签名真相源；随机 token 里的指令
     /// 可能查不到 item（报 `compile_error!`）或产生非法类型（透传成垃圾），
-    /// 均接受——承诺是"不 panic"。
+    /// 均接受——承诺是"不 panic"。复用真实入口保证 fuzz 覆盖与线上完全
+    /// 相同的路径（此前手写管线会漏掉常量展开与 `A<>` 照抄）。
     #[test]
     fn full_pipeline_no_panic(toks in tokens(3)) {
-        let ts = toks.iter().map(to_token).collect::<Vec<_>>();
+        let ts = toks.iter().map(to_token).collect::<TokenStream>();
         let trait_def: syn::ItemTrait = syn::parse_quote! {
             trait Fuzz { fn m(&self) -> u32; }
         };
-        reset_fresh_counter();
-        let collected = angle_collect(&ts).unwrap_or_default();
-        let path = quote!(Fuzz);
-        let expanded =
-            expand_tokens(&mut Cursor::new(&collected), &trait_def, &path).unwrap_or_default();
-        let rewritten = where_process(&mut Cursor::new(&expanded)).unwrap_or_default();
-        let last = Ident::new("Fuzz", proc_macro2::Span::call_site());
-        let out = parse_batch_trait_entry(
-            &mut Cursor::new(&rewritten),
-            Op::Comma,
-            &path,
-            &last,
-            false,
-            None,
-            &Default::default(),
-        );
-        let _ = out;
-        prop_assert!(true);
+        let _ = expand_attr_macro(ts, trait_def, false);
     }
 }

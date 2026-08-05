@@ -2,6 +2,59 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.6.1 (2026-08-05)
+
+### 新特性：`@all_required*` / `@all_default*` 范围标记
+
+- 指令范围按 trait item 的**默认实现状态**过滤（fn 带默认体 / const 带默认值 /
+  type 带默认类型 = default；无默认 = required，impl 必须提供）：
+  - `@all_required_methods` / `@all_required_constants` / `@all_required_types` / `@all_required`；
+  - `@all_default_methods` / `@all_default_constants` / `@all_default_types` / `@all_default`；
+- `#fill` / `#delegate` / `#blanket` 三指令与 `-` 排除通用；
+- 典型用法：`#fill(@all_required_methods){...}` = 只实现必须的、默认方法保留
+  trait 默认实现（此前需 `@all` + 逐个 `-name` 排除）；`@all_required*` 与
+  `@all_default*` 组合可分别填充两类（required ∪ default = all）。
+
+### 修复：`@` 常量先于 `<>` 配对（`@ <> # where` 预处理顺序）
+
+- 此前管线为 `<> @ # where`：`batch_trait!` 里 `Vec<@inner>` 这类
+  常量值含 `<...>` 的写法，`@inner` 被配对进尖括号组后不再展开，
+  残留到输出报 `found '@'`（`@map = HashMap<u32, String>` 直接值
+  恰好被定义处配对兜底，嵌套/引用场景暴露）；
+- 修正为宏元层最外：`@` 展开先于 `<>` 配对，展开产物（含扁平
+  `<...>`）统一由 angle_collect 配对；
+- `batch_impl`/`batch_impl_only` 支持内置 `@` + `<>` + `#` + where；
+  `batch_trait!` 支持自定义 `@` + `<>` + where（`#` 需 trait 定义，函数式
+  宏不可用）。
+
+### 宏元层完整化：`@` 是唯一宏元记号
+
+- **`#all` 系删除，全部迁移为 `@all` 系**（`@all` / `@all_methods` /
+  `@all_constants` / `@all_types` / `@all_required*` / `@all_default*`）：
+  `#` 只剩指令名格式，范围选择归宏元层——`#fill(#all)` 写作
+  `#fill(@all)`，减法不变（`#fill(@all, -foo)`）；
+- `@all` 展开为 `[item, ...]` 列表；指令参数支持手写 `[a, b]` 与
+  `-[a, b]` 排除；
+- **trait 感知常量**（`#[batch_impl]` / `#[batch_impl_only]` 专属；
+  `batch_trait!` 无 trait 定义、遇之报错）：`@trait`（本地 trait 名）、
+  `@Cow`（`Cow<'_>` + 固有约束打包）；
+- **blanket 包装约束谓词**：`{Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}`
+  ——解决 deref target ≠ T 的包装（`Cow` 的 deref target 是 `T::Owned`），
+  `@0` 指目标泛型；普通 where 谓词中 `@N` 为通用位置引用（元组\n  `()^2 where{@0: Clone}` 等）；「`<>` 只留名字、约束全进 where」后约束合并 =
+  并列谓词（零分析）；普通 impl 的 `<T: Clone>` 写法保持兼容。
+
+### 文档修正：`batch_trait!` 的指令边界明确化
+
+
+- 此前 `lib.rs` 文档与 `docs/tutorial.md` 声称 `batch_trait!` 的 spec 语法
+  "与 `#[batch_impl]` 相同"——实际 `batch_trait!` **不支持 `#` 指令**
+  （`#fill`/`#delegate`/`#blanket`/开放扩展），遇 `#` 直接报错；
+- 原因：指令需要 trait 定义作签名真相源，`batch_trait!` 是函数式宏、拿不到
+  定义。需要指令请用 `#[batch_impl]` / `#[batch_impl_only]`（与 `A<>` 照抄、
+  泛型 bound 继承的既有限制同源）。
+- 无行为变化：`batch_trait!` 支持 `@` 常量与全部类型 DSL，仅文档如实声明
+  指令边界。
+
 ## 0.6.0 (2026-08-04)
 
 ### 新特性：`@` 常量系统（类型矩阵命名复用）

@@ -14,8 +14,8 @@
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
-use crate::diagnostic::compile_error_str;
-use crate::scan::{Cursor, bracket_is_passthrough};
+use crate::util::compile_error_str;
+use crate::util::{Cursor, bracket_is_passthrough};
 
 pub(crate) fn where_process(
     cursor: &mut Cursor,
@@ -24,9 +24,7 @@ pub(crate) fn where_process(
     let mut result = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        // 裸 `where`：后紧跟 {group} 是旧式 `where{...}`，原样跳过；
-        // 否则收集谓词区到边界（首个深度 0 的 {group}，排除 ident!{...}），
-        // 包成 where{谓词} 推入 result，i 跳到边界处（body 由下轮原样复制）
+        // 裸 `where`：后紧跟 {group} 是旧式 `where{...}`，原样跳过；否则改写为 where{谓词}
         if let TokenTree::Ident(ident) = &tokens[i]
             && ident == "where"
             && i + 1 < tokens.len()
@@ -44,8 +42,7 @@ pub(crate) fn where_process(
             i += 1 + rest_index;
         } else if let TokenTree::Group(g) = &tokens[i]
             && g.delimiter() == delimiter!([])
-            // `ident![...]` 宏调用体与 `#[...]` 属性是透传的宏参数，
-            // 不递归（与 `ident!{...}` 宏体 / angle_collect 的守卫对齐）
+            // `ident![...]` 宏体与 `#[...]` 属性透传，不递归
             && !bracket_is_passthrough(tokens, i)
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
@@ -60,7 +57,6 @@ pub(crate) fn where_process(
     Ok(result)
 }
 /// 谓词区边界 = 首个 `{...}` 组（排除 `ident!{...}` 宏体）。
-/// 尖括号已由 `angle_collect` 配对为不透明组，无需再跟踪 `<>` 深度。
 fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
     let mut j = 0;
     let mut result = vec![];

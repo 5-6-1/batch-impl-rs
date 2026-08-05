@@ -17,6 +17,7 @@ fn ui() {
 
     // DSL 语义错误
     t.compile_fail("tests/ui/num_as_left_operand.rs");
+    t.compile_fail("tests/ui/deep_nesting.rs");
 
     // 指令系统错误
     t.compile_fail("tests/ui/directive_bad_follow.rs");

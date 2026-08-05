@@ -2,7 +2,7 @@ use crate::apply::err_ty;
 use crate::ast::*;
 use crate::parse::generic::empty;
 use crate::parse::{parse_item, parse_primitive};
-use crate::scan::{Cursor, contains_punct};
+use crate::util::{Cursor, contains_punct};
 use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
 
 /// `#[...]` 属性解析

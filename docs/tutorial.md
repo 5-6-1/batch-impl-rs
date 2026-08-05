@@ -1,5 +1,7 @@
 # batch-impl 教程
 
+**v0.6.1**（2026-08-05）——`@` 唯一宏元记号、`@all` 系范围选择、blanket 包装约束、`<>` 只留名字。
+
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码，
 每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
@@ -104,6 +106,18 @@ trait Zero {
 trait Collection {}
 // → impl<T> Collection for Vec<T> {}
 ```
+
+**约束写法规范**（0.6.1 起）：`<>` 只写名字，约束统一放 `where{...}`——
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(<T> Named<T> Vec<T> where{T: Clone} { fn n(&self) -> usize { self.len() } })]
+trait Named<T: Clone> { fn n(&self) -> usize; }
+```
+
+`<T: Clone>`（inline bound）仍兼容（未写约束时 trait 定义 bound 自动继承），
+但**约束容器统一为 where** 后，多处约束的合并就是"并列谓词"（宏只做 token
+拼接、零分析）——blanket 的 `T: Trait` 与包装谓词即因此天然合并。
 
 ### 嵌套泛型合并
 
@@ -280,13 +294,43 @@ trait Describable { fn name(&self) -> &str; fn kind(&self) -> &str; }
 // → 为 name 和 kind 各生成 { "usize" } body
 ```
 
-特殊标记：`#all`（所有 item）、`#all_methods`（仅 fn）、`#all_constants`（仅 const）、`#all_types`（仅 type）。
+特殊标记：`@all`（所有 item）、`@all_methods`（仅 fn）、`@all_constants`（仅 const）、`@all_types`（仅 type）。
+
+**按默认实现状态过滤**（0.6.1 新增）：trait item 分"有默认实现"（fn 带默认体 /
+const 带默认值 / type 带默认类型）与"无默认实现"（required，impl 必须提供）两种，
+`@all_required*` / `@all_default*` 分别选取：
+
+| 标记 | 选取范围 |
+|---|---|
+| `@all_required_methods` | 仅无默认实现的方法（impl 必须提供） |
+| `@all_default_methods` | 仅有默认实现的方法（impl 可省略） |
+| `@all_required` / `@all_default` | 对应状态的全部 item（fn + const + type） |
+| `@all_required_constants` / `@all_default_constants` | 对应状态的 const |
+| `@all_required_types` / `@all_default_types` | 对应状态的 type（**注意**：trait 关联类型的默认值 `type T = u8;` 是 nightly 特性（`associated_type_defaults`，stable 上 E0658）——`@all_default_types` 仅 nightly 场景可用；`@all_required_types` 的 `type T;` 声明 stable 可用） |
+
+`@all_required_methods` 单独用 = "只实现必须的、默认方法保留 trait 默认实现"（比
+`@all` + `-name` 逐个排除更精确）；`@all_default_methods` 需与 required 侧或手写
+组合（只填默认方法会缺 required 实现 → E0046）。required ∪ default = all。
+三指令（`#fill`/`#delegate`/`#blanket`）与 `-` 排除（`-@all_default_methods`）通用。
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(usize #fill(#all){"default"})]
-trait HasAll { fn method(&self) -> &str; const VALUE: &str; }
-// → fn method 与 const VALUE 各生成 { "default" } body
+// 必须的填 1，默认方法覆盖成 2
+#[batch_impl(usize #fill(@all_required_methods){1} #fill(@all_default_methods){2})]
+trait MixDefault {
+    fn required(&self) -> u32;
+    fn optional(&self) -> u32 { 100 } // 默认实现，被 @all_default_methods 覆盖
+}
+```
+
+```rust
+# use batch_impl::batch_impl;
+// 只实现必须的，默认方法保留 trait 默认
+#[batch_impl(u64 #fill(@all_required_methods){3})]
+trait KeepDefault {
+    fn required(&self) -> u32;
+    fn optional(&self) -> u32 { 7 }
+}
 ```
 
 ### 列表减法 `-name`
@@ -296,7 +340,7 @@ trait HasAll { fn method(&self) -> &str; const VALUE: &str; }
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(usize #fill(#all,-skip_me){0})]
+#[batch_impl(usize #fill(@all,-skip_me){0})]
 trait HasDefault {
     fn keep_me(&self) -> u32;
     fn skip_me(&self) -> u32 { 999 } // 默认实现，被排除后保留
@@ -309,9 +353,9 @@ trait HasDefault {
 //   }
 ```
 
-`-` 后可跟标识符（`-foo`）或 `#all` 系列标记（`-#all_methods` = 排除所有方法）：
-`#fill(#all,-#all_methods)` = 仅 const + type 项。也适用于 `#delegate`
-（`#delegate(#all,-foo){target}`）。排除后为空、`-` 后缺目标会报 `compile_error!`。
+`-` 后可跟标识符（`-foo`）或 `@all` 系列标记（`-@all_methods` = 排除所有方法）：
+`#fill(@all,-@all_methods)` = 仅 const + type 项。也适用于 `#delegate`
+（`#delegate(@all,-foo){target}`）。排除后为空、`-` 后缺目标会报 `compile_error!`。
 `-` 只在指令参数域生效，与类型 DSL 的 `-` 连接运算符互不干扰。
 
 ### `#delegate(methods){target}` — 委托调用
@@ -387,7 +431,7 @@ trait AddInc {
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
 #[batch_impl(u32 { fn name(&self) -> String { self.to_string() } })]
-#[batch_impl(#blanket(#all){&, Box, Rc})]
+#[batch_impl(#blanket(@all){&, Box, Rc})]
 trait Name {
     fn name(&self) -> String;
 }
@@ -415,13 +459,31 @@ trait Deep {
 }
 ```
 
-`methods` 与 `#delegate` 相同（`#all` / `#all_methods` / 显式方法名列表）。
+`methods` 与 `#delegate` 相同（`@all` / `@all_methods` / 显式方法名列表）。
+
+**包装约束谓词**：包装元素可尾随 `where{...}`（在 `:N` 之后），谓词并入
+impl where 子句——解决 deref target ≠ T 的包装（如 `Cow<'_, T>` 的
+deref target 是 `T::Owned`，blanket 默认委托到 T 需要额外约束）。谓词中
+`@0` 指目标泛型（fresh T）、`@trait` 指本地 trait 名；`@Cow` 内置常量
+即 `Cow<'_>` + 固有约束的打包：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::borrow::Cow;
+#[batch_impl(#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}})]
+trait CowName { fn len(&self) -> usize; }
+// → impl<T> CowName for Cow<'_, T>
+//       where T: CowName, T: ToOwned + ?Sized, T::Owned: CowName
+// 等价写法（内置常量）：
+#[batch_impl(#blanket(@all_methods){@Cow})]
+trait CowName2 { fn len(&self) -> usize; }
+```
 
 **泛型 trait 支持**（`trait Foo<X: Clone>`）：trait 形参照抄为 impl 泛型
 （`impl<X: Clone, T: Foo<X>> Foo<X> for 包装<T> where ...`），trait 级
 where 谓词透传。
 
-**assoc type / const 委托**：`#all` 含 const/type 项时生成投影
+**assoc type / const 委托**：`@all` 含 const/type 项时生成投影
 `type Item = <T as Foo<X>>::Item;` / `const N: Ty = <T as Foo<X>>::N;`——
 带必需关联类型的 trait 也能 blanket 覆盖。
 
@@ -431,7 +493,7 @@ where 谓词透传。
     type Item = u8;
     fn m(&self) -> u32 { *self }
 })]
-#[batch_impl(#blanket(#all){&, Box})]
+#[batch_impl(#blanket(@all){&, Box})]
 trait Foo<X: Clone> {
     type Item;
     fn m(&self) -> X;
@@ -671,6 +733,41 @@ batch_trait!(
 未知 `@xxx`、范围端点非法、自定义与内置重名、循环/前向引用均报
 `compile_error!`。
 
+### `batch_trait!` 段级 `@trait`（跨段复用「泛型声明 + trait 名」）
+
+`batch_trait!` 多段每段 trait 名不同——常量值里的 `@trait` 在分段后
+**逐段替换为本段 trait 路径**：
+
+`ust
+# use batch_impl::batch_trait;
+# trait A<T> {} trait B<T> {}
+batch_trait!{
+    @type_t = <T> @trait <T>;   // 打包「泛型声明 + 本段 trait 名」
+    A: @type_t [&, Box]^T;      // → <T> A<T> [&, Box]^T
+    B: @type_t Box^[T, Vec<T>]; // → <T> B<T> Box^[T, Vec<T>]
+}
+`
+
+### 宏元层完整化：`@trait` / `@all` 系 / `@Cow` / `@0`
+
+`batch_impl` / `batch_impl_only` 持有 trait 定义，宏元层额外提供 trait 感知
+常量（`batch_trait!` 是函数式宏、拿不到定义，遇下列记号报错）：
+
+| 记号 | 展开 | 场景 |
+|---|---|---|
+| `@trait` | trait 完整路径（`batch_impl`=本地名、`batch_impl_only`=外部路径）；`batch_trait!` 中为**段级**：展开为本段 trait 路径 | blanket 包装 where 谓词；`batch_trait!` 跨段打包「泛型声明+trait 名」 |
+| `@all` / `@all_methods` / `@all_constants` / `@all_types` | `[item名, ...]`（Bracket 组） | 指令范围选择——`#fill(@all)` 等价旧 `#fill(#all)` |
+| `@all_required*` / `@all_default*` | 按默认实现状态过滤的 Bracket 组 | 只填必须的 / 只覆盖默认的 |
+| `@Cow` | `Cow<'_>` + 固有约束谓词 | blanket 包装（deref target = `T::Owned`） |
+| `@0`（位置引用） | 目标泛型名（fresh T） | **仅 blanket 包装 where 谓词内** |
+
+`@all` 系展开为 Bracket 组后走指令参数解析：**`#` 不再作为范围标记**——
+`#` 只剩指令名一种格式（`#fill`/`#delegate`/`#blanket`/开放扩展），范围
+选择统一归宏元层。减法不受影响：`#fill(@all, -foo)`、`#fill(@all, -[a,b])`。
+
+**指令参数支持 `[a, b]` 列表**：`#fill([m1, m2]){...}`、`-` 排除也可写
+`-[a, b]`（`@all` 展开产物即此形态，用户手写等价）。
+
 ## 12. 三个入口
 
 | 宏                   | 用途                                                     |
@@ -709,8 +806,9 @@ trait TraitName { }
 ### `batch_trait!`
 
 对已声明的 trait 批量生成 impl，`;` 分隔多个 trait 段。语法：
-`[unsafe] Trait路径: impl-specs`，接受与 `#[batch_impl]` 完全相同的 DSL 语法
-（`:` 右侧），额外支持多 trait 段、路径 trait（如 `foo::C`）、unsafe 段：
+`[unsafe] Trait路径: impl-specs`，`:` 右侧接受类型 DSL 与 `@` 常量（与
+`#[batch_impl]` 相同的类型语法），额外支持多 trait 段、路径 trait（如
+`foo::C`）、unsafe 段：
 
 ```rust
 use batch_impl::batch_trait;
@@ -725,6 +823,10 @@ batch_trait!(
     unsafe UnsafeTrait: usize
 );
 ```
+
+> **限制**：`batch_trait!` **不支持 `#` 指令**（`#fill`/`#delegate`/`#blanket`/
+> 开放扩展）——指令需要 trait 定义作签名真相源，而 `batch_trait!` 是函数式宏、
+> 拿不到 trait 定义。需要指令时请改用 `#[batch_impl]` / `#[batch_impl_only]`。
 
 ## 13. 错误提示
 

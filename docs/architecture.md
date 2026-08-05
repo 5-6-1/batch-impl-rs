@@ -1,45 +1,67 @@
 # batch-impl 内部架构
 
+**v0.6.1**（2026-08-05）——预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态。
+
 面向贡献者：模块组织、解析流程、错误机制、测试矩阵。
 
 ## 模块组织
 
 ```text
-lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait! / 测试宏）
-  ├── expand.rs             入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
-  ├── batch_trait_entry.rs  共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
-  ├── trait_bounds.rs       TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
-  ├── empty_generics.rs     `A<>` 照抄展开（形参渲染用合并后的 bound）
-  ├── consts.rs             `@` 常量系统：内置类型族（@uint/@scalar/@u8..u128）+ batch_trait! 自定义定义段
-  ├── path_prefix.rs        外部 trait 路径前缀：#Path::to::Trait: 状态机解析
-  ├── diagnostic.rs         统一 compile_error_str(msg) 用于编译期诊断
-  ├── scan.rs               扫描与游标：Cursor<'a> + scan_stop（尖括号已配对，仅剩 -> 守卫）
+lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait! / 测试宏）+ 模块树
+  ├── entry/                入口与驱动
+  │   ├── mod.rs            入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
+  │   ├── driver.rs         共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
+  │   └── path_prefix.rs    外部 trait 路径前缀：#Path::to::Trait: 状态机解析
+  ├── analyze/              trait 定义语义分析
+  │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
+  ├── util/                 共享工具（mod.rs 聚合 re-export，引用侧写 crate::util::X）
+  │   ├── scan.rs           扫描与游标：Cursor<'a> + scan_stop（尖括号已配对，仅剩 -> 守卫）
+  │   └── diagnostic.rs     统一 compile_error_str(msg) / compile_err! 用于编译期诊断
   ├── parse/                解析层
   │   ├── mod.rs            DSL 解析器：优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
   │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
   │   └── generic.rs        泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 delimiter![<>]）
-  ├── preprocess/           预处理层
+  ├── preprocess/           预处理层（token 重写器，一个趟一个文件；mod.rs 聚合 re-export）
   │   ├── mod.rs            delimiter! 分隔符拼写宏 + 指令预处理：#name 指令展开（内置 + 开放扩展）
-  │   ├── preprocess_helpers.rs  预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
+  │   ├── consts.rs         `@` 常量系统：内置类型族（@uint/@scalar/@u8..u128）+ batch_trait! 自定义定义段
+  │   ├── empty_generics.rs `A<>` 照抄展开（形参渲染用合并后的 bound）
+  │   ├── helpers.rs        预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
-  │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
+  │   ├── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
+  │   └── blanket.rs        `#blanket` 覆盖式委托（包装元素任意类型 + :N 深度）
   ├── ast/                  AST 层
   │   ├── mod.rs            Ty 枚举（18 个变体，含 Error）+ Op 优先级定义
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
   │   ├── mod.rs            Apply trait + 核心 apply() 两阶段分发（右操作数"结构"优先）
   │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
-  └── codegen/
-      └── mod.rs            代码生成：extract_impl_parts → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
+  ├── codegen/              代码生成
+  │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
+  │   └── impl_parts.rs     ImplParts 结构 + 18 变体遍历（extract / hoist）
+  └── testing/              测试基建（cfg(test)）
+      └── fuzz.rs           proptest：随机 token 喂真实宏入口（expand_attr_macro），承诺不 panic
 ```
 
 ## 解析流程
 
-**token 流 → angle_collect 配对尖括号组 → const 展开（`@` 常量：内置 +
-batch_trait! 自定义表）→ 指令预处理（每条指令展开为 0..n 个 token：既有
+**token 流 → const 展开（`@` 常量：内置 + batch_trait! 自定义表）→
+angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..n 个 token：既有
 指令恰一 `{...}` 组，`#blanket` 多段 spec）→ where 裸写改写 → `A<>` 照抄
 → Cursor 扫描取切片 → parse_item 优先级攀爬（`^`/`-` 经 `Apply` 组合：
 右操作数结构优先分发）→ Ty AST → 工作清单摊平并列列表 → 逐叶子 generate_impl**
+
+### 预处理顺序：`@ <> # where`（宏元层最外）
+
+- `@` 常量展开（纯词法替换）是**最外一趟**，先于 `<>` 配对与指令：
+  展开产物可能含扁平 `<...>`（如 `@map = HashMap<u32, String>` 的值、
+  嵌套 `@outer = Vec<@inner>`），须由后续 angle_collect 统一配对；
+- 反序（`<>` 先于 `@`）的后果：`Vec<@inner>` 的 `@inner` 被配对进
+  尖括号组，而 expand_consts **刻意不进入 `<>` 组**（`delimiter![<>]`
+  与真实 None 组展开值相同不可同臂区分）——`@` 残留到输出、编译报
+  `found '@'`（0.6.1 实测修复）；
+- 能力矩阵：`batch_impl`/`batch_impl_only` 支持内置 `@` + `<>` +
+  `#` + where；`batch_trait!` 支持自定义 `@` + `<>` + where
+  （指令 `#` 需要 trait 定义作签名真相源，函数式宏拿不到）。
 
 ### 关键设计决策
 
@@ -67,16 +89,16 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 | 域 | 记号 | 语义 | 由谁解析 |
 |----|------|------|----------|
 | **类型域**（spec 表达式） | `^`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
-| **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(#all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`#all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
+| **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`@all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
 | **宏元层**（`@` 常量） | `@uint`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
 
 ### 隔离规则
 
 - **同记号、分域、各义**：`-` 在类型域是 apply 链接（`HashMap-K-V` = `HashMap<K, V>`），
-  在指令域是排除记号（`#fill(#all,-foo)`）——两域解析互不进入，语义永不冲突；
+  在指令域是排除记号（`#fill(@all,-foo)`）——两域解析互不进入，语义永不冲突；
 - **域边界即模块边界**：类型域解析（`parse_item` 优先级攀爬）永远不递归进入
   指令参数；指令预处理（`expand_tokens`）只展开 `#` 指令，不解释 DSL 运算符；
-  `@` 常量（`consts.rs`）只做词法替换，不进入任何域；
+  `@` 常量（`preprocess/consts.rs`）只做词法替换，不进入任何域；
 - **透传守卫统一**：`ident![...]` 宏体与 `#[...]` 属性内的内容是任意 Rust，
   三个递归入口（`angle_collect` / `expand_tokens` / `where_process`）一律不进入，
   判定收敛在 `scan::bracket_is_passthrough`（0.5.7 曾因一处守卫缺失误展开
@@ -96,15 +118,65 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 `@` 绑定与 `#blanket` 均遵循此准则：前者是宏元层纯词法替换，后者是指令域
 内 `#delegate` 的自动化形态。
 
+### 宏元层完整化：`@` 是唯一宏元记号
+
+- **`#` 只剩指令名一种格式**：`#all` 系范围标记全部迁移到宏元层
+  （`@all` 系）——选择（选哪些 item）是宏元层操作，动作（填体/委托/覆盖）
+  是指令——`#fill(@all)` / `#fill(@all, -[a,b])`；
+- `@all` 系展开为 **Bracket 组**（`[a,b,c]`，与 `@uint` 形态统一）后走
+  指令参数解析——指令参数因此天然支持手写 `[a, b]` 与 `-[a, b]` 排除；
+- **trait 感知常量**：`@trait`（batch_impl=本地名、batch_impl_only=外部
+  路径；**batch_trait! 段级**——分段后逐段替换为本段 trait 路径，支持
+  `@type_t=<T>@trait<T>` 跨段打包复用；try_expand_at 返 None 原样保留防
+  懒递归死循环）、`@all` 系（batch_impl/only 专属，batch_trait! 报错）、
+  `@Cow`（batch_impl/only 专属）：
+  - `@all` 系 → 按 trait 定义选 item 的 Bracket 组（含 required/default 过滤）；
+  - `@Cow` → `Cow<'_>` + 固有约束谓词（deref target = `T::Owned` 的
+    打包，与砍掉的裸类型名常量不同类——携带约束才有复用价值）；
+- **`@0` 位置引用**：where 谓词通用（codegen 渲染时 `@N` → impl 泛型第 N 位、
+  `@trait` → trait 名——元组 `()^2 where{@0: Clone}` 与普通 spec 可用）；
+  blanket 包装 where 中 `@0` 特指目标泛型（resolve_target_predicates 预替换为
+  fresh 名，先于 codegen，两处不冲突）；expand_consts 不进入 Brace 组
+  （where 组透传），`@N` 恰好在消费点替换；
+- **`<>` 只留名字**（约束容器统一为 where）：泛型声明 TypeParam 只取 ident、
+  const/lifetime 原样；全部约束（trait 形参 inline bound + `T: Trait` +
+  trait where + 包装谓词）并列进 where——合并 = 零分析 token 拼接
+  （required ∪ default = all 同理）。blanket 的 `T: Trait` 因此与包装谓词
+  天然并列；trait 形参 bound 由 codegen 继承逻辑处理（不重复转移）。
+
+### 指令统一形态：`#指令(范围){内容}`
+
+所有内置指令都是同一形态的实例——**指令名 + 范围 + 内容**：
+
+| 指令 | 范围（作用于谁） | 内容（怎么处理） |
+|---|---|---|
+| `#name{body}` | 单个 item（按名取） | 该 item 的实现体 |
+| `#fill(范围){body}` | item 集合（`@all`/`@all_methods`/`@all_constants`/`@all_types`/`@all_required*`/`@all_default*`/名字列表/`-name` 排除） | 统一实现体 |
+| `#delegate(范围){target}` | 方法集合（`@all_methods` 等） | 委托目标表达式 |
+| `#blanket(范围){包装列表}` | impl 层（整个 trait × 包装类型矩阵） | 覆盖式委托 + 包装深度 |
+
+- **范围**轴已覆盖：单 item → item 集合 → impl 层（粒度递增）；
+- **内容**轴已覆盖：填体 → 委托 → 覆盖（处理方式递增）；
+- 参数域统一由 `parse_names_from_tokens` 解析（`,` 分隔、`@all` 系标记、
+  `-name` 排除），DSL 解析不进入；
+- **新指令 = 在形态空间内选新的（范围，内容）组合**——现有四指令已把
+  两个轴的高频组合占满；新组合须满足"用户自实现成本高"（固定模板不值钱）
+  才会被采纳（`#deref` 因此被拒：`#delegate(@all_methods){self.0}` +
+  `#Target{Inner}` 组合已覆盖且零新语法）。
+
 ## 错误机制
 
 所有 DSL 语法错误均通过 `compile_error!()` 输出友好的编译错误，**永不 panic**。
 两层分工，不合并：
 
+**嵌套深度护栏**（0.6.1）：嵌套组（`[[[...]]]`）与嵌套尖括号（`Vec<Vec<...>>`）
+超过 128 层报「嵌套深度超过 128 层」而非栈溢出（v0.1 承诺恢复；`angle_collect`
+在配对时计数，`MAX_NEST_DEPTH = 128`）。
+
 - **DSL 解析层**（parse/apply/codegen）：`Ty::Error` 变体在 AST 链中透传
   （链式组合中途失败需要信号值），最终经 ToTokens 输出 `compile_error!`；
 - **入口层**（preprocess/expand）：`Result<_, TokenStream>` 经 `?` 传播，
-  由 `diagnostic.rs::compile_error_str` 统一构造。
+  由 `util/diagnostic.rs::compile_error_str` 统一构造。
 
 ## 测试矩阵
 
