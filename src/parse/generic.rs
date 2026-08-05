@@ -1,6 +1,6 @@
-//! 泛型与尖括号解析模块。
+//! Generic and angle-bracket parsing module.
 //!
-//! 提供 `<...>` 泛型参数的匹配、解析与相关辅助函数。
+//! Provides matching and parsing of `<...>` generic parameters plus related helpers.
 
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
@@ -10,11 +10,12 @@ use crate::parse::parse_item;
 use crate::util::{Cursor, is_single_colon, scan_stop};
 
 // ============================================================
-// 尖括号与泛型参数
+// Angle brackets and generic parameters
 // ============================================================
 
-/// 在 base 后找尖括号组（`delimiter![<>]`，由 `angle_collect` 配对产生），
-/// 返回 (base, args, rest)。base 不能为空（空 = 类型参数列表，走 [`parse_type_params`]）。
+/// Find the angle-bracket group after base (`delimiter![<>]`, produced by `angle_collect` pairing),
+/// returning (base, args, rest). base must not be empty (empty = a type-parameter list,
+/// handled by [`parse_type_params`]).
 pub(crate) fn parse_generic(
     tokens: &[TokenTree],
 ) -> Option<(Vec<TokenTree>, TokenStream, Vec<TokenTree>)> {
@@ -35,7 +36,7 @@ pub(crate) fn parse_generic(
     None
 }
 
-/// 以尖括号组开头的裸泛型参数列表解析（`<'a, T: Clone>`）。
+/// Parse a bare type-parameter list that starts with an angle-bracket group (`<'a, T: Clone>`).
 pub(crate) fn parse_type_params(
     tokens: &[TokenTree],
 ) -> Option<(TokenStream, Vec<TokenTree>)> {
@@ -48,18 +49,19 @@ pub(crate) fn parse_type_params(
     Some((g.stream(), tokens[1..].to_vec()))
 }
 
-/// 判断 base 是否与 trait_name 重名（用于区分 `TraitName<T>` 与普通泛型）
+/// Whether base ends with trait_name's ident (distinguishes `TraitName<T>` from plain generics)
 pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> bool {
     trait_name.is_some_and(
         |name| matches!(base.last(), Some(TokenTree::Ident(last)) if last == name),
     )
 }
 
-/// 按 separator 切分（尖括号已配对为不透明组，仅按扁平 token 切）
+/// Split by separator (angle brackets are already paired into opaque groups, so flat split)
 ///
-/// **注意**：扁平 `<A, B>` 会被 depth-0 逗号切分错误切断（`T: Two<A, B>` →
-/// `T: Two<A` / `B>`）；未来宏生成泛型组内容时若含尖括号，须先配对
-/// （`Group::new(delimiter![<>], ...)`）再插入，不得散播扁平 `<...>`。
+/// **Note**: a flat `<A, B>` would be wrongly cut by a depth-0 comma split (`T: Two<A, B>` →
+/// `T: Two<A` / `B>`); if the macro ever generates generic-group contents containing angle
+/// brackets, they must be paired (`Group::new(delimiter![<>], ...)`) before insertion,
+/// never scattered as flat `<...>`.
 fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
     let mut chunks = vec![];
     let mut rest = tokens;
@@ -71,12 +73,12 @@ fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
     chunks
 }
 
-/// 找到第一个 `:` 且不是 `::` 的位置（用于 `T: Bound` 切分）
+/// Find the first `:` that is not part of `::` (used to split `T: Bound`)
 fn find_colon_at_depth0(tokens: &[TokenTree]) -> Option<usize> {
     scan_stop(tokens, &[':']).filter(|&index| is_single_colon(tokens, index))
 }
 
-/// 解析 `<T: Clone, U, Item=V>` 泛型参数内容：参数列表 + 关联类型绑定
+/// Parse `<T: Clone, U, Item=V>` contents: parameter list + associated-type bindings
 pub(crate) fn parse_angle_bracket_contents(
     tokens: &[TokenTree], trait_name: Option<&Ident>,
 ) -> TyTypeParam {
@@ -110,15 +112,15 @@ pub(crate) fn parse_angle_bracket_contents(
 }
 
 // ============================================================
-// 兜底
+// Fallbacks
 // ============================================================
 
-/// 将 token 序列包装为 Primitive 透传节点（无法识别的类型都走这里）
+/// Wrap a token sequence as a Primitive passthrough node (any unrecognized type lands here)
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
     TyPrimitive(tokens.iter().cloned().collect()).into()
 }
 
-/// 空 token 节点（用于 unwrap_or_else 的兜底）
+/// Empty token node (fallback for unwrap_or_else)
 pub(crate) fn empty() -> Ty {
     TyPrimitive(quote![]).into()
 }

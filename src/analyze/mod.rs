@@ -1,8 +1,9 @@
-//! trait 定义语义分析：泛型 bound 收集、where 谓词引用收集。
+//! Semantic analysis of trait definitions: generic bound collection and where-predicate
+//! reference collection.
 //!
-//! 从 `syn::ItemTrait` 提取结构化信息（[`TraitBounds`]），供 codegen 的
-//! bound 继承、preprocess 的 `A<>` 照抄与 `#blanket` 泛型实参复用。
-//! `mod.rs` 聚合 re-export，引用侧写 `crate::analyze::X`。
+//! Extracts structured info ([`TraitBounds`]) from `syn::ItemTrait`, serving codegen's
+//! bound inheritance, preprocess's `A<>` copying, and `#blanket` generic-arg reuse.
+//! `mod.rs` aggregates the re-exports; callers write `crate::analyze::X`.
 
 pub(crate) mod trait_bounds;
 

@@ -1,4 +1,4 @@
-error: batch-impl: #delegate 只能用于方法，trait `HasConst` 中的 `VALUE` 不是方法
+error: batch-impl: #delegate only works on methods; `HasConst` in trait `VALUE` is not a method
  --> tests/ui/delegate_on_non_fn.rs:8:1
   |
 8 | #[batch_impl(usize #delegate(VALUE){0})]

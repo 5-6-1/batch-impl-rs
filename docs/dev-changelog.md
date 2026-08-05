@@ -1,664 +1,446 @@
-# 开发者变更记录
+# Developer Changelog
 
-> 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
+> Internal implementation details, refactoring, testing, CI; user-visible features are covered in `CHANGELOG.md`.
+>
+> English-first as of 0.6.2; the Chinese mirror (frozen at the 0.6.1 state) lives in `docs/zh-CN/`.
+
+## 0.6.2 (2026-08-05)
+
+### Receiver-kind `@all` filters (L1)
+
+- `ReceiverFilter` enum (Ref / Value / Static) + `AllMarkerSpec` type alias in
+  `helpers.rs`; `resolve_all_marker` table gains `all_ref_methods` /
+  `all_value_methods` / `all_static_methods`, `get_trait_item_names` gained a
+  `receiver` filter dimension;
+- syn 3 receiver API: `f.sig.receiver()` returns `Option<&Receiver>` whose
+  `kind: ReceiverKind` is `Value` / `Reference(..)` / `Typed(..)` (the
+  syn-2 style `receiver.reference` field no longer exists — E0609 caught it,
+  fixed to match on `ReceiverKind`);
+- Motivation: blanket by-value delegation semantics are unclear (Deref/move
+  capability undecidable at expansion); `#blanket(@all_ref_methods)` lets
+  users delegate only `&self`/`&mut self` methods and keep trait defaults for
+  by-value ones;
+- Tests: `receiver_kind_filters` (ref/mut/val/static all selected by the
+  right marker) + `blanket_receiver_filter` (Box blanket delegates `by_ref`,
+  `by_val` falls back to default — note the default needs `where Self: Sized`
+  since a `self` receiver in a defaulted method requires it, E0277);
+- Docs (zh-CN): tutorial constant table + architecture `@all` description and
+  directive table updated; EN mirror pending at release.
+
+### English-only pass (comments, error messages, docs)
+
+- **Scope**: every Chinese comment (`//`, `///`, `//!`) in `src/` (29 files, ~356 comment sites) and
+  `tests/` (28 .rs + 31 .stderr) translated to English; all 59 `compile_err!`/`compile_error_str!`
+  messages translated; DSL markers in messages kept verbatim;
+- **Process**: 5 parallel subagents by module group (preprocess / parse+apply / ast+codegen /
+  entry+util+analyze+testing+lib / tests), each with an explicit "never touch code logic" rule;
+  ui `.stderr` snapshots regenerated via `TRYBUILD=overwrite` (56 files touched) — the authoritative
+  message text is whatever the code emits, so snapshots were rewritten from actual output;
+- **Cleanup after translation**: a clippy `doc list item without indentation` (introduced by a
+  subagent's nested list) was fixed by flattening the doc comment to prose;
+- **Docs**: Chinese docs moved to `docs/zh-CN/` (frozen archive), English versions written in place
+  (README / CHANGELOG full 19-entry translation / tutorial 816 lines with 40 rust blocks kept
+  byte-identical / architecture / dev-changelog); a second pass translated Chinese comments **inside**
+  doc code blocks (rust-block `//` comments only, code tokens untouched);
+- **Corrupted fence fixed**: the tutorial's segment-level `@trait` example had a broken fence
+  (`` `ust `` — backtick + CR + `ust`); repaired to ```rust and it now compiles as a doctest;
+  the block content matches the passing `tests/dsl.rs` segment-level test, so it is safe;
+- **Verification**: `fmt` clean, clippy zero warnings, `cargo test --all-targets` green
+  (lib 10 / dsl 46 / regression 26 / ui all fixtures), doctest 46 (was 45 — +1 repaired block),
+  zero Chinese characters remain in `src/`, `tests/`, and all English docs.
 
 ## 0.6.1 (2026-08-05)
 
-### 递归深度护栏恢复（0.1 承诺的回归修复）
+### Recursion depth guard restored (regression fix for the 0.1 promise)
 
-- 复盘发现 0.1.0 的「递归深度限制（128 层）」在 0.3.0 重写时丢失：实测 30000 层
-  `[[[...]]]` 与 `Vec<Vec<...>>` 嵌套导致 `STATUS_STACK_OVERFLOW`（abort 非 panic，
-  fuzz 深度 3 测不出）；
-- 恢复：`angle_collect` 拆出 `angle_collect_at(tokens, depth)`，4 处递归点
-  （None 组扁平化 / Paren / Bracket / `<>` 内容）depth+1，`MAX_NEST_DEPTH = 128`
-  超限报「嵌套深度超过 128 层」——入口拦截后下游 consts/expand_tokens/parse/
-  codegen 的组深度全部 ≤ 128；
-- 附带：`parse_primitive` 连续 body/where 附着（`T{a}{b}`）从递归改**迭代**
-  （attaches 栈收集 + 从内到外 apply）——线性链本不该递归，消除该递归源；
-- 边界澄清：>128 层被宏内拦截；**数万层 `[` 嵌套的崩溃发生在 rustc tokenize
-  阶段**（宏被调用前，任何 proc-macro 库无法拦截的外部边界）——128 层远低于
-  rustc 阈值，合法输入永不触发；
-- 测试：ui fixture `deep_nesting.rs`（200 层 `[`）+ angle 单测
-  `angle_nesting_limit`（129 层组）。
+- A retrospective review found that 0.1.0's "recursion depth limit (128 levels)" was lost in the 0.3.0 rewrite: empirically, 30000 levels of `[[[...]]]` and `Vec<Vec<...>>` nesting caused `STATUS_STACK_OVERFLOW` (an abort, not a panic — fuzz at depth 3 couldn't detect it);
+- Restored: `angle_collect` was split into `angle_collect_at(tokens, depth)`, with depth+1 at the 4 recursion points (None-group flattening / Paren / Bracket / `<>` contents); exceeding `MAX_NEST_DEPTH = 128` reports "nesting depth exceeds 128 levels" — once intercepted at the entry, downstream group depths in consts/expand_tokens/parse/codegen are all ≤ 128;
+- Bonus: `parse_primitive`'s chained body/where attachment (`T{a}{b}`) changed from recursion to **iteration** (attaches collected on a stack, then applied inside-out) — a linear chain should never recurse; this recursion source was eliminated;
+- Boundary clarification: >128 levels are intercepted inside the macro; **crashes with tens of thousands of `[` nesting levels happen in rustc's tokenize stage** (an external boundary before the macro is even invoked, which no proc-macro crate can intercept) — 128 is far below rustc's threshold, so valid input can never trigger it;
+- Tests: ui fixture `deep_nesting.rs` (200 levels of `[`) + angle unit test `angle_nesting_limit` (129-level groups).
 
-### 文档修正：`batch_trait!` 指令缺口如实声明（不改代码）
+### Docs fix: `batch_trait!` directive gap honestly declared (no code change)
 
-- 实测确认 `expand_tokens` 仅 `expand_attr_macro` 调用——`batch_trait!` 从未做
-  指令展开，`#fill` 等直接报 `found '#'`；而 lib.rs:111 / tutorial.md 原声称
-  "与 `#[batch_impl]` 相同语法"（虚假承诺）；
-- 决策：**不改代码**——`batch_trait!` 保持函数式宏纯 spec 语义（加入 trait
-  定义是 `#[batch_impl]`/`#[batch_impl_only]` 的职责）；run_pipeline 的
-  `start_trait`/`trait_bounds` 参数已预留，未来若扩展语法可直接接入；
-- 修正 lib.rs `batch_trait!` doc + tutorial.md 对应章节：`:` 右侧为类型 DSL +
-  `@` 常量，`#` 指令需属性宏入口；CHANGELOG 0.6.1 条目同步。
-- 与 0.5.6（`A<>` 透传）/ 0.5.7（bound 不继承）限制同源：指令域依赖 trait
-  定义，仅属性宏入口可用。
+- Empirically confirmed that `expand_tokens` is only called by `expand_attr_macro` — `batch_trait!` never does directive expansion, and `#fill` etc. directly report `found '#'`; yet lib.rs:111 / tutorial.md originally claimed "same syntax as `#[batch_impl]`" (a false promise);
+- Decision: **no code change** — `batch_trait!` keeps pure spec semantics as a function-like macro (adding a trait definition is the job of `#[batch_impl]`/`#[batch_impl_only]`); the `start_trait`/`trait_bounds` parameters of run_pipeline are already reserved, so a future syntax extension can plug in directly;
+- Fixed lib.rs's `batch_trait!` doc + the corresponding tutorial.md section: the right side of `:` is the type DSL + `@` constants; `#` directives require the attribute-macro entry; the CHANGELOG 0.6.1 entry was synced.
+- Same origin as the 0.5.6 (`A<>` passthrough) / 0.5.7 (bounds not inherited) limitations: the directive domain depends on the trait definition, so only the attribute-macro entry works.
 
-### 模块重组：文件夹 mod + 文件（消除"平"结构）
+### Module reorganization: folder mod + files (eliminating the "flat" structure)
 
-- 根下 10 个平文件收编为分层目录，每目录 `mod.rs` 聚合 re-export
-  （引用侧统一写目录级 `crate::xxx::X`，不写子模块路径）：
-  - `entry/`：入口与驱动（原 `expand.rs` → `mod.rs`、`batch_trait_entry.rs` →
-    `driver.rs`、`path_prefix.rs` 收编）；
-  - `preprocess/`：token 重写器（原根下 `consts.rs`、`empty_generics.rs` 移入，
-    `preprocess_helpers.rs` 更名 `helpers.rs`）；
-  - `analyze/`：trait 定义语义分析（原 `trait_bounds.rs` 移入）；
-  - `util/`：共享工具（原 `scan.rs` / `diagnostic.rs` 移入，mod.rs 聚合）；
-  - `testing/`：测试基建（原 `fuzz.rs` 移入，`cfg(test)`）。
-- `parse/` `apply/` `ast/` `codegen/` 四层不动；lib.rs 仅剩宏声明 + 模块树。
-- 依赖方向单向：util → ast → parse/apply → preprocess/analyze → codegen →
-  entry → lib。
+- The 10 flat files under the crate root were gathered into layered directories, each directory's `mod.rs` aggregating re-exports (reference sites uniformly write the directory-level `crate::xxx::X`, not submodule paths):
+  - `entry/`: entry points and driving (original `expand.rs` → `mod.rs`, `batch_trait_entry.rs` → `driver.rs`, `path_prefix.rs` folded in);
+  - `preprocess/`: token rewriters (`consts.rs`, `empty_generics.rs` moved in from the crate root; `preprocess_helpers.rs` renamed to `helpers.rs`);
+  - `analyze/`: trait-definition semantic analysis (`trait_bounds.rs` moved in);
+  - `util/`: shared utilities (`scan.rs` / `diagnostic.rs` moved in, aggregated by mod.rs);
+  - `testing/`: test infrastructure (`fuzz.rs` moved in, `cfg(test)`).
+- The `parse/` `apply/` `ast/` `codegen/` layers are untouched; lib.rs now only has the macro declarations + the module tree.
+- Dependency direction is one-way: util → ast → parse/apply → preprocess/analyze → codegen → entry → lib.
 
-### 逻辑合并（D 阶段，去重而非删注释）
+### Logic consolidation (phase D: deduplicate rather than delete)
 
-- `trait_bounds::generic_param_names`：blanket.rs / empty_generics.rs 的泛型
-  参数名收集循环收敛为共享函数；
-- `parse::parse_binary_chain`：`-`（左结合）与 `^`（右结合）两分支骨架同构，
-  收敛为参数化函数（错误消息保留 `（如 T-U）` 示例后缀，ui 快照不变）；
-- `types_render::render_param` / `render_optional`：codegen impl 泛型渲染复用
-  单条声明渲染；WithPrefix/WithAttr/WithCode/WithWhere 四臂双态渲染收敛；
-- `apply_tuple` 两宏：WithTrait/WithType/WithCode/WithWhere 四类包装的
-  "透传到内层再重包" apply_help 宏化（教训：`self.1` 作宏参数会因调用处
-  hygiene 解析为模块 self——E0424，字段访问必须写在宏体内）；
-- `fuzz::full_pipeline_no_panic` 改走真实入口 `expand_attr_macro`（此前手写
-  管线漏掉常量展开与 `A<>` 照抄，fuzz 覆盖路径与线上不一致）；
-  `expand_attr_macro` 改收 proc_macro2 类型使单元测试可调，lib.rs 入口转换；
-- 放弃三项（有理由）：路径收集统一（path_prefix 严格状态机 vs 段循环宽松
-  收集，统一会劣化诊断）、expand_wrapped/expand_rebuild 合一（需引入
-  expect 违反"永不 panic"）、consts 换 scan_stop（无重复可换）。
+- `trait_bounds::generic_param_names`: the generic-parameter-name collection loops in blanket.rs / empty_generics.rs converged into a shared function;
+- `parse::parse_binary_chain`: the `-` (left-assoc) and `^` (right-assoc) branches have isomorphic skeletons and were converged into a parameterized function (the error message keeps the `(e.g. T-U)` example suffix; ui snapshots unchanged);
+- `types_render::render_param` / `render_optional`: codegen's impl-generic rendering reuses the single-declaration renderer; the four-arm dual-state rendering of WithPrefix/WithAttr/WithCode/WithWhere was converged;
+- The two `apply_tuple` macros: the "pass through to the inner layer then re-wrap" logic of the four wrapper kinds WithTrait/WithType/WithCode/WithWhere is macro-ized into apply_help (lesson: passing `self.1` as a macro argument resolves to the module-level `self` due to call-site hygiene — E0424; field access must be written inside the macro body);
+- `fuzz::full_pipeline_no_panic` now goes through the real `expand_attr_macro` entry (the previously hand-written pipeline missed constant expansion and `A<>` verbatim copying, so the fuzzed path diverged from production); `expand_attr_macro` now takes proc_macro2 types so unit tests can call it, with the lib.rs entry converting;
+- Three candidates were dropped (with reasons): unifying path collection (path_prefix's strict state machine vs. the loose segment-loop collection — unifying would degrade diagnostics), merging expand_wrapped/expand_rebuild (would require introducing `expect`, violating "never panic"), and switching consts to scan_stop (no duplication worth switching).
 
-### 评测修复（评测员 B1-B4 + 补充测试）
+### Review fixes (reviewer B1-B4 + supplementary tests)
 
-- **B1（真 bug，一行）**：codegen/mod.rs 的 @trait 分支写 id == "Trait"
-  （大写）——普通 where 谓词（where{@0: @trait<T>}）的 @trait 被错误拒绝、
-  错误消息自相矛盾；全库其余 4 处均小写。**教训**：dev-changelog 此前声称
-  "resolve_where_at 同步小写"实际未替换——PowerShell Select-String 大小写
-  不敏感的反噬（残留检查误报通过）。测试：dsl eview_fixes_locked
-  （B1 场景 + 自引用 bound 需补 impl WhereAtTrait<u32> for u32）。
-- **B2（回归隐患）**：新顺序（@ 先于 <> 配对）下 expand_consts 运行时
-  真实 None 组（宏变量 $(...)*/$x:ty 展开产物）尚未被 angle_collect
-  扁平化——组内 @ 不再展开（0.6.0 顺序可以）；原注释"真实 None 组已由
-  angle_collect 在入口扁平化，此处永远不会出现"在新顺序下不成立。修复：
-  expand_consts 加 delimiter![none] 分支——新顺序下 <> 组尚未存在，
-  None 组必是真实透明组，无旧歧义（0.6.0 曾踩过的 delimiter![none] 误伤
-  尖括号组问题不复存在）。测试：dsl eview_fixes_locked（宏变量 + 组内
-  @uint 探针实测，2024 edition 下 gen 是保留字、宏名须换）。
-- **B3（文档）**：@all_default_types 依赖 trait 关联类型默认值
-  （	ype T = u8;）——nightly（ssociated_type_defaults，stable 报
-  E0658）——tutorial 标注该标记仅 nightly 场景可用（@all_required_types
-  的 	ype T; 声明 stable 可用）。
-- **B4（防御）**：atch_trait! 定义 @trait=[...] 常量会被特殊记号拦截、
-  被段级替换静默遮蔽——collect_user_consts 拒绝 	rait 作常量名
-  （"保留记号"报错）。
-- 评测员补充测试 dsl 35 节 macro_meta_review_extras（正向路径全覆盖：
-  @all_required 全种类 / @all_default_constants / 标记减法 /
-  @trait<T> 顶层 spec / [a,b] 于 #delegate / blanket where 仅 @0 /
-  ()^3 where{@2: Clone} 多参数位置引用）——全部通过。
+- **B1 (real bug, one line)**: the @trait branch in codegen/mod.rs wrote `id == "Trait"` (capitalized) — the @trait of ordinary where predicates (`where{@0: @trait<T>}`) was wrongly rejected and the error message contradicted itself; the other 4 places in the crate are all lowercase. **Lesson**: the dev-changelog's earlier claim that "resolve_where_at syncs to lowercase" was actually never applied — PowerShell's Select-String is case-insensitive, which backfired (the residual check falsely reported success). Test: dsl `review_fixes_locked` (B1 scenario + the self-referential bound needs an added `impl WhereAtTrait<u32> for u32`).
+- **B2 (regression risk)**: under the new order (`@` before `<>` pairing), real None groups at expand_consts runtime (macro-variable `$(...)*`/`$x:ty` expansion output) are not yet flattened by angle_collect — `@` inside a group was no longer expanded (the 0.6.0 order worked); the old comment "real None groups are already flattened by angle_collect at the entry, so this case never occurs" no longer holds under the new order. Fix: `expand_consts` gained a `delimiter![none]` branch — under the new order `<>` groups don't exist yet, so a None group is necessarily a real transparent group, and the old ambiguity is gone (the `delimiter![none]` accidentally flattening angle groups, hit in 0.6.0, cannot recur). Test: dsl `review_fixes_locked` (macro-variable + `@uint` probe inside a group verified empirically; in the 2024 edition `gen` is a reserved word, so the macro name had to change).
+- **B3 (docs)**: `@all_default_types` depends on trait associated-type defaults (`type T = u8;`) — nightly (`associated_type_defaults`; stable reports E0658) — tutorial now notes this marker is only usable in nightly scenarios (`@all_required_types`'s `type T;` declaration works on stable).
+- **B4 (defense)**: defining an `@trait=[...]` constant in `batch_trait!` would be intercepted by the special marker and silently shadowed by the segment-level substitution — `collect_user_consts` now rejects `trait` as a constant name ("reserved marker" error).
+- Reviewer's supplementary test, dsl section 35 `macro_meta_review_extras` (full positive-path coverage: @all_required all kinds / @all_default_constants / marker subtraction / @trait<T> top-level spec / `[a,b]` in #delegate / blanket where with only @0 / `()^3 where{@2: Clone}` multi-parameter positional references) — all pass.
 
-### 宏元层完整化（0.6.1 主线：`@` 唯一宏元记号 + blanket 约束合并）
+### Macro-meta layer completed (0.6.1 main line: `@` as the sole macro-meta marker + blanket bound merging)
 
-- 背景：用户提出「`#all` 看着不顺眼，违反 `#` 的两种格式」——`#` 应
-  只剩指令名；范围选择（选哪些 item）是宏元层操作，统一归 `@`；
-- `@all` 系：try_expand_at 加分支（`resolve_all_marker` 抽公共表——指令域
-  与宏元层共用），展开为 Bracket 组（`render_list_strings`）；batch_impl
-  专属（需 trait_def），batch_trait! 报错；`#all` 系全删（parse_marker 删除、
-  parse_name_tokens/parse_minus_target 的 `#` 分支删除）；
-- 指令参数支持 `[a,b]`（递归解析组内容；空组报错；`-` 排除支持
-  `-[a,b]`）——`@all` 展开产物即此形态，用户手写等价；
-- trait 感知常量（ConstCtx::Attribute 携带 trait_def）：`@trait` 展开本地
-  trait 名；`@Cow` 内置（`Cow<'_>` + 固有约束谓词——quote 不配对尖括号，
-  ty 须手动 `Group::new(delimiter![<>])`；与砍掉的裸类型名常量不同类：
-  携带约束才有复用价值）；
-- blanket 包装约束谓词：尾随 `where{...}`（在 `:N` 后）并入 impl where；
-  `resolve_target_predicates` 处理 `@0`（→ fresh T）与 `@trait`；
-  **教训**：`quote!(where { #(#wrapper_preds),* })` 会把每个 TokenTree 当
-  列表元素逗号连接——谓词流须整体插入；
-- `<>` 只留名字：blanket 泛型声明 TypeParam 只取 ident、const/lifetime
-  原样（纯名字 `N` 会 E0747）；`T: Trait` 进 where 基础谓词（与包装谓词
-  并列合并）；trait 形参 inline bound 由 codegen 继承逻辑处理（曾转移导致
-  X: Clone 重复——继承按位置补 bound，见 `gen_where_probe` 实测）；
-- `@0` 通用化：codegen 渲染 where 谓词时替换 `@N`（→ impl 泛型第 N 位名字）与
-  `@trait`（→ trait 名）——元组 `()^2 where{@0: Clone}` 与普通 spec
-  `where{@0: Default}` 可用（此前仅 blanket 包装 where 特化：`@0` 恒指
-  目标泛型 fresh T，由 resolve_target_predicates 预替换，两处不冲突）；
-  越界/格式错误并入 errs 收集报错（generate_impl 非 Result 返回）；
-  测试 dsl `where_position_refs`。
+- Background: the user pointed out "`#all` looks wrong and violates `#`'s two formats" — `#` should only be directive names; scope selection (which items to pick) is a macro-meta-layer operation, unified under `@`;
+- The `@all` family: `try_expand_at` gained a branch (`resolve_all_marker` extracted as a shared table — used by both the directive domain and the macro-meta layer), expanding to a Bracket group (`render_list_strings`); exclusive to `batch_impl` (needs trait_def), `batch_trait!` errors; the entire `#all` family was deleted (parse_marker removed, the `#` branches of parse_name_tokens/parse_minus_target removed);
+- Directive arguments now support `[a,b]` (group contents parsed recursively; empty groups error; `-` exclusion supports `-[a,b]`) — the `@all` expansion output takes exactly this shape, and hand-written equivalents are allowed;
+- Trait-aware constants (ConstCtx::Attribute carries trait_def): `@trait` expands the local trait name; `@Cow` is built in (`Cow<'_>` + an inherent bound predicate — quote doesn't pair angle brackets, so the ty must use `Group::new(delimiter![<>])` manually; different in kind from the removed bare-type-name constants: only with a bound does it have reuse value);
+- Blanket wrapper bound predicates: a trailing `where{...}` (after `:N`) is merged into the impl where; `resolve_target_predicates` handles `@0` (→ fresh T) and `@trait`; **lesson**: `quote!(where { #(#wrapper_preds),* })` joins each TokenTree as a list element with commas — the predicate stream must be inserted as a whole;
+- `<>` keeps only names: the blanket generic declaration's TypeParam takes only the ident, const/lifetime as-is (a bare name `N` triggers E0747); `T: Trait` goes into the where base predicates (merged alongside the wrapper predicates); trait-parameter inline bounds are handled by codegen's inheritance logic (a previous move caused `X: Clone` duplication — inheritance fills bounds by position, see `gen_where_probe` for the empirical check);
+- `@0` generalized: codegen substitutes `@N` (→ the Nth impl generic's name) and `@trait` (→ the trait name) when rendering where predicates — tuples `()^2 where{@0: Clone}` and ordinary specs `where{@0: Default}` now work (previously only the blanket wrapper where was special-cased: `@0` always meant the target generic fresh T, pre-substituted by resolve_target_predicates; the two don't conflict); out-of-bounds/malformed cases are collected into errs for reporting (generate_impl doesn't return Result); test dsl `where_position_refs`.
 
-- `@Trait` → `@trait` 改名 + 路径化：内置名族全小写统一（`@uint`/`@scalar`/…）；
-  内容从「本地 trait 名」改为「trait 完整路径」——`batch_impl` = 本地名、
-  `batch_impl_only` = 外部路径（`#ext::Trait:` 前缀）——blanket 包装 where
-  写 `@0::Owned: @trait` 免手写路径；实现：路径前缀解析**提前**到 `@` 展开前
-  （`@trait` 需要 trait_full_path；ConstCtx::Attribute 加 trait_full_path 字段、
-  trait_full_path() 访问器）；blanket 的 resolve_target_predicates 改用
-  trait_full_path（原 trait_def.ident 只给本地名，外部场景错）；codegen 的
-  resolve_where_at 同步小写；**教训**：PowerShell Select-String 大小写不敏感，
-  残留检查误报（实际已替换）。
+- `@Trait` → `@trait` rename + path-ification: the built-in name family unified to all-lowercase (`@uint`/`@scalar`/…); the content changed from "local trait name" to "full trait path" — `batch_impl` = local name, `batch_impl_only` = external path (`#ext::Trait:` prefix) — so blanket wrapper wheres can write `@0::Owned: @trait` without hand-writing the path; implementation: path-prefix resolution moved **earlier**, before `@` expansion (`@trait` needs trait_full_path; ConstCtx::Attribute gained a trait_full_path field and a `trait_full_path()` accessor); blanket's resolve_target_predicates switched to trait_full_path (trait_def.ident only gives the local name, wrong in external scenarios); codegen's resolve_where_at synced to lowercase; **lesson**: PowerShell Select-String is case-insensitive, so the residual check falsely reported success (it had actually been replaced).
 
-- `batch_trait!` 段级 `@trait`：多段每段 trait 名不同，常量值（如
-  `@type_t=<T>@trait<T>`）里的 `@trait` 由 entry 分段循环逐段替换为本段
-  trait 路径（`replace_segment_trait`）——跨段复用「泛型声明+trait 名」打包；
-  实现要点：try_expand_at 改返回 `Option`——Trait ctx 的 `@trait` 返回
-  `None`（原样保留、不触发懒展开递归——展开为原样→再遇→栈溢出的死循环，
-  实测 STATUS_STACK_OVERFLOW）；check_value_refs 跳过 `@trait`（特殊记号
-  非常量引用）；测试 dsl `trait_const_segment`（教训：trait 定义须带泛型
-  匹配 spec 的 `<T> Trait<T>`；`Box^[T,(T,)]` 泛型重叠 E0119 是用户写法
-  问题，测试改用 `[T, Vec<T>]`）。
+- `batch_trait!` segment-level `@trait`: with multiple segments each having a different trait name, the `@trait` inside constant values (e.g. `@type_t=<T>@trait<T>`) is replaced per segment by the entry's segment loop with that segment's trait path (`replace_segment_trait`) — "generic declaration + trait name" is packaged for reuse across segments; implementation points: try_expand_at now returns `Option` — the Trait ctx's `@trait` returns `None` (kept as-is, no lazy-expansion recursion triggered — expanding to itself → encountering it again → a stack-overflow infinite loop, empirically STATUS_STACK_OVERFLOW); check_value_refs skips `@trait` (special marker, not a constant reference); test dsl `trait_const_segment` (lesson: the trait definition must carry generics matching the spec's `<T> Trait<T>`; `Box^[T,(T,)]` generic overlap E0119 was a user-writing issue, so the test uses `[T, Vec<T>]`).
 
-- 测试：dsl `macro_meta_complete`（@trait/@Cow/blanket where/[a,b]/where
-  规范）、`trait_const_value_with_angles` 保持；全量回归绿。
+- Tests: dsl `macro_meta_complete` (@trait/@Cow/blanket where/[a,b]/where specs), `trait_const_value_with_angles` kept; full regression green.
 
-### 预处理顺序修正：`@ <> # where`
+### Preprocessing order fix: `@ <> # where`
 
-- 背景：用户提议宏元层（`@`）应是最外一趟。实测当前顺序（`<> @ #`）
-  的 bug：`batch_trait!( @inner = Vec<u8>; @outer = Vec<@inner>; ... )`
-  ——`Vec<@inner>` 的 `@inner` 被 angle_collect 配对进尖括号组，而
-  expand_consts 刻意不进入 `<>` 组（`delimiter![<>]` 与真实 None 组
-  展开值相同不可同臂，注释已记录）——`@` 残留报 `found '@'`；
-  直接值 `@map = HashMap<u32, String>` 恰好因定义处配对兜底不炸，
-  嵌套/引用场景暴露；
-- 修正：entry 两入口把 `collect_user_consts` + `expand_consts` 移到
-  `angle_collect` 之前——`@` 展开产物（可能含扁平 `<...>`）统一由
-  后续 angle_collect 配对；`#` 指令与裸 where 改写位置不变；
-- 能力矩阵：batch_impl/only = 内置 `@` + `<>` + `#` + where；
-  batch_trait! = 自定义 `@` + `<>` + where；
-- 测试：dsl `trait_const_value_with_angles`（`@map` 直接值 + `@outer`
-  嵌套值；E0252 教训——dsl.rs 已 use HashMap；E0119 教训——batch_trait!
-  自身生成 impl，勿手写重复）。
+- Background: the user proposed that the macro-meta layer (`@`) should be the outermost pass. The bug in the then-current order (`<> @ #`) was verified empirically: `batch_trait!( @inner = Vec<u8>; @outer = Vec<@inner>; ... )` — the `@inner` of `Vec<@inner>` gets paired into the angle group by angle_collect, while expand_consts deliberately does not enter `<>` groups (`delimiter![<>]` and real None groups expand to the same value and can't share an arm; recorded in comments) — the leftover `@` reports `found '@'`; the direct value `@map = HashMap<u32, String>` happened not to break only because the definition-site pairing saved it, and the nested/reference scenario exposed it;
+- Fix: both entry points moved `collect_user_consts` + `expand_consts` before `angle_collect` — the `@` expansion output (which may contain flat `<...>`) is uniformly paired by the subsequent angle_collect; the `#` directive and bare-where rewrite keep their positions;
+- Capability matrix: batch_impl/only = built-in `@` + `<>` + `#` + where; batch_trait! = custom `@` + `<>` + where;
+- Tests: dsl `trait_const_value_with_angles` (`@map` direct value + `@outer` nested value; E0252 lesson — dsl.rs already uses HashMap; E0119 lesson — batch_trait! generates the impl itself, don't hand-write duplicates).
 
-### 新范围标记：`@all_required*` / `@all_default*`
+### New scope markers: `@all_required*` / `@all_default*`
 
-- 背景：`@all` 系一直未区分 trait item 的默认实现状态（`#fill(@all)` 连有
-  默认实现的也覆盖，`@all + -name` 逐个排除繁琐）；用户提出按状态过滤；
-- 实现：`get_trait_item_names` 加 `default: Option<bool>` 过滤参数
-  （`Some(true)` 仅默认、`Some(false)` 仅 required、`None` 全含），
-  syn 判断字段：`TraitItem::Fn(f).default` / `Const(c).default` /
-  `Type(t).default`（fn=默认体、const=默认值、type=默认类型）；
-- `parse_marker` 改表格分发（kinds, default）——12 个标记内联，删除
-  `get_all_trait_methods/items/constants/types` 四个薄 wrapper；
-- 语义要点：`@all_required*` 单独用完整（只填必须的、默认保留）；`@all_default*`
-  单独用缺 required → E0046，须与 required 侧/手写组合；required ∪ default = all；
-- 测试：dsl `all_default_required_markers`（fill 组合 / fill 只 required /
-  blanket 只 required 三场景；E0034 教训：三个 trait 须各占一个整数类型）；
-- 三指令（fill/delegate/blanket）共享 `parse_names_from_tokens`，一处改全部获得。
+- Background: the `@all` family never distinguished the default-implementation status of trait items (`#fill(@all)` also overrode items with default implementations, and excluding them one by one with `@all + -name` was tedious); the user proposed filtering by status;
+- Implementation: `get_trait_item_names` gained a `default: Option<bool>` filter parameter (`Some(true)` = only defaulted, `Some(false)` = only required, `None` = all), with syn fields used to judge: `TraitItem::Fn(f).default` / `Const(c).default` / `Type(t).default` (fn = default body, const = default value, type = default type);
+- `parse_marker` switched to table dispatch (kinds, default) — 12 markers inlined, the four thin wrappers `get_all_trait_methods/items/constants/types` deleted;
+- Semantic points: `@all_required*` used alone is complete (fills only the required items, defaults kept); `@all_default*` used alone misses required items → E0046, so it must be combined with the required side / hand-written items; required ∪ default = all;
+- Tests: dsl `all_default_required_markers` (three scenarios: fill combination / fill with only required / blanket with only required; E0034 lesson: the three traits must each occupy a distinct integer type);
+- The three directives (fill/delegate/blanket) share `parse_names_from_tokens`, so one change benefits all.
 
-### 旧测试用例抽查（git 历史）——发现并修复 `T^<A,B>` 参数丢失
+### Spot-checking old test cases (git history) — found and fixed `T^<A,B>` argument loss
 
-- 对照 v0.5.0 删除的 examples/{tests,ds_tests,my_tests,debug_tests}.rs
-  （~4800 行）与当前 dsl/regression 测试矩阵，4 个候选盲区实测：
-  - `[&, self]^[u32, i64]`（前缀混合列表叉积）、
-    `()-[usize, isize]-[u32, i32]`（空元组双列表减法链）——行为正确，已覆盖；
-  - `HashMap^<u32, String>`（caret 后跟泛型参数列表）——**真 bug**；
-  - `[usize #fill(@all){..}, isize #fill(@all){..}]`（列表元素独立指令）——
-    与 dsl `directive_fill` 重叠，未单独补。
-- **bug 根因**：parse_primary 顺序缺陷——单个 `Group(<>)` 输入在
-  `[TokenTree::Group] → parse_group` 分支被抢先拦截，parse_group 不认
-  `<>` 组落 `_ => empty()`，而 `parse_type_params`（本应处理 `<A,B>` 独立
-  操作数）永远到不了；带 body 时 empty 被 `TyWithCode` 包裹后逃过
-  `is_empty_operand` 检查 → `<u32, String>` 静默丢失、输出裸 `HashMap`，
-  无任何诊断（不带 body 则报"`^` 后缺少操作数"，行为分裂）；
-- **修复**：`[Group] → parse_group` 分支排除 `delimiter![<>]`，尖括号组
-  落到 parse_type_params——按 apply/mod.rs 注释既定语义
-  `T^<A,B> => T<A,B>`（`HashMap^<u32, String>` → `HashMap<u32, String>`）；
-- 测试：regression `caret_angle_param_list`（`contains_key` 断言 impl 落在
-  泛型完整类型上，防退化为裸 `HashMap`）。
+- Comparing v0.5.0's deleted examples/{tests,ds_tests,my_tests,debug_tests}.rs (~4800 lines) against the current dsl/regression test matrix, 4 candidate blind spots were verified empirically:
+  - `[&, self]^[u32, i64]` (mixed-prefix list cross product), `()-[usize, isize]-[u32, i32]` (empty-tuple double-list subtraction chain) — behavior correct, already covered;
+  - `HashMap^<u32, String>` (caret followed by a generic-parameter list) — **real bug**;
+  - `[usize #fill(@all){..}, isize #fill(@all){..}]` (list elements with independent directives) — overlaps dsl `directive_fill`, not separately added.
+- **Bug root cause**: an ordering defect in parse_primary — a lone `Group(<>)` input is pre-empted by the `[TokenTree::Group] → parse_group` branch, parse_group doesn't recognize `<>` groups and falls into `_ => empty()`, so `parse_type_params` (which should handle the standalone `<A,B>` operand) is never reached; with a body, the empty result gets wrapped by `TyWithCode` and escapes the `is_empty_operand` check → `<u32, String>` is silently dropped and the output is a bare `HashMap`, with no diagnostic at all (without a body it reports "missing operand after `^`" — split behavior);
+- **Fix**: the `[Group] → parse_group` branch excludes `delimiter![<>]`, so angle groups fall through to parse_type_params — per the established semantics in the apply/mod.rs comment, `T^<A,B> => T<A,B>` (`HashMap^<u32, String>` → `HashMap<u32, String>`);
+- Test: regression `caret_angle_param_list` (`contains_key` asserts the impl lands on the full generic type, preventing regression to a bare `HashMap`).
 
 ## 0.6.0 (2026-08-04)
 
-### 新特性：`@` 常量系统（src/consts.rs）
+### New feature: the `@` constant system (src/consts.rs)
 
-- 内置名字族（`@uint`/`@int`/`@float`/`@num`/`@scalar`）+ 范围族
-  （`@u8..u128` 等，含端点、宽度/族/顺序校验），展开为 Bracket 列表与
-  手写等价，走原管线（宏元层只做词法替换，不参与域内解析）
-- `batch_trait!` 前导 `@name=值;` 定义段（`collect_user_consts`）：**懒展开**
-  ——值任意 token 原样入库，引用处拼接后递归展开（`expand_consts` 引用分支
-  先递归再 extend）；`check_value_refs` 定义处校验引用可见性（循环/前向
-  引用拦截——懒展开下 `@a=@a` 会无限递归）
-- 引用替换（`expand_consts`）递归进入 `Paren`/`Bracket`、透传 Brace 与
-  `ident![...]`/`#[...]`（复用 `bracket_is_passthrough`）
-- 管线位置：`angle_collect` 之后、指令预处理之前（两个入口各插一次；
-  `batch_trait!` 在 `where_process` 之前）
-- 教训×2：`expand_consts` 初版误加 `delimiter![none]` 分支把尖括号组
-  （同值）当真实 None 组扁平化，已删；懒展开后值形态校验取消（B1/B2 的
-  定义处拒绝语义被引用处 DSL 报错取代，评审认可）
+- Built-in name family (`@uint`/`@int`/`@float`/`@num`/`@scalar`) + range family (`@u8..u128` etc., with endpoint/width/family/ordering validation), expanding to Bracket lists equivalent to hand-written ones, through the original pipeline (the macro-meta layer only does lexical substitution, taking no part in in-domain parsing)
+- `batch_trait!`'s leading `@name=value;` definition segment (`collect_user_consts`): **lazy expansion** — the value's arbitrary tokens are stored as-is, and at the reference site they're concatenated and recursively expanded (`expand_consts`'s reference branch recurses first, then extends); `check_value_refs` validates reference visibility at the definition site (circular/forward references intercepted — under lazy expansion `@a=@a` would recurse forever)
+- Reference substitution (`expand_consts`) recurses into `Paren`/`Bracket`, passes through Brace and `ident![...]`/`#[...]` (reusing `bracket_is_passthrough`)
+- Pipeline position: after `angle_collect`, before directive preprocessing (inserted once at each of the two entries; `batch_trait!` before `where_process`)
+- Lesson ×2: the first version of `expand_consts` mistakenly added a `delimiter![none]` branch that flattened angle groups (same value) as real None groups — removed; value-shape validation dropped after lazy expansion (B1/B2's reject-at-definition semantics were replaced by DSL errors at the reference site; accepted in review)
 
-### 新特性：`#blanket` 覆盖式委托
+### New feature: `#blanket` covering delegation
 
-- `expand_directive` 返回类型 `TokenTree` → `Vec<TokenTree>`（指令可产出
-  多 token；既有五种指令在分发处包 `vec!`，内部零改动）
-- `expand_blanket`：**包装元素普适化**（任意类型表达式 + 可选尾 `:N` 深度
-  标注，`parse_blanket_wrappers` 返回 `BlanketWrapper { ty, depth }`；
-  `is_single_colon` 区分 `::` 路径）、fresh 泛型、逐包装生成
-  `<T: Trait> 包装^T { 委托体 }` 多段 spec
-- 委托体 `*` 数量 = depth + 1（`"*".repeat(depth + 1) + "self"` parse）；
-  目标类型 = 包装 `^T`（`Box^Arc:2` → `Box<Arc<T>>`、`Cow<'_>` → `Cow<'_, T>`）
-- **泛型 trait**：trait 形参照抄为 impl 泛型（形参在前、fresh `T` 在后，
-  `T: Trait<X>` 反序 E0401）+ trait 实参填参数名 + where 谓词透传；
-  spec 的 trait 名部分仅泛型时输出（非泛型省略——`Trait &^T` 前缀目标
-  跟在 trait 名后无法解析，回归曾破坏 `{&,Box,Rc}`）
-- **assoc type/const 委托**：`TraitItem::Fn` 窄匹配放开，Type/Const 走
-  `build_from_item` 既有输出形态，body 用 `<T as Trait<X>>::name` 投影
-- 关键修复×2：blanket 在 `angle_collect` 之后运行——泛型声明手动构造尖括号组
-  （`Group::new(delimiter![<>], ...)`）；body 是 Brace 组（angle_collect 不进入），
-  其内 `Cow<'_>` 等扁平 `<...>` 补一次 `angle_collect` 配对
-- 坑：`quote!(#tp.ident)` 字段访问插值（`.ident` 当字面量），先取引用再插值
-- 边界：`*const`/`*mut` / `self` / 空元素 / 非法 `:N` 报错引导手写
-  `#delegate`；默认 depth 1（宏不猜 Deref 层数）；by-value receiver 放行
-  （Deref/move 语义信息不对称，rustc 兜底）
+- `expand_directive`'s return type changed from `TokenTree` to `Vec<TokenTree>` (a directive can now produce multiple tokens; the five existing directives wrap themselves in `vec!` at the dispatch site, zero internal changes)
+- `expand_blanket`: **generalized wrapper elements** (any type expression + optional trailing `:N` depth annotation; `parse_blanket_wrappers` returns `BlanketWrapper { ty, depth }`; `is_single_colon` distinguishes `::` paths), fresh generics, per-wrapper generation of `<T: Trait> wrapper^T { delegation body }` multi-segment specs
+- The delegation body's `*` count = depth + 1 (parsed as `"*".repeat(depth + 1) + "self"`); the target type = wrapper `^T` (`Box^Arc:2` → `Box<Arc<T>>`, `Cow<'_>` → `Cow<'_, T>`)
+- **Generic traits**: trait type parameters are copied to the impl generics (parameters first, fresh `T` last; the reverse order `T: Trait<X>` → E0401) + trait arguments filled with the parameter names + where predicates passed through; the spec's trait-name part is emitted only when generic (omitted when not — a `Trait &^T` prefixed target after the trait name can't be parsed; a regression once broke `{&,Box,Rc}`)
+- **Assoc type/const delegation**: the narrow `TraitItem::Fn` matching was opened up; Type/Const go through `build_from_item`'s existing output shape, with bodies projecting via `<T as Trait<X>>::name`
+- Key fixes ×2: blanket runs after `angle_collect` — the generic declaration manually builds angle groups (`Group::new(delimiter![<>], ...)`); the body is a Brace group (angle_collect doesn't enter it), so flat `<...>` inside it such as `Cow<'_>` gets one extra `angle_collect` pairing pass
+- Pitfall: `quote!(#tp.ident)` field-access interpolation (`.ident` treated as a literal) — take a reference first, then interpolate
+- Boundaries: `*const`/`*mut` / `self` / empty elements / invalid `:N` error out with guidance to hand-write `#delegate`; default depth 1 (the macro doesn't guess the Deref layer count); by-value receivers allowed (Deref/move semantics are information-asymmetric, rustc covers it)
 
-### 测试与文档
+### Tests and docs
 
-- dsl 第 35/36 节（const 系统、blanket 双属性叠加）；ui 新增 fixture
-  （const_unknown / const_range_bad / blanket_ptr / blanket_bad_depth；
-  blanket_generic 随泛型 trait 支持移除；const_cycle / const_forward 见评审修复节）
-- architecture.md：模块图加 consts.rs、管线更新（const 展开、多 token 指令）、
-  域隔离表格宏元层落地、新增「附着语义」章节
-- tutorial.md：第 7 章 `#blanket` 小节、第 11 章 `@` 常量小节
+- dsl sections 35/36 (const system, blanket double-attribute stacking); new ui fixtures (const_unknown / const_range_bad / blanket_ptr / blanket_bad_depth; blanket_generic removed along with generic-trait support; const_cycle / const_forward see the review-fixes section)
+- architecture.md: consts.rs added to the module graph, pipeline updated (const expansion, multi-token directives), the macro-meta layer landed in the domain-isolation table, new "attachment semantics" section
+- tutorial.md: section 7's `#blanket` subsection, section 11's `@` constants subsection
 
-### 评审修复（发布前）
+### Review fixes (pre-release)
 
-- **F1**：`cargo +nightly fmt` 修复 consts.rs / preprocess/mod.rs 格式差异
-- **F2**：dsl.rs `BlanketInc` dead_code（clippy -D warnings 阻断）——`b.inc()`
-  走 Deref 到 u16 自身 impl、blanket `&mut` impl 从未被调用；测试改为 UFCS
-  直接测 blanket 委托路径（`&mut u16` 同时命中两个 impl 需消歧）
-- **F3**：`@name=值;` 定义段写在 trait 段之后时，`try_expand_at` 定义段分支
-  按上下文区分诊断——batch_trait! 报「常量定义必须位于所有 trait 段之前」，
-  batch_impl/batch_impl_only 保留「不支持自定义常量」
-- **F4**：blanket 泛型 bound `T: Trait<X>` 的实参扁平 `<A, B>` 会被
-  `split_at_depth0` 在逗号处错误切分（`T: Two<A` / `B>`），初版靠渲染幂等
-  侥幸正确（脆点）；修复为**实参组化**（`t_bound` 与 `trait_part` 同款
-  `Group::new(delimiter![<>], ...)`），解析即正确不依赖幂等；dsl 38 的
-  `Two<A, B>` 用例回归锁定；parse/generic.rs 注释改为「组内宏生成尖括号
-  必须预配对」的通用警告
+- **F1**: `cargo +nightly fmt` fixed the formatting differences in consts.rs / preprocess/mod.rs
+- **F2**: dsl.rs's `BlanketInc` dead_code (blocked by clippy -D warnings) — `b.inc()` goes through Deref to u16's own impl, so the blanket `&mut` impl was never called; the test switched to UFCS to directly exercise the blanket delegation path (`&mut u16` matches two impls at once, requiring disambiguation)
+- **F3**: when an `@name=value;` definition segment comes after the trait segments, the `try_expand_at` definition-segment branch distinguishes the diagnostic by context — `batch_trait!` reports "constant definitions must precede all trait segments", while `batch_impl`/`batch_impl_only` keep "custom constants are not supported"
+- **F4**: the flat `<A, B>` arguments of the blanket generic bound `T: Trait<X>` were wrongly cut by `split_at_depth0` at the comma (`T: Two<A` / `B>`); the first version only worked by render-idempotency luck (a fragile point); fixed by **grouping the arguments** (`t_bound` uses the same `Group::new(delimiter![<>], ...)` as `trait_part`) — parsing is correct from the start, with no reliance on idempotency; dsl 38's `Two<A, B>` case is locked by regression; parse/generic.rs comments changed to the general warning "macro-generated angle brackets inside groups must be pre-paired"
 
-- **B1**：`collect_user_consts` 的 `@` 引用值校验 `consumed == value.len()`
-  ——`@a=@num garbage` 报"引用后有多余 token"，不再静默丢弃尾随内容
-  （**已被懒展开取代**：值形态放开为任意 token，见本版本新特性节）
-- **B2**：常量**列表**值内嵌 `@`（`[@uint, u16]`）在定义处拒绝——接受但不
-  展开会推迟到使用处才报错（诊断远离源头）；列表是原子值，请用 `@name` 形态
-  （**已被懒展开取代**：列表值内嵌引用现在正常展开，见 dsl 38）
-- **B3**：`#blanket` 的委托 bound 改用 `trait_full_path`——`#[batch_impl_only
-  (#ext::Trait: ...)]` 路径前缀场景裸 dummy 名解析不到（E0412/E0277）；
-  `expand_tokens`/`expand_directive`/`expand_blanket` 签名链加 `trait_full_path`
-  参数（fuzz 同步）
-- **B4**：未知 `@` 常量诊断在 batch_trait! 场景追加"用户常量须在引用前定义"
-  （懒展开后由 `check_value_refs` 的定义处可见性校验接管，见新特性节）
-- **B6**：`contains_at` 递归进所有组（`[Foo<@uint>]` 的 `@uint` 被 angle_collect
-  配对进 None 组，扁平检查会漏过）——**已被 `check_value_refs` 取代**（懒展开
-  后定义处统一做引用可见性校验，递归进所有组）
-- 测试：regression 加路径前缀 + blanket pass 用例（`cmp_path_prefix_blanket`，
-  `&u8` 与 u8 自身 impl 的方法歧义用 UFCS 消歧）；ui 加
-  const_cycle / const_forward 两个 fixture（循环/前向引用定义处报错）
+- **B1**: `collect_user_consts`'s `@`-reference value check `consumed == value.len()` — `@a=@num garbage` reports "extra tokens after the reference" instead of silently dropping trailing content (**superseded by lazy expansion**: value shapes are opened up to arbitrary tokens, see this version's new-feature section)
+- **B2**: a `@` embedded in a constant **list** value (`[@uint, u16]`) was rejected at the definition site — accepting it without expansion would defer the error to the use site (diagnostic far from the source); lists are atomic values, use the `@name` form (**superseded by lazy expansion**: embedded references in list values now expand normally, see dsl 38)
+- **B3**: `#blanket`'s delegation bound switched to `trait_full_path` — in the `#[batch_impl_only (#ext::Trait: ...)]` path-prefix scenario, a bare dummy name fails to resolve (E0412/E0277); the `expand_tokens`/`expand_directive`/`expand_blanket` signature chain gained a `trait_full_path` parameter (fuzz synced)
+- **B4**: the unknown-`@`-constant diagnostic appends "user constants must be defined before the reference" in batch_trait! scenarios (after lazy expansion, taken over by `check_value_refs`'s definition-site visibility check, see the new-feature section)
+- **B6**: `contains_at` recurses into all groups (the `@uint` of `[Foo<@uint>]` gets paired into a None group by angle_collect, so a flat check would miss it) — **superseded by `check_value_refs`** (after lazy expansion, reference visibility is uniformly validated at the definition site, recursing into all groups)
+- Tests: regression gained path-prefix + blanket pass cases (`cmp_path_prefix_blanket`; the method ambiguity between `&u8` and u8's own impl is disambiguated with UFCS); ui gained the two fixtures const_cycle / const_forward (circular/forward references error at the definition site)
 
-### 文档体系重构（并入自原 0.5.8）
+### Documentation-system restructuring (merged in from the former 0.5.8)
 
-- README 重写为推销版（669 → 117 行）：为什么用它 / 心智模型 / 快速开始 /
-  特性一览表 / 链接
-- 教程独立 `docs/tutorial.md`（原语法参考 + 组合拳重排为 13 章渐进式，
-  lib.rs 增加 `#![doc = include_str!(docs/tutorial.md)]`，docs.rs 首页 =
-  推销 + 教程，教程代码块全部进 doctest）
-- 开发者文档独立 `docs/architecture.md`（架构图、关键设计决策、错误机制、
-  测试矩阵、发布流程）
-- CHANGELOG 拆分为用户版（CHANGELOG.md）与开发者版（本文件），0.1.0 →
-  最新全部历史条目分类迁移
-- 注意：rustdoc 对无语言标注代码块默认按 rust 编译（`<impl-泛型>...` 骨架
-  需 `text` 标注）
+- README rewritten as a sales version (669 → 117 lines): why use it / mental model / quick start / feature overview table / links
+- Tutorial split out into `docs/tutorial.md` (the original syntax reference + combos reorganized into 13 progressive chapters; lib.rs added `#![doc = include_str!(docs/tutorial.md)]`, so the docs.rs front page = sales pitch + tutorial; all tutorial code blocks run in doctests)
+- Developer docs split out into `docs/architecture.md` (architecture diagram, key design decisions, error mechanism, test matrix, release process)
+- CHANGELOG split into a user version (CHANGELOG.md) and a developer version (this file); all historical entries from 0.1.0 to the latest migrated by category
+- Note: rustdoc compiles code blocks without a language annotation as Rust by default (the `<impl-generics>...` skeleton needs a `text` annotation)
 
 ## 0.5.7 (2026-08-03)
 
-### `delimiter!` 分隔符拼写宏
+### The `delimiter!` delimiter-spelling macro
 
-- 定义于 `preprocess/mod.rs` 顶部（经 `#[macro_use]` 导入 crate 根），用源码
-  分隔符拼写统一取缔散落的 `Delimiter::*` 字面量，调用统一用 `[]` 定界
-- `Delimiter::None` 两种语义用两种拼写区分：`delimiter![<>]`（尖括号组载体）
-  与 `delimiter![none]`（真实透明组）；全库 43 处收敛
-- 修 angle.rs 模块文档悬空的 `ANGLE_BRACKET` 引用
-- proc-macro crate 禁止 `#[macro_export]`，宏无法定义在 `angle.rs` 并全
-  crate 可见，故置于父模块顶部（文本作用域要求声明先于所有使用者）
+- Defined at the top of `preprocess/mod.rs` (imported into the crate root via `#[macro_use]`), it unifies the scattered `Delimiter::*` literals using source delimiter spellings, with calls uniformly delimited by `[]`
+- `Delimiter::None`'s two semantics are distinguished by two spellings: `delimiter![<>]` (the angle-group carrier) vs. `delimiter![none]` (real transparent groups); 43 occurrences converged across the crate
+- Fixed the dangling `ANGLE_BRACKET` reference in angle.rs's module docs
+- proc-macro crates forbid `#[macro_export]`, so a macro can't be defined in `angle.rs` and be crate-wide visible; it is therefore placed at the top of the parent module (textual scoping requires the declaration before all users)
 
-### Bracket 守卫对齐
+### Bracket guard alignment
 
-- `expand_tokens` 与 `where_process` 的 Bracket 递归守卫补 `#`（此前仅排除
-  `ident![...]`，`#[...]` 属性内的 `#name{body}` 会被误当指令展开报错；
-  与 `angle_collect` 的属性守卫对齐）
+- The Bracket recursion guards in `expand_tokens` and `where_process` gained `#` (previously only `ident![...]` was excluded, so a `#name{body}` inside a `#[...]` attribute would be mistaken for a directive and error; now aligned with `angle_collect`'s attribute guard)
 
-### lib.rs 拆分（632 → 202 行）
+### lib.rs split (632 → 202 lines)
 
-- `expand.rs`：入口实现 + 公共管线 `run_pipeline`（解析 → 生成 → 尖括号组
-  还原；`angle_collect` 与裸 where 改写不进入管线——配对破坏性、where 须
-  先于 `A<>` 展开）
-- `trait_bounds.rs`：TraitBounds + syn AST 引用收集
-- `empty_generics.rs`：`A<>` 照抄展开
-- `angle_tests` 迁入 `angle.rs`；`crate::TraitBounds` 路径经 `pub(crate) use`
-  保持兼容
-- 错误机制分工说明：入口层 `Result` 传播 vs DSL 层 `Ty::Error` 透传；
-  `batch_trait!` 段级错误统一 `return Err`
+- `expand.rs`: entry implementation + the shared pipeline `run_pipeline` (parse → generate → angle-group restore; `angle_collect` and the bare-where rewrite don't enter the pipeline — pairing is destructive, and where must precede `A<>` expansion)
+- `trait_bounds.rs`: TraitBounds + syn AST reference collection
+- `empty_generics.rs`: the `A<>` verbatim-copy expansion
+- `angle_tests` moved into `angle.rs`; the `crate::TraitBounds` path kept compatible via `pub(crate) use`
+- Error-mechanism division explained: the entry layer propagates `Result` vs. the DSL layer passing through `Ty::Error`; `batch_trait!` segment-level errors uniformly `return Err`
 
-### syn AST 引用收集（where 谓词）
+### syn AST reference collection (where predicates)
 
-- 新增 `syn` 的 `visit` feature：单段路径与泛型实参是形参引用位置；
-  `::` 后路径段（`A::B` 的 `B`）、关联类型绑定名（`dyn Trait<Item = T>`
-  的 `Item`）、HRTB binder（`for<'a>` 的 `'a`）天然排除——替换 `bound_refs`
-  的 token 扫描（顺带修掉内联 bound 的 HRTB 误报）
-- 补 `visit_expr` 收集 const 泛型实参 / 数组长度（`[T; N]` 的 `N`，实测发现
-  漏报会静默生成引用未声明名字的代码）；impl 泛型名 `const N` 归一如 `N`
-- `TraitBounds.extra_predicates`：未合并谓词（token + 引用的形参名），
-  codegen 引用检查后附加到 impl where
+- Added syn's `visit` feature: single-segment paths and generic arguments are parameter-reference positions; path segments after `::` (the `B` of `A::B`), associated-type binding names (the `Item` of `dyn Trait<Item = T>`), and HRTB binders (the `'a` of `for<'a>`) are naturally excluded — replacing `bound_refs`'s token scan (incidentally fixing HRTB false positives in inline bounds)
+- Added `visit_expr` to collect const-generic arguments / array lengths (the `N` of `[T; N]`; empirically, missing them silently generated code referencing undeclared names); impl generic names like `const N` normalized to `N`
+- `TraitBounds.extra_predicates`: unmerged predicates (tokens + referenced parameter names), appended to the impl where after codegen's reference check
 
-### 其他
+### Misc
 
-- CI：MSRV job 补 doctest（`--doc` 不能与其他选择项混用，拆两步）
-- 测试：angle 单测（属性/宏体守卫、渲染嵌套组重建、span 保留不可测说明——
-  fallback 模式 `Span::mixed_site()` 即 call_site）；regression 补
-  `batch_trait!` 的 `A<>` 透传；dsl 第 34 节覆盖矩阵；ui 新增
-  `rename_where.rs` / `where_const_ref.rs`；codegen 单测锁定 `WhereArr<>`
-  展开（防"测试过但 IDE 展开含 compile_error"的缓存类误报）
+- CI: MSRV job gained doctests (`--doc` can't mix with other selection options, split into two steps)
+- Tests: angle unit tests (attribute/macro-body guards, nested-group rebuild in rendering, span-preservation noted as untestable — in fallback mode `Span::mixed_site()` is call_site); regression added `batch_trait!`'s `A<>` passthrough; dsl section 34 coverage matrix; ui added `rename_where.rs` / `where_const_ref.rs`; codegen unit test locks the `WhereArr<>` expansion (guarding against cache-style false positives such as "tests passed but the IDE expansion contains compile_error")
 
 ## 0.5.6 (2026-08-03)
 
-### src 按层分目录
+### src organized into per-layer directories
 
-- 管线分层：`parse/`（解析器 + 原子层 + 泛型）、`preprocess/`（指令 + 辅助 +
-  裸 where + 尖括号组）、`ast/`（Ty 定义 + 渲染）、`apply/`（Apply trait +
-  元组容器）、`codegen/`；同名文件并入 `mod.rs`（消除
-  `module_has_same_name`），子模块经 `pub(crate) use` 重导出，外部路径不变
+- Pipeline layers: `parse/` (parser + atom layer + generics), `preprocess/` (directives + helpers + bare where + angle groups), `ast/` (Ty definitions + rendering), `apply/` (the Apply trait + tuple containers), `codegen/`; same-named files merged into `mod.rs` (eliminating `module_has_same_name`), submodules re-exported via `pub(crate) use`, external paths unchanged
 
-### 尖括号组预处理（angle.rs）
+### Angle-group preprocessing (angle.rs)
 
-- proc-macro2 只对 `()`/`[]`/`{}` 分组，`<>` 是扁平 Punct——新增
-  `angle_collect` 在管线入口一趟扫描：真实 `None` 组扁平化 + 扁平 `<...>`
-  配对为 `None` 组（`->` 箭头不参与）；`Paren`/`Bracket` 递归进入、
-  `Brace` 不进入（body 透传）、`ident![...]` 宏体 / `#[...]` 属性不进入
-- `render_angles` 输出侧镜像（`None` 组 → `<...>` 扁平），重建 `Paren`/
-  `Bracket` 时保留原 span（修复 doc 属性 span 变 call_site 的 clippy 诊断
-  映射问题）
-- 收尾：孤立 `<`/`>` 报错（解锁下游深度逻辑删除）；`scan_with` /
-  `scan_body_boundary` / 路径扫描删除 `<>` 深度分支
-- fuzz 全管线补 `angle_collect`
+- proc-macro2 only groups `()`/`[]`/`{}`; `<>` is flat Punct — new `angle_collect` does a single scan at the pipeline entry: real `None` groups flattened + flat `<...>` paired into `None` groups (the `->` arrow doesn't participate); recurses into `Paren`/`Bracket`, doesn't enter `Brace` (body passthrough), doesn't enter `ident![...]` macro bodies / `#[...]` attributes
+- `render_angles` mirrors this on the output side (`None` groups → flat `<...>`), preserving original spans when rebuilding `Paren`/`Bracket` (fixing the clippy diagnostic-mapping problem where doc-attribute spans became call_site)
+- Wrap-up: orphaned `<`/`>` error out (unlocking downstream depth-logic deletion); `<>` depth branches removed from `scan_with` / `scan_body_boundary` / path scanning
+- fuzz's full pipeline gained `angle_collect`
 
 ## 0.5.5 (2026-08-03)
 
-### `A<>` 照抄实现
+### `A<>` verbatim-copy implementation
 
-- `TraitBounds` 重写为位置结构（`TraitParam`: name / bound / refs）
-- `bound_refs` 保守 token 级引用检测（宁可误报拒绝自动继承，绝不生成错代码）
-- `expand_empty_trait_generics` 预处理扫描（深度 0 的 `Ident<>`，`->` 箭头守卫）
-- 取代初版"生命周期按名匹配 + 退化为不继承"：改名场景从静默退化升级为明确报错
+- `TraitBounds` rewritten as a positional structure (`TraitParam`: name / bound / refs)
+- `bound_refs` does conservative token-level reference detection (prefer a false-positive rejection of auto-inheritance over ever generating wrong code)
+- `expand_empty_trait_generics` preprocessing scan (`Ident<>` at depth 0, guarded by the `->` arrow)
+- Replaces the initial version's "lifetimes matched by name + degrade to no inheritance": renames now go from silent degradation to an explicit error
 
 ## 0.5.4 (2026-08-03)
 
-### `-name` 减法实现
+### `-name` subtraction implementation
 
-- `parse_name_tokens` 重写为 keep/exclude 双列表 + `#` 标记展开
-  （`parse_marker` / `parse_minus_target` 辅助），`#except` 分支移除
+- `parse_name_tokens` rewritten as keep/exclude dual lists + `#` marker expansion (with `parse_marker` / `parse_minus_target` helpers); the `#except` branch removed
 
-### bound 继承实现
+### Bound-inheritance implementation
 
-- `extract_trait_bounds` 从 trait generics 提取 name→bound 映射（Punctuated
-  经 ToTokens 渲染 `A + B`），经 `parse_batch_trait_entry` 传入
-  `generate_impl` 对 `(name, None)` 参数补 bound
-- 修复 `quote!(#tp.bounds)` 陷阱：quote 插值不支持字段访问（会把 `.bounds`
-  当字面量），改用先取引用
+- `extract_trait_bounds` extracts the name→bound mapping from trait generics (Punctuated rendered via ToTokens as `A + B`), passed through `parse_batch_trait_entry` into `generate_impl`, which fills in bounds for `(name, None)` parameters
+- Fixed the `quote!(#tp.bounds)` pitfall: quote interpolation doesn't support field access (treats `.bounds` as a literal); switched to taking a reference first
 
-### 其他
+### Misc
 
-- 发布物冒烟验证（首次验证真实发布物可用）
-- README 快速开始版本号修复（0.5.1 → 0.5.4，crates.io 版本不可变故重新发布）
+- Release-artifact smoke verification (first time the real published artifact was verified usable)
+- README quick-start version fixed (0.5.1 → 0.5.4; crates.io versions are immutable, so it was republished)
 
 ## 0.5.3 (2026-08-02)
 
-### 重构与内部实现
+### Refactoring and internal implementation
 
-- **preprocess 返回类型收敛**：指令展开产物收敛为恰好一个 `{...}` 组 token
-- **指令参数解析重构**：`parse_names_from_tokens` 的别扭写法（逗号编码成
-  `Err(None)`）改为普通迭代收集
-- **fuzz 扩到全管线**：`full_pipeline_no_panic` 随机 token 流跑完整管线
-- **`Apply` trait 重构**：右操作数"结构上下文"提前分发下沉为默认方法
-  （Array 分发 / Group 透明 / WithCode、WithWhere 透传 / WithType 外提 /
-  Range 展开 / Error 透传）；移除 `TyArray` 不可达笛卡尔积分支与 `TyFn`
-  不可达 Group 分支；`trait Apply: Clone + Into<Ty>`（分发需复用左操作数）
-- **`Ty::expand` 返回值改为显式枚举**：`enum Expand { Leaf, Many }`
-  （原 `Result<Vec<Ty>, Ty>` 以 `Err` 表示叶子的反直觉设计）
-- **组合展开数量上限**：`MAX_EXPAND = 1024`，`tuple_pow` / `pow_cartesian`
-  （每轮产物数）/ `map_range` / `TyArray` 笛卡尔积分支校验，
-  `apply::check_expand_limit` 统一入口
-- **数组链式展开产物上限**：`count_leaves` 叶子数校验
-- **元组笛卡尔积 bound 修复**：`instantiate_combo` 误把参数名当 bound
-  （`(A: Clone, T)^N` 生成 `_Param: A`），改为保留真正的 bound
-- **逻辑精简重构**（行为零变化）：`Ty::expand` 包装样板抽为
-  `expand_wrapped` / `expand_rebuild`；指令展开骨架合并为 `expand_many`
-- **文档漂移修复**：README 元组生成 u8 范围删除、测试矩阵计数更新、
-  补充 unsafe fn / `#except` / 操作数严格性说明
+- **Preprocess return-type convergence**: directive expansion output converges to exactly one `{...}` group token
+- **Directive-argument parsing refactored**: `parse_names_from_tokens`'s awkward encoding (commas encoded as `Err(None)`) changed to ordinary iterative collection
+- **fuzz extended to the full pipeline**: `full_pipeline_no_panic` runs random token streams through the complete pipeline
+- **`Apply` trait refactored**: the right operand's "structural context" early dispatch moved down into default methods (Array dispatch / Group transparent / WithCode, WithWhere passthrough / WithType hoisted out / Range expansion / Error passthrough); removed `TyArray`'s unreachable Cartesian-integral branch and `TyFn`'s unreachable Group branch; `trait Apply: Clone + Into<Ty>` (dispatch needs to reuse the left operand)
+- **`Ty::expand`'s return value changed to an explicit enum**: `enum Expand { Leaf, Many }` (the original `Result<Vec<Ty>, Ty>` used `Err` to mean leaf — a counter-intuitive design)
+- **Combinatorial expansion cap**: `MAX_EXPAND = 1024`, checked in `tuple_pow` / `pow_cartesian` (products per round) / `map_range` / `TyArray`'s Cartesian-integral branch, with `apply::check_expand_limit` as the unified entry
+- **Array-chain expansion product cap**: `count_leaves` leaf-count validation
+- **Tuple Cartesian-product bound fix**: `instantiate_combo` mistook parameter names for bounds (`(A: Clone, T)^N` generated `_Param: A`); changed to keep the real bounds
+- **Logic-slimming refactor** (zero behavior change): `Ty::expand`'s wrapping boilerplate extracted into `expand_wrapped` / `expand_rebuild`; the directive-expansion skeleton merged into `expand_many`
+- **Doc-drift fixes**: removed the u8 range for tuple generation from the README, updated test-matrix counts, added unsafe fn / `#except` / operand-strictness notes
 
-### 修复（内部）
+### Fixes (internal)
 
-- `#delegate` 参数转发加固：`collect_call_args` 对非标识符模式返回错误
-- 空范围诊断：`map_range` 对空范围报错
-- 尾随运算符静默吞段修复：Dash/Caret 分支空操作数报错
-- 空操作数严格化：左空检查 + 前导/连续逗号在 3 个入口判定
-- 指令参数逗号严格化
+- `#delegate` argument forwarding hardened: `collect_call_args` returns an error for non-identifier patterns
+- Empty-range diagnostic: `map_range` errors on empty ranges
+- Trailing-operator silent-segment-swallowing fixed: the Dash/Caret branches error on empty operands
+- Empty-operand strictness: left-empty check + leading/consecutive-comma detection at the 3 entry points
+- Directive-argument comma strictness
 
 ## 0.5.2 (2026-08-01)
 
-### 测试与工程
+### Testing and engineering
 
-- **解析器 fuzz 验证**：`src/fuzz.rs`（proptest）随机 token 喂
-  `where_process` / `parse_item`，断言不 panic
-- **发布卫生**：`#![forbid(unsafe_code)]`、`#![deny(missing_docs)]`、
-  修复 Windows MSVC `linker_messages` 告警
-- **CI**：GitHub Actions（fmt / clippy -D warnings / test / doc，
-  stable + MSRV 1.93 双工具链）
+- **Parser fuzz verification**: `src/fuzz.rs` (proptest) feeds random tokens to `where_process` / `parse_item`, asserting no panics
+- **Release hygiene**: `#![forbid(unsafe_code)]`, `#![deny(missing_docs)]`, fixed the Windows MSVC `linker_messages` warning
+- **CI**: GitHub Actions (fmt / clippy -D warnings / test / doc, stable + MSRV 1.93 dual toolchains)
 
-### 数组/切片 builder（`TyPrimitiveArray`）
+### Array/slice builder (`TyPrimitiveArray`)
 
-- 合并 `TySlice` 与 `TyFixedArray` 为
-  `TyPrimitiveArray(Option<Box<Ty>>, Option<TokenStream>)`
-- `()^N` fresh 泛型元组自动外提（`T^<A>X` => `<A>(T^X)`，嵌套 `WithType`
-  参数并入 impl 泛型）
-- `TyNum` / `TyRange` 由 `u8` 改为 `usize`
+- `TySlice` and `TyFixedArray` merged into `TyPrimitiveArray(Option<Box<Ty>>, Option<TokenStream>)`
+- `()^N` fresh-generic tuples auto-hoisted out (`T^<A>X` => `<A>(T^X)`, nested `WithType` params merged into the impl generics)
+- `TyNum` / `TyRange` changed from `u8` to `usize`
 
 ## 0.5.1 (2026-07-31)
 
-### where 支持实现
+### where-support implementation
 
-- `where{...}` 后缀：`TyWithWhere` / `TyWhere` 节点，codegen 合并到
-  impl 的 where 子句
-- 裸 where 改写：新增 `where_process.rs`（指令预处理之后、DSL 解析之前），
-  边界判定排除 `ident!{...}` 宏调用体与尖括号内代码块
+- `where{...}` suffix: `TyWithWhere` / `TyWhere` nodes, merged by codegen into the impl's where clause
+- Bare-where rewrite: new `where_process.rs` (after directive preprocessing, before DSL parsing), with boundary detection excluding `ident!{...}` macro-call bodies and code blocks inside angle brackets
 
 ## 0.5.0 (2026-07-28)
 
-### 工程
+### Engineering
 
-- `try_parse_path_prefix` 状态机（要求至少一个 `::`，避免 `#Display: ...`
-  歧义）
-- `Spacing::Joint` 精确检查（`::`、`->`、`..` 防相邻不粘连标点误判）
-- Range 处理集中化（`Apply for Ty` 外层 match 统一右侧 Range 展开）
-- 模块级文档（`//!`）全量补齐
-- 模块拆分：`scan.rs` / `parse_atom.rs` / `generic.rs` / `types_render.rs` /
-  `apply_tuple.rs` / `batch_trait_entry.rs` / `path_prefix.rs` /
-  `preprocess_helpers.rs`
+- `try_parse_path_prefix` state machine (requires at least one `::`, avoiding `#Display: ...` ambiguity)
+- Precise `Spacing::Joint` checks (`::`, `->`, `..` prevent misreading adjacent non-joined punctuation)
+- Range handling centralized (the `Apply for Ty` outer match uniformly expands a right-side Range)
+- Module-level docs (`//!`) fully filled in
+- Module split: `scan.rs` / `parse_atom.rs` / `generic.rs` / `types_render.rs` / `apply_tuple.rs` / `batch_trait_entry.rs` / `path_prefix.rs` / `preprocess_helpers.rs`
 
 ## 0.4.2 (2026-07-27)
 
-### 工程化重构
+### Engineering refactor
 
-- `apply::trait Type` 重命名为 `trait Apply`
-- `rustfmt.toml`（edition=2024、max_width=75 等），PR 要求
-  `cargo +nightly fmt --check`
-- `src/diagnostic.rs`：唯一 `compile_error_str(msg)` 构造器（删除两份同名
-  实现，防诊断构造点漂移）
-- `ScanMode { Lossy, Strict }` + 单一 `scan_with`（消除两份近似但行为不同的
-  `<>` 深度循环）
-- `extract_impl_parts` 的 `WithType` 分支 append → prepend（
-  `<A>[<B>T1, <C>T2]` 现输出 `impl<A, B>` 与 `impl<A, C>`）
-- 错误加固：`expand_tokens` 两处 `peek().unwrap()` 替换为 `let Some else`；
-  `tuple_pow` 单元素分支 `.unwrap()` 改带消息 `expect`
-- 入口收敛：`extract_trait_path` / `extract_last_ident` 内联进 `batch_trait!`
-- 测试体系：`tests/dsl.rs`（20 个）+ `tests/ui.rs`（8 fail + 1 pass，trybuild）
-- 测试与示例重组：删除 examples 4 个测试文件（~4800 行），新增
-  `examples/quickstart.rs` + `tests/regression.rs`
+- `apply::trait Type` renamed to `trait Apply`
+- `rustfmt.toml` (edition=2024, max_width=75, etc.); PRs require `cargo +nightly fmt --check`
+- `src/diagnostic.rs`: the single `compile_error_str(msg)` constructor (two duplicate implementations removed, preventing diagnostic-construction drift)
+- `ScanMode { Lossy, Strict }` + a single `scan_with` (eliminating two similar-but-differently-behaving `<>` depth loops)
+- `extract_impl_parts`'s `WithType` branch append → prepend (`<A>[<B>T1, <C>T2]` now emits `impl<A, B>` and `impl<A, C>`)
+- Error hardening: `expand_tokens`'s two `peek().unwrap()` calls replaced with `let Some else`; `tuple_pow`'s single-element `.unwrap()` changed to `expect` with a message
+- Entry convergence: `extract_trait_path` / `extract_last_ident` inlined into `batch_trait!`
+- Test system: `tests/dsl.rs` (20) + `tests/ui.rs` (8 fail + 1 pass, trybuild)
+- Tests and examples reorganized: the 4 example test files deleted (~4800 lines), added `examples/quickstart.rs` + `tests/regression.rs`
 
-### 其他
+### Misc
 
-- `expand_delegate` 的 `todo!("error")` 替换为 `compile_error!`
-- preprocess.rs 注释与 `get_trait_item` 错误信息更新
+- `expand_delegate`'s `todo!("error")` replaced with `compile_error!`
+- preprocess.rs comments and `get_trait_item`'s error message updated
 
 ## 0.4.1 (2026-07-25)
 
-- 修复自定义宏未携带 trait_def 问题
+- Fixed the issue where custom macros didn't carry trait_def
 
 ## 0.4.0 (2026-07-25)
 
-### 指令系统实现
+### Directive-system implementation
 
-- 新增 `preprocess.rs`：指令预处理模块，仅递归展开 `[...]`（Bracket）Group
-- `expand_tokens` / `expand_directive` 返回 `Result`，错误输出
-  `compile_error!` 而非 panic
-- 全库零 `panic!` / `unreachable!`：AST 层 `Ty::Error` 变体经 ToTokens 输出；
-  预处理层 `parse_method_names_from_tokens` / `get_trait_method_sig` 返回
-  `Result`
-- 指令扩展性：不认识的 `#name` 委托给 Rust 属性宏系统（0.5.3 改为函数式
-  宏调用）
-- `examples/my_tests.rs`：36 项指令测试
+- New `preprocess.rs`: the directive-preprocessing module, recursively expanding only `[...]` (Bracket) groups
+- `expand_tokens` / `expand_directive` return `Result`; errors emit `compile_error!` instead of panicking
+- Zero `panic!` / `unreachable!` across the crate: the AST layer's `Ty::Error` variant is emitted via ToTokens; the preprocessing layer's `parse_method_names_from_tokens` / `get_trait_method_sig` return `Result`
+- Directive extensibility: unknown `#name` delegates to the Rust attribute-macro system (changed to function-like macro calls in 0.5.3)
+- `examples/my_tests.rs`: 36 directive tests
 
 ## 0.3.0 (2026-07-24)
 
-### 完全重写
+### Complete rewrite
 
-- 从零开始重写，公开 API 与 DSL 语法与 v0.2.x 一致，内部与旧版无代码联系
-- 架构：`lib.rs`（入口 + 共享驱动）/ `preprocess.rs` / `parse.rs` /
-  `types.rs` / `apply.rs` / `codegen.rs`
-- 解析模型：`Cursor<'a>` 借用切片游标 + 优先级攀爬（`Semi` < `Comma` <
-  `Dash` < `Caret`），`scan_stop` 统一处理 `<>` 深度与 `->` 守卫；
-  任意 Rust 类型透传为 Primitive 节点
-- AST 设计：`Ty` 枚举 20 个变体（叶子 / 包装 / 容器三类）
-- 运算符语义：`Type` trait 的 `apply(self, o)`（`^` 右结合、`-` 左结合、
-  数组分发、元组生成）
-- 测试：tests 95+ 项 / ds_tests 56+ 项全部通过，clippy 零警告
+- Rewritten from scratch; the public API and DSL syntax are consistent with v0.2.x, with no code relationship to the old version internally
+- Architecture: `lib.rs` (entry + shared driver) / `preprocess.rs` / `parse.rs` / `types.rs` / `apply.rs` / `codegen.rs`
+- Parsing model: `Cursor<'a>` borrowed-slice cursor + precedence climbing (`Semi` < `Comma` < `Dash` < `Caret`), with `scan_stop` uniformly handling `<>` depth and the `->` guard; arbitrary Rust types pass through as Primitive nodes
+- AST design: the `Ty` enum with 20 variants (three kinds: leaf / wrapper / container)
+- Operator semantics: the `Type` trait's `apply(self, o)` (`^` right-assoc, `-` left-assoc, array dispatch, tuple generation)
+- Tests: 95+ tests items / 56+ ds_tests items all passing, clippy zero warnings
 
 ## 0.2.2 (2026-07-20)
 
-### 修复与代码审查
+### Fixes and code review
 
-- `fn^i32` 自动生成括号
-- 统一 `->` 处理（`has_top_level_char` / `parse_balanced` /
-  `find_top_level_colon` / `split_at_punct` 排除 `->` 中的 `>`）
-- P0：`split_raw` 检测多余 `>`；`parse_balanced` 详细错误（"未闭合的 `<`（还有
-  N 层）"）
-- P1：`expand_nested_bracket` 注释（`unwrap_count - 1` 语义）；
-  `generate_tuples` 返回 Result（笛卡尔积超限）；`batch_trait!` 空路径检查
+- `fn^i32` auto-generates parentheses
+- Unified `->` handling (`has_top_level_char` / `parse_balanced` / `find_top_level_colon` / `split_at_punct` exclude the `>` of `->`)
+- P0: `split_raw` detects extra `>`; `parse_balanced` gives a detailed error ("unclosed `<` (N levels remaining)")
+- P1: `expand_nested_bracket` comment (`unwrap_count - 1` semantics); `generate_tuples` returns Result (Cartesian-product over limit); `batch_trait!` empty-path check
 
 ## 0.2.1 (2026-07-20)
 
-### 修复（BUG-1/2/3 与优先级）
+### Fixes (BUG-1/2/3 and precedence)
 
-- BUG-1：`expand_caret` 右侧在第一个顶层 `-` 处分割（`^` 优先级高于 `-`）
-- BUG-2：`parse_target_items` 丢弃 `<>` 之后内容（`parse_balanced` 的 pos 被
-  丢弃）
-- BUG-3：`expand_single` 未过滤 Attribute/Unsafe 前缀（`unsafe^#[attr]^T`）
-- fn 类型优先级：`fn^(u32,i32)-usize` 的 `-` 作为返回类型
-- 嵌套 caret 保留 `Fn` 前缀
+- BUG-1: `expand_caret` splits the right side at the first top-level `-` (`^` binds tighter than `-`)
+- BUG-2: `parse_target_items` dropped content after `<>` (`parse_balanced`'s pos was discarded)
+- BUG-3: `expand_single` didn't filter Attribute/Unsafe prefixes (`unsafe^#[attr]^T`)
+- fn-type precedence: in `fn^(u32,i32)-usize` the `-` is the return type
+- Nested caret preserves the `Fn` prefix
 
 ### Code Quality
 
-- `ImplSpec::new()` 构造器；`expand_caret` 拆出
-  `expand_bracket_with_comma` / `expand_nested_bracket`；`dash_append` 拆出
-  fn 处理；`#![allow(linker_messages)]`
+- `ImplSpec::new()` constructor; `expand_caret` split out `expand_bracket_with_comma` / `expand_nested_bracket`; `dash_append` split out fn handling; `#![allow(linker_messages)]`
 
 ## 0.2.0 (2026-07-19)
 
-### 实现细节
+### Implementation details
 
-- `ImplSpec` 新增 `assoc_bindings` / `attributes` 字段
-- `PrefixItem` 新增 `ConstPtr` / `MutPtr` / `Fn` / `Attribute` 变体
-- `parse_segment` 解析 `TraitName<Item=T>` 时分离关联类型绑定
-- 测试：macro-test 113 / ds-test 15 / 一致性 / 嵌套 / 并行
+- `ImplSpec` gained `assoc_bindings` / `attributes` fields
+- `PrefixItem` gained `ConstPtr` / `MutPtr` / `Fn` / `Attribute` variants
+- `parse_segment` separates associated-type bindings when parsing `TraitName<Item=T>`
+- Tests: macro-test 113 / ds-test 15 / consistency / nesting / parallelism
 
 ## 0.1.1 (2026-07-19)
 
-### 实现细节
+### Implementation details
 
-- `PrefixItem::Container` 增加 `prefill` 字段；`parse_single_prefix` 识别
-  `Ident<...>`；`apply_caret` 预填泛型追加；`append_to_generic_container`
-- README 优先级说明；移除 Planned 部分
+- `PrefixItem::Container` gained a `prefill` field; `parse_single_prefix` recognizes `Ident<...>`; `apply_caret` appends prefilled generics; `append_to_generic_container`
+- README precedence notes; the Planned section removed
 
 ## 0.1.0 (2026-07-19)
 
-### 初始发布
+### Initial release
 
-- 安全性：递归深度限制（128 层）、`byte_range()` 稳定位置后缀、
-  笛卡尔积组合数上限（1024）
-- 错误处理：中文提示、保留原始 Span、`compile_error!` 而非 panic
-- 测试：macro-test 99 / ds-test 15
+- Safety: recursion depth limit (128 levels), `byte_range()` stable position suffixes, Cartesian-product combination cap (1024)
+- Error handling: Chinese-language messages, original spans preserved, `compile_error!` instead of panic
+- Tests: macro-test 99 / ds-test 15
 
-## 项目演进史
+## Project evolution history
 
-> 每代一句话主线（正式版本）：
-> **0.1 发布** · **0.2 属性与前缀**（fn/指针/`#[attr]`/assoc）·
-> **0.3 重写**（手动重建统一模型）· **0.4 指令系统**（`#fill`/`#delegate`/开放扩展）·
-> **0.5 where 系统**（`where{...}` + bound 继承 + `A<>` 照抄）· **0.6 常量系统**（`@` 名字族/范围族/自定义）。
-> 0.1.0 之前的两代原型（crate 原名 `auto_impl`）与 0.2 的重写动机，见下。
+> One-line mainline per generation (official releases):
+> **0.1 release** · **0.2 attributes and prefixes** (fn/pointers/`#[attr]`/assoc) · **0.3 rewrite** (unified model rebuilt by hand) · **0.4 directive system** (`#fill`/`#delegate`/open extension) · **0.5 where system** (`where{...}` + bound inheritance + `A<>` verbatim copy) · **0.6 constant system** (`@` name family/range family/custom).
+> The two prototype generations before 0.1.0 (crate originally named `auto_impl`) and the motivation for the 0.2 rewrite are below.
 
-### 早期结构对照（crate 原名 auto_impl 起，至 0.2 重写前）
+### Early-structure comparison (from the crate's original name auto_impl, up to before the 0.2 rewrite)
 
-### 0.-1 (2026-07 原型，684 行单文件)
+### 0.-1 (2026-07 prototype, single file, 684 lines)
 
-- **静态类型列表**：spec 是"泛型 + trait泛型 + 目标 + body"的顺序结构，
-  无 `^`/`-` 运算符、无元组生成、无前缀系统——目标类型是 token 透传的静态类型
-- 但 **80% 的设计已定稿**：`[]` 歧义（逗号=列表/无=切片）、`()` 分组 vs 元组、
-  泛型继承（子项追加父级）、body 继承（列表级共享/子项覆盖）、
-  trait 泛型悬空诊断（"`MyTrait<T>` 被解析为 trait 泛型参数，但缺少目标类型"）、
-  `compile_error_at` span 定位、中文错误消息
-- **trait 泛型自动补全**：trait 有泛型时从 `trait_generics` 自动补全
-  （`#trait_name<#(#params),*>`）——0.0 因 `^` 引入砍掉，0.5.5 的 `A<>` 照抄回归
+- **Static type lists**: the spec was a sequential structure of "generics + trait generics + target + body", with no `^`/`-` operators, no tuple generation, no prefix system — the target type was a static type passed through as tokens
+- But **80% of the design was already finalized**: the `[]` ambiguity (comma = list / none = slice), `()` grouping vs. tuple, generic inheritance (children append the parent's), body inheritance (list-level shared / child-level override), the dangling trait-generics diagnostic ("`MyTrait<T>` parsed as trait generic parameters, but a target type is missing"), `compile_error_at` span location, Chinese-language error messages
+- **Automatic trait-generic completion**: when the trait has generics, they were auto-completed from `trait_generics` (`#trait_name<#(#params),*>`) — cut in 0.0 when `^` was introduced, brought back by 0.5.5's `A<>` verbatim copy
 
-### 0.0 (2026-07 原型，1961 行单文件)
+### 0.0 (2026-07 prototype, single file, 1961 lines)
 
-- **灵光一跃：类型组合运算符化**——`^`（右结合：`A^B=A<B>`、`&^T=&T`、
-  `[A]^[B]` 笛卡尔积）、`-`（左结合元组构建）、`()^N`/`^M..N` 元组生成、
-  fresh 泛型（`A_7f3a_` span 位置哈希后缀）、前缀系统（`&`/`&mut`/`self`/`unsafe`）、
-  递归护栏（`RecursionGuard` 128 层，第一天就有）——DSL 的全部核心概念在此定稿，
-  之后 0.1→0.6 未再引入新概念，只有精化与外围系统
-- 已埋的缺陷（0.2.1/0.2.2 才修）：`split_raw` 无 `->` 守卫、
-  `expand_caret` 右侧无 dash 分割（`HashMap^K-V` 解析成嵌套而非并列）
+- **The leap: type composition as operators** — `^` (right-assoc: `A^B=A<B>`, `&^T=&T`, `[A]^[B]` Cartesian product), `-` (left-assoc tuple construction), `()^N`/`^M..N` tuple generation, fresh generics (`A_7f3a_` span-position hash suffixes), the prefix system (`&`/`&mut`/`self`/`unsafe`), the recursion guard (`RecursionGuard` at 128 levels, present from day one) — every core concept of the DSL was finalized here; 0.1→0.6 added no new concepts, only refinement and peripheral systems
+- Defects already planted (fixed only in 0.2.1/0.2.2): `split_raw` without a `->` guard; `expand_caret`'s right side without dash splitting (`HashMap^K-V` parsed as nested instead of parallel)
 
-### 0.1.x (2026-07 首个发布系列)
+### 0.1.x (2026-07 first release series)
 
-- **模块拆分完成**：0.0 单文件分节直接切为 `core/` 9 文件
-  （types/recursion/utils/codegen/tuple/caret/dash/parser + lib.rs 入口）——
-  0.2 的 9 文件结构就是它；
-- **prefill 预填泛型**（`HashMap<K>^V → HashMap<K, V>`）：`PrefixItem::Container`
-  加 `prefill` 字段，caret 与 dash 两条路径都接入；
-- 递归护栏原样保留（`RecursionGuard` 与 0.0 逐字相同）；
-- 0.1.1 尚无：fn/指针/属性前缀（PrefixItem 仅 6 变体）、assoc 绑定
-  （ImplSpec 5 字段）、全局 `->` 守卫（仅 dash 局部有）——0.2.0/0.2.2 补。
+- **Module split done**: 0.0's single file cut directly by section into 9 files under `core/` (types/recursion/utils/codegen/tuple/caret/dash/parser + lib.rs entry) — that's 0.2's 9-file structure;
+- **prefill pre-filled generics** (`HashMap<K>^V → HashMap<K, V>`): `PrefixItem::Container` gained a `prefill` field, wired into both the caret and dash paths;
+- Recursion guard kept verbatim (`RecursionGuard` word-for-word identical to 0.0);
+- 0.1.1 didn't yet have: fn/pointer/attribute prefixes (PrefixItem only had 6 variants), assoc bindings (ImplSpec 5 fields), the global `->` guard (only dash-local) — added in 0.2.0/0.2.2.
 
-### 0.2 (2026-07-19，9 文件 3197 行)
+### 0.2 (2026-07-19, 9 files, 3197 lines)
 
-- 在 0.1.1 结构上延续：+`fn`/`*const`/`*mut`/`#[attr]` 前缀变体、
-  +assoc_bindings/attributes 字段、+`->` 全局守卫（0.2.2 统一）；
-- BUG-1/2/3 集中爆发（`^` 右侧 dash 分割、`parse_balanced` pos 丢弃、
-  前缀链过滤）——"按操作符组织 + 深度散落"模型走到极限，0.3.0 重写。
+- Continues on the 0.1.1 structure: +`fn`/`*const`/`*mut`/`#[attr]` prefix variants, +assoc_bindings/attributes fields, +the global `->` guard (unified in 0.2.2);
+- BUG-1/2/3 erupted all at once (`^` right-side dash split, `parse_balanced` pos discard, prefix-chain filtering) — the "organized by operator + scattered depth" model hit its limit; 0.3.0 rewrote it.
 
-> **重写动机（作者注）**：0.2 之前是"阐述设计思路 + AI 增量实现"——
-> 思路一个个蹦出，架构随补丁生长，无人完整持有整体模型；0.2.x 时修改一个
-> 常识级 bug（如 `->` 守卫）要定位半天——深度逻辑散落五处、`^`/`-` 双实现，
-> 改一处须确认其余各处行为一致。于是 0.3.0 由作者**手动重写**：先重建统一
-> 模型（优先级链 + Apply trait + Ty 枚举），安全设施（递归护栏）未随模型
-> 重建，直到 0.6.1 回归（见 0.6.1 段）。
-> 0.3 之后架构稳定的真正原因不是重写本身，而是**模型从此由作者完整持有**——
-> 每一行都知道为什么，改 bug 不再需要跨散落处核对。
+> **Rewrite motivation (author's note)**: before 0.2, the approach was "explain the design + AI incremental implementation" — ideas popped out one by one, the architecture grew patch by patch, and no one fully held the whole model; in the 0.2.x era, fixing even a common-sense bug (like the `->` guard) took ages to locate — depth logic was scattered across five places, `^`/`-` had dual implementations, and changing one place required confirming the behavior of all the others. So 0.3.0 was **manually rewritten** by the author: first rebuild the unified model (precedence chain + Apply trait + Ty enum); the safety facility (recursion guard) was not rebuilt along with the model, until its 0.6.1 regression (see the 0.6.1 section).
+> The real reason the architecture was stable after 0.3 is not the rewrite itself, but that **the author has fully held the model ever since** — every line has a known why, and fixing bugs no longer requires cross-checking across scattered locations.
 
-### 三条"砍掉又回归"暗线
+### Three "cut and later brought back" threads
 
-- **trait 泛型自动补全**：0.-1 有 → 0.0 砍（`^` 引入后 trait 名后 `<...>` 歧义）
-  → 0.5.5 `A<>` 照抄回归；
-- **递归护栏**：0.0 有 → 0.3 重写从零开始时丢失（未重建）→ 0.6.1 恢复
-  （`MAX_NEST_DEPTH`，见 0.6.1 段）；
-- **body 合并语义**：0.-1/0.0/0.1.1 子项覆盖列表级 → 0.2 改拼接
-  （独立 body 与共享 body 合并，同名方法由编译器报错）。
+- **Automatic trait-generic completion**: present in 0.-1 → cut in 0.0 (`<...>` after the trait name became ambiguous once `^` was introduced) → brought back by 0.5.5's `A<>` verbatim copy;
+- **Recursion guard**: present in 0.0 → lost in the 0.3 rewrite's fresh start (not rebuilt) → restored in 0.6.1 (`MAX_NEST_DEPTH`, see the 0.6.1 section);
+- **Body-merge semantics**: 0.-1/0.0/0.1.1 children override the list level → 0.2 changed to concatenation (standalone bodies merge with shared bodies; same-named methods are reported by the compiler).
 
-### 行数演进
+### Line-count evolution
 
-`684 (0.-1) → 1961 (0.0) → ≈2153 (0.1.1) → 3197 (0.2) → 1628 (0.3.0 初版)`
-`→ ≈1586 (0.3.0 正式版，五文件) → 4400 (0.6)`
+`684 (0.-1) → 1961 (0.0) → ≈2153 (0.1.1) → 3197 (0.2) → 1628 (0.3.0 initial version)`
+`→ ≈1586 (0.3.0 final version, five files) → 4400 (0.6)`

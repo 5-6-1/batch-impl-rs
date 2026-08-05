@@ -1,19 +1,19 @@
-// batch-impl 高价值回归测试。
+// High-value regression tests for batch-impl.
 //
-// 这里收集从原 `examples/tests.rs` 抽出的关键 corner case 与一致性
-// 验证用例（`tests/dsl.rs` 未覆盖到的部分）：
-// - 嵌套尖括号（`>>`）
-// - 路径类型（`std::collections::HashMap<K, V>`）
-// - const 泛型 + 类型标注混合
-// - 生命周期泛型
-// - dyn trait + 多重 bound
-// - `batch_impl` 与 `batch_trait!` 在 10 种 spec 下的一致性
-// - 宏调用 `m![]` 的透传，以及宏体与指令 / 裸 where 的边界
+// This collects the key corner cases and consistency checks pulled from the original
+// `examples/tests.rs` (parts not covered by `tests/dsl.rs`):
+// - nested angle brackets (`>>`)
+// - path types (`std::collections::HashMap<K, V>`)
+// - const generics mixed with type annotations
+// - lifetime generics
+// - dyn traits + multiple bounds
+// - `batch_impl` vs `batch_trait!` consistency across 10 specs
+// - passthrough of macro invocations `m![]`, and the boundary between macro bodies and directives / bare where
 
 use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 
 // ============================================================
-// 1. 嵌套尖括号 Vec<Vec<T>> —— 验证 `>>` 不破坏深度跟踪
+// 1. Nested angle brackets Vec<Vec<T>> — verify `>>` does not break depth tracking
 // ============================================================
 #[batch_impl(<T> Vec<Vec<T>>)]
 trait NestedGeneric {}
@@ -26,7 +26,7 @@ fn nested_angle_brackets() {
 }
 
 // ============================================================
-// 2. 路径类型 std::collections::HashMap<K, V>
+// 2. Path type std::collections::HashMap<K, V>
 // ============================================================
 #[batch_impl(<K, V> std::collections::HashMap<K, V>)]
 trait PathType {}
@@ -38,7 +38,7 @@ fn path_type_with_generics() {
 }
 
 // ============================================================
-// 3. const 泛型 <const N: usize> [i32; N]
+// 3. const generic <const N: usize> [i32; N]
 // ============================================================
 #[batch_impl(<const N: usize> ConstGeneric<N> [i32; N] {
     fn len_const(&self) -> usize { N }
@@ -57,8 +57,8 @@ fn const_generic_array() {
 }
 
 // ============================================================
-// 4. 类型标注 + const 泛型混合 <T: Clone, const N: usize>
-//    验证 DSL 不被 `<T : Clone , const N : usize>` 中的空格 / 逗号干扰
+// 4. Type annotations mixed with const generics <T: Clone, const N: usize>
+//    Verify the DSL is not confused by spaces / commas in `<T : Clone , const N : usize>`
 #[batch_impl(<T: Clone, const N: usize> MixedGeneric<T, N> [T; N] {
     fn repeat_inner(&self) -> Vec<T> {
         std::iter::repeat_n(self[0].clone(), N).collect()
@@ -76,7 +76,7 @@ fn mixed_type_bound_and_const_generic() {
 }
 
 // ============================================================
-// 5. 生命周期泛型 <'a, T: 'a> &'a T
+// 5. Lifetime generics <'a, T: 'a> &'a T
 // ============================================================
 #[allow(dead_code)]
 #[batch_impl(<'a, T: 'a> LifetimeTrait<'a, T> &'a T)]
@@ -93,7 +93,7 @@ fn lifetime_generic() {
 }
 
 // ============================================================
-// 6. dyn trait + 多重 bound（`+ Send + Sync`）
+// 6. dyn trait + multiple bounds (`+ Send + Sync`)
 // ============================================================
 #[batch_impl(dyn std::fmt::Display + Send + Sync)]
 trait DynMarkerMultiBound {}
@@ -105,13 +105,13 @@ fn dyn_trait_with_multi_bounds() {
 }
 
 // ============================================================
-// 7. `batch_impl` 与 `batch_trait!` 一致性
+// 7. `batch_impl` vs `batch_trait!` consistency
 //
-// 10 组平行 spec：同一 DSL 在两个宏下应生成等价的 impl。
-// 编译时检查 +少量运行时 assert_eq。
+// 10 parallel specs: the same DSL should generate equivalent impls under both macros.
+// Compile-time checks + a few runtime assert_eqs.
 // ============================================================
 
-// --- 基础类型 ---
+// --- basic types ---
 trait CmpBase {}
 #[batch_impl(usize)]
 trait CmpAttrBase {}
@@ -125,7 +125,7 @@ fn cmp_basic() {
     _b::<usize>();
 }
 
-// --- 泛型 ---
+// --- generics ---
 trait CmpGeneric {}
 #[batch_impl(<T> Vec<T>)]
 trait CmpAttrGeneric {}
@@ -139,7 +139,7 @@ fn cmp_generic() {
     _b::<Vec<i32>>();
 }
 
-// --- trait 泛型 + 自定义 body ---
+// --- trait generics + custom body ---
 trait CmpTraitGen<T> {
     fn wrap(val: T) -> Self;
 }
@@ -163,7 +163,7 @@ fn cmp_trait_generic_with_body() {
     assert_eq!(b, 0);
 }
 
-// --- 并列列表 ---
+// --- parallel lists ---
 trait CmpList {
     fn tag(&self) -> &'static str;
 }
@@ -181,7 +181,7 @@ fn cmp_parallel_list() {
     assert_eq!(CmpList::tag(&0u16), "cmp");
 }
 
-// --- ^ 运算符（引用前缀） ---
+// --- ^ operator (reference prefix) ---
 trait CmpCaret {}
 #[batch_impl(&^u32)]
 trait CmpAttrCaret {}
@@ -195,7 +195,7 @@ fn cmp_caret_prefix() {
     _b::<&u32>();
 }
 
-// --- 嵌套 ^ ---
+// --- nested ^ ---
 trait CmpNestedCaret {}
 #[batch_impl(Box^Box^isize)]
 trait CmpAttrNestedCaret {}
@@ -209,7 +209,7 @@ fn cmp_nested_caret() {
     _b::<Box<Box<isize>>>();
 }
 
-// --- ^ 穿透 [] ---
+// --- ^ through [] ---
 trait CmpCaretBracket {}
 #[batch_impl(Box^[Box^isize])]
 trait CmpAttrCaretBracket {}
@@ -223,7 +223,7 @@ fn cmp_caret_through_bracket() {
     _b::<Box<[Box<isize>]>>();
 }
 
-// --- const 泛型 ---
+// --- const generics ---
 trait CmpConst<const N: usize> {
     fn val() -> usize {
         N
@@ -245,7 +245,7 @@ fn cmp_const_generic() {
     assert_eq!(b, 5);
 }
 
-// --- 生命周期 ---
+// --- lifetimes ---
 #[allow(dead_code)]
 trait CmpLifetime<'a, T> {}
 #[allow(dead_code)]
@@ -265,12 +265,12 @@ fn cmp_lifetime() {
         &'a T: CmpLifetime<'a, T>,
     {
     }
-    // 编译期通过即可
+    // compiling is enough
     let _ = _a::<'static, i32>;
     let _ = _b::<'static, i32>;
 }
 
-// --- 路径 trait ---
+// --- path traits ---
 mod cmp_mod {
     pub trait PathTrait {}
 }
@@ -290,9 +290,10 @@ fn cmp_path_trait() {
 }
 
 // ============================================================
-// 17. 宏调用 m![] 与 DSL 的交互
-//     - m![] 作为目标类型 / 泛型实参 / where 谓词透传
-//     - m![] 宏体是透传的宏参数：指令（#name）与裸 where 不得进入宏体
+// 17. Macro invocations m![] interacting with the DSL
+//     - m![] as a target type / generic argument / where predicate passthrough
+//     - the m![] macro body is a passthrough macro argument: directives (#name) and bare
+//       where must not enter the macro body
 // ============================================================
 macro_rules! ty {
     () => { Vec<u8> };
@@ -328,7 +329,7 @@ fn macro_bracket_passthrough() {
     assert!(v.ok());
 }
 
-// --- m![] 宏体不展开指令、不处理裸 where ---
+// --- m![] macro bodies do not expand directives and do not process bare where ---
 trait MacroBracketDirective {
     fn len(&self) -> usize;
 }
@@ -376,10 +377,11 @@ fn macro_bracket_where_not_processed() {
 }
 
 // ============================================================
-// 18. 路径前缀 `#path::to::Trait:`（batch_impl_only）
-//     - 生成 impl 引用外部模块中的真实 trait
-//     - dummy trait 仍用于指令签名读取
-//     - DSL 中 `Trait<T>` 通过路径末段 ident 识别为 trait 泛型应用
+// 18. Path prefix `#path::to::Trait:` (batch_impl_only)
+//     - the generated impl references a real trait in an external module
+//     - the dummy trait is still used to read directive signatures
+//     - `Trait<T>` in the DSL is recognized as a trait generic application by the trailing
+//       ident of the path
 // ============================================================
 mod ext {
     pub mod traits {
@@ -393,7 +395,7 @@ mod ext {
     }
 }
 
-// dummy trait 被 batch_impl_only 丢弃，此处导入真实 trait 以便方法调用
+// the dummy trait is discarded by batch_impl_only; import the real trait here so methods can be called
 use ext::traits::{PathPrefixGen, PathPrefixTrait};
 
 #[batch_impl_only(
@@ -423,7 +425,8 @@ fn cmp_path_prefix_trait_generic() {
     assert_eq!(vec![String::from("x")].head(), "x");
 }
 
-// 路径前缀 + #blanket：委托 bound 须用完整外部路径（裸 dummy 名解析不到）
+// path prefix + #blanket: the delegated bound must use the full external path
+// (a bare dummy name cannot be resolved)
 #[batch_impl_only(
     #ext::traits::PathPrefixTrait: u8 #tag{"u8"},
     #blanket(@all){&, Box}
@@ -434,17 +437,17 @@ trait PathPrefixTrait {
 
 #[test]
 fn cmp_path_prefix_blanket() {
-    // `&u8` 同时匹配 u8 自身 impl 与 blanket `&T` impl，需 UFCS 消歧
+    // `&u8` matches both u8's own impl and the blanket `&T` impl, requiring UFCS disambiguation
     assert_eq!(<&u8 as PathPrefixTrait>::tag(&&0u8), "u8");
     assert_eq!(Box::new(1u8).tag(), "u8");
 }
 
 // ============================================================
-// 19. 数组/切片 builder：`TyPrimitiveArray` 合并 TySlice + TyFixedArray
-//     - `[]^T` => `[T]`（空基座包出切片）
-//     - `[T]^N` => `[T; N]`（数字字面量 / const 泛型 / 范围 / 列表）
-//     - `<const N> []-X-N` => `[X; N]`：整矩阵包进 const 泛型数组
-//     - `()^N` 的 fresh 泛型元组作为泛型实参/数组元素时自动外提
+// 19. Array/slice builder: `TyPrimitiveArray` merging TySlice + TyFixedArray
+//     - `[]^T` => `[T]` (empty base wraps out a slice)
+//     - `[T]^N` => `[T; N]` (numeric literal / const generic / range / list)
+//     - `<const N> []-X-N` => `[X; N]`: the whole matrix wrapped into a const generic array
+//     - `()^N` fresh generic tuples auto-extracted when used as generic args / array elements
 // ============================================================
 #[batch_impl([]^u8)]
 trait ArrSlice {}
@@ -496,8 +499,9 @@ fn primitive_array_rules() {
 }
 
 // ============================================================
-// 20. 属性/前缀前缀的列表分发：`#[attr] [A, B]` / `& [A, B]`
-//     必须经顶层数组分发展开（否则把列表当整体类型，产生非法 `[A, B]` 目标）
+// 20. List distribution for attribute/prefix prefixes: `#[attr] [A, B]` / `& [A, B]`
+//     must be distributed via the top-level array (otherwise the list would be treated as a
+//     whole type, producing an illegal `[A, B]` target)
 // ============================================================
 #[batch_impl(#[allow(dead_code)] [u8, u16])]
 trait AttrDistribute {}
@@ -530,9 +534,9 @@ fn prefix_attr_list_distribution() {
 }
 
 // ============================================================
-// 21. `batch_trait!` 的 `A<>` 透传（无 trait 定义，空实参原样透传）
-//     （`#[batch_impl]` 下 `A<>` 照抄 trait 泛型；`batch_trait!` 无定义
-//     可照抄，`GA<>` 保持空实参渲染为 `GA`——本用例锁定透传行为）
+// 21. `batch_trait!` `A<>` passthrough (no trait definition, empty args passed through verbatim)
+//     (`#[batch_impl]` copies the trait generics for `A<>`; `batch_trait!` has no definition
+//     to copy, so `GA<>` keeps empty args and renders as `GA` — this case locks in the passthrough)
 // ============================================================
 trait PassGen {}
 
@@ -545,10 +549,11 @@ fn batch_trait_empty_angle_passthrough() {
 }
 
 // ============================================================
-// 22. `T^<A,B>` caret 后跟泛型参数列表（旧语法遗留用例）
-//     （曾因 parse_primary 的 `[Group] → parse_group` 抢先拦截单个
-//     尖括号组，右操作数被吞成空导致 `<u32, String>` 静默丢失，
-//     输出裸 `HashMap`；修复后按设计语义 `T^<A,B> => T<A,B>`）
+// 22. `T^<A,B>` caret followed by a generic argument list (legacy syntax case)
+//     (parse_primary's `[Group] → parse_group` used to intercept a single angle-bracket
+//     group first, swallowing the right operand and silently dropping `<u32, String>`,
+//     outputting a bare `HashMap`; after the fix, the designed semantics apply:
+//     `T^<A,B> => T<A,B>`)
 // ============================================================
 use std::collections::HashMap;
 
@@ -561,5 +566,5 @@ trait CaretAngleList {
 fn caret_angle_param_list() {
     let m: HashMap<u32, String> = HashMap::new();
     assert_eq!(m.klen(), 0);
-    m.contains_key(&1u32); // 确保 impl 落在 HashMap<u32, String> 而非裸 HashMap
+    m.contains_key(&1u32); // ensure the impl lands on HashMap<u32, String> rather than a bare HashMap
 }

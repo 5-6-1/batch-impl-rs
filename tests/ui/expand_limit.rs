@@ -1,4 +1,4 @@
-// 错误：`^N` 展开产物数量超过上限 1024，视为笔误
+// Error: `^N` expansion product count exceeds the limit of 1024, treated as a typo
 use batch_impl::batch_impl;
 
 #[batch_impl(()^2000)]

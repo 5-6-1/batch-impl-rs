@@ -1,4 +1,4 @@
-error: batch-impl: spec 列表不能以 `,` 开头
+error: batch-impl: spec list cannot start with `,`
  --> tests/ui/leading_comma.rs:4:1
   |
 4 | #[batch_impl(,usize)]
@@ -6,7 +6,7 @@ error: batch-impl: spec 列表不能以 `,` 开头
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: batch-impl: 连续逗号 `,,` 之间缺少操作数（如 `A,,B`）
+error: batch-impl: missing operand between consecutive commas `,,` (e.g. `A,,B`)
  --> tests/ui/leading_comma.rs:7:1
   |
 7 | #[batch_impl(usize,,isize)]

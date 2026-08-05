@@ -1,4 +1,4 @@
-// 错误：`#fill` 参数列表为空
+// Error: `#fill` argument list is empty
 use batch_impl::batch_impl;
 
 trait T {

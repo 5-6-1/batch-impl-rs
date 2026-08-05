@@ -1,4 +1,4 @@
-// 错误：`#delegate` 用于 const item，应当报错"只能用于方法"
+// Error: `#delegate` used on a const item, should error "methods only"
 use batch_impl::batch_impl;
 
 trait HasConst {

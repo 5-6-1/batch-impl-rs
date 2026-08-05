@@ -1,4 +1,4 @@
-error: batch_trait! 中期望 trait 名称
+error: batch_trait! expects a trait name
  --> tests/ui/only_semicolon.rs:5:1
   |
 5 | batch_trait!(unsafe);

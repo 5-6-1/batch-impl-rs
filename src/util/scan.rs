@@ -1,20 +1,20 @@
-//! 扫描与游标模块。
+//! Scanning and cursor module.
 //!
-//! 提供轻量 [`Cursor`]（`&[TokenTree]` 借用切片游标）和统一停止符扫描
-//! [`scan_with`] / [`scan_stop`]。尖括号已由 `angle_collect` 配对为
-//! 不透明组，扫描不再跟踪 `<>` 深度；唯一保留的守卫是 `->` 箭头
-//! （`-` 后接 `>` 时 `-` 不是 Dash 停止符）。
+//! Provides a lightweight [`Cursor`] (a borrowed-slice cursor over `&[TokenTree]`) and the
+//! unified stop-token scanners [`scan_with`] / [`scan_stop`]. Angle brackets were paired into
+//! opaque groups by `angle_collect`, so scanning no longer tracks `<>` depth; the only
+//! remaining guard is the `->` arrow (`-` is not a Dash stop token when followed by `>`).
 
 use proc_macro2::{Spacing, TokenTree};
 
 // ============================================================
-// 游标与统一扫描原语
+// Cursor and unified scanning primitives
 // ============================================================
 
-/// 借用 token 切片的轻量游标，按顺序向前消费。
+/// Lightweight cursor borrowing a token slice, consuming forward in order.
 ///
-/// parse 层的核心数据结构：所有 DSL 解析函数围绕游标推进，
-/// 消费模型是"扫描到停止符、取切片、递归解析"。
+/// The core data structure of the parse layer: every DSL parsing function advances around
+/// the cursor, with a "scan to a stop token, take a slice, recurse" consumption model.
 pub(crate) struct Cursor<'a> {
     tokens: &'a [TokenTree],
     pos: usize,
@@ -41,13 +41,13 @@ impl<'a> Cursor<'a> {
         matches!(self.tokens.get(self.pos), Some(t) if is_punct(t, ch))
     }
 
-    /// 当前位置的 Bracket 组是否透传（前一个 token 是 `!` 或 `#`），
-    /// 与 [`bracket_is_passthrough`] 同义，供游标式遍历使用。
+    /// Whether the Bracket group at the current position passes through (the previous token
+    /// is `!` or `#`); synonymous with [`bracket_is_passthrough`], for cursor-style traversal.
     pub(crate) fn prev_bracket_passthrough(&self) -> bool {
         bracket_is_passthrough(self.tokens, self.pos)
     }
 
-    /// 当前位置的 `:` 是否为独立单冒号（非 `::` 的组成部分）
+    /// Whether the `:` at the current position is a standalone single colon (not part of `::`)
     pub(crate) fn is_single_colon(&self) -> bool {
         is_single_colon(self.tokens, self.pos)
     }
@@ -60,12 +60,13 @@ impl<'a> Cursor<'a> {
         self.pos
     }
 
-    /// 取出从 start 到当前位置的切片
+    /// Take the slice from start to the current position
     pub(crate) fn slice_since(&self, start: usize) -> &'a [TokenTree] {
         &self.tokens[start..self.pos]
     }
 
-    /// 取出直到下一个 depth-0 停止符的切片（停止符留在标中，不消费）
+    /// Take the slice up to the next depth-0 stop token (the stop token stays in the
+    /// cursor, unconsumed)
     pub(crate) fn take_segment(&mut self, stop: &[char]) -> &'a [TokenTree] {
         let tokens = self.tokens;
         let rest = &tokens[self.pos..];
@@ -74,7 +75,7 @@ impl<'a> Cursor<'a> {
         &rest[..end]
     }
 
-    /// 取出剩余全部
+    /// Take everything remaining
     pub(crate) fn take_rest(&mut self) -> &'a [TokenTree] {
         let tokens = self.tokens;
         let rest = &tokens[self.pos..];
@@ -83,10 +84,11 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// 统一的停止符扫描：返回第一个 depth-0 且属于 stop 集合的 token 索引。
+/// Unified stop-token scan: return the index of the first depth-0 token in the stop set.
 ///
-/// 尖括号已由 `angle_collect` 配对为组（不透明），此处不再跟踪 `<>` 深度；
-/// 唯一保留的守卫是 `->` 箭头：`-` 后接 `>` 时 `-` 不是 Dash 停止符。
+/// Angle brackets were paired into opaque groups by `angle_collect`, so `<>` depth is not
+/// tracked here; the only guard kept is the `->` arrow: `-` is not a Dash stop token when
+/// followed by `>`.
 pub(crate) fn scan_with(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     for (index, token) in tokens.iter().enumerate() {
         if matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char())) {
@@ -101,40 +103,42 @@ pub(crate) fn scan_with(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     None
 }
 
-/// 返回第一个 depth-0 且属于 stop 集合的 token 索引。
+/// Return the index of the first depth-0 token in the stop set.
 pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     scan_with(tokens, stop)
 }
 
-/// 判断单个 token 是否为指定标点符号
+/// Check whether a single token is the given punctuation
 pub(crate) fn is_punct(token: &TokenTree, punctuation: char) -> bool {
     matches!(token, TokenTree::Punct(p) if p.as_char() == punctuation)
 }
 
-/// Bracket 组（`[...]`）是否"透传"：前一个 token 是 `!`（`ident![...]` 宏调用体）
-/// 或 `#`（`#[...]` 属性）时，组内容可能是任意 Rust（含比较 `<`、`#name` 指令），
-/// 三个递归入口（`angle_collect` / `expand_tokens` / `where_process`）统一判定，
-/// 防各自维护近似守卫漂移（0.5.7 曾因 `#[...]` 守卫缺失误展开 `#name` 指令）。
+/// Whether a Bracket group (`[...]`) "passes through": when the previous token is `!`
+/// (an `ident![...]` macro call body) or `#` (a `#[...]` attribute), the group may contain
+/// arbitrary Rust (comparison `<`, `#name` directives, etc.); the recursive entry
+/// points (`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`) decide
+/// uniformly, to avoid guard drift (0.5.7 mis-expanded `#name` due to a missing `#[...]` guard).
 pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool {
     index > 0
         && matches!(&tokens[index - 1], TokenTree::Punct(p)
             if p.as_char() == '!' || p.as_char() == '#')
 }
 
-/// 判断 `tokens[index]` 是否为 `->` 的 `>`（前一个 token 是 Joint 的 `-`）。
+/// Check whether `tokens[index]` is the `>` of `->` (previous token is a Joint `-`).
 ///
-/// `->` 箭头在扫描中不作为 `>` 深度计数，也不作为 DSL 停止符。
+/// The `->` arrow neither counts as `>` depth in scanning nor acts as a DSL stop token.
 pub(crate) fn is_arrow(tokens: &[TokenTree], index: usize) -> bool {
     index > 0
         && matches!(&tokens[index - 1], TokenTree::Punct(p)
             if p.as_char() == '-' && p.spacing() == Spacing::Joint)
 }
 
-/// 判断 `tokens[index]` 是否为独立的 `:`（不是 `::` 的组成部分）。
+/// Check whether `tokens[index]` is a standalone `:` (not part of `::`).
 ///
-/// `::` 的两个 `:` 中前一个 `Spacing::Joint`（紧跟后一个），据此排除：
-/// 前一个 token 是 Joint 的 `:`（本 token 是 `::` 的后半），或
-/// 后一个 token 是 `:` 且本 token `Spacing::Joint`（本 token 是 `::` 的前半）。
+/// In `::`, the first `:` has `Spacing::Joint` (directly followed by the second), which
+/// rules out: the previous token being a Joint `:` (this token is the second half of `::`),
+/// or the next token being `:` while this token is `Spacing::Joint` (this token is the
+/// first half of `::`).
 pub(crate) fn is_single_colon(tokens: &[TokenTree], index: usize) -> bool {
     let Some(TokenTree::Punct(p)) = tokens.get(index) else {
         return false;
@@ -148,7 +152,7 @@ pub(crate) fn is_single_colon(tokens: &[TokenTree], index: usize) -> bool {
                     if q.as_char() == ':' && p.spacing() == Spacing::Joint))
 }
 
-/// 判断 token 序列中是否包含指定的顶层标点符号
+/// Check whether the token sequence contains the given top-level punctuation
 pub(crate) fn contains_punct(tokens: &[TokenTree], punctuation: char) -> bool {
     tokens.iter().any(|token| is_punct(token, punctuation))
 }

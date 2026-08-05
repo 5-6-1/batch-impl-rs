@@ -4,8 +4,8 @@ use crate::apply::{Apply, check_expand_limit, err_ty};
 use crate::ast::*;
 use crate::parse::parse_primitive;
 
-/// `N..M` / `N..=M`：对范围内的每个长度 n 调用 f，结果打包为并列列表。
-/// 空范围（`start >= end`）或超上限（长度 > [`MAX_EXPAND`]）视为笔误给诊断。
+/// `N..M` / `N..=M`: calls f for every length n in the range, packing results into a list.
+/// Empty range (`start >= end`) or over-limit (len > [`MAX_EXPAND`]): a typo diagnostic
 pub(crate) fn map_range(
     start: usize, end: usize, inclusive: bool, f: impl Fn(usize) -> Ty,
 ) -> Ty {
@@ -14,12 +14,12 @@ pub(crate) fn map_range(
         if inclusive { (start..=end).collect() } else { (start..end).collect() };
     if ns.is_empty() {
         return err_ty(&format!(
-            "batch-impl: 范围 `{}..{}{}` 为空（起始不小于结束），不会生成任何 impl",
+            "batch-impl: range `{}..{}{}` is empty (start not below end); no impls will be generated",
             start, end, end_mark
         ));
     }
     if let Some(e) = check_expand_limit(
-        &format!("范围 `{}..{}{}`", start, end, end_mark),
+        &format!("range `{}..{}{}`", start, end, end_mark),
         ns.len(),
     ) {
         return e;
@@ -27,21 +27,21 @@ pub(crate) fn map_range(
     TyArray(ns.into_iter().map(f).collect()).into()
 }
 
-/// `(...,)^N`：元组按长度 N 展开（空元组、单元素、多元素分别处理）。
-/// `N` 超过 [`MAX_EXPAND`] 视为笔误给诊断（覆盖 `()^N` / `(T,)^N`）。
+/// `(...,)^N`: expands the tuple to length N (empty / single / multi-element handled separately)
+/// `N` above [`MAX_EXPAND`] is a typo diagnostic (covers `()^N` / `(T,)^N`).
 fn tuple_pow(mut elems: Vec<Ty>, n: usize) -> Ty {
-    if let Some(e) = check_expand_limit(&format!("元组 `^{}`", n), n) {
+    if let Some(e) = check_expand_limit(&format!("tuple `^{}`", n), n) {
         return e;
     }
     match elems.len() {
         0 => pow_empty(n),
-        // len == 1 由 match 保证，remove(0) 越界分支不可达
+        // len == 1 is guaranteed by the match; the remove(0) out-of-bounds branch is unreachable
         1 => pow_single(elems.remove(0), n),
         _ => pow_cartesian(elems, n),
     }
 }
 
-/// `()^N` => `<A,B,...,N>(A,B,...,N)` — 生成 N 个新泛型参数并包装
+/// `()^N` => `<A,B,...,N>(A,B,...,N)` — generate N fresh generic params and wrap
 fn pow_empty(n: usize) -> Ty {
     if n == 0 {
         return TyTuple(vec![]).into();
@@ -55,13 +55,13 @@ fn pow_empty(n: usize) -> Ty {
     .apply(TyTuple(params).into())
 }
 
-/// `(T,)^N` => `(T,T,...,T)`；`(<Bound>)^N` => `(A:Bound, B:Bound, ...)`
+/// `(T,)^N` => `(T,T,...,T)`; `(<Bound>)^N` => `(A:Bound, B:Bound, ...)`
 fn pow_single(template: Ty, n: usize) -> Ty {
     if let Ty::TypeParam(tp) = template {
-        // 来自 `(<Bound>)^N`：TypeParam 必定恰好一个无 bound 参数（由 parse_angle_bracket_contents 保证）
+        // From `(<Bound>)^N`: exactly one unbound param (guaranteed by parse_angle_bracket_contents)
         if tp.params.len() != 1 || tp.params[0].1.is_some() {
             return err_ty(
-                "batch-impl: (<Trait>)⁁ 中意外收到了 bound 参数，这是内部错误",
+                "batch-impl: unexpected bound parameter in (<Trait>)⁁; this is an internal error",
             );
         }
         let params = fresh_params(n);
@@ -80,8 +80,8 @@ fn pow_single(template: Ty, n: usize) -> Ty {
     TyTuple((0..n).map(|_| template.clone()).collect()).into()
 }
 
-/// `(A,B,..)^N`：N 位笛卡尔积，每位从所有元素中选一个。
-/// 每轮展开后校验产物数量（`元素数^位数` 可能远超 [`MAX_EXPAND`]）。
+/// `(A,B,..)^N`: N-way Cartesian product, choosing one of all elements per position.
+/// The product count is checked after each round (`elems^N` can far exceed [`MAX_EXPAND`]).
 fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
     let mut combos = vec![vec![]];
     for _ in 0..n {
@@ -93,7 +93,7 @@ fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
                 next.push(extended);
             }
         }
-        if let Some(e) = check_expand_limit("元组笛卡尔积", next.len()) {
+        if let Some(e) = check_expand_limit("tuple Cartesian product", next.len()) {
             return e;
         }
         combos = next;
@@ -101,7 +101,8 @@ fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
     TyArray(combos.into_iter().map(instantiate_combo).collect()).into()
 }
 
-/// 单个笛卡尔积组合实例化：TypeParam 位置生成 fresh param 并保留 bound，其余位置保持原样
+/// Instantiate one Cartesian combination: TypeParam positions get a fresh param with the bound
+/// preserved; other positions stay as-is
 fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     let mut tuple_elems = vec![];
     let mut param_decls = vec![];
@@ -109,8 +110,8 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
         match elem {
             Ty::TypeParam(tp) => {
                 let name = fresh_param();
-                // 保留原参数列表的 bound（此前误把参数名当 bound，`(A: Clone, T)^N`
-                // 会生成 `_Param: A` 而非 `_Param: Clone`）
+                // Keep the original bound (previously the param name was mistaken for the bound;
+                // `(A: Clone, T)^N` produced `_Param: A` instead of `_Param: Clone`)
                 let params = tp
                     .params
                     .iter()
@@ -138,7 +139,7 @@ fn fresh_params(n: usize) -> Vec<Ty> {
 }
 
 impl Apply for TyTuple {
-    /// `(A,B,)^C` => 元组追加 C；`(A,)^N` => 元组长度展开；`(A,)^N..M` => 范围展开
+    /// `(A,B,)^C` => append C; `(A,)^N` => tuple-length expansion; `(A,)^N..M` => range expansion
     fn apply_help(mut self, o: Ty) -> Ty {
         match o {
             Ty::Num(TyNum(n)) => tuple_pow(self.0, n),
@@ -151,10 +152,10 @@ impl Apply for TyTuple {
 }
 
 impl Apply for TyGroup {
-    /// `(T)^N` / `(<Bound>)^N` 复用元组的 Num 逻辑；`(T)^其他` 委托给内部
+    /// `(T)^N` / `(<Bound>)^N` reuse the tuple's Num logic; `(T)^other` delegates to the inner type
     fn apply_help(self, o: Ty) -> Ty {
         match o {
-            // (T)^N / (<tr>)^N → 复用元组的 Num 逻辑
+            // (T)^N / (<tr>)^N → reuse the tuple's Num logic
             Ty::Num(TyNum(n)) => tuple_pow(vec![*self.0], n),
             _ => self.0.apply(o),
         }
@@ -162,88 +163,92 @@ impl Apply for TyGroup {
 }
 
 impl Apply for TyFn {
-    /// `fn^(A,B)` => `fn(A,B)`（填入参数）；`fn(A,B)-C` => `fn(A,B)->C`（追加返回类型）。
-    /// `is_unsafe` 字段透传（`unsafe fn^(A,B)` => `unsafe fn(A,B)`）。
+    /// `fn^(A,B)` => `fn(A,B)` (fills in params); `fn(A,B)-C` => `fn(A,B)->C` (adds return type).
+    /// The `is_unsafe` field passes through (`unsafe fn^(A,B)` => `unsafe fn(A,B)`).
     fn apply_help(self, o: Ty) -> Ty {
         match self {
-            // 裸 fn 经 `^` 填入参数；右侧必须是元组（`fn^((i8,i16))` 这类
-            // Group 包裹已由默认 apply 的 Group 分支拆开，此处 `o` 恒为普通类型）
+            // A bare fn gets its params via `^`; the right side must be a tuple (a Group like
+            // `fn^((i8,i16))` is unwrapped by the default apply's Group branch; here `o` is always plain)
             TyFn(None, None, is_unsafe) => match o {
                 Ty::Tuple(t) => TyFn(t.0.into(), None, is_unsafe).into(),
                 _ => err_ty(
-                    "batch-impl: `fn` 前缀右侧必须是元组类型，如 fn^(i32, u32)",
+                    "batch-impl: the right side of the `fn` prefix must be a tuple type, e.g. fn^(i32, u32)",
                 ),
             },
-            // 已有参数，经 `-` 追加返回类型
+            // Has params: append the return type via `-`
             TyFn(Some(params), None, is_unsafe) => {
                 TyFn(params.into(), o.into(), is_unsafe).into()
             }
-            TyFn(Some(_), Some(_), _) => {
-                err_ty("batch-impl: `fn` 类型已有返回类型，不能重复应用")
-            }
-            // 不可能：参数 None 但返回 Some
-            TyFn(None, Some(_), _) => {
-                err_ty("batch-impl: `fn` 类型缺少参数列表，内部错误")
-            }
+            TyFn(Some(_), Some(_), _) => err_ty(
+                "batch-impl: the `fn` type already has a return type; cannot apply again",
+            ),
+            // Impossible: params None but return Some
+            TyFn(None, Some(_), _) => err_ty(
+                "batch-impl: the `fn` type is missing a parameter list; internal error",
+            ),
         }
     }
 }
 
 impl Apply for TyWithAttr {
-    /// `#[attr]^T` => `#[attr] T`（附着属性到类型）
+    /// `#[attr]^T` => `#[attr] T` (attaches the attribute to the type)
     fn apply_help(self, o: Ty) -> Ty {
         TyWithAttr(self.0, o.into()).into()
     }
 }
 
 impl Apply for TyTypeParam {
-    /// `<T>^U` => `WithType(<T>, U)`（泛型参数应用到目标类型）
+    /// `<T>^U` => `WithType(<T>, U)` (generic parameters applied to the target type)
     fn apply_help(self, o: Ty) -> Ty {
         TyWithType(self, o.into()).into()
     }
 }
 impl Apply for TyNum {
-    /// 数字不能作为左侧操作数（只在右侧使用，如 `T^3`）
+    /// A number cannot be a left operand (used only on the right, e.g. `T^3`)
     fn apply_help(self, _: Ty) -> Ty {
         err_ty(&format!(
-            "batch-impl: 数字 `{}` 不能作为左侧操作数，只能出现在右侧（如 T^{}）",
+            "batch-impl: number `{}` cannot be a left operand; use it on the right (e.g. T^{})",
             self.0, self.0
         ))
     }
 }
 impl Apply for TyRange {
-    /// 范围不能作为左侧操作数（只在右侧使用，如 `T^1..3`）
+    /// A range cannot be a left operand (used only on the right, e.g. `T^1..3`)
     fn apply_help(self, _: Ty) -> Ty {
         let end_mark = if self.inclusive { "=" } else { "" };
         err_ty(&format!(
-            "batch-impl: 范围 `{}..{}{}` 不能作为左侧操作数，只能出现在右侧（如 T^{}..{}{}）",
+            "batch-impl: range `{}..{}{}` cannot be a left operand; it goes on the right (e.g. T^{}..{}{})",
             self.start, self.end, end_mark, self.start, self.end, end_mark
         ))
     }
 }
 impl Apply for TyPrimitiveArray {
-    /// `[]^T` => `[T]`（空基座包出切片）；`[T]^N` => `[T; N]`（定长数组）
+    /// `[]^T` => `[T]` (empty base wraps a slice); `[T]^N` => `[T; N]` (fixed-size array)
     ///
-    /// 长度右侧可以是数字字面量（`[u8]^3`）、const 泛型参数（`[u8]^N`）或
-    /// 列表/范围（经顶层右操作数分发逐项展开）。已完成的数组再应用报错。
+    /// The length right side can be a numeric literal (`[u8]^3`), a const generic (`[u8]^N`), or a
+    /// list/range (expanded item-wise by the top-level right-operand dispatch); re-applying to
+    /// a finished array is an error.
     fn apply_help(self, o: Ty) -> Ty {
         match (self.0, self.1) {
             (None, None) => TyPrimitiveArray(o.into(), None).into(),
             (Some(elem), None) => {
                 TyPrimitiveArray(elem.into(), o.to_token_stream().into()).into()
             }
-            _ => err_ty("batch-impl: 定长数组 `[T; N]` 不能作为左侧操作数"),
+            _ => err_ty(
+                "batch-impl: fixed-size array `[T; N]` cannot be a left operand",
+            ),
         }
     }
 }
 
-/// 「透传到内层再重包」的包装类型 apply 生成宏——四类包装
-/// （WithTrait/WithType 必含内层、WithCode/WithWhere 可选内层）的
-/// apply_help 是同构骨架，收敛为宏：新增包装类型只需一行调用，
-/// 且"外部应用透传到内部目标"的语义在宏定义处声明一次。
-/// 可选内层形态：`None` 时右侧操作数直接顶替内层。
-/// 注意：`self.1` 写在宏体内（定义处 hygiene），不能作宏参数传入——
-/// 参数 token 保留调用处上下文，`self` 会解析为模块 self（E0424）。
+/// Macro generating the "passthrough to the inner type then re-wrap" apply impls for the four
+/// wrapper kinds (WithTrait/WithType always have an inner type, WithCode/WithWhere have an optional
+/// one); their apply_help bodies are isomorphic, folded into a macro: adding a wrapper is one line,
+/// and the "outer apply passes through to the inner target" semantics is declared once at the macro
+/// definition site. Optional-inner: with `None`, the right operand directly takes the inner slot.
+/// Note: `self.1` is written in the macro body (definition-site hygiene), not passable as
+/// a macro argument — argument tokens keep the call-site context, and `self` would resolve to the
+/// module's self (E0424).
 macro_rules! impl_apply_optional_inner {
     ($ty:ident) => {
         impl Apply for $ty {
@@ -257,7 +262,7 @@ macro_rules! impl_apply_optional_inner {
         }
     };
 }
-/// 必含内层形态：右侧操作数应用到内层后重包。
+/// Always-inner form: apply the right operand to the inner type, then re-wrap.
 macro_rules! impl_apply_inner {
     ($ty:ident) => {
         impl Apply for $ty {

@@ -1,15 +1,15 @@
-error: batch-impl: `-` 前缺少操作数（如 `T-U`）
- --> tests/ui/leading_operator.rs:4:1
+error: batch-impl: missing operand before `-` (e.g. `T-U`)
+ --> tests/ui/leading_operator.rs:5:1
   |
-4 | #[batch_impl(-usize)]
+5 | #[batch_impl(-usize)]
   | ^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: batch-impl: `^` 前缺少操作数（如 `T^U`）
- --> tests/ui/leading_operator.rs:7:1
+error: batch-impl: missing operand before `^` (e.g. `T^U`)
+ --> tests/ui/leading_operator.rs:8:1
   |
-7 | #[batch_impl(^isize)]
+8 | #[batch_impl(^isize)]
   | ^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

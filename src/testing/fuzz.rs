@@ -1,9 +1,10 @@
-//! 无 panic 属性的属性测试（proptest）。
+//! Property-based testing (proptest) with a no-panic property.
 //!
-//! 库的承诺是"不因用户输入 panic"。用随机 token 序列喂给危险入口，
-//! 断言任意输入都不会 panic —— 即便结果是 `Err` / `None` / `compile_error!`
-//! 也接受。覆盖：裸 where 改写、DSL 解析、以及**全管线**（指令预处理 →
-//! where 改写 → 解析/展开 → 生成 impl，含 apply/expand/codegen）。
+//! The library's promise is "no panic on user input". Feed random token sequences to the
+//! dangerous entry points and assert that no input panics — `Err` / `None` / `compile_error!`
+//! results are all accepted. Coverage: bare where rewrite, DSL parsing, and the **full
+//! pipeline** (instruction preprocessing → where rewrite → parse/expand → generate impl,
+//! incl. apply/expand/codegen).
 
 use proc_macro2::{
     Delimiter, Group, Ident, Literal, Punct, Spacing, TokenStream, TokenTree,
@@ -17,7 +18,7 @@ use crate::parse::parse_item;
 use crate::preprocess::where_process;
 use crate::util::Cursor;
 
-/// 可递归生成的 token 描述（Groups 里嵌套 Vec<Tok>，深度受限）
+/// Recursively generatable token description (Groups nest Vec<Tok>, depth-limited)
 #[derive(Clone, Debug)]
 enum Tok {
     Ident(&'static str),
@@ -26,10 +27,10 @@ enum Tok {
     Group(Delimiter, Vec<Tok>),
 }
 
-/// 深度受限的 token 列表生成器（覆盖 DSL 关键字、运算符、括号嵌套）
+/// Depth-limited token list generator (covers DSL keywords, operators, bracket nesting)
 fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
     let leaf = prop_oneof![
-        // DSL / Rust 关键字与常见类型名
+        // DSL / Rust keywords and common type names
         prop::strategy::Just(Tok::Ident("usize")),
         prop::strategy::Just(Tok::Ident("isize")),
         prop::strategy::Just(Tok::Ident("Vec")),
@@ -39,11 +40,11 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         prop::strategy::Just(Tok::Ident("fn")),
         prop::strategy::Just(Tok::Ident("self")),
         prop::strategy::Just(Tok::Ident("unsafe")),
-        // 数字字面量（小整数 DSL 指数）
+        // Numeric literals (small-integer DSL exponents)
         prop::strategy::Just(Tok::Literal("0")),
         prop::strategy::Just(Tok::Literal("1")),
         prop::strategy::Just(Tok::Literal("3")),
-        // DSL 运算符与标点
+        // DSL operators and punctuation
         prop::strategy::Just(Tok::Punct('<', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct('>', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct('^', Spacing::Alone)),
@@ -51,7 +52,7 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         prop::strategy::Just(Tok::Punct(',', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct(';', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct(':', Spacing::Alone)),
-        // Joint 的 `:` 可与下一个 `:` 拼成 `::`
+        // A Joint `:` can combine with the next `:` into `::`
         prop::strategy::Just(Tok::Punct(':', Spacing::Joint)),
         prop::strategy::Just(Tok::Punct('&', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct('*', Spacing::Alone)),
@@ -66,7 +67,8 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
             prop::strategy::Just(delimiter![()]),
             prop::strategy::Just(delimiter![[]]),
             prop::strategy::Just(delimiter![{}]),
-            // 真实 None 组模拟宏变量展开产物——angle_collect 应扁平化（内容即 DSL token）
+            // Real None groups simulate macro-variable expansion output — angle_collect
+            // should flatten them (contents are DSL tokens)
             prop::strategy::Just(delimiter![none]),
         ]
         .prop_flat_map(move |d| {
@@ -89,14 +91,14 @@ fn to_token(tok: &Tok) -> TokenTree {
 }
 
 proptest! {
-    /// 裸 where 改写：任意 token 输入不 panic
+    /// Bare where rewrite: no panic on arbitrary token input
     #[test]
     fn where_process_no_panic(toks in tokens(3)) {
         let ts = toks.iter().map(to_token).collect::<Vec<_>>();
         let _ = where_process(&mut Cursor::new(&ts));
     }
 
-    /// DSL 解析：任意 token 输入不 panic，且能正常推进到结束
+    /// DSL parsing: no panic on arbitrary token input, and it advances properly to the end
     #[test]
     fn parse_no_panic(toks in tokens(3)) {
         let ts = toks.iter().map(to_token).collect::<Vec<_>>();
@@ -105,12 +107,14 @@ proptest! {
         prop_assert!(cursor.at_end());
     }
 
-    /// 全管线：走真实宏入口 `expand_attr_macro`（angle_collect → 常量展开 →
-    /// 指令预处理 → where 改写 → `A<>` 照抄 → 解析/展开 → 生成 impl），
-    /// 任意输入不 panic。用固定 dummy trait 作签名真相源；随机 token 里的指令
-    /// 可能查不到 item（报 `compile_error!`）或产生非法类型（透传成垃圾），
-    /// 均接受——承诺是"不 panic"。复用真实入口保证 fuzz 覆盖与线上完全
-    /// 相同的路径（此前手写管线会漏掉常量展开与 `A<>` 照抄）。
+    /// Full pipeline: goes through the real macro entry `expand_attr_macro` (constant expansion →
+    /// angle_collect → instruction preprocessing → where rewrite → `A<>` copying →
+    /// parse/expand → generate impl), no panic on any input. Uses a fixed dummy trait as the
+    /// signature source of truth; directives in random tokens may fail to find an item
+    /// (reported via `compile_error!`) or produce invalid types (passed through as garbage),
+    /// all accepted — the promise is "no panic". Reusing the real entry ensures fuzz covers
+    /// exactly the same path as production (a handwritten pipeline used to miss constant
+    /// expansion and `A<>` copying).
     #[test]
     fn full_pipeline_no_panic(toks in tokens(3)) {
         let ts = toks.iter().map(to_token).collect::<TokenStream>();

@@ -1,4 +1,4 @@
-error: batch-impl: #delegate 方法 `Dummy::m` 的参数 `(a, b) : (i32, i32)` 无法委托转发：仅支持 `self` 与纯标识符模式
+error: batch-impl: #delegate method `Dummy::m` param `(a, b) : (i32, i32)` cannot be forwarded: only `self` and plain identifier patterns are supported
  --> tests/ui/delegate_pattern_arg.rs:4:1
   |
 4 | #[batch_impl_only(usize #delegate(m){**self})]

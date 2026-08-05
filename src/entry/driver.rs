@@ -9,31 +9,37 @@ use crate::codegen::generate_impl;
 use crate::parse::parse_item;
 use crate::util::Cursor;
 
-/// 共享驱动：从游标解析 impl-specs，展开并列列表，生成 impl 块。
+/// Shared driver: parse impl-specs from the cursor, expand parallel lists, and generate
+/// impl blocks.
 ///
-/// `top_level` 控制顶层优先级：
-/// - `Op::Comma` 用于 `#[batch_impl]`（整个参数按 `,` 分隔）
-/// - `Op::Semi` 用于 `batch_trait!` 的单段 specs（按 `,` 分隔，遇到 `;` 段落边界停止）
+/// `top_level` controls the top-level precedence:
+/// - `Op::Comma` for `#[batch_impl]` (the whole argument is separated by `,`)
+/// - `Op::Comma` for a single `batch_trait!` segment's specs too (the `;`
+///   segment boundary is pre-cut by `take_segment`; `Op::Semi` is used only
+///   inside array `[T; N]` parsing)
 ///
-/// `trait_bounds`：trait 泛型参数的内联 bound 映射（参数名 → bound token），
-/// 供 `generate_impl` 对未写 bound 的 impl 泛型参数按位置 + 同名继承；`batch_trait!`
-/// 无 trait 定义传空映射。
+/// `trait_bounds`: inline bound mapping of the trait's generic params (param name → bound
+/// tokens), letting `generate_impl` inherit bounds by position + name for impl generic params
+/// without written bounds; `batch_trait!` passes an empty mapping since it has no trait
+/// definition.
 ///
-/// 展开阶段用工作清单（栈，倒序入栈以保持输出顺序）把并列列表 `Ty::Array`
-/// 逐层摊平为叶子 `Ty`，再对每个叶子调用 `generate_impl` 生成对应的 impl 块。
-/// 注意：裸代码块 `WithCode(None, ...)` 也是叶子，经 `generate_impl` 原样作为
-/// 顶层 item 注入输出（开放指令扩展的载体）。
+/// The expansion stage uses a work queue (a stack, reversed to preserve output order) to
+/// flatten the parallel list `Ty::Array` into leaf `Ty`s, then calls `generate_impl` per
+/// leaf to emit the corresponding impl block. Note: a bare code block `WithCode(None, ...)`
+/// is also a leaf, injected verbatim as a top-level item by `generate_impl` (the carrier of
+/// open instruction extensions).
 pub(crate) fn parse_batch_trait_entry(
     cursor: &mut Cursor, top_level: Op, trait_full_path: &TokenStream,
     trait_last_ident: &Ident, is_unsafe_trait: bool, start_trait: Option<ItemTrait>,
     trait_bounds: &TraitBounds,
 ) -> TokenStream {
     let mut tys = vec![];
-    // 前导逗号（`#[batch_impl(,usize)]` / `A: ,usize`）：整段列表以 `,` 开头。
-    // 流式游标下 parse_item 无法区分"前导逗号"与"上一个 spec 后的分隔逗号"，
-    // 只能在知道调用序的此入口判定。
+    // Leading comma (`#[batch_impl(,usize)]` / `A: ,usize`): the whole list starts with `,`.
+    // With a streaming cursor, parse_item cannot tell a "leading comma" from a "separator
+    // comma after the previous spec", so this check lives in this entry where the call
+    // order is known.
     if cursor.is_punct(',') {
-        tys.push(err_ty("batch-impl: spec 列表不能以 `,` 开头"));
+        tys.push(err_ty("batch-impl: spec list cannot start with `,`"));
     }
     while let Some(ty) = parse_item(cursor, top_level, trait_last_ident.into()) {
         let mut queue = vec![ty];

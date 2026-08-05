@@ -1,211 +1,155 @@
-# batch-impl 内部架构
+# batch-impl Internal Architecture
 
-**v0.6.1**（2026-08-05）——预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态。
+**v0.6.1** (2026-08-05) — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape.
 
-面向贡献者：模块组织、解析流程、错误机制、测试矩阵。
+For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
-## 模块组织
+## Module Organization
 
 ```text
-lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait! / 测试宏）+ 模块树
-  ├── entry/                入口与驱动
-  │   ├── mod.rs            入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
-  │   ├── driver.rs         共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
-  │   └── path_prefix.rs    外部 trait 路径前缀：#Path::to::Trait: 状态机解析
-  ├── analyze/              trait 定义语义分析
-  │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
-  ├── util/                 共享工具（mod.rs 聚合 re-export，引用侧写 crate::util::X）
-  │   ├── scan.rs           扫描与游标：Cursor<'a> + scan_stop（尖括号已配对，仅剩 -> 守卫）
-  │   └── diagnostic.rs     统一 compile_error_str(msg) / compile_err! 用于编译期诊断
-  ├── parse/                解析层
-  │   ├── mod.rs            DSL 解析器：优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
-  │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
-  │   └── generic.rs        泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 delimiter![<>]）
-  ├── preprocess/           预处理层（token 重写器，一个趟一个文件；mod.rs 聚合 re-export）
-  │   ├── mod.rs            delimiter! 分隔符拼写宏 + 指令预处理：#name 指令展开（内置 + 开放扩展）
-  │   ├── consts.rs         `@` 常量系统：内置类型族（@uint/@scalar/@u8..u128）+ batch_trait! 自定义定义段
-  │   ├── empty_generics.rs `A<>` 照抄展开（形参渲染用合并后的 bound）
-  │   ├── helpers.rs        预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
-  │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
-  │   ├── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
-  │   └── blanket.rs        `#blanket` 覆盖式委托（包装元素任意类型 + :N 深度）
-  ├── ast/                  AST 层
-  │   ├── mod.rs            Ty 枚举（18 个变体，含 Error）+ Op 优先级定义
-  │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
-  ├── apply/                运算层
-  │   ├── mod.rs            Apply trait + 核心 apply() 两阶段分发（右操作数"结构"优先）
-  │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
-  ├── codegen/              代码生成
-  │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
-  │   └── impl_parts.rs     ImplParts 结构 + 18 变体遍历（extract / hoist）
-  └── testing/              测试基建（cfg(test)）
-      └── fuzz.rs           proptest：随机 token 喂真实宏入口（expand_attr_macro），承诺不 panic
+lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trait! / test macros) + module tree
+  ├── entry/                entry and driver
+  │   ├── mod.rs            entry implementation: expand_attr_macro / expand_batch_trait + the shared pipeline run_pipeline
+  │   ├── driver.rs         shared driver: BFS over the parallel list → generate_impl per leaf
+  │   └── path_prefix.rs    external trait path prefix: #Path::to::Trait: state-machine parsing
+  ├── analyze/              trait-definition semantic analysis
+  │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST reference collection (where-predicate pass-through slots)
+  ├── util/                 shared utilities (mod.rs aggregates re-exports; the reference side writes crate::util::X)
+  │   ├── scan.rs           scanning and cursor: Cursor<'a> + scan_stop (angle brackets already paired; only the -> guard remains)
+  │   └── diagnostic.rs     unified compile_error_str(msg) / compile_err! for compile-time diagnostics
+  ├── parse/                parsing layer
+  │   ├── mod.rs            DSL parser: precedence climbing (Op::Semi/Comma/Dash/Caret/Prim)
+  │   ├── parse_atom.rs     atom-level parsing: attributes / fn / prefixes / ranges / groups / lists
+  │   └── generic.rs        generic parsing: parse_generic / parse_angle_bracket_contents (angle-bracket groups are delimiter![<>])
+  ├── preprocess/           preprocessing layer (token rewriter, one pass per file; mod.rs aggregates re-exports)
+  │   ├── mod.rs            the delimiter! delimiter-spelling macro + directive preprocessing: #name directive expansion (built-in + open extension)
+  │   ├── consts.rs         the `@` constant system: built-in type families (@uint/@scalar/@u8..u128) + batch_trait! custom definition sections
+  │   ├── empty_generics.rs `A<>` verbatim-copy expansion (parameter rendering uses the merged bound)
+  │   ├── helpers.rs        preprocessing helpers: build_from_item / get_trait_item / parse_names_from_tokens (list subtraction `-`)
+  │   ├── where_process.rs  bare-where rewrite: `where predicates {body}` → legacy `where{predicates}`
+  │   ├── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
+  │   └── blanket.rs        `#blanket` blanket delegation (wrapper elements of any type + :N depth)
+  ├── ast/                  AST layer
+  │   ├── mod.rs            the Ty enum (18 variants, incl. Error) + Op precedence definitions
+  │   └── types_render.rs   AST rendering: ToTokens impl for Ty + the params_to_tokens family
+  ├── apply/                application layer
+  │   ├── mod.rs            Apply trait + the core apply() two-stage dispatch (right-operand "structure" first)
+  │   └── apply_tuple.rs    tuple and container operators + tuple expansion (^N / Cartesian product / ranges / fresh generics)
+  ├── codegen/              code generation
+  │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl (incl. where-predicate attachment and reference checks)
+  │   └── impl_parts.rs     the ImplParts struct + traversal of the 18 variants (extract / hoist)
+  └── testing/              test infrastructure (cfg(test))
+      └── fuzz.rs           proptest: random tokens fed to the real macro entry (expand_attr_macro), promising never to panic
 ```
 
-## 解析流程
+## Parsing Pipeline
 
-**token 流 → const 展开（`@` 常量：内置 + batch_trait! 自定义表）→
-angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..n 个 token：既有
-指令恰一 `{...}` 组，`#blanket` 多段 spec）→ where 裸写改写 → `A<>` 照抄
-→ Cursor 扫描取切片 → parse_item 优先级攀爬（`^`/`-` 经 `Apply` 组合：
-右操作数结构优先分发）→ Ty AST → 工作清单摊平并列列表 → 逐叶子 generate_impl**
+**token stream → const expansion (`@` constants: built-in + custom tables from `batch_trait!`) →
+angle_collect pairs angle-bracket groups → directive preprocessing (each directive expands to 0..n
+tokens: existing directives produce exactly one `{...}` group, `#blanket` produces multi-segment
+specs) → bare-`where` rewrite → `A<>` pass-through expansion
+→ Cursor scanning extracts slices → parse_item precedence climbing (`^`/`-` combined via `Apply`:
+right-operand-structure-first dispatch) → Ty AST → worklist flattens the parallel list → per-leaf
+generate_impl**
 
-### 预处理顺序：`@ <> # where`（宏元层最外）
+### Preprocessing Order: `@ <> # where` (Outermost in the Macro-Meta Layer)
 
-- `@` 常量展开（纯词法替换）是**最外一趟**，先于 `<>` 配对与指令：
-  展开产物可能含扁平 `<...>`（如 `@map = HashMap<u32, String>` 的值、
-  嵌套 `@outer = Vec<@inner>`），须由后续 angle_collect 统一配对；
-- 反序（`<>` 先于 `@`）的后果：`Vec<@inner>` 的 `@inner` 被配对进
-  尖括号组，而 expand_consts **刻意不进入 `<>` 组**（`delimiter![<>]`
-  与真实 None 组展开值相同不可同臂区分）——`@` 残留到输出、编译报
-  `found '@'`（0.6.1 实测修复）；
-- 能力矩阵：`batch_impl`/`batch_impl_only` 支持内置 `@` + `<>` +
-  `#` + where；`batch_trait!` 支持自定义 `@` + `<>` + where
-  （指令 `#` 需要 trait 定义作签名真相源，函数式宏拿不到）。
+- `@` constant expansion (pure lexical substitution) is the **outermost pass**, running before `<>` pairing and directives: the expansion output may contain flat `<...>` (e.g. the value of `@map = HashMap<u32, String>`, nested `@outer = Vec<@inner>`), which must be paired uniformly by the subsequent angle_collect;
+- Consequence of the reversed order (`<>` before `@`): the `@inner` in `Vec<@inner>` gets paired into an angle-bracket group, while expand_consts **deliberately never enters `<>` groups** (`delimiter![<>]` and real None groups expand to the same value and cannot be distinguished in separate match arms) — `@` leaks into the output and compilation reports `found '@'` (fixed and verified in 0.6.1);
+- Capability matrix: `batch_impl`/`batch_impl_only` support built-in `@` + `<>` + `#` + where; `batch_trait!` supports custom `@` + `<>` + where (the `#` directive needs the trait definition as the source of signature truth, which a function-like macro cannot obtain).
 
-### 关键设计决策
+### Key Design Decisions
 
-- **尖括号组**：proc-macro2 只对 `()`/`[]`/`{}` 分组，`<>` 是扁平 Punct。
-  `angle_collect` 在入口一趟把 `<...>` 配对为 `delimiter![<>]` 组（`->` 箭头的
-  `>` 不参与），下游解析不再跟踪 `<>` 深度；输出侧 `render_angles` 还原为
-  扁平 `<...>`。`angle_collect` 是**破坏性**的（已配对组再次收集会被当真实
-  None 组扁平化），故只做一次。
-- **delimiter! 宏**：`Delimiter::None` 在本 crate 有两种语义——`delimiter![<>]`
-  （尖括号组载体）与 `delimiter![none]`（真实透明组，宏变量展开产物）。二者
-  展开值相同，不可在同一条 match 中作两个臂。proc-macro crate 禁止
-  `#[macro_export]`，故宏置于 `preprocess` 顶部经 `#[macro_use]` 导入 crate 根
-  （文本作用域要求其声明先于所有使用者）。
-- **where 谓词继承**：trait 级 where 子句中**单一形参谓词**（`T: Clone`）合并进
-  `TraitParam.bound`（内联 + where 拼接），**其余谓词原样透传**到 impl 的
-  where 子句。引用收集在 **syn AST** 上做（`syn::visit`）：单段路径与泛型实参
-  是形参引用位置；`::` 后的路径段（关联类型名）、关联类型绑定名、
-  HRTB binder（`for<'a>`）天然排除；const 泛型实参 / 数组长度经 `visit_expr`
-  收集。`impl_names` 中 `const N` 归一如 `N` 以匹配引用检查。
+- **Angle-bracket groups**: proc-macro2 only groups `()`/`[]`/`{}`; `<>` is flat Punct. `angle_collect` pairs `<...>` into `delimiter![<>]` groups in a single pass at the entry (the `>` of `->` arrows does not participate), so downstream parsing no longer tracks `<>` depth; on the output side `render_angles` restores the flat `<...>`. `angle_collect` is **destructive** (re-collecting an already-paired group would flatten it as a real None group), so it runs only once.
+- **The delimiter! macro**: `Delimiter::None` has two meanings in this crate — `delimiter![<>]` (the carrier of angle-bracket groups) and `delimiter![none]` (a real transparent group, the product of macro-variable expansion). They expand to the same value and cannot serve as two arms in a single match. A proc-macro crate cannot use `#[macro_export]`, so the macro lives at the top of `preprocess` and is imported into the crate root via `#[macro_use]` (textual scope requires it to be declared before all its users).
+- **where-predicate inheritance**: **single-type-parameter predicates** (`T: Clone`) in a trait-level where clause are merged into `TraitParam.bound` (inline + where splicing), while **all remaining predicates pass through verbatim** to the impl's where clause. Reference collection happens on the **syn AST** (`syn::visit`): single-segment paths and generic arguments are the parameter reference positions; path segments after `::` (associated type names), associated-type binding names, and HRTB binders (`for<'a>`) are naturally excluded; const generic arguments / array lengths are collected via `visit_expr`. In `impl_names`, `const N` is normalized to `N` to match the reference check.
 
-## 语法域隔离
+## Syntax-Domain Isolation
 
-DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号自洽、语义独立：
+The DSL consists of two (future three) **mutually non-penetrating syntax domains**; each domain is self-consistent in its tokens and independent in semantics:
 
-| 域 | 记号 | 语义 | 由谁解析 |
+| Domain | Tokens | Semantics | Parsed by |
 |----|------|------|----------|
-| **类型域**（spec 表达式） | `^`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
-| **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`@all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
-| **宏元层**（`@` 常量） | `@uint`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
+| **Type domain** (spec expressions) | `^`/`-` (the two associativities of the same apply: right-nesting / left-accumulation), `[...]` lists, `(...)` tuples, `<...>` generics, `where{...}` suffix, attached `{body}` | Describes a type matrix; each cell generates one impl | `parse/` + `apply/` + `codegen/` |
+| **Directive domain** (`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){wrapper}` / open extension) | `,`-separated argument lists, `-name` exclusions, `@all` family markers | Copies signatures from the trait definition / fills bodies in bulk / delegates calls / blanket delegation | `preprocess/` (`parse_names_from_tokens` parses independently; DSL parsing never enters) |
+| **Macro-meta layer** (`@` constants) | `@uint`/`@scalar` name families, `@u8..u128` range families, `batch_trait!` leading `@name=value;` custom sections | Names and reuses type-matrix entries; after lexical substitution into lists they follow the original pipeline, participating in no in-domain parsing | `consts.rs` (after angle_collect, before directive preprocessing) |
 
-### 隔离规则
+### Isolation Rules
 
-- **同记号、分域、各义**：`-` 在类型域是 apply 链接（`HashMap-K-V` = `HashMap<K, V>`），
-  在指令域是排除记号（`#fill(@all,-foo)`）——两域解析互不进入，语义永不冲突；
-- **域边界即模块边界**：类型域解析（`parse_item` 优先级攀爬）永远不递归进入
-  指令参数；指令预处理（`expand_tokens`）只展开 `#` 指令，不解释 DSL 运算符；
-  `@` 常量（`preprocess/consts.rs`）只做词法替换，不进入任何域；
-- **透传守卫统一**：`ident![...]` 宏体与 `#[...]` 属性内的内容是任意 Rust，
-  三个递归入口（`angle_collect` / `expand_tokens` / `where_process`）一律不进入，
-  判定收敛在 `scan::bracket_is_passthrough`（0.5.7 曾因一处守卫缺失误展开
-  `#[...]` 内的 `#name` 指令）。
+- **Same token, separate domains, distinct meanings**: `-` is an apply link in the type domain (`HashMap-K-V` = `HashMap<K, V>`) and an exclusion marker in the directive domain (`#fill(@all,-foo)`) — the two domains never enter each other's parsing, so the semantics never conflict;
+- **Domain boundaries are module boundaries**: type-domain parsing (`parse_item` precedence climbing) never recurses into directive arguments; directive preprocessing (`expand_tokens`) only expands `#` directives and does not interpret DSL operators; `@` constants (`preprocess/consts.rs`) only do lexical substitution and enter no domain;
+- **Uniform pass-through guards**: the contents of `ident![...]` macro bodies and `#[...]` attributes are arbitrary Rust; the three recursive entries (`angle_collect` / `expand_tokens` / `where_process`) never enter them, and the decision converges in `scan::bracket_is_passthrough` (in 0.5.7 a missing guard caused `#name` directives inside `#[...]` to be wrongly expanded).
 
-### 附着语义
+### Attachment Semantics
 
-指令展开产物分两类：**单组产物**（`#name`/`#fill`/`#delegate`/开放扩展的
-`{...}` 组）可附着到类型后（`T {body}`）或独立成 spec；**多 token 产物**
-（`#blanket` 的完整 spec 段）自含泛型/目标/委托，只能独立成 spec，附着
-无意义。
+Directive expansion output falls into two kinds: **single-group output** (`#name`/`#fill`/`#delegate`/the `{...}` group of an open extension) can attach to a type (`T {body}`) or stand alone as a spec; **multi-token output** (the complete spec segments of `#blanket`) is self-contained with its generics/target/delegation and can only stand alone as a spec — attaching it is meaningless.
 
-### 扩展准则
+### Extension Guidelines
 
-新语法只能**在既有域内延伸既有机制**（如 `^`/`-` 系补充差集、指令域补充新
-指令、宏元层补充新常量），不得跨域复用记号、不得改变既有记号的域内语义。
-`@` 绑定与 `#blanket` 均遵循此准则：前者是宏元层纯词法替换，后者是指令域
-内 `#delegate` 的自动化形态。
+New syntax may only **extend existing mechanisms within existing domains** (e.g. adding set-difference to the `^`/`-` family, new directives to the directive domain, new constants to the macro-meta layer); it must not reuse tokens across domains or change the in-domain semantics of existing tokens. Both `@` bindings and `#blanket` follow this guideline: the former is a pure lexical substitution at the macro-meta layer, and the latter is the automated form of `#delegate` within the directive domain.
 
-### 宏元层完整化：`@` 是唯一宏元记号
+### Completing the Macro-Meta Layer: `@` Is the Only Macro-Meta Token
 
-- **`#` 只剩指令名一种格式**：`#all` 系范围标记全部迁移到宏元层
-  （`@all` 系）——选择（选哪些 item）是宏元层操作，动作（填体/委托/覆盖）
-  是指令——`#fill(@all)` / `#fill(@all, -[a,b])`；
-- `@all` 系展开为 **Bracket 组**（`[a,b,c]`，与 `@uint` 形态统一）后走
-  指令参数解析——指令参数因此天然支持手写 `[a, b]` 与 `-[a, b]` 排除；
-- **trait 感知常量**：`@trait`（batch_impl=本地名、batch_impl_only=外部
-  路径；**batch_trait! 段级**——分段后逐段替换为本段 trait 路径，支持
-  `@type_t=<T>@trait<T>` 跨段打包复用；try_expand_at 返 None 原样保留防
-  懒递归死循环）、`@all` 系（batch_impl/only 专属，batch_trait! 报错）、
-  `@Cow`（batch_impl/only 专属）：
-  - `@all` 系 → 按 trait 定义选 item 的 Bracket 组（含 required/default 过滤）；
-  - `@Cow` → `Cow<'_>` + 固有约束谓词（deref target = `T::Owned` 的
-    打包，与砍掉的裸类型名常量不同类——携带约束才有复用价值）；
-- **`@0` 位置引用**：where 谓词通用（codegen 渲染时 `@N` → impl 泛型第 N 位、
-  `@trait` → trait 名——元组 `()^2 where{@0: Clone}` 与普通 spec 可用）；
-  blanket 包装 where 中 `@0` 特指目标泛型（resolve_target_predicates 预替换为
-  fresh 名，先于 codegen，两处不冲突）；expand_consts 不进入 Brace 组
-  （where 组透传），`@N` 恰好在消费点替换；
-- **`<>` 只留名字**（约束容器统一为 where）：泛型声明 TypeParam 只取 ident、
-  const/lifetime 原样；全部约束（trait 形参 inline bound + `T: Trait` +
-  trait where + 包装谓词）并列进 where——合并 = 零分析 token 拼接
-  （required ∪ default = all 同理）。blanket 的 `T: Trait` 因此与包装谓词
-  天然并列；trait 形参 bound 由 codegen 继承逻辑处理（不重复转移）。
+- **`#` now has only one format: a directive name**: all `#all` family range markers have been migrated to the macro-meta layer (the `@all` family) — selection (which items to pick) is a macro-meta-layer operation, while the action (fill body / delegate / blanket) is the directive — `#fill(@all)` / `#fill(@all, -[a,b])`;
+- The `@all` family expands into **Bracket groups** (`[a,b,c]`, unified in shape with `@uint`) and then goes through directive-argument parsing — directive arguments therefore naturally support hand-written `[a, b]` lists and `-[a, b]` exclusions;
+- **Trait-aware constants**: `@trait` (batch_impl = local name, batch_impl_only = external path; **batch_trait! is segment-level** — after segmentation, each segment is replaced with that segment's trait path, supporting cross-segment packing reuse such as `@type_t=<T>@trait<T>`; try_expand_at returns None to keep things as-is, guarding against infinite recursion in lazy expansion), the `@all` family (exclusive to batch_impl/batch_impl_only; batch_trait! errors), `@Cow` (exclusive to batch_impl/batch_impl_only):
+  - The `@all` family → a Bracket group selecting items according to the trait definition (with required/default filtering);
+  - `@Cow` → `Cow<'_>` plus inherent constraint predicates (a packing whose deref target = `T::Owned`, in a different class from the removed bare type-name constants — a constant carries reuse value only when it carries constraints);
+- **`@0` positional references**: generic across where predicates (at codegen render time, `@N` → the impl's N-th generic and `@trait` → the trait name — usable in the tuple `()^2 where{@0: Clone}` and in ordinary specs); in a blanket wrapper where clause, `@0` specifically refers to the target generic (resolve_target_predicates pre-replaces it with a fresh name, before codegen, so the two places never conflict); expand_consts does not enter Brace groups (where groups pass through), so `@N` is replaced exactly at its consumption point;
+- **`<>` keeps only names** (the constraint container is unified to where): a generic-declaration TypeParam keeps only its ident; const/lifetime stay as-is; all constraints (trait-parameter inline bounds + `T: Trait` + trait where + wrapper predicates) are juxtaposed into where — merging is zero-analysis token concatenation (required ∪ default = all likewise). The blanket's `T: Trait` therefore naturally sits alongside wrapper predicates; trait-parameter bounds are handled by codegen's inheritance logic (not transferred redundantly).
 
-### 指令统一形态：`#指令(范围){内容}`
+### Unified Directive Shape: `#directive(scope){content}`
 
-所有内置指令都是同一形态的实例——**指令名 + 范围 + 内容**：
+All built-in directives are instances of the same shape — **directive name + scope + content**:
 
-| 指令 | 范围（作用于谁） | 内容（怎么处理） |
+| Directive | Scope (what it acts on) | Content (how it processes) |
 |---|---|---|
-| `#name{body}` | 单个 item（按名取） | 该 item 的实现体 |
-| `#fill(范围){body}` | item 集合（`@all`/`@all_methods`/`@all_constants`/`@all_types`/`@all_required*`/`@all_default*`/名字列表/`-name` 排除） | 统一实现体 |
-| `#delegate(范围){target}` | 方法集合（`@all_methods` 等） | 委托目标表达式 |
-| `#blanket(范围){包装列表}` | impl 层（整个 trait × 包装类型矩阵） | 覆盖式委托 + 包装深度 |
+| `#name{body}` | A single item (picked by name) | That item's implementation body |
+| `#fill(scope){body}` | An item set (`@all`/`@all_methods`/`@all_constants`/`@all_types`/`@all_required*`/`@all_default*`/a name list/`-name` exclusions) | A unified implementation body |
+| `#delegate(scope){target}` | A method set (`@all_methods`, etc.) | The delegation-target expression |
+| `#blanket(scope){wrapper list}` | The impl level (the whole trait × wrapper-type matrix) | Blanket delegation + wrapping depth |
 
-- **范围**轴已覆盖：单 item → item 集合 → impl 层（粒度递增）；
-- **内容**轴已覆盖：填体 → 委托 → 覆盖（处理方式递增）；
-- 参数域统一由 `parse_names_from_tokens` 解析（`,` 分隔、`@all` 系标记、
-  `-name` 排除），DSL 解析不进入；
-- **新指令 = 在形态空间内选新的（范围，内容）组合**——现有四指令已把
-  两个轴的高频组合占满；新组合须满足"用户自实现成本高"（固定模板不值钱）
-  才会被采纳（`#deref` 因此被拒：`#delegate(@all_methods){self.0}` +
-  `#Target{Inner}` 组合已覆盖且零新语法）。
+- The **scope** axis is covered: single item → item set → impl level (increasing granularity);
+- The **content** axis is covered: fill body → delegate → blanket (increasing processing power);
+- The argument domain is uniformly parsed by `parse_names_from_tokens` (`,`-separated, `@all` family markers, `-name` exclusions); DSL parsing never enters;
+- **A new directive = picking a new (scope, content) combination within the shape space** — the existing four directives already occupy all high-frequency combinations on the two axes; a new combination is adopted only when it satisfies "high cost for the user to implement by hand" (fixed templates are worthless) (`#deref` was therefore rejected: the `#delegate(@all_methods){self.0}` + `#Target{Inner}` combination already covers it with zero new syntax).
 
-## 错误机制
+## Error Handling
 
-所有 DSL 语法错误均通过 `compile_error!()` 输出友好的编译错误，**永不 panic**。
-两层分工，不合并：
+All DSL syntax errors emit friendly compile errors via `compile_error!()`, and the code **never panics**. Two layers with a division of labor, not merged:
 
-**嵌套深度护栏**（0.6.1）：嵌套组（`[[[...]]]`）与嵌套尖括号（`Vec<Vec<...>>`）
-超过 128 层报「嵌套深度超过 128 层」而非栈溢出（v0.1 承诺恢复；`angle_collect`
-在配对时计数，`MAX_NEST_DEPTH = 128`）。
+**Nesting-depth guard** (0.6.1): nested groups (`[[[...]]]`) and nested angle brackets (`Vec<Vec<...>>`) deeper than 128 levels report "nesting depth exceeds 128 levels" instead of a stack overflow (a promise restored from v0.1; `angle_collect` counts while pairing, `MAX_NEST_DEPTH = 128`).
 
-- **DSL 解析层**（parse/apply/codegen）：`Ty::Error` 变体在 AST 链中透传
-  （链式组合中途失败需要信号值），最终经 ToTokens 输出 `compile_error!`；
-- **入口层**（preprocess/expand）：`Result<_, TokenStream>` 经 `?` 传播，
-  由 `util/diagnostic.rs::compile_error_str` 统一构造。
+- **DSL parsing layer** (parse/apply/codegen): the `Ty::Error` variant passes through the AST chain (a failing chained combination needs a signal value), finally emitted as `compile_error!` via ToTokens;
+- **Entry layer** (preprocess/expand): `Result<_, TokenStream>` propagates via `?`, with the message uniformly constructed by `util/diagnostic.rs::compile_error_str`.
 
-## 测试矩阵
+## Testing Matrix
 
-四层：
+Four layers:
 
-| 目录        | 文件            | 用途                                                                                                                                                                         |
-|-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                                                         |
-| `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                                                          |
-| `tests/`    | `dsl.rs`        | 34 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承）                                     |
-| `tests/`    | `regression.rs` | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：23 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                                                          |
+| Directory | File | Purpose |
+|-----------|------|---------|
+| `examples/` | `quickstart.rs` | Runnable DSL main-feature demo (`cargo run --example quickstart`), 14 sections covering basic → complex scenarios |
+| `src/` | `fuzz.rs` | proptest property tests: random token sequences fed to `where_process` / `parse_item`, verifying "never panics on user input" (`cargo test --lib`) |
+| `tests/` | `dsl.rs` | 34 `#[test]`s covering semantic regression of core features (including where-clause inheritance, external path prefixes, macro-invocation boundaries, `unsafe fn` types, list subtraction `-`, `A<>` and same-name inheritance) |
+| `tests/` | `regression.rs` | 23 `#[test]`s covering corner cases dsl.rs doesn't touch: nested `>>`, path types, const generics, lifetimes, dyn + Send, path prefixes, array/slice builders, `batch_impl` vs `batch_trait!` consistency |
+| `tests/` | `ui.rs` | `trybuild` UI tests: 23 `compile_fail` fixtures locking down diagnostic wording + 1 `pass` fixture |
 
-运行：
+Running:
 
 ```bash
-cargo run --example quickstart       # 主特性 demo
-cargo test --lib                     # 单元测试 + fuzz
-cargo test --test dsl --test regression   # 功能与回归测试
-cargo test --test ui                  # 诊断 UI 测试
-# 重新生成 UI 快照：
+cargo run --example quickstart       # main-feature demo
+cargo test --lib                     # unit tests + fuzz
+cargo test --test dsl --test regression   # functional and regression tests
+cargo test --test ui                  # diagnostic UI tests
+# Regenerate the UI snapshots:
 TRYBUILD=overwrite cargo test --test ui
 ```
 
-## 发布流程
+## Release Process
 
-1. `CHANGELOG.md`（用户视角）与 `docs/dev-changelog.md`（开发者视角）各记
-   一条
-2. `cargo package` 验证打包（docs/ 目录随 git 跟踪自动入包）
+1. Add an entry to `CHANGELOG.md` (user perspective) and `docs/dev-changelog.md` (developer perspective) each
+2. `cargo package` to verify packaging (the docs/ directory is tracked by git and included automatically)
 3. `cargo publish`
 4. `git tag vX.Y.Z && git push origin vX.Y.Z`
 5. `gh release create vX.Y.Z --notes-file <notes>`

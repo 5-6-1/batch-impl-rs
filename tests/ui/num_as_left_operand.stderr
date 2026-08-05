@@ -9,7 +9,7 @@ error[E0428]: the name `T` is defined multiple times
   |
   = note: `T` must be defined only once in the type namespace of this module
 
-error: batch-impl: 数字 `0` 不能作为左侧操作数，只能出现在右侧（如 T^0）
+error: batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T^0)
  --> tests/ui/num_as_left_operand.rs:7:1
   |
 7 | #[batch_impl(0^T)]

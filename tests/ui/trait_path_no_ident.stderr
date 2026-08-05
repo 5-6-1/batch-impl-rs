@@ -1,4 +1,4 @@
-error: batch_trait! 中期望标识符作为 trait 名称
+error: batch_trait! expects an ident as the trait name
  --> tests/ui/trait_path_no_ident.rs:5:1
   |
 5 | batch_trait!(::);

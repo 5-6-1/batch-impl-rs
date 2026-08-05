@@ -1,62 +1,63 @@
-//! 运算层：`Apply` trait 与各 `Ty` 变体的运算符语义实现。
+//! Apply layer: the `Apply` trait and operator semantics for each `Ty` variant.
 
 pub(crate) mod apply_tuple;
 
-// [`Apply`] trait 定义二元运算 `A.apply(B)`：`^`（右结合）/ `-`（左结合）。
-// 各 `Ty` 变体分别实现 [`Apply::apply_help`]，承担其对应的组合语义——容器
-// 追加参数、引用包裹、并列列表笛卡尔积、元组长度展开（`()^N`、`(<Bound>)^N`）、
-// 关联参数生成等。**右操作数"结构上下文"的提前分发**（Array 分发 / Group 透明 /
-// WithCode、WithWhere 应用透传 / WithType 泛型外提 / Range 展开 / Error 透传）
-// 由 [`Apply::apply`] 的默认实现承担——所有 `Apply` 实现自动获得，无需重复。
+// The [`Apply`] trait defines the binary operation `A.apply(B)`: `^` (right-assoc) / `-` (left-assoc).
+// Each `Ty` variant implements [`Apply::apply_help`] with its combination semantics — containers
+// append args, references wrap, lists take a Cartesian product, tuples expand by length (`()^N`,
+// `(<Bound>)^N`), associated parameters are generated, etc. The **early dispatch of the right
+// operand's "structural context"** (Array dispatch / Group transparency / WithCode & WithWhere
+// passthrough / WithType generic hoisting / Range expansion / Error passthrough) lives in the
+// default [`Apply::apply`] — every `Apply` impl gets it for free, no repetition.
 //
-// 右操作数结构分发是 trait 契约。
+// Right-operand structural dispatch is part of the trait contract.
 
 use quote::quote;
 
 use crate::apply::apply_tuple::map_range;
 use crate::ast::*;
 
-/// 用消息生成包含 `compile_error!` 的 `Ty::Error`
+/// Build a `Ty::Error` containing `compile_error!` with the given message
 pub(crate) fn err_ty(msg: &str) -> Ty {
     TyError(quote! { compile_error!(#msg); }).into()
 }
 
-/// 展开产物数量上限校验：`len` 超过 [`MAX_EXPAND`] 时返回 `compile_error!` 信号。
-/// 用于 `^N` / 笛卡尔积 / 范围批量等可能指数级膨胀的展开点。
+/// Expansion-count check: returns a `compile_error!` signal when `len` exceeds [`MAX_EXPAND`].
+/// Used where expansion can blow up exponentially: `^N` / Cartesian products / ranges
 pub(crate) fn check_expand_limit(what: &str, len: usize) -> Option<Ty> {
     (len > MAX_EXPAND).then(|| {
         err_ty(&format!(
-            "batch-impl: `{}` 的展开产物数量 {} 超过上限 {}，可能是指数/范围/笛卡尔积误写",
+            "batch-impl: `{}` expands to {} items (limit {}); likely exponential/range/Cartesian typo",
             what, len, MAX_EXPAND
         ))
     })
 }
 
-/// 类型表达式上的二元运算：`A^B` / `A-B` 中，`A.apply(B)` 产出组合后的 `Ty`。
+/// Binary operation on type expressions: in `A^B` / `A-B`, `A.apply(B)` combines into a `Ty`.
 ///
-/// 需要 `Clone`（默认的数组分发 / 范围展开要复用左操作数 `self`）与
-/// `Into<Ty> + Into<Box<Ty>> + Into<Option<Box<Ty>>>`（把左操作数装回类型 /
-/// 目标类型——裸代码块、裸 where 作为右操作数时，以及 `TyPrimitive` 等变体
-/// 把 `self` 转为泛型基座时使用）。
+/// Needs `Clone` (default Array dispatch / Range expansion reuse left operand `self`) and
+/// `Into<Ty> + Into<Box<Ty>> + Into<Option<Box<Ty>>>` (to put the left operand back into a type /
+/// target type — used for bare code blocks and bare where as the right operand, and when variants
+/// like `TyPrimitive` convert `self` into a generic base).
 pub(crate) trait Apply:
     Clone + Into<Ty> + Into<Box<Ty>> + Into<Option<Box<Ty>>>
 {
-    /// 右操作数"结构上下文"提前分发（默认实现，所有 `Apply` 实现自动获得）。
+    /// Early dispatch for the right operand's "structural context" (default impl, free to all).
     ///
-    /// `o` 为 Array/Group/WithCode/WithWhere/WithType/Range/Error 时在此处理
-    /// （数组分发 / Group 透明 / 应用透传 / 泛型外提 / 范围展开 / 错误透传），
-    /// 否则委托给 [`Apply::apply_help`]——因此 `apply_help` 的右操作数
-    /// **恒为普通类型**。
+    /// When `o` is Array/Group/WithCode/WithWhere/WithType/Range/Error, it is handled here
+    /// (Array dispatch / Group transparency / passthrough / generic hoisting / Range expansion / Error
+    /// passthrough); otherwise it delegates to [`Apply::apply_help`] — so `apply_help`'s right operand is
+    /// **always a plain type**.
     fn apply(self, o: Ty) -> Ty {
         match o {
-            // 数组分发：左操作数 apply 到右数组的每个元素。
-            // 数组-数组链式（`[A,B]^[C,D]^[E,F]`）的产物按**叶子数**校验上限——
-            // 中间数组每个都小，但叶子数随 `^` 链指数增长。
+            // Array dispatch: apply the left operand to each element of the right array.
+            // Array-array chains (`[A,B]^[C,D]^[E,F]`) check the limit by **leaf count** —
+            // each intermediate array is small, but leaf count grows exponentially along the `^` chain.
             Ty::Array(arr) => {
                 let result: Vec<Ty> =
                     arr.0.into_iter().map(|e| self.clone().apply(e)).collect();
                 if let Some(e) = check_expand_limit(
-                    "并列列表链式展开",
+                    "parallel-list chain expansion",
                     result.iter().map(count_leaves).sum(),
                 ) {
                     return e;
@@ -72,9 +73,9 @@ pub(crate) trait Apply:
                 Some(inner) => TyWithWhere(self.apply(*inner).into(), ww.1).into(),
                 None => TyWithWhere(self.into(), ww.1).into(),
             },
-            // 右操作数为 `WithType`（如 `()^N` 的 fresh 泛型元组）时，
-            // 把泛型声明外提到外层：`T^<A>X` => `<A>(T^X)`，
-            // 避免 `T<<A>X>` 在类型中泄漏泛型声明。
+            // When the right operand is `WithType` (e.g. the fresh generic tuple of `()^N`),
+            // hoist the generic declaration outward: `T^<A>X` => `<A>(T^X)`,
+            // so the type does not leak a generic declaration as `T<<A>X>`.
             Ty::WithType(wt) => TyWithType(wt.0, self.apply(*wt.1).into()).into(),
             Ty::Error(e) => e.into(),
             Ty::Range(TyRange { start, end, inclusive }) => {
@@ -86,8 +87,8 @@ pub(crate) trait Apply:
         }
     }
 
-    /// 左操作数"语义"：各变体实现自己的组合规则。
-    /// 由默认 [`Apply::apply`] 保证 `o` 为普通类型（非结构上下文）。
+    /// Left-operand "semantics": each variant implements its own combination rule.
+    /// The default [`Apply::apply`] guarantees `o` is a plain type (not a structural context).
     fn apply_help(self, o: Ty) -> Ty;
 }
 
@@ -117,9 +118,10 @@ impl Apply for Ty {
 }
 
 impl Apply for TyWithPrefix {
-    /// `&^T` => `&T`；`*const^T` => `*const T`；`self^T` => `T`；`unsafe^T` => `unsafe T`（unsafe impl 标记）
+    /// `&^T` => `&T`; `*const^T` => `*const T`; `self^T` => `T`; `unsafe^T` => `unsafe T`
+    /// (unsafe impl marker)
     ///
-    /// `&T^U` => `&(T^U)`、`unsafe T^U` => `unsafe (T^U)`：修饰符透传到内部类型。
+    /// `&T^U` => `&(T^U)`, `unsafe T^U` => `unsafe (T^U)`: modifiers pass through to the inner type.
     fn apply_help(self, o: Ty) -> Ty {
         match self.0 {
             // &^T=>&T / unsafe^T=>unsafe T
@@ -141,7 +143,7 @@ impl Apply for TyWithPrefix {
 }
 
 impl Apply for TyPrimitive {
-    /// `T^U` => `T<U>`，`T^<A,B>` => `T<A,B>`
+    /// `T^U` => `T<U>`; `T^<A,B>` => `T<A,B>`
     fn apply_help(self, o: Ty) -> Ty {
         match o {
             Ty::TypeParam(tp) => TyGeneric(self.into(), tp).into(),
@@ -151,7 +153,7 @@ impl Apply for TyPrimitive {
 }
 
 impl Apply for TyGeneric {
-    /// `T<A>^B` => `T<A,B>`；`T<A>^<B,C>` => `T<A,B,C>`
+    /// `T<A>^B` => `T<A,B>`; `T<A>^<B,C>` => `T<A,B,C>`
     fn apply_help(self, o: Ty) -> Ty {
         let mut tp = self.1;
         match o {
@@ -163,7 +165,7 @@ impl Apply for TyGeneric {
 }
 
 impl Apply for TyTrait {
-    /// `Trait<T>^U` => `WithTrait(Trait<T>, U)`（trait 泛型应用到目标类型上）
+    /// `Trait<T>^U` => `WithTrait(Trait<T>, U)` (trait generics applied to the target type)
     fn apply_help(self, o: Ty) -> Ty {
         match o {
             Ty::TypeParam(rhs) => {
@@ -177,8 +179,8 @@ impl Apply for TyTrait {
 }
 
 impl Apply for TyArray {
-    /// `[A,B]^C` => `[A^C, B^C]`（右操作数为普通类型；`[A,B]^[C,D]` 的笛卡尔积
-    /// 由默认 `apply` 的 Array 分支逐层分发 + `expand` 摊平）
+    /// `[A,B]^C` => `[A^C, B^C]` (right operand is plain; the Cartesian product of `[A,B]^[C,D]`
+    /// is dispatched layer-wise by the default `apply` Array branch and flattened via `expand`)
     fn apply_help(self, o: Ty) -> Ty {
         let result = self.0.into_iter().map(|e| e.apply(o.clone())).collect();
         TyArray(result).into()

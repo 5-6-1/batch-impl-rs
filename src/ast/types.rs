@@ -13,7 +13,8 @@ pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
 /// `(...)`
 pub(crate) struct TyGroup(pub(crate) Box<Ty>);
 #[derive(Clone, Debug)]
-/// `[]`（种子）/ `[T]`（切片）/ `[T; N]`（定长数组）— 元素 `None` 表示空 `[]`，长度 `None` 表示切片
+/// `[]` (seed) / `[T]` (slice) / `[T; N]` (fixed-length array) — `None` element
+/// means empty `[]`, `None` length means slice
 pub(crate) struct TyPrimitiveArray(
     pub(crate) Option<Box<Ty>>,
     pub(crate) Option<TokenStream>,
@@ -28,8 +29,8 @@ pub(crate) struct TyGeneric(pub(crate) Box<Ty>, pub(crate) TyTypeParam);
 #[derive(Clone, Debug)]
 /// `trait-name<...>`
 pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
-/// `<T: Clone, U, Item=V>` 泛型参数列表：positional 参数（可带 bound）+
-/// 关联类型绑定。
+/// `<T: Clone, U, Item=V>` generic parameter list: positional params (with optional
+/// bounds) + associated type bindings.
 #[derive(Clone, Debug)]
 pub(crate) struct TyTypeParam {
     pub(crate) params: Vec<(TokenStream, Option<Ty>)>,
@@ -37,7 +38,7 @@ pub(crate) struct TyTypeParam {
 }
 
 impl TyTypeParam {
-    /// 构造单个无 bound 参数（`T^U` 中 `U` 变为 `<U>`）
+    /// Constructs a single unbound param (`U` in `T^U` becomes `<U>`)
     pub(crate) fn single(arg: &Ty) -> Self {
         TyTypeParam {
             params: vec![(arg.to_token_stream(), None)],
@@ -45,29 +46,30 @@ impl TyTypeParam {
         }
     }
 
-    /// 追加一个无 bound 参数（`T<A>^B` 中 `B` 追加到 `<A,B>`）
+    /// Appends an unbound param (`B` in `T<A>^B` appends to `<A,B>`)
     pub(crate) fn push_arg(&mut self, arg: &Ty) {
         self.params.push((arg.to_token_stream(), None));
     }
 
-    /// 合并另一个参数列表（`T<A>^<B,C>` 中 `<B,C>` 的
-    /// params + bindings 合并进来）
+    /// Merges another param list (the `<B,C>` in `T<A>^<B,C>` has its
+    /// params + bindings merged in)
     pub(crate) fn extend(&mut self, other: TyTypeParam) {
         self.params.extend(other.params);
         self.bindings.extend(other.bindings);
     }
 }
 #[derive(Clone, Debug)]
-/// `{...}` — 附着在类型上的代码块
+/// `{...}` — a code block attached to a type
 pub(crate) struct TyCodeBlock(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
-/// `{...}`（裸）或 `T { code }` — 内层 `None` 表示裸代码块。
-/// 裸代码块在 codegen 阶段**原样作为顶层 item 注入**输出（仅服务于"指令
-/// 独立成整个 spec"的退化形态：开放指令 `#name(args){body}` 展开的
-/// `{name!{...}}` 块附着到类型时是普通 impl body，独立时经此路径顶层输出）。
+/// `{...}` (bare) or `T { code }` — inner `None` means a bare code block. In codegen
+/// a bare block is emitted verbatim as a top-level item via this path (for the
+/// degenerate form of an instruction alone as the whole spec: the `{name!{...}}` block
+/// from `#name(args){body}` is a normal impl body when attached to a type, and a
+/// standalone top-level item here).
 pub(crate) struct TyWithCode(pub(crate) Option<Box<Ty>>, pub(crate) TyCodeBlock);
 #[derive(Copy, Clone, Debug)]
-/// `& &mut *const *mut self unsafe` — 类型前缀修饰符
+/// `& &mut *const *mut self unsafe` — type prefix modifiers
 pub(crate) enum TyPrefix {
     Ref,
     RefMut,
@@ -78,22 +80,22 @@ pub(crate) enum TyPrefix {
 }
 
 #[derive(Clone, Debug)]
-/// 裸前缀（`&`/`unsafe` 等）或 `prefix T` — 内层 `None` 表示裸前缀
+/// Bare prefix (`&`/`unsafe` etc.) or `prefix T` — inner `None` means a bare prefix
 pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
 #[derive(Clone, Debug)]
-/// 裸 `fn` / `fn(...)` / `fn(...)->T` — 参数 `None` 表示尚未填入；
-/// 第三字段 `is_unsafe`：`unsafe fn(...)` 类型的标记（`unsafe` 修饰 fn 类型本身，
-/// 区别于 `unsafe^T` 的 unsafe impl 标记）
+/// Bare `fn` / `fn(...)` / `fn(...)->T` — params `None` means not filled yet; the
+/// third field `is_unsafe` marks `unsafe fn(...)` types (`unsafe` qualifies the fn
+/// type itself, as opposed to `unsafe^T` marking an unsafe impl)
 pub(crate) struct TyFn(
     pub(crate) Option<Vec<Ty>>,
     pub(crate) Option<Box<Ty>>,
     pub(crate) bool,
 );
 #[derive(Clone, Debug)]
-/// `#[...]` — 属性本身
+/// `#[...]` — the attribute itself
 pub(crate) struct TyAttr(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
-/// `#[...]`（裸）或 `#[...] T` — 内层 `None` 表示裸属性
+/// `#[...]` (bare) or `#[...] T` — inner `None` means a bare attribute
 pub(crate) struct TyWithAttr(pub(crate) TyAttr, pub(crate) Option<Box<Ty>>);
 #[derive(Copy, Clone, Debug)]
 /// `N`
@@ -112,25 +114,28 @@ pub(crate) struct TyWithTrait(pub(crate) TyTrait, pub(crate) Box<Ty>);
 /// `<T...> T` — type param applied to non-TypeParam right
 pub(crate) struct TyWithType(pub(crate) TyTypeParam, pub(crate) Box<Ty>);
 #[derive(Clone, Debug)]
-/// 编译期错误信号 — 当 DSL 语义不合法时产生，最终输出 `compile_error!`
+/// Compile-time error signal — produced on invalid DSL semantics, finally emits `compile_error!`
 pub(crate) struct TyError(pub(crate) TokenStream);
 
 #[derive(Clone, Debug)]
 pub(crate) struct TyWhere(pub(crate) TokenStream);
 
 #[derive(Clone, Debug)]
-/// 裸 `where{...}` 或 `T where{...}` — 内层 `None` 表示裸 where 后缀
+/// Bare `where{...}` or `T where{...}` — inner `None` means a bare where suffix
 pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 
-/// DSL 解析输出的类型表达式 AST。
+/// The type expression AST produced by DSL parsing.
 ///
-/// 节点分三类：
-/// - **叶子**（Primitive / Num / Range）：不可再展开的原子
-/// - **包装**（WithType / WithTrait / WithPrefix / WithCode / WithWhere / WithAttr / Fn）：携带元数据，在 codegen 阶段被拆解
-/// - **容器**（Array / Tuple / Group / PrimitiveArray）：可展开为多个叶子的集合
+/// Nodes fall into three categories:
+/// - **Leaf** (Primitive / Num / Range): an atomic that cannot expand further
+/// - **Wrapper** (WithType / WithTrait / WithPrefix / WithCode / WithWhere /
+///   WithAttr / Fn): carries metadata, dismantled in the codegen phase
+/// - **Container** (Array / Tuple / Group / PrimitiveArray): expands into leaves
 ///
-/// 前缀/后缀类包装（WithPrefix / WithCode / WithAttr / WithWhere / Fn）的内层用
-/// `Option<Box<Ty>>` 表示"暂未附着类型"的裸状态，避免枚举中再存半成品变体。
+/// Prefix/suffix wrappers (WithPrefix / WithCode / WithAttr / WithWhere) use
+/// `Option<Box<Ty>>` for the bare "no type attached yet" state, avoiding half-built
+/// variants; `Fn` tracks its params as `Option<Vec<Ty>>` (bare `fn` = `None`) with the
+/// return type as `Option<Box<Ty>>`.
 #[derive(Clone, Debug)]
 pub(crate) enum Ty {
     Array(TyArray),
@@ -152,15 +157,15 @@ pub(crate) enum Ty {
     Range(TyRange),
     Error(TyError),
 }
-/// [`Ty::expand`] 的结果：`Leaf` = 不可再展开的叶子；`Many` = 展开为多个节点。
+/// Result of [`Ty::expand`]: `Leaf` = non-expandable leaf; `Many` = expands into multiple nodes.
 pub(crate) enum Expand {
     Leaf(Ty),
     Many(Vec<Ty>),
 }
 
-/// 包装变体的公共"递归内层并重包"逻辑：`make` 由内层重建包装；
-/// `inner` 为 `None`（裸包装）时经 `make(None)` 原样交还（叶子）。
-/// 供 `Ty::expand` 的 WithCode/WithWhere/WithAttr/WithPrefix 臂复用。
+/// Shared "recurse inner and rewrap" logic for wrapper variants: `make` rebuilds
+/// the wrapper from the inner; when `inner` is `None` (bare wrapper), `make(None)`
+/// returns it as-is (a leaf). Reused by the WithCode/WithWhere/WithAttr/WithPrefix arms.
 fn expand_wrapped<F>(make: F, inner: Option<Box<Ty>>) -> Expand
 where
     F: Fn(Option<Box<Ty>>) -> Ty,
@@ -176,7 +181,8 @@ where
     }
 }
 
-/// 同 [`expand_wrapped`]，但内层必然存在（`WithType`/`WithTrait` 的盒子非 `Option`）。
+/// Like [`expand_wrapped`], but the inner always exists (`WithType`/`WithTrait`
+/// boxes are non-`Option`).
 fn expand_rebuild<F>(make: F, inner: Ty) -> Expand
 where
     F: Fn(Box<Ty>) -> Ty,
@@ -190,13 +196,13 @@ where
 }
 
 impl Ty {
-    /// 展开并列列表类节点：Array 直接拆包，包装类（With*）递归内层并重包。
+    /// Expands parallel-list nodes: `Array` unwraps directly, wrappers (With*) recurse.
     ///
-    /// [`Expand::Leaf`] = 不可再展开的叶子，节点原样交还（收集为单个 impl）；
-    /// [`Expand::Many`] = 展开为多个节点。
-    /// 包装类对数组透明透传，使 `<T>[A,B]` 展开为 `<T>A, <T>B`
-    /// （泛型声明不重复进单个 impl）；WithAttr/WithPrefix 的透传是防御性的
-    /// （数组分发已在 apply 层完成，保持统一透传防未来回归）。
+    /// [`Expand::Leaf`] = non-expandable leaf returned as-is (collected as one impl);
+    /// [`Expand::Many`] = expands into multiple nodes. Wrappers pass arrays through
+    /// transparently: `<T>[A,B]` becomes `<T>A, <T>B` (generic declarations are not
+    /// repeated into a single impl); WithAttr/WithPrefix passthrough is defensive
+    /// (array dispatch already happens in apply; uniform passthrough prevents regressions).
     pub(crate) fn expand(self) -> Expand {
         match self {
             Ty::Array(ty) => Expand::Many(ty.0),
@@ -284,10 +290,10 @@ impl_from_for_ty! {
     TyError => Error,
 }
 
-/// 运算符优先级层级（从低到高：`;` < `,` < `-` < `^`，`Prim` 为无运算符的原子级）。
+/// Operator precedence levels (low→high: `;` < `,` < `-` < `^`; `Prim` = atomic, no operator).
 ///
-/// 每个层级定义一组"停止字符"：`parse_operand` 在该层级扫描时遇到这些字符就截断，
-/// 然后把截出的切片交给更高优先级递归解析。
+/// Each level defines "stop characters": when scanning at that level, `parse_operand`
+/// truncates at them, then hands the truncated slice to higher-precedence recursion.
 #[derive(Copy, Clone)]
 pub(crate) enum Op {
     Semi,
@@ -298,7 +304,7 @@ pub(crate) enum Op {
 }
 
 impl Op {
-    /// 更高一级的优先级
+    /// The next-higher precedence level
     pub(crate) fn next(self) -> Option<Op> {
         match self {
             Op::Semi => Some(Op::Comma),
@@ -309,10 +315,10 @@ impl Op {
         }
     }
 
-    /// 该优先级下会截断操作数的字符
+    /// Characters at which the operand is truncated at this level
     pub(crate) fn stop_chars(self) -> &'static [char] {
         match self {
-            // Semi 同时停在 `,`：项边界与段落边界都由它截出，交给调用方区分
+            // Semi also stops at `,`: it cuts item/paragraph boundaries; the caller distinguishes them
             Op::Semi => &[',', ';'],
             Op::Comma => &[','],
             Op::Dash => &['-', ','],
@@ -322,13 +328,13 @@ impl Op {
     }
 }
 
-/// 单个展开操作（`^N` / 笛卡尔积 / 范围批量）产物数量上限。
-/// 防止 `(T1,..,Tk)^N`、`[A,B]^[C,D]^[E,F]` 等误写指数级膨胀挂起编译
-/// （对齐 v0.1 的 1024 上限）。
+/// Upper bound on the products of a single expansion (`^N` / cartesian / range batch).
+/// Prevents exponential blowups like `(T1,..,Tk)^N`, `[A,B]^[C,D]^[E,F]` from hanging
+/// compilation (aligned with the v0.1 cap of 1024).
 pub(crate) const MAX_EXPAND: usize = 1024;
 
-/// 统计 `Ty` 树的叶子数（`Array` 逐元素累加，其余计 1）。
-/// 用于数组链式分发的产物上限校验。
+/// Counts leaves in a `Ty` tree (`Array` sums per element, everything else counts 1).
+/// Used to validate the product cap of chained array dispatch.
 pub(crate) fn count_leaves(ty: &Ty) -> usize {
     match ty {
         Ty::Array(a) => a.0.iter().map(count_leaves).sum(),
@@ -340,12 +346,14 @@ thread_local! {
     static FRESH_COUNTER: Cell<usize> = 0.into();
 }
 
-/// 重置 fresh 参数计数器（每个宏入口调用一次，确保生成的泛型名不跨宏冲突）
+/// Resets the fresh param counter (called once per macro entry so generated
+/// generic names do not collide across macros)
 pub(crate) fn reset_fresh_counter() {
     FRESH_COUNTER.set(0);
 }
 
-/// 生成一个不与用户代码冲突的全新泛型参数名（`_Param_0_BatchGen_`、`_Param_1_BatchGen_` ……）
+/// Generates a fresh generic param name that never collides with user code
+/// (`_Param_0_BatchGen_`, `_Param_1_BatchGen_`, ...)
 pub(crate) fn fresh_param() -> TokenStream {
     FRESH_COUNTER.with(|c| {
         let n = c.get();

@@ -1,4 +1,4 @@
-error: batch-impl: 继承的 where 谓词 `[T; N] : Sized` 引用形参 `N`，impl 未声明同名参数；请声明 `N` 或手写 where
+error: batch-impl: inherited where predicate `[T; N] : Sized` references parameter `N`, but the impl declares no such name; declare `N` or hand-write the where clause
  --> tests/ui/where_const_ref.rs:4:1
   |
 4 | #[batch_impl(<T> ArrBad<T, 5> ())]

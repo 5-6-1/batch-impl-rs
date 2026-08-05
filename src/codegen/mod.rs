@@ -1,9 +1,9 @@
-//! 生成层：impl 块代码生成。
+//! Codegen layer: impl block generation.
 //!
-//! 把展开摊平后的叶子 [`Ty`]（见 `lib::parse_batch_trait_entry`）
-//! 递归拆解为 [`ImplParts`]（impl 泛型、trait 泛型、关联类型绑定、
-//! 目标类型、body、属性、unsafe 标记），再渲染为最终
-//! `impl<...> Trait<...> for Target { ... }` 块。
+//! Recursively dismantles each flattened leaf [`Ty`] (see `lib::parse_batch_trait_entry`)
+//! into an [`ImplParts`] (impl generics, trait generics, associated type bindings,
+//! target type, body, attrs, unsafe flag), then renders the final
+//! `impl<...> Trait<...> for Target { ... }` block.
 
 mod impl_parts;
 pub(crate) use impl_parts::*;
@@ -15,19 +15,20 @@ use crate::util::{compile_err, compile_error_str};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
 
-/// 生成一个 impl 块（对摊平后的单个叶子 `Ty`）。
+/// Generates one impl block (for a single flattened leaf `Ty`).
 ///
-/// `trait_bounds`：trait 泛型形参列表（按位置对应 spec 中的 trait 实参）。
-/// 对**未写 bound** 的 impl 泛型参数按位置 + 同名继承（`trait Foo<T: Clone>` +
-/// `<T> Foo<T>` → `impl<T: Clone>`）；异名 / bound 引用未声明形参名 → 报错，
-/// 用户已写 bound 的参数不干预（sub trait 蕴含宏无法推理，写了 = 用户负责）。
+/// `trait_bounds`: the trait's generic param list (positionally matching the spec's
+/// trait arguments). Impl generics **without a bound** inherit by position + same name
+/// (`trait Foo<T: Clone>` + `<T> Foo<T>` → `impl<T: Clone>`); mismatched names or
+/// bounds referencing undeclared params error out; user-bounded params are untouched
+/// (the sub-trait macro cannot infer; writing a bound = user's responsibility).
 ///
-/// 三个出口：
-/// - `Ty::Error` → 直接输出 `compile_error!` 流；
-/// - 裸代码块 `WithCode(None, ...)`（开放指令扩展产物）→ 原样作为顶层 item 注入，
-///   不包进 impl；
-/// - 其余 → 拆解元数据（`extract_impl_parts`）→ 嵌套泛型外提
-///   （`hoist_type_params`）→ 构建泛型参数 / trait 泛型 / impl body → 渲染 `quote!` 块。
+/// Three exits:
+/// - `Ty::Error` → output the `compile_error!` stream directly;
+/// - bare code block `WithCode(None, ...)` (an open-instruction expansion product) →
+///   injected verbatim as a top-level item, not wrapped in an impl;
+/// - otherwise → dismantle metadata (`extract_impl_parts`) → hoist nested generics
+///   (`hoist_type_params`) → build generics / trait generics / impl body → render `quote!`
 pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
     trait_bounds: &TraitBounds,
@@ -35,23 +36,24 @@ pub(crate) fn generate_impl(
     if let Ty::Error(e) = ty {
         return e.0;
     }
-    // 裸代码块：`{...}` 作为整个 spec 时原样输出为顶层 item（不包进 impl 块）
+    // bare code block: `{...}` as the whole spec → emit verbatim as a top-level item
+    // (not wrapped in an impl block)
     if let Ty::WithCode(TyWithCode(None, code)) = &ty {
         return code.0.clone();
     }
     let mut parts = extract_impl_parts(ty);
 
-    // 递归外提目标类型中嵌套的 `WithType`（fresh 泛型），避免 `<A>` 泄漏
+    // hoist nested `WithType` (fresh generics) out of the target type, preventing `<A>` leaks
     let mut nested_params = vec![];
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
 
-    // 继承 trait 泛型 bound：同名继承/异名报错规则见 trait_bounds 模块文档。
+    // inherit trait generic bounds: same-name inheritance vs. mismatch errors; see trait_bounds docs
     let mut errs: Vec<TokenStream> = vec![];
     let trait_args: Vec<String> =
         parts.trait_generic_names.iter().map(|n| n.to_string()).collect();
-    // const 形参在 parse 层的名字是 `const N`（渲染 `const N: usize` 需要关键字），
-    // 归一为 `N` 以匹配 trait 实参与 where 谓词引用
+    // const params are named `const N` in the parse layer (the keyword is needed to
+    // render `const N: usize`); normalize to `N` to match trait args and where-predicate refs
     let impl_name_streams: Vec<TokenStream> = parts
         .impl_generics
         .iter()
@@ -68,7 +70,7 @@ pub(crate) fn generate_impl(
             continue;
         }
         let key = name.to_string();
-        // 该参数作为 trait 实参出现的位置（未出现 = 与 trait 无关，不继承）
+        // where this param appears as a trait argument (absent = trait-unrelated, no inherit)
         let Some(pos) = trait_args.iter().position(|a| a == &key) else {
             continue;
         };
@@ -80,8 +82,8 @@ pub(crate) fn generate_impl(
         };
         if tp.name != key {
             errs.push(compile_err!(
-                "batch-impl: trait 实参 `{}` 对应形参 `{}`（bound `{}`），\
-                 自动继承要求同名；请改名为 `{}` 或手写 bound",
+                "batch-impl: trait argument `{}` maps to parameter `{}` (bound `{}`); automatic \
+                 inheritance requires the same name; rename to `{}` or write the bound manually",
                 key,
                 tp.name,
                 b,
@@ -91,8 +93,8 @@ pub(crate) fn generate_impl(
         }
         if let Some(r) = tp.refs.iter().find(|r| !impl_names.contains(*r)) {
             errs.push(compile_err!(
-                "batch-impl: 继承的 bound `{}` 引用形参 `{}`，impl 未声明同名参数；\
-                 请声明 `{}` 或手写 bound",
+                "batch-impl: inherited bound `{}` references parameter `{}`, but the impl declares \
+                 no such name; declare `{}` or write the bound manually",
                 b,
                 r,
                 r
@@ -101,12 +103,12 @@ pub(crate) fn generate_impl(
         }
         *bound = Some(Ty::Primitive(TyPrimitive(b.clone())));
     }
-    // 未合并的 where 谓词（复合谓词 / 生命周期谓词）：引用检查后附加到 impl where
+    // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
     for (pred, refs) in &trait_bounds.extra_predicates {
         if let Some(r) = refs.iter().find(|r| !impl_names.contains(*r)) {
             errs.push(compile_err!(
-                "batch-impl: 继承的 where 谓词 `{}` 引用形参 `{}`，\
-                 impl 未声明同名参数；请声明 `{}` 或手写 where",
+                "batch-impl: inherited where predicate `{}` references parameter `{}`, \
+                 but the impl declares no such name; declare `{}` or hand-write the where clause",
                 pred,
                 r,
                 r
@@ -115,7 +117,7 @@ pub(crate) fn generate_impl(
         }
         parts.where_clauses.push(pred.clone());
     }
-    // where 谓词宏元层替换（`@N` → impl 泛型第 N 位、`@trait` → trait 名）
+    // where-predicate macro-meta replacement (`@N` → impl generic N, `@trait` → trait name)
     let mut where_resolved: Vec<TokenStream> = vec![];
     for pred in &parts.where_clauses {
         match resolve_where_at(pred, &impl_name_streams, trait_name) {
@@ -126,12 +128,12 @@ pub(crate) fn generate_impl(
     if !errs.is_empty() {
         return errs.into_iter().collect();
     }
-    let parts = parts; // 后续只用 where_resolved，不再改 parts
+    let parts = parts; // only where_resolved is used afterwards; parts is no longer mutated
 
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
 
-    // impl 泛型参数（带 bound）
+    // impl generic params (with bounds)
     let impl_gen = if parts.impl_generics.is_empty() {
         quote!()
     } else {
@@ -143,7 +145,7 @@ pub(crate) fn generate_impl(
         quote!(<#(#params),*>)
     };
 
-    // trait 泛型参数（仅名字）
+    // trait generic params (names only)
     let trait_gen = if parts.trait_generic_names.is_empty() {
         quote!()
     } else {
@@ -151,10 +153,10 @@ pub(crate) fn generate_impl(
         quote!(<#(#names),*>)
     };
 
-    // 目标类型
+    // target type
     let target = &parts.target_type;
 
-    // impl body：关联类型 + 用户 body
+    // impl body: associated types + user body
     let mut body_tokens = vec![];
     for (name, value) in &parts.associated_types {
         body_tokens.push(quote!(type #name = #value;));
@@ -163,10 +165,10 @@ pub(crate) fn generate_impl(
         body_tokens.push(body.clone());
     }
 
-    // 属性
+    // attributes
     let attrs = parts.attrs;
 
-    // where 子句：多条按逗号拼接，无 where 则空（谓词已由 resolve_where_at 替换）
+    // where clause: join predicates with commas; empty if no where (resolve_where_at already ran)
     let where_clause = if where_resolved.is_empty() {
         quote!()
     } else {
@@ -182,9 +184,10 @@ pub(crate) fn generate_impl(
     }
 }
 
-/// where 谓词中的宏元层位置引用：`@N` → impl 泛型第 N 位名字、`@trait` → trait 名。
-/// `@N` 越界或 `@` 后非位置数字/`@trait` 报错。blanket 包装 where 已预替换，此处
-/// 只处理用户 where 谓词（元组/普通 spec——`()^2 where{@0: Clone}`、`<T> where{@0: X}`）。
+/// Macro-meta position references in where predicates: `@N` → the N-th impl generic
+/// name, `@trait` → the trait name. `@N` out of range or a non-position digit / other
+/// token after `@` errors. Blanket-wrapped where is pre-resolved; only user where
+/// predicates are handled here (tuple/normal specs — `()^2 where{@0: Clone}`, `<T> where{@0: X}`).
 fn resolve_where_at(
     pred: &TokenStream, impl_names: &[TokenStream], trait_name: &TokenStream,
 ) -> Result<TokenStream, TokenStream> {
@@ -198,11 +201,11 @@ fn resolve_where_at(
             match tokens.get(i + 1) {
                 Some(TokenTree::Literal(lit)) => {
                     let idx: usize = lit.to_string().parse().map_err(|_| {
-                        compile_error_str("batch-impl: where 谓词中 `@` 后必须是位置数字（如 `@0`）")
+                        compile_error_str("batch-impl: `@` in a where predicate must be followed by a position digit (e.g. `@0`)")
                     })?;
                     let Some(name) = impl_names.get(idx) else {
                         return Err(compile_err!(
-                            "batch-impl: where 谓词中 `@{}` 越界（impl 泛型共 {} 个，索引从 0 起）",
+                            "batch-impl: `@{}` out of range in a where predicate (impl has {} generics, indexed from 0)",
                             idx,
                             impl_names.len()
                         ));
@@ -216,7 +219,7 @@ fn resolve_where_at(
                 }
                 _ => {
                     return Err(compile_error_str(
-                        "batch-impl: where 谓词中 `@` 后必须是位置数字（如 `@0`）或 `@trait`",
+                        "batch-impl: `@` in a where predicate must be a position digit (e.g. `@0`) or `@trait`",
                     ));
                 }
             }
@@ -234,9 +237,10 @@ mod tests {
     use crate::analyze::extract_trait_bounds;
     use syn::parse_quote;
 
-    /// `WhereArr<>` 展开场景：impl 泛型 `[T, const N: usize]`（parse 层名字
-    /// 为 `const N`，渲染需关键字）、trait 实参 `[T, N]`、谓词 `[T; N]: Sized`
-    /// 引用 N——归一化后检查通过，展开无 compile_error（防 IDE/旧产物误报回归）
+    /// `WhereArr<>` expansion: impl generics `[T, const N: usize]` (parse-layer name is
+    /// `const N`; the keyword is needed to render), trait args `[T, N]`, predicate
+    /// `[T; N]: Sized` referencing N — after normalization the check passes and the
+    /// expansion has no compile_error (regression guard against IDE/stale false positives)
     #[test]
     fn const_param_where_predicate_no_error() {
         let trait_def: syn::ItemTrait = parse_quote!(
@@ -273,15 +277,15 @@ mod tests {
         let out = generate_impl(impl_ty, &quote!(WhereArr), false, &tb).to_string();
         assert!(
             !out.contains("compile_error"),
-            "展开不应含 compile_error：{out}"
+            "expansion must not contain compile_error: {out}"
         );
         assert!(
             out.contains("where [T ; N] : Sized"),
-            "缺少 where 谓词：{out}"
+            "missing where predicate: {out}"
         );
         assert!(
             out.contains("impl < T , const N : usize > WhereArr < T , N >"),
-            "impl 泛型异常：{out}"
+            "unexpected impl generics: {out}"
         );
     }
 }

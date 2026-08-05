@@ -1,19 +1,22 @@
-//! trait 泛型 bound 继承的真相源：从 trait 定义提取形参映射。
+//! Source of truth for trait generic bound inheritance: extract the param mapping from the
+//! trait definition.
 //!
-//! 供 codegen 对**未写 bound 的 impl 泛型参数**按位置 + 同名继承
-//! （`trait Foo<T: Clone>` + `<T> Foo<T>` → `impl<T: Clone>`）。
+//! Lets codegen inherit, by position + name, bounds for **impl generic params without
+//! written bounds** (`trait Foo<T: Clone>` + `<T> Foo<T>` → `impl<T: Clone>`).
 //!
-//! trait 级 where 子句的处理：
-//! - **单一形参谓词**（`trait Foo<T> where T: Clone`，左侧为裸形参名）→
-//!   合并进对应位置的 bound（内联 + where 拼接），`A<>` 照抄同样带上；
-//! - **其余谓词**（`T::Item: Clone`、`Vec<T>: ...`、生命周期谓词等）→
-//!   原样透传存 [`TraitBounds::extra_predicates`]，codegen 附加到 impl 的
-//!   where 子句——覆盖全部谓词形态，不丢弃。
+//! Trait-level where clause handling:
+//! - **Single-param predicates** (`trait Foo<T> where T: Clone`, left side is a bare param
+//!   name) → merged into the bound at that position (inline + where joined); `A<>` copying
+//!   carries them along;
+//! - **Remaining predicates** (`T::Item: Clone`, `Vec<T>: ...`, lifetime predicates, etc.) →
+//!   stored verbatim in [`TraitBounds::extra_predicates`], appended by codegen to the impl's
+//!   where clause — all predicate shapes covered, none dropped.
 //!
-//! 引用收集在 **syn AST 上做**（[`syn::visit`]）：单段路径（`T`）与泛型实参
-//! （`Vec<T>` 的 `T`）是形参引用位置；`::` 后的路径段（关联类型名）、
-//! 关联类型绑定名（`dyn Trait<Item = T>` 的 `Item`）、HRTB binder
-//! （`for<'a>` 的 `'a`）天然排除——token 级扫描无法区分这些，AST 可以。
+//! Reference collection happens on the **syn AST** ([`syn::visit`]): single-segment paths
+//! (`T`) and generic args (the `T` in `Vec<T>`) are param reference positions; path segments
+//! after `::` (associated type names), binding names (the `Item` in `dyn Trait<Item = T>`),
+//! and HRTB binders (the `'a` in `for<'a>`) are naturally excluded — token-level scanning
+//! cannot tell these apart, the AST can.
 
 use std::collections::HashSet;
 
@@ -22,7 +25,8 @@ use quote::quote;
 use syn::ItemTrait;
 use syn::visit::{self, Visit};
 
-/// trait 形参：名字 + 合并后的 bound（内联 + where 谓词）+ bound 引用的形参名。
+/// Trait param: name + merged bound (inline + where predicates) + param names referenced
+/// by the bound.
 #[derive(Default)]
 pub(crate) struct TraitParam {
     pub(crate) name: String,
@@ -30,32 +34,38 @@ pub(crate) struct TraitParam {
     pub(crate) refs: Vec<String>,
 }
 
-/// trait 泛型形参列表（按位置对应 spec 中的 trait 实参），供 codegen 对
-/// **未写 bound 的 impl 泛型参数**按位置 + 同名继承。
+/// List of the trait's generic params (positionally matching the trait args in a spec),
+/// letting codegen inherit bounds for **impl generic params without written bounds** by
+/// position + name.
 ///
-/// 自动化只认同名（`A<>` 照抄 / `<T> A<T>` 同名继承）：
-/// - impl 参数按"名字在 trait 实参中的位置"对应形参；形参有 bound 且同名 → 继承；
-/// - 异名 → `compile_error!`（请改名或手写 bound）；
-/// - 继承的 bound / 谓词引用其他形参名（`T: 'a` 的 `'a`、`A::B` 的 `A`）而 impl
-///   未声明同名 → `compile_error!`（请声明同名或手写）。
+/// Automation only recognizes matching names (`A<>` copying / `<T> A<T>` name-based
+/// inheritance):
+/// - an impl param maps to the param at its name's position in the trait args; same name
+///   with a bound on the param → inherit;
+/// - different name → `compile_error!` (rename it or hand-write the bound);
+/// - inherited bounds/predicates referencing other param names (the `'a` in `T: 'a`, the `A`
+///   in `A::B`) that the impl lacks under the same name → `compile_error!` (declare or
+///   hand-write).
 ///
-/// 写 bound = 用户负责，宏不干预（sub trait 蕴含（`trait B: A` 使 `T: B`
-/// 隐含 `T: A`）宏无法推理）。trait 级 where 子句的单一形参谓词并入 bound，
-/// 其余谓词原样透传（[`TraitBounds::extra_predicates`]）。
+/// Writing bounds is the user's job, the macro does not interfere (the macro cannot infer
+/// sub-trait entailment (`trait B: A` making `T: B` imply `T: A`)). Single-param predicates
+/// of the trait-level where clause are merged into bounds; the rest pass through verbatim
+/// ([`TraitBounds::extra_predicates`]).
 #[derive(Default)]
 pub(crate) struct TraitBounds {
     pub(crate) params: Vec<TraitParam>,
-    /// 未合并进 bound 的 where 谓词（复合谓词 / 生命周期谓词）+ 引用的形参名。
-    /// codegen 附加到 impl 的 where 子句，并做引用检查（改名场景报错引导）。
+    /// Where predicates not merged into bounds (compound / lifetime predicates) plus the
+    /// param names they reference. codegen appends them to the impl's where clause and runs
+    /// a reference check (rename scenarios get guided errors).
     pub(crate) extra_predicates: Vec<(TokenStream, Vec<String>)>,
 }
 
-/// 收集泛型参数名（Lifetime → `'a`，Type/Const → ident）。
+/// Collect generic param names (Lifetime → `'a`, Type/Const → ident).
 ///
-/// 供 `A<>` 照抄实参（empty_generics.rs）与 `#blanket` 泛型实参
-/// （blanket.rs）复用——两处逐行同构的实现收敛于此。
-/// 注意：quote 插值不支持字段访问（`#tp.ident` 会把 `.ident` 当字面量），
-/// 先取引用再插值。
+/// Reused by `A<>` arg copying (empty_generics.rs) and `#blanket` generic args
+/// (blanket.rs) — the two line-by-line isomorphic implementations converge here.
+/// Note: quote interpolation does not support field access (`#tp.ident` would treat
+/// `.ident` as a literal), so take a reference before interpolating.
 pub(crate) fn generic_param_names(generics: &syn::Generics) -> Vec<TokenStream> {
     generics
         .params
@@ -75,7 +85,7 @@ pub(crate) fn generic_param_names(generics: &syn::Generics) -> Vec<TokenStream> 
 }
 
 pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
-    // 形参名集合（类型 + const 为 Ident，生命周期带 `'` 前缀）
+    // Set of param names (type + const are idents, lifetimes carry a `'` prefix)
     let type_const_names: Vec<String> = trait_item
         .generics
         .params
@@ -104,7 +114,8 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
                 let bound = if tp.bounds.is_empty() {
                     None
                 } else {
-                    // 注意：（quote 插值不支持字段访问，先取引用）
+                    // Note: (quote interpolation does not support field access, take a
+                    // reference first)
                     let b = &tp.bounds;
                     Some(quote!(#b))
                 };
@@ -128,12 +139,12 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
     if let Some(wc) = &trait_item.generics.where_clause {
         for pred in &wc.predicates {
             let tokens = quote!(#pred);
-            // 单一形参谓词（`X: Bound`）合并进对应位置的 bound
+            // Single-param predicate (`X: Bound`) merges into the bound at the matching position
             if let syn::WherePredicate::Type(pt) = pred
                 && let Some(name) = single_ident_param(&pt.bounded_ty)
                 && let Some(pos) = params.iter().position(|p| p.name == name)
             {
-                // 注意：quote 插值只支持 `#ident`，不支持字段访问
+                // Note: quote interpolation only supports `#ident`, not field access
                 let b = &pt.bounds;
                 let extra = quote!(#b);
                 let extra_refs =
@@ -146,7 +157,7 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
                 param.refs.extend(extra_refs);
                 continue;
             }
-            // 其余谓词：原样透传 + 引用收集
+            // Remaining predicates: pass through verbatim + collect references
             let refs = collect_predicate_refs(pred, &type_const_names, &lt_names);
             extra_predicates.push((tokens, refs));
         }
@@ -154,7 +165,8 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
     TraitBounds { params, extra_predicates }
 }
 
-/// 谓词左侧是否为单一形参名（`T`：无路径、无泛型实参）；返回名字。
+/// Whether the predicate's left side is a single param name (`T`: no path, no generic
+/// args); returns the name.
 fn single_ident_param(ty: &syn::Type) -> Option<String> {
     let syn::Type::Path(tp) = ty else { return None };
     if tp.qself.is_some() {
@@ -170,7 +182,7 @@ fn single_ident_param(ty: &syn::Type) -> Option<String> {
     }
 }
 
-/// 收集 bound 列表（`Clone + Send`、HRTB 等）引用的形参名。
+/// Collect the param names referenced by a bound list (`Clone + Send`, HRTB, etc.).
 fn collect_bound_refs(
     bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>,
     type_const_names: &[String], lt_names: &[String],
@@ -182,7 +194,7 @@ fn collect_bound_refs(
     c.refs
 }
 
-/// 收集 where 谓词（左侧类型 + bound）引用的形参名。
+/// Collect the param names referenced by a where predicate (left type + bounds).
 fn collect_predicate_refs(
     pred: &syn::WherePredicate, type_const_names: &[String], lt_names: &[String],
 ) -> Vec<String> {
@@ -191,17 +203,20 @@ fn collect_predicate_refs(
     c.refs
 }
 
-/// syn AST 引用收集器。
+/// syn AST reference collector.
 ///
-/// 精确规则（AST 语义，非 token 猜测）：
-/// - 单段路径（`T`）→ ident 是类型名本身，撞形参名即引用；`::` 后的段
-///   （关联类型名）与泛型实参（`Vec<T>` 的 `T`）由默认 visit 处理；
-/// - HRTB binder（`for<'a>`）压栈，binder 内的 `'a` 不收集；
-/// - 关联类型绑定名（`dyn Trait<Item = T>` 的 `Item`）不是类型，不收集。
+/// Precise rules (AST semantics, not token guessing):
+/// - Single-segment path (`T`) → the ident is the type name itself; colliding with a param
+///   name means a reference; segments after `::` (associated type names) and generic args
+///   (the `T` in `Vec<T>`) are handled by the default visit;
+/// - HRTB binders (`for<'a>`) are pushed on a stack; the `'a` inside a binder is not collected;
+/// - Associated type binding names (the `Item` in `dyn Trait<Item = T>`) are not types and
+///   are not collected.
 struct Collector<'a> {
     type_const_names: &'a [String],
     lt_names: &'a [String],
-    /// HRTB binder 栈（`for<'a>` 的 `'a` 是局部名，遮蔽外层同名形参）
+    /// HRTB binder stack (the `'a` in `for<'a>` is a local name that shadows a same-named
+    /// outer param)
     hrtb: Vec<HashSet<String>>,
     refs: Vec<String>,
 }
@@ -215,7 +230,7 @@ impl<'a> Collector<'a> {
         self.hrtb.iter().any(|s| s.contains(name))
     }
 
-    /// 压入 binder 名集合；返回是否压入（供调用方恢复）
+    /// Push the binder name set; returns whether it was pushed (so the caller can restore)
     fn push_hrtb(&mut self, lifetimes: Option<&syn::BoundLifetimes>) -> bool {
         if let Some(bl) = lifetimes {
             let set = bl
@@ -238,7 +253,8 @@ impl<'a> Collector<'a> {
 
 impl<'ast> Visit<'ast> for Collector<'_> {
     fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
-        // 单段路径（`T`）：ident 是类型名本身，撞形参名即引用
+        // Single-segment path (`T`): the ident is the type name itself; colliding with a
+        // param name means a reference
         if node.qself.is_none()
             && let Some(seg) = node.path.segments.first()
             && node.path.segments.len() == 1
@@ -247,7 +263,8 @@ impl<'ast> Visit<'ast> for Collector<'_> {
         {
             self.refs.push(seg.ident.to_string());
         }
-        // 默认继续：泛型实参（`Vec<T>` 的 T）、qself（`<T as Trait>::Item` 的 T）
+        // Continue by default: generic args (the T in `Vec<T>`), qself (the T in
+        // `<T as Trait>::Item`)
         visit::visit_type_path(self, node);
     }
 
@@ -259,8 +276,9 @@ impl<'ast> Visit<'ast> for Collector<'_> {
     }
 
     fn visit_expr(&mut self, node: &'ast syn::Expr) {
-        // const 泛型实参 / 数组长度（`[T; N]` 的 N、`Foo<N>` 的 N）：
-        // 单段路径表达式是 const 形参引用位置（类型形参不能出现在表达式里）
+        // const generic args / array lengths (the N in `[T; N]`, the N in `Foo<N>`):
+        // a single-segment path expression is a const param reference position (type
+        // params cannot appear in expressions)
         if let syn::Expr::Path(ep) = node
             && ep.qself.is_none()
             && let Some(seg) = ep.path.segments.first()
@@ -274,7 +292,7 @@ impl<'ast> Visit<'ast> for Collector<'_> {
     }
 
     fn visit_trait_bound(&mut self, node: &'ast syn::TraitBound) {
-        // `for<'a> Fn(&'a u8)`：binder 内的 'a 是局部名，不收集
+        // `for<'a> Fn(&'a u8)`: the 'a inside the binder is a local name, not collected
         let pushed = self.push_hrtb(node.lifetimes.as_ref());
         visit::visit_trait_bound(self, node);
         if pushed {
@@ -283,7 +301,7 @@ impl<'ast> Visit<'ast> for Collector<'_> {
     }
 
     fn visit_type_fn_ptr(&mut self, node: &'ast syn::TypeFnPtr) {
-        // `fn<'a>(&'a u8)` 类型：binder 同样遮蔽
+        // `fn<'a>(&'a u8)` type: the binder shadows the same way
         let pushed = self.push_hrtb(node.lifetimes.as_ref());
         visit::visit_type_fn_ptr(self, node);
         if pushed {

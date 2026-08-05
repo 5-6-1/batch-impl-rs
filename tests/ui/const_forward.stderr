@@ -1,4 +1,4 @@
-error: batch-impl: 常量 `@a` 引用未知的 `@b`（未定义或定义在其后；常量定义内只能引用内置常量或此前已定义的常量）
+error: batch-impl: constant `@a` references unknown `@b` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced)
  --> tests/ui/const_forward.rs:4:1
   |
 4 | / batch_trait!(

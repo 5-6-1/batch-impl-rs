@@ -1,336 +1,365 @@
-# Changelog（用户）
+# Changelog (User)
 
-> 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
+> User-visible feature and behavior changes; for internal implementation details, see `docs/dev-changelog.md`.
+>
+> English is the primary language of this crate. A Chinese mirror of this file (and the other docs,
+> frozen at the 0.6.1 state) lives in `docs/zh-CN/`.
+
+## 0.6.2 (2026-08-05)
+
+### Receiver-kind `@all` filters
+
+- New `@all`-family markers filter trait methods by receiver kind:
+  `@all_ref_methods` (`&self` / `&mut self`), `@all_value_methods`
+  (`self`, incl. typed receivers), `@all_static_methods` (associated
+  functions);
+- Typical use: `#blanket(@all_ref_methods){Box}` delegates only
+  reference-receiver methods, sidestepping the unclear by-value delegation
+  semantics for wrappers (by-value methods fall back to trait defaults);
+- Shared by `#fill` / `#delegate` / `#blanket` and the `-` exclusion, like
+  the rest of the `@all` family; `batch_trait!` errors (needs trait_def).
+
+### All-English comments, error messages and docs
+
+- **Comments and error messages are now entirely in English** (source, tests, ui fixtures) — wider
+  audience compatibility; DSL markers in messages (`` `@uint` ``, `` `#fill` ``, `` `@0` ``) are unchanged;
+- **Documentation is now English-first**: `README.md`, `CHANGELOG.md`, `docs/tutorial.md`,
+  `docs/architecture.md`, `docs/dev-changelog.md` are translated; the Chinese versions are archived
+  (frozen at the 0.6.1 state) under `docs/zh-CN/`;
+- Code examples in the docs are unchanged (they double as doctests — all 46 pass);
+- A corrupted fenced block in the tutorial's segment-level `@trait` example was repaired (` `ust ` → `` ```rust ``), which also brings it under doctest coverage.
 
 ## 0.6.1 (2026-08-05)
 
-### 新特性：`@all_required*` / `@all_default*` 范围标记
+### New Features: `@all_required*` / `@all_default*` scope markers
 
-- 指令范围按 trait item 的**默认实现状态**过滤（fn 带默认体 / const 带默认值 /
-  type 带默认类型 = default；无默认 = required，impl 必须提供）：
-  - `@all_required_methods` / `@all_required_constants` / `@all_required_types` / `@all_required`；
-  - `@all_default_methods` / `@all_default_constants` / `@all_default_types` / `@all_default`；
-- `#fill` / `#delegate` / `#blanket` 三指令与 `-` 排除通用；
-- 典型用法：`#fill(@all_required_methods){...}` = 只实现必须的、默认方法保留
-  trait 默认实现（此前需 `@all` + 逐个 `-name` 排除）；`@all_required*` 与
-  `@all_default*` 组合可分别填充两类（required ∪ default = all）。
+- Directive scope is now filtered by the trait item's **default-implementation status** (fn with a default body / const with a default value /
+  type with a default type = default; no default = required, and the impl must provide it):
+  - `@all_required_methods` / `@all_required_constants` / `@all_required_types` / `@all_required`;
+  - `@all_default_methods` / `@all_default_constants` / `@all_default_types` / `@all_default`;
+- Shared by the three directives `#fill` / `#delegate` / `#blanket`, and by the `-` exclusion;
+- Typical use: `#fill(@all_required_methods){...}` = implement only the required ones, keeping the trait's
+  default implementations for default methods (previously you needed `@all` plus per-method `-name` exclusions); `@all_required*` and
+  `@all_default*` can be combined to fill the two groups separately (required ∪ default = all).
 
-### 修复：`@` 常量先于 `<>` 配对（`@ <> # where` 预处理顺序）
+### Fixed: `@` constants pair before `<>` (`@ <> # where` preprocessing order)
 
-- 此前管线为 `<> @ # where`：`batch_trait!` 里 `Vec<@inner>` 这类
-  常量值含 `<...>` 的写法，`@inner` 被配对进尖括号组后不再展开，
-  残留到输出报 `found '@'`（`@map = HashMap<u32, String>` 直接值
-  恰好被定义处配对兜底，嵌套/引用场景暴露）；
-- 修正为宏元层最外：`@` 展开先于 `<>` 配对，展开产物（含扁平
-  `<...>`）统一由 angle_collect 配对；
-- `batch_impl`/`batch_impl_only` 支持内置 `@` + `<>` + `#` + where；
-  `batch_trait!` 支持自定义 `@` + `<>` + where（`#` 需 trait 定义，函数式
-  宏不可用）。
+- The previous pipeline was `<> @ # where`: with forms like `Vec<@inner>` in `batch_trait!` where the
+  constant value contains `<...>`, `@inner` got paired into the angle-bracket group and was no longer expanded,
+  leaving `found '@'` in the output (a direct value like `@map = HashMap<u32, String>` happened to be
+  saved by the pairing fallback at its definition site; nested/reference scenarios exposed it);
+- Fixed so that at the outermost macro-meta layer, `@` expansion precedes `<>` pairing, and all expansion
+  output (including flattened `<...>`) is uniformly paired by angle_collect;
+- `batch_impl`/`batch_impl_only` support built-in `@` + `<>` + `#` + where;
+  `batch_trait!` supports custom `@` + `<>` + where (`#` requires a trait definition, which a function-like
+  macro cannot access).
 
-### 宏元层完整化：`@` 是唯一宏元记号
+### Macro-meta layer completed: `@` is the sole macro-meta marker
 
-- **`#all` 系删除，全部迁移为 `@all` 系**（`@all` / `@all_methods` /
-  `@all_constants` / `@all_types` / `@all_required*` / `@all_default*`）：
-  `#` 只剩指令名格式，范围选择归宏元层——`#fill(#all)` 写作
-  `#fill(@all)`，减法不变（`#fill(@all, -foo)`）；
-- `@all` 展开为 `[item, ...]` 列表；指令参数支持手写 `[a, b]` 与
-  `-[a, b]` 排除；
-- **trait 感知常量**（`#[batch_impl]` / `#[batch_impl_only]` 专属；
-  `batch_trait!` 无 trait 定义、遇之报错）：`@trait`（本地 trait 名）、
-  `@Cow`（`Cow<'_>` + 固有约束打包）；
-- **blanket 包装约束谓词**：`{Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}`
-  ——解决 deref target ≠ T 的包装（`Cow` 的 deref target 是 `T::Owned`），
-  `@0` 指目标泛型；普通 where 谓词中 `@N` 为通用位置引用（元组\n  `()^2 where{@0: Clone}` 等）；「`<>` 只留名字、约束全进 where」后约束合并 =
-  并列谓词（零分析）；普通 impl 的 `<T: Clone>` 写法保持兼容。
+- **`#all` family removed, all migrated to the `@all` family** (`@all` / `@all_methods` /
+  `@all_constants` / `@all_types` / `@all_required*` / `@all_default*`):
+  `#` is now only for directive names; scope selection belongs to the macro-meta layer — write
+  `#fill(@all)` instead of `#fill(#all)`, with subtraction unchanged (`#fill(@all, -foo)`);
+- `@all` expands to an `[item, ...]` list; directive arguments support hand-written `[a, b]` lists and
+  `-[a, b]` exclusions;
+- **Trait-aware constants** (exclusive to `#[batch_impl]` / `#[batch_impl_only]`;
+  `batch_trait!` has no trait definition and errors on them): `@trait` (the local trait name),
+  `@Cow` (`Cow<'_>` plus its inherent constraints bundled);
+- **Blanket wrapper constraint predicates**: `{Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}`
+  — solves wrappers whose deref target ≠ T (`Cow`'s deref target is `T::Owned`),
+  with `@0` referring to the target generic; in ordinary where predicates, `@N` is a generic positional reference
+  (e.g. tuples `()^2 where{@0: Clone}`); with "`<>` keeps only names, constraints all go into where",
+  constraint merging = juxtaposed predicates (zero analysis); the `<T: Clone>` form in ordinary impls remains compatible.
 
-### 文档修正：`batch_trait!` 的指令边界明确化
+### Docs fixed: `batch_trait!` directive boundary clarified
 
-
-- 此前 `lib.rs` 文档与 `docs/tutorial.md` 声称 `batch_trait!` 的 spec 语法
-  "与 `#[batch_impl]` 相同"——实际 `batch_trait!` **不支持 `#` 指令**
-  （`#fill`/`#delegate`/`#blanket`/开放扩展），遇 `#` 直接报错；
-- 原因：指令需要 trait 定义作签名真相源，`batch_trait!` 是函数式宏、拿不到
-  定义。需要指令请用 `#[batch_impl]` / `#[batch_impl_only]`（与 `A<>` 照抄、
-  泛型 bound 继承的既有限制同源）。
-- 无行为变化：`batch_trait!` 支持 `@` 常量与全部类型 DSL，仅文档如实声明
-  指令边界。
+- Previously the `lib.rs` docs and `docs/tutorial.md` claimed that `batch_trait!`'s spec syntax
+  was "identical to `#[batch_impl]`" — in fact, `batch_trait!` **does not support `#` directives**
+  (`#fill`/`#delegate`/`#blanket`/open extension), and errors out on `#`;
+- Reason: directives need the trait definition as the source of truth for signatures, and `batch_trait!` is a
+  function-like macro that cannot obtain the definition. If you need directives, use `#[batch_impl]` / `#[batch_impl_only]`
+  (same origin as the existing limitations that `A<>` is copied verbatim and generic bounds are inherited).
+- No behavior change: `batch_trait!` supports `@` constants and the full type DSL; only the docs now state
+  the directive boundary truthfully.
 
 ## 0.6.0 (2026-08-04)
 
-### 新特性：`@` 常量系统（类型矩阵命名复用）
+### New Feature: `@` constant system (named reuse of type matrices)
 
-`@` 常量在预处理阶段展开为字面列表，与手写逐 token 等价：
+`@` constants expand to literal lists at the preprocessing stage, token-for-token equivalent to hand-written lists:
 
-- **内置名字族**：`@uint` / `@int` / `@float` / `@num` / `@scalar`
-  （如 `#[batch_impl(@scalar)]` 一行生成 16 个 impl：u8..char）；
-- **内置范围族**：`@u8..u128` / `@i8..i128` / `@f32..f64`（**含端点**，
-  宽度校验；`@u8..u128` = `[u8, u16, u32, u64, u128]`）；
-- **用户自定义**（仅 `batch_trait!`）：前导 `@name=值;` 段，后续段落跨
-  trait 复用。值是**任意 token**（**懒展开**——原样入库，引用处拼接后递归
-  展开），可直接写 DSL 运算（`@wrapped=[Box,Rc]^@num`）或链式引用其他常量
-  （`@chain=@wrapped`）；循环引用（`@a=@a`）与前向引用（`@a=@b` 定义在后）
-  在定义处报错；
-- 未知 `@xxx`、范围端点非法、自定义与内置重名均 `compile_error!`。
+- **Built-in name families**: `@uint` / `@int` / `@float` / `@num` / `@scalar`
+  (e.g. one line of `#[batch_impl(@scalar)]` generates 16 impls: u8..char);
+- **Built-in range families**: `@u8..u128` / `@i8..i128` / `@f32..f64` (**inclusive of both endpoints**,
+  with width validation; `@u8..u128` = `[u8, u16, u32, u64, u128]`);
+- **User-defined** (only in `batch_trait!`): a leading `@name=value;` section, reusable across
+  subsequent sections and traits. Values are **arbitrary tokens** (**lazy expansion** — stored as-is,
+  recursively expanded after splicing at the use site), so DSL operations can be written directly
+  (`@wrapped=[Box,Rc]^@num`) or other constants chained (`@chain=@wrapped`); circular references (`@a=@a`)
+  and forward references (`@a=@b` defined later) error at the definition site;
+- Unknown `@xxx`, illegal range endpoints, and custom/built-in name clashes all raise `compile_error!`.
 
-### 新特性：`#blanket(methods){包装列表}` — 覆盖式委托
+### New Feature: `#blanket(methods){wrapper list}` — blanket delegation
 
-`#blanket(#all){&,Box,Rc}` 为每个包装类型生成一段完整委托 spec——免写包装
-矩阵与委托体。先给内部类型实现 trait，再 blanket 覆盖包装
-（`impl<T: Trait> Trait for Box<T>` 等）。
+`#blanket(#all){&,Box,Rc}` generates a full delegation spec for each wrapper type — no need to hand-write the
+wrapper matrix or the delegation body. First implement the trait for the inner type, then blanket-cover the
+wrappers (`impl<T: Trait> Trait for Box<T>` and so on).
 
-- **包装元素为任意类型表达式**：`&`/`&mut`/`Box`/`Rc`/`Arc`/自定义智能指针/
-  嵌套（`Box^Arc:2` → `Box<Arc<T>>`）/预填（`Cow<'_>` → `Cow<'_, T>`）；
-- **`:N` 深度标注**：委托体 `*` 数量 = N + 1（`Box^Arc:2` → `***self`），
-  默认 1——宏不猜包装内部 Deref 层数，嵌套须显式标注；
-- **泛型 trait 支持**（`trait Foo<X: Clone>`）：trait 形参照抄为 impl 泛型 +
-  实参填参数名 + trait 级 where 谓词透传（`impl<X: Clone, T: Foo<X>>
-  Foo<X> for 包装<T> where ...`）；
-- **assoc type / const 委托**：`#all` 含 const/type 项时生成投影
-  `type Item = <T as Foo<X>>::Item;` / `const N: Ty = <T as Foo<X>>::N;`——
-  带必需关联类型的 trait 也能 blanket 覆盖；
-- `*const`/`*mut`、`self`、空元素/非法 `:N` 报错，引导手写 `#delegate`；
-  by-value receiver 方法委托语义依赖包装的 Deref/move 能力，维持全放行 +
-  rustc 兜底（文档警示）。
+- **Wrapper elements are arbitrary type expressions**: `&`/`&mut`/`Box`/`Rc`/`Arc`/custom smart pointers/
+  nesting (`Box^Arc:2` → `Box<Arc<T>>`)/pre-filled (`Cow<'_>` → `Cow<'_, T>`);
+- **`:N` depth annotation**: the number of `*` in the delegation body = N + 1 (`Box^Arc:2` → `***self`),
+  defaulting to 1 — the macro does not guess how many Deref levels a wrapper has internally, so nesting must be annotated explicitly;
+- **Generic trait support** (`trait Foo<X: Clone>`): the trait's formal parameters are copied verbatim as
+  impl generics, with parameter names as actuals and trait-level where predicates passed through
+  (`impl<X: Clone, T: Foo<X>> Foo<X> for wrapper<T> where ...`);
+- **Assoc type / const delegation**: when `#all` includes const/type items, projections are generated
+  (`type Item = <T as Foo<X>>::Item;` / `const N: Ty = <T as Foo<X>>::N;`) —
+  traits with required associated types can also be blanket-covered;
+- `*const`/`*mut`, `self`, empty elements, and invalid `:N` error out, steering users to hand-written `#delegate`;
+  delegation of by-value receiver methods depends on the wrapper's Deref/move capability, so everything is
+  still allowed with rustc as the backstop (documented as a caveat).
 
-### 行为变化
+### Behavior changes
 
-- 指令展开协议改为 `Vec<TokenTree>`（内部）：既有指令产物不变（单 `{...}`
-  组），`#blanket` 等多产物指令成为可能。用户无感知。
+- Directive expansion protocol changed to `Vec<TokenTree>` (internal): existing directive output is unchanged
+  (a single `{...}` group), enabling multi-output directives like `#blanket`. Not user-visible.
 
-### 文档
+### Docs
 
-- README 精简为推销版（为什么要用它、心智模型、快速开始、特性一览），
-  完整教程独立到 `docs/tutorial.md`，开发者文档独立到 `docs/architecture.md`
-- CHANGELOG 拆分为本文件（用户视角）与 `docs/dev-changelog.md`（开发者视角）
-- 教程新增 `@` 常量与 `#blanket` 章节；架构文档新增「语法域隔离」与
-  「附着语义」章节
+- README trimmed to a promotional version (why use it, mental model, quick start, feature overview);
+  the full tutorial moved to `docs/tutorial.md`, developer docs to `docs/architecture.md`
+- CHANGELOG split into this file (user perspective) and `docs/dev-changelog.md` (developer perspective)
+- Tutorial gained `@` constant and `#blanket` sections; architecture docs gained "syntax domain isolation" and
+  "attachment semantics" sections
 
 ## 0.5.7 (2026-08-03)
 
-### 新特性：trait 级 where 子句继承（自动生效，无需改代码）
+### New Feature: trait-level where clause inheritance (automatic, no code changes needed)
 
-`trait Foo<T> where T: Clone` 的谓词**全形态**继承到生成的 impl：
+All forms of predicates on `trait Foo<T> where T: Clone` are inherited into the generated impls:
 
-- **单一形参谓词**（`T: Clone`）合并进泛型 bound——`<T> Foo<T>` →
-  `impl<T: Clone>`，与内联 bound（`trait Foo<T: Clone>`）同一条继承链路
-  （同名继承 / 改名报错 / 引用检查全部复用）；
-- **其余谓词原样透传**到 impl 的 where 子句：`T::Item: Clone`、`Vec<T>: ...`、
-  生命周期谓词（`'a: 'b`）等全部覆盖，`<T>` 与 `A<>` 两种写法同效。
+- **Single-parameter predicates** (`T: Clone`) merge into generic bounds — `<T> Foo<T>` →
+  `impl<T: Clone>`, sharing the same inheritance pipeline as inline bounds (`trait Foo<T: Clone>`)
+  (same-name inheritance / rename errors / reference checks all reused);
+- **All other predicates pass through verbatim** into the impl's where clause: `T::Item: Clone`, `Vec<T>: ...`,
+  lifetime predicates (`'a: 'b`), etc., fully covered; the `<T>` and `A<>` forms behave the same.
 
-### 行为变化
+### Behavior changes
 
-- 此前复合谓词（`T::Item: Clone` 等）被静默丢弃，生成缺约束的 impl 导致
-  rustc E0277（且定位模糊）；现在自动附加到 impl where，与手写等价。
-  此前因此报错的代码升级后直接可用。
-- 新增错误消息：`继承的 where 谓词 ... 引用形参 ...，请声明或手写 where`
-  （改名场景引导）。
-- 无破坏性变化；`batch_trait!` 无 trait 定义，不受影响。
+- Previously compound predicates (`T::Item: Clone`, etc.) were silently dropped, generating impls missing
+  constraints that failed with rustc E0277 (and confusing locations); now they are automatically appended to
+  the impl's where clause, equivalent to hand-written code. Code that failed before upgrades cleanly.
+- New error message: `inherited where predicate ... references parameter ..., declare it or write a where clause`
+  (guidance for rename scenarios).
+- No breaking changes; `batch_trait!` has no trait definition and is unaffected.
 
 ## 0.5.6 (2026-08-03)
 
-### 行为变化：孤立 `<` / `>` 报错
+### Behavior change: unmatched `<` / `>` now error
 
-- 未配对的 `<`（缺少匹配 `>`）与多余的 `>`（缺少匹配 `<`）此前透传为垃圾
-  token，现在报 `compile_error!`（非法输入）。
+- Unmatched `<` (no matching `>`) and stray `>` (no matching `<`) used to pass through as garbage
+  tokens; now they raise `compile_error!` (invalid input).
 
 ## 0.5.5 (2026-08-03)
 
-### 新特性：`A<>` trait 泛型照抄
+### New Feature: `A<>` trait generics copied verbatim
 
-- `A<>`：空实参列表表示"实参与 bound 全部来自 trait 定义"——
-  `trait Foo<T: Clone>` + `#[batch_impl(Foo<> ())]` 展开为
-  `impl<T: Clone> Foo<T> for ()`，一行都不用写泛型；
-- `A<绑定们>` 同款照抄：`Foo<Item=T>` 照抄位置实参 + 绑定原样保留；
-- 仅 `#[batch_impl]` / `#[batch_impl_only]` 可用（需要 trait 定义）；
-  `batch_trait!` 无 trait 定义，`A<>` 原样透传。
+- `A<>`: an empty argument list means "actuals and bounds all come from the trait definition" —
+  `trait Foo<T: Clone>` + `#[batch_impl(Foo<> ())]` expands to
+  `impl<T: Clone> Foo<T> for ()`, with no generics to write by hand;
+- `A<bounds>` copies the same way: `Foo<Item=T>` copies positional actuals and keeps the bindings verbatim;
+- Only `#[batch_impl]` / `#[batch_impl_only]` (which need a trait definition) support this;
+  `batch_trait!` has no trait definition, so `A<>` passes through verbatim.
 
-### 行为变化：改名 = 明确报错，绝不静默
+### Behavior change: renaming = explicit error, never silent
 
-- 实参 `X` 对应形参 `T`（有 bound）但名字不同、或继承的 bound 引用
-  `'a`/`U` 等形参名而 impl 未声明同名——均报 `compile_error!` 引导
-  （请改名或手写 bound）。此前改名场景静默退化为不继承，生成缺 bound 的
-  impl 报 E0277。
+- When an actual `X` maps to a formal `T` (with bounds) but the names differ, or an inherited bound references
+  formal names like `'a`/`U` that the impl does not declare — both raise `compile_error!` with guidance
+  (rename or write the bound by hand). Previously renaming silently degraded to non-inheritance, generating
+  impls missing bounds that failed with E0277.
 
 ## 0.5.4 (2026-08-03)
 
-### 新特性：trait 泛型 bound 自动继承
+### New Feature: automatic inheritance of trait generic bounds
 
-`trait Foo<T: Clone>` 时，spec 中**未写 bound** 的 impl 泛型参数按名继承 trait
-的同名参数内联 bound——`#[batch_impl(<T> Foo<T> Vec<T>)]` 直接生成
-`impl<T: Clone> Foo<T> for Vec<T>`，无需手写（此前生成的 impl 缺 bound 报 E0277）。
+With `trait Foo<T: Clone>`, impl generic parameters that have **no bound written** in the spec inherit the
+inline bound of the trait's same-named parameter by name — `#[batch_impl(<T> Foo<T> Vec<T>)]` directly
+generates `impl<T: Clone> Foo<T> for Vec<T>`, no hand-writing needed (previously the generated impl lacked the
+bound and failed with E0277).
 
-- 写了 bound = 用户负责，宏不干预（sub trait 蕴含交由 rustc 验证）；
-- 继承 `T: Clone` / `T: 'a` 等内联 bound；trait 级 where 子句不继承（0.5.7 起支持）；
-- 仅 `#[batch_impl]` / `#[batch_impl_only]` 支持；`batch_trait!` 不继承。
+- If a bound is written, the user owns it and the macro does not interfere (sub-trait entailment is left to rustc to verify);
+- Inherits inline bounds like `T: Clone` / `T: 'a`; trait-level where clauses are not inherited (supported from 0.5.7);
+- Only `#[batch_impl]` / `#[batch_impl_only]` support this; `batch_trait!` does not inherit.
 
-### 新特性：指令参数列表减法 `-name`（取代 `#except`）
+### New Feature: directive argument list subtraction `-name` (replaces `#except`)
 
-`#fill`/`#delegate` 参数新增 `-` 前缀排除项：保留列表减去排除列表，排除优先。
-`#except(保留){排除}` 的双括号形式被取代并移除：
+`#fill`/`#delegate` arguments gain `-`-prefixed exclusions: keep-list minus exclusion-list, with exclusions
+taking priority. The `#except(keep){exclude}` double-bracket form is superseded and removed:
 
-- `#fill(#all,-foo){body}` = 所有 item 除 `foo`
-- `#fill(#all,-#all_methods)` = 仅 const + type 项
-- `-` 后缺目标、排除后为空报 `compile_error!`
+- `#fill(#all,-foo){body}` = all items except `foo`
+- `#fill(#all,-#all_methods)` = only const + type items
+- Missing target after `-`, or an empty result after exclusion, raises `compile_error!`
 
 ## 0.5.3 (2026-08-02)
 
-### 新特性
+### New Features
 
-- **`unsafe fn(...)` 类型**：`unsafe` 紧跟 `fn` 时修饰 fn 类型本身
-  （`unsafe fn(u32)->u32`、`unsafe fn^(A,B)-C`）；`unsafe X`（X 非 fn，并列）
-  报错（忘写 `^` 的笔误）；裸 `unsafe` 后跟 `^`/`-` 仍是 unsafe impl 标记。
-- **开放扩展机制修复**：不认识的 `#name(args){body}` 展开为函数式宏调用
-  `name!{(args){body} trait ...}`——把方法名列表、body 与整个 trait 交给
-  用户的同名宏（"用户自定义的 `#fill`"，此前属性委托写法必然编译失败）。
-- **指令减法 `#except(保留){排除}`**（0.5.4 被 `-name` 取代并移除）。
+- **`unsafe fn(...)` types**: `unsafe` immediately followed by `fn` decorates the fn type itself
+  (`unsafe fn(u32)->u32`, `unsafe fn^(A,B)-C`); `unsafe X` (X not a fn, juxtaposed) is an error
+  (the typo of forgetting `^`); bare `unsafe` followed by `^`/`-` is still the unsafe impl marker.
+- **Open extension mechanism fixed**: an unrecognized `#name(args){body}` expands to a function-like macro
+  call `name!{(args){body} trait ...}` — the method name list, body, and the whole trait are handed to the
+  user's same-named macro ("a user-customized `#fill`"; the previous attribute-delegation form always failed to compile).
+- **Directive subtraction `#except(keep){exclude}`** (superseded and removed by `-name` in 0.5.4).
 
-### 修复
+### Fixed
 
-- **`#delegate` 参数转发加固**：解构模式参数（`(a, b)` / `_`）无法委托转发，
-  此前被静默丢弃生成错误调用，现报 `compile_error!`（含 trait 名与方法名）。
-- **空范围诊断**：`()^3..2` 等空范围此前静默生成零个 impl，现报错。
-- **尾随运算符静默吞段修复**：`A^`、`f32 Vec^-` 等尾随运算符此前整段静默
-  消失（下游 E0599 定位模糊），现报 `compile_error!`。
-- **空操作数严格化**：`-A`（左空静默吞段）、`^A`（生成垃圾类型）、`,A`、
-  `A,,B` 均报错；尾随逗号（`A,`）与 `()`/`[]` 真实 token 不受影响。
-- **指令参数逗号严格化**：`#fill(a,,b)` 等前导/尾随/连续逗号报错（此前静默跳过）。
+- **`#delegate` argument forwarding hardened**: destructuring-pattern parameters (`(a, b)` / `_`) cannot be
+  forwarded for delegation; previously silently dropped to produce a wrong call, now raising `compile_error!`
+  (including the trait name and method name).
+- **Empty range diagnostics**: empty ranges like `()^3..2` used to silently generate zero impls, now error.
+- **Trailing-operator segment swallowing fixed**: trailing operators such as `A^`, `f32 Vec^-` used to
+  silently disappear wholesale (downstream E0599 with confusing locations), now raising `compile_error!`.
+- **Empty operand strictness**: `-A` (empty left silently swallows the segment), `^A` (generates garbage types), `,A`,
+  `A,,B` all error; trailing commas (`A,`) and real `()`/`[]` tokens are unaffected.
+- **Directive argument comma strictness**: leading/trailing/consecutive commas like `#fill(a,,b)` error
+  (previously skipped silently).
 
-### 行为约束：组合展开数量上限
+### Behavior constraint: combined expansion count cap
 
-`^N` / 笛卡尔积 / 范围批量等展开超过 1024 产物（如 `()^100000`、
-`[A,B]^[C,D]^[E,F]`）报 `compile_error!`，防止误写挂死编译。
+Expansions from `^N` / Cartesian products / range batching exceeding 1024 products (e.g. `()^100000`,
+`[A,B]^[C,D]^[E,F]`) raise `compile_error!`, preventing typos from hanging the compilation.
 
 ## 0.5.2 (2026-08-01)
 
-### 新特性：数组/切片 builder
+### New Feature: array/slice builder
 
-- `[]^T` → `[T]`（空基座包出切片）
-- `[T]^N` → `[T; N]`（定长数组；`N` 可为数字字面量、const 泛型标识符、范围或列表）
-- `<const N: usize> []-X-N` → `[X; N]`：`[]` 作 `-` 累加链基座，把整个类型矩阵
-  包进 const 泛型定长数组
-- `()^N` 的 fresh 泛型元组作为泛型实参/数组元素时自动外提
-  （修复 `Box^()^N` 与矩阵嵌入的既有 bug）
+- `[]^T` → `[T]` (empty seed wrapping a slice)
+- `[T]^N` → `[T; N]` (fixed-length array; `N` can be a numeric literal, a const-generic identifier, a range, or a list)
+- `<const N: usize> []-X-N` → `[X; N]`: `[]` serves as the `-` accumulation-chain seed, wrapping the whole type
+  matrix into a const-generic fixed-length array
+- Fresh generic tuples from `()^N` are automatically hoisted out when used as generic arguments/array elements
+  (fixes the pre-existing bugs in `Box^()^N` and matrix embedding)
 
 ## 0.5.1 (2026-07-31)
 
-### 新特性：`where{...}` 后缀
+### New Feature: `where{...}` suffix
 
-- `where{...}` 跟在目标类型之后，为生成的 impl 添加 where 子句；多个会合并。
-- 裸写 `where 谓词 {代码块}` 新语法（三个接口通用）：谓词区逗号不被 spec
-  切分，`ident!{...}` 宏体不计入边界，多个 `where` 段可依次书写。
+- `where{...}` following the target type adds a where clause to the generated impl; multiple ones are merged.
+- New syntax for writing bare `where predicate {code block}` (shared by all three interfaces): commas in the
+  predicate region are not split by the spec, `ident!{...}` macro bodies are not counted toward boundaries, and
+  multiple `where` sections can be written in sequence.
 
 ## 0.5.0 (2026-07-28)
 
-### 新特性：`#[batch_impl_only]` 外部 trait 路径前缀
+### New Feature: `#[batch_impl_only]` external trait path prefix
 
-`#[batch_impl_only(#ext::mod::TraitName: usize, isize)]` 为外部模块中定义的
-trait 生成 impl（路径末尾标识符必须与本地 dummy trait 名一致；
-`#[batch_impl]` 不支持此前缀）。
+`#[batch_impl_only(#ext::mod::TraitName: usize, isize)]` generates impls for a trait defined in an external
+module (the final path identifier must match the local dummy trait name; `#[batch_impl]` does not support this prefix).
 
 ## 0.4.2 (2026-07-27)
 
-### 新特性
+### New Features
 
-- **`#name{body}` 支持 const / type 项**：`#CONST{value}` → `const ... = value;`、
-  `#Type{def}` → `type ... = def;`，不再局限于 fn。
-- **`#fill` 扩展与 `#all` 标记**：`#fill` 可用于 fn + const + type；
-  `#all` 变为所有 item；新增 `#all_methods` / `#all_constants` / `#all_types`。
-- `#delegate` 仍仅支持 Fn，传入非 Fn 项报 `compile_error!`。
+- **`#name{body}` supports const / type items**: `#CONST{value}` → `const ... = value;`,
+  `#Type{def}` → `type ... = def;`, no longer limited to fn.
+- **`#fill` extended and `#all` marker**: `#fill` works for fn + const + type;
+  `#all` now means all items; added `#all_methods` / `#all_constants` / `#all_types`.
+- `#delegate` still supports only Fn; passing a non-Fn item raises `compile_error!`.
 
 ## 0.4.1 (2026-07-25)
 
-- 修复自定义（开放扩展）宏未携带 trait_def 的问题。
+- Fixed custom (open extension) macros not carrying trait_def.
 
 ## 0.4.0 (2026-07-25)
 
-### 新特性：指令系统
+### New Feature: directive system
 
-| 指令   | 语法                      | 效果                                      |
-|--------|---------------------------|-------------------------------------------|
-| 单方法 | `#method{body}`           | `{fn method(签名) { body }}`              |
-| 填充   | `#fill(args){body}`       | `{fn m1(sig){body} fn m2(sig){body} ...}` |
-| 委托   | `#delegate(args){target}` | `{fn m1(sig){(target).m1(args)} ...}`     |
+| Directive | Syntax                    | Effect                                                              |
+|-----------|---------------------------|---------------------------------------------------------------------|
+| Single method | `#method{body}`       | `{fn method(signature) { body }}`                                  |
+| Fill       | `#fill(args){body}`       | `{fn m1(sig){body} fn m2(sig){body} ...}`                           |
+| Delegate   | `#delegate(args){target}` | `{fn m1(sig){(target).m1(args)} ...}`                               |
 
-- `#fill(#all){body}` 表示 trait 的所有方法
-- 指令与 DSL 运算符、`{body}` 连续附着、泛型、unsafe 等特性自由组合
-- 仅 `#[batch_impl]` / `#[batch_impl_only]` 支持
+- `#fill(#all){body}` covers all methods of the trait
+- Directives combine freely with DSL operators, `{body}` consecutive attachment, generics, unsafe, and other features
+- Only `#[batch_impl]` / `#[batch_impl_only]` support directives
 
-### 新特性：`#[batch_impl_only]` 与 `{body}` 连续附着
+### New Feature: `#[batch_impl_only]` and `{body}` consecutive attachment
 
-- `#[batch_impl_only]`：丢弃 trait 定义、只输出 impl 块（trait 已在别处定义时用）
-- `T{body1}{body2}` 正确递归附着
+- `#[batch_impl_only]`: discards the trait definition and outputs only the impl block (for when the trait is already defined elsewhere)
+- `T{body1}{body2}` attaches consecutively and correctly recursively
 
 ## 0.3.0 (2026-07-24)
 
-### 完全重写
+### Complete rewrite
 
-v0.3.0 是从零开始的完全重写。公开 API 和 DSL 语法与 v0.2.x 保持一致。
-功能清单：
+v0.3.0 is a complete rewrite from scratch. The public API and DSL syntax stay consistent with v0.2.x.
+Feature list:
 
-- `#[batch_impl]` 属性宏 + `batch_trait!` 函数式宏
-- `^`（右结合）/ `-`（左结合）运算符：泛型应用、类型组合
-- `[A, B, C]` 并列列表 + `{ body }` 独立/共享实现体合并
-- `<T: Clone, Item=V>` 泛型参数与关联类型绑定
-- `()^N` 元组生成 + `(<Bound>)^N` 带约束元组 + `(T1,T2)^N` 笛卡尔积 + 范围语法
-- `&` / `&mut` / `*const` / `*mut` / `fn` / `self` / `unsafe` / `#[attr]` 前缀修饰符
-- `fn(A,B)->C` 函数类型
-- `HashMap<K>^V` 预填泛型追加
-- `unsafe^T` 单条 unsafe + `unsafe trait` 自动 unsafe
-- `compile_error!` 错误输出（不 panic、不 ICE）
+- `#[batch_impl]` attribute macro + `batch_trait!` function-like macro
+- `^` (right-associative) / `-` (left-associative) operators: generic application, type composition
+- `[A, B, C]` juxtaposition lists + `{ body }` standalone/shared implementation body merging
+- `<T: Clone, Item=V>` generic parameters and associated type bindings
+- `()^N` tuple generation + `(<Bound>)^N` constrained tuples + `(T1,T2)^N` Cartesian product + range syntax
+- `&` / `&mut` / `*const` / `*mut` / `fn` / `self` / `unsafe` / `#[attr]` prefix modifiers
+- `fn(A,B)->C` function types
+- `HashMap<K>^V` pre-filled generic appending
+- `unsafe^T` per-item unsafe + `unsafe trait` automatically unsafe
+- `compile_error!` error output (no panics, no ICEs)
 
-### 修复（相对于 v0.2.x）
+### Fixed (relative to v0.2.x)
 
-- `batch_trait!` 中 `fn(i32) -> bool` 等含 `->` 的 spec 不再误断段落边界
-- `()^0` 正确生成空元组 `()`
+- Specs containing `->` such as `fn(i32) -> bool` in `batch_trait!` no longer incorrectly break segment boundaries
+- `()^0` correctly generates the empty tuple `()`
 
 ## 0.2.2 (2026-07-20)
 
-### 修复
+### Fixed
 
-- `fn^i32` 正确生成 `fn(i32)` 而非 `fn i32`
-- 所有工具函数统一排除 `->` 中的 `>`（`HashMap^<u32>-String` 等含 `->` 的
-  类型不再误判尖括号）
+- `fn^i32` correctly generates `fn(i32)` instead of `fn i32`
+- All utility functions uniformly exclude the `>` inside `->` (types containing `->` like `HashMap^<u32>-String` are no longer misjudged as angle brackets)
 
 ## 0.2.1 (2026-07-20)
 
-### 修复
+### Fixed
 
-- **优先级**：`HashMap^K-V` 现在正确解析为 `HashMap<K, V>`（此前被解析为
-  `HashMap<K<V>>`）。注意：`Box^Vec-u32` 仍是错误写法，应写 `Box^Vec^u32`
-- `HashMap^<u32>-String` 中 `-String` 不再被静默丢弃
-- `unsafe^#[attr]^T` 不再报"属性 ^ 的内部错误"
-- `fn^(u32,i32)-usize` 正确生成 `fn(u32,i32)->usize`（此前返回类型被当参数追加）
-- 嵌套 `fn^(u32,i32)^i64-usize` 不再丢失 `Fn` 前缀
+- **Precedence**: `HashMap^K-V` now parses correctly as `HashMap<K, V>` (previously parsed as
+  `HashMap<K<V>>`). Note: `Box^Vec-u32` is still a wrong form; write `Box^Vec^u32`
+- `-String` in `HashMap^<u32>-String` is no longer silently dropped
+- `unsafe^#[attr]^T` no longer reports an "internal error with attribute ^"
+- `fn^(u32,i32)-usize` correctly generates `fn(u32,i32)->usize` (previously the return type was appended as an argument)
+- Nested `fn^(u32,i32)^i64-usize` no longer loses the `Fn` prefix
 
 ## 0.2.0 (2026-07-19)
 
-### 新功能
+### New Features
 
-- **关联类型简洁写法**：`TraitName<AssocType=value>`（支持多绑定与复杂类型，
-  可与 `^`/`-`/unsafe 组合）
-- **独立/共享 body 合并**：`[A{bodyA}, B{bodyB}]{shared}`（支持多层嵌套）
-- **元组生成规则修改**：`()^N` 生成带 N 个泛型参数的元组；`(T)^N` 生成长度
-  N 的重复元组；`(T1,T2)^N` 笛卡尔积；范围语法 `()^M..N` / `()^M..=N`
-- **`*const`/`*mut` 指针**：`*const^T` → `*const T`，支持链式
-- **引用修饰符特殊行为**：`&^A^B` → `&A<B>`（先绑定再应用）
-- **fn 关键字**：`fn^(A,B)` 创建、`fn(A,B)^T` 追加返回类型、`fn-(A,B)^N` 组合
-- **`#[...]` 属性**：`#[attr]^T` 在 impl 块前添加属性
+- **Associated type shorthand**: `TraitName<AssocType=value>` (multiple bindings and complex types supported,
+  combinable with `^`/`-`/unsafe)
+- **Standalone/shared body merging**: `[A{bodyA}, B{bodyB}]{shared}` (multi-level nesting supported)
+- **Tuple generation rule change**: `()^N` generates a tuple with N generic parameters; `(T)^N` generates a
+  repeated tuple of length N; `(T1,T2)^N` is a Cartesian product; range syntax `()^M..N` / `()^M..=N`
+- **`*const`/`*mut` pointers**: `*const^T` → `*const T`, chainable
+- **Reference modifier special behavior**: `&^A^B` → `&A<B>` (bind first, then apply)
+- **fn keyword**: `fn^(A,B)` creates, `fn(A,B)^T` appends a return type, `fn-(A,B)^N` composes
+- **`#[...]` attributes**: `#[attr]^T` adds the attribute before the impl block
 
 ## 0.1.1 (2026-07-19)
 
-### 新功能：预填泛型追加
+### New Feature: pre-filled generic appending
 
-- `A<B>^C` → `A<B, C>`（容器带预填泛型时 `^` 追加参数而非生成 `A<B><C>`）
-- `[Box, Cow<'_>]^T` → `Box<T>, Cow<'_, T>`（列表支持）
-- `-` 运算符自动受益：`HashMap-u32-String` → `HashMap<u32, String>`
+- `A<B>^C` → `A<B, C>` (when the container has pre-filled generics, `^` appends arguments instead of producing `A<B><C>`)
+- `[Box, Cow<'_>]^T` → `Box<T>, Cow<'_, T>` (list support)
+- The `-` operator benefits automatically: `HashMap-u32-String` → `HashMap<u32, String>`
 
 ## 0.1.0 (2026-07-19)
 
-### 初始发布
+### Initial release
 
-- `#[batch_impl(...)]` 属性宏 + `batch_trait!(...)` 函数式宏
-- `^`（右结合）/ `-`（左结合）运算符：泛型应用
-- 元组生成：`()^N`、`(<Bound>)^N`、`(T1,T2)^N` 笛卡尔积、`()^M..N` 范围
-- 泛型支持：impl 泛型（含 const）、trait 泛型、生命周期、泛型继承
-- `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)` 
-- 中文错误提示，`compile_error!` 而非 panic
+- `#[batch_impl(...)]` attribute macro + `batch_trait!(...)` function-like macro
+- `^` (right-associative) / `-` (left-associative) operators: generic application
+- Tuple generation: `()^N`, `(<Bound>)^N`, `(T1,T2)^N` Cartesian product, `()^M..N` ranges
+- Generic support: impl generics (incl. const), trait generics, lifetimes, generic inheritance
+- `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)`
+- Chinese-language error messages, `compile_error!` instead of panic

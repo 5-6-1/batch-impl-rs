@@ -1,4 +1,4 @@
-error: batch-impl: `where` 谓词后缺少代码块 {...}
+error: batch-impl: `where` predicates are missing a code block {...}
  --> tests/ui/where_missing_body.rs:4:1
   |
 4 | #[batch_impl(<T> Sortable<T> Vec<T> where T: Ord)]

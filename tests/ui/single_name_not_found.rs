@@ -1,4 +1,4 @@
-// 错误：`#name{body}` 引用的 item 不在 trait 中
+// Error: the item referenced by `#name{body}` is not in the trait
 use batch_impl::batch_impl;
 
 trait T {

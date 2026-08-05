@@ -1,4 +1,4 @@
-//! 测试基建（仅 `cfg(test)` 编译）：proptest 随机 token 喂给真实宏入口，
-//! 承诺"不因用户输入 panic"。
+//! Test infrastructure (compiled only under `cfg(test)`): feeds proptest-generated random
+//! tokens into the real macro entry points, promising "no panic on user input".
 
 pub(crate) mod fuzz;

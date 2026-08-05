@@ -1,4 +1,4 @@
-error: batch-impl: 指令参数不能为空
+error: batch-impl: directive arguments cannot be empty
  --> tests/ui/minus_empty.rs:4:1
   |
 4 | #[batch_impl(usize #fill(@all,-@all){0})]

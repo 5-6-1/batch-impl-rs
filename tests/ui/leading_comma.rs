@@ -1,4 +1,4 @@
-// 错误：`,,` 连续逗号与前导逗号（分隔符两侧缺少操作数）
+// Error: `,,` consecutive commas and leading commas (missing operands around the separator)
 use batch_impl::batch_impl;
 
 #[batch_impl(,usize)]

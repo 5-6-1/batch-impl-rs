@@ -8,14 +8,14 @@ pub(crate) fn params_to_tokens(base: &TokenStream, tp: &TyTypeParam) -> TokenStr
         all.push(quote!(#name = #value));
     }
     if all.is_empty() {
-        // params + bindings 都空时只渲染 base
+        // render only base when both params and bindings are empty
         return base.clone();
     }
     quote!(#base < #(#all),* >)
 }
 
-/// 渲染单条泛型声明：`name: bound`（有 bound）或裸 `name`。
-/// TyTypeParam 渲染（本文件）与 codegen 的 impl 泛型复用。
+/// Renders a single generic declaration: `name: bound` (with bound) or bare `name`.
+/// This file's `TyTypeParam` rendering is also reused by codegen's impl generics.
 pub(crate) fn render_param(name: &TokenStream, bound: Option<&Ty>) -> TokenStream {
     match bound {
         Some(b) => {
@@ -35,15 +35,16 @@ pub(crate) fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
         all.push(quote!(#name = #value));
     }
     if all.is_empty() {
-        // params + bindings 都空时渲染为空
+        // render empty when both params and bindings are empty
         return quote!();
     }
     quote!(<#(#all),*>)
 }
 
-/// 可选内层双态渲染：`Some(inner)` 时 inner 与 payload 拼接（顺序由
-/// `inner_first` 定），`None` 时裸 payload。WithPrefix/WithAttr/WithCode/
-/// WithWhere 四臂同构，收敛于此。
+/// Two-state rendering with optional inner: `Some(inner)` concatenates inner and
+/// payload (order decided by `inner_first`), `None` renders the bare payload.
+/// The WithPrefix/WithAttr/WithCode/WithWhere arms are isomorphic and all
+/// converge here.
 fn render_optional(
     inner: Option<&Ty>, payload: TokenStream, inner_first: bool,
 ) -> TokenStream {
@@ -89,7 +90,7 @@ impl ToTokens for Ty {
                     let inner = elem.to_token_stream();
                     quote!([#inner; #size])
                 }
-                // 空基座 `[]` 不是有效类型，防御性渲染
+                // empty base `[]` is not a valid type; render defensively
                 (None, _) => quote!([]),
             },
             Ty::WithPrefix(wp) => {
@@ -155,7 +156,7 @@ impl ToTokens for Ty {
     }
 }
 
-/// 渲染前缀修饰符关键字（`&`/`&mut`/`*const`/`*mut`/`self`/`unsafe`）
+/// Renders prefix modifier keywords (`&`/`&mut`/`*const`/`*mut`/`self`/`unsafe`)
 fn prefix_token(prefix: TyPrefix) -> TokenStream {
     match prefix {
         TyPrefix::Ref => quote!(&),

@@ -1,4 +1,4 @@
-// 一个正常编译通过的 pass case：用于确保 trybuild 的 pass 路径不空。
+// A normal pass case that compiles: keeps trybuild's pass path non-empty.
 use batch_impl::batch_impl;
 
 #[batch_impl(usize, isize)]

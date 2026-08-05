@@ -1,17 +1,25 @@
-//! `@` 常量来源上下文（`expand_consts` 一趟解析的三种来源并集）。
+//! `@` constant source context (the sources `expand_consts` resolves in one
+//! pass, unioned: built-in name families, range families, `@trait`/`@all`/
+//! `@Cow`, and the user table).
 //!
-//! 内置常量（`@uint`/`@scalar`/范围族）两种上下文都可用；
-//! trait 感知常量（`@trait`/`@all` 系/`@Cow`）仅属性宏入口有。
+//! Built-in constants (`@uint`/`@scalar`/range families) work in both
+//! contexts; trait-aware constants (`@trait`/`@all` family/`@Cow`) resolve
+//! only in the attribute macro entry (`@trait` is kept as a segment marker in
+//! `batch_trait!`).
 
 use std::collections::HashMap;
 
 use proc_macro2::{TokenStream, TokenTree};
 
-/// `@` 常量的来源上下文：
-/// - [`ConstCtx::Attribute`]：`#[batch_impl]`/`#[batch_impl_only]`——内置 + trait 感知
-///   （`@trait`/`@all` 系/`@Cow`；`trait_full_path` 供 `@trait` 展开为完整路径，
-///   `batch_impl_only` 外部 trait 场景即 `#ext::Trait:` 前缀路径）；
-/// - [`ConstCtx::Trait`]：`batch_trait!`——内置 + 自定义表（前导 `@name=值;`）。
+/// Source context for `@` constants.
+///
+/// [`ConstCtx::Attribute`] (`#[batch_impl]`/`#[batch_impl_only]`): built-in +
+/// trait-aware constants (`@trait`/`@all` family/`@Cow`; `trait_full_path`
+/// lets `@trait` expand to the full path, i.e. the `#ext::Trait:` prefix path
+/// for the external-trait scenario of `batch_impl_only`).
+///
+/// [`ConstCtx::Trait`] (`batch_trait!`): built-in + user table (leading
+/// `@name=value;`).
 #[derive(Clone, Copy)]
 pub(crate) enum ConstCtx<'a> {
     Attribute {
@@ -26,7 +34,8 @@ pub(crate) enum ConstCtx<'a> {
 pub(crate) type UserConsts = HashMap<String, Vec<TokenTree>>;
 
 impl<'a> ConstCtx<'a> {
-    /// 自定义常量表（仅 `batch_trait!` 有；属性宏不支持自定义定义）。
+    /// User constant table (only `batch_trait!` has one; attribute macros do
+    /// not support custom definitions).
     pub(crate) fn user_table(&self) -> Option<&'a UserConsts> {
         match self {
             ConstCtx::Trait { user_table } => Some(user_table),
@@ -34,7 +43,8 @@ impl<'a> ConstCtx<'a> {
         }
     }
 
-    /// trait 定义（仅属性宏入口有；`batch_trait!` 是函数式宏、拿不到定义）。
+    /// Trait definition (only attribute macro entries have one;
+    /// `batch_trait!` is a function-like macro and cannot get it).
     pub(crate) fn trait_def(&self) -> Option<&'a syn::ItemTrait> {
         match self {
             ConstCtx::Attribute { trait_def, .. } => Some(trait_def),
@@ -42,7 +52,8 @@ impl<'a> ConstCtx<'a> {
         }
     }
 
-    /// trait 完整路径（`batch_impl` = 本地名；`batch_impl_only` = 外部路径）。
+    /// Full trait path (`batch_impl` = local name; `batch_impl_only` =
+    /// external path).
     pub(crate) fn trait_full_path(&self) -> Option<&'a TokenStream> {
         match self {
             ConstCtx::Attribute { trait_full_path, .. } => Some(trait_full_path),

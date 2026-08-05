@@ -1,4 +1,4 @@
-// 错误：`#fill` 参数列表逗号位置不合法（连续逗号）
+// Error: invalid comma position in `#fill` argument list (consecutive commas)
 use batch_impl::batch_impl;
 
 trait T {

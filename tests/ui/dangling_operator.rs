@@ -1,4 +1,4 @@
-// 错误：`-` 后缺少操作数（尾随运算符，原先会静默丢弃整段）
+// Error: missing operand after `-` (trailing operator; previously the whole segment was silently dropped)
 use batch_impl::batch_impl;
 
 #[batch_impl(usize, f32 Vec^-)]

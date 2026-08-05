@@ -1,4 +1,4 @@
-error: batch-impl: 指令参数中逗号位置不合法（不允许前导/尾随/连续逗号）
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/trailing/consecutive commas)
  --> tests/ui/fill_bad_comma.rs:9:1
   |
 9 | #[batch_impl(usize #fill(m,,n){0})]

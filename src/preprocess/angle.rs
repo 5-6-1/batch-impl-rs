@@ -1,32 +1,36 @@
-//! 尖括号收集预处理。
+//! Angle group collection preprocessing.
 //!
-//! proc-macro2 的 tokenizer 只对 `()`/`[]`/`{}` 分组，`<>` 是扁平 Punct——
-//! 本模块在 DSL 解析前把扁平 `<...>` 配对收集为尖括号组
-//! （载体是 `delimiter![<>]` = `Delimiter::None`），使下游 parse 层
-//! 不再需要 `<>` 深度跟踪。
+//! proc-macro2's tokenizer only groups `()`/`[]`/`{}`; `<>` stays as flat
+//! Puncts. Before DSL parsing, this module pairs flat `<...>` into angle
+//! groups (carried by `delimiter![<>]` = `Delimiter::None`), so downstream
+//! parse layers no longer need `<>` depth tracking.
 //!
-//! 职责与递归规则见 [`angle_collect`]；[`render_angles`] 是输出侧镜像。
+//! Responsibilities and recursion rules: see [`angle_collect`];
+//! [`render_angles`] is the output-side mirror.
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::compile_error_str;
 use crate::util::{bracket_is_passthrough, is_arrow};
 
-/// 递归深度上限（对齐 v0.1 的 128 层）。
+/// Maximum recursion depth (aligned with v0.1's 128 levels).
 ///
-/// 嵌套组（`[[[...]]]`）与嵌套 `<>`（`Vec<Vec<...>>`）经 [`angle_collect`]
-/// 递归处理，深嵌套会让编译器栈溢出（实测 30000 层 STATUS_STACK_OVERFLOW）——
-/// 入口计数拦截，合法 DSL（组嵌套 ≤ 5 层）完全不受影响。
+/// Nested groups (`[[[...]]]`) and nested `<>` (`Vec<Vec<...>>`) are handled
+/// recursively via [`angle_collect`]; deep nesting overflows the compiler stack
+/// (measured STATUS_STACK_OVERFLOW at 30000 levels) — the entry counter
+/// intercepts this, and valid DSL (group nesting ≤ 5) is completely unaffected.
 pub(crate) const MAX_NEST_DEPTH: usize = 128;
 
-/// 入口转换：一趟扫描完成 None 组扁平化与 `<...>` 配对。
+/// Entry transformation: a single pass flattens None groups and pairs `<...>`.
 ///
-/// - `Brace` 组（透传代码）不进入；
-/// - `Paren` 组（DSL 元组）递归；`Bracket` 组（DSL 列表）递归，
-///   但 `ident![...]` 宏体 / `#[...]` 属性**不进入**（内容可能是任意 Rust，
-///   含比较 `<`）；
-/// - 扁平 `<`/`>` 必须配对（`->` 箭头的 `>` 不参与）；孤立（未配对）报错——
-///   这是非法输入，且报错后下游（scan/where/路径扫描）不再需要 `<>` 深度跟踪。
+/// - `Brace` groups (passthrough code) are not entered;
+/// - `Paren` groups (DSL tuples) recurse; `Bracket` groups (DSL lists) recurse,
+///   but `ident![...]` macro bodies / `#[...]` attributes are **not entered**
+///   (their content may be arbitrary Rust, including comparison `<`);
+/// - Flat `<`/`>` must be paired (the `>` of a `->` arrow does not
+///   participate); an orphaned (unpaired) one errors — this is invalid input,
+///   and once reported, downstream (scan/where/path scanning) no longer needs
+///   `<>` depth tracking.
 pub(crate) fn angle_collect(
     tokens: &[TokenTree],
 ) -> Result<Vec<TokenTree>, TokenStream> {
@@ -38,7 +42,7 @@ fn angle_collect_at(
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(compile_error_str(&format!(
-            "batch-impl: 嵌套深度超过 {} 层（可能是不小心多写了一层括号）",
+            "batch-impl: nesting depth exceeds {} levels (perhaps an accidental extra bracket)",
             MAX_NEST_DEPTH
         )));
     }
@@ -46,13 +50,13 @@ fn angle_collect_at(
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
-            // 真实 None 组（宏变量产物）：内容即 DSL token，扁平化
+            // Real None group (macro-variable output): content is DSL tokens, flatten
             TokenTree::Group(g) if g.delimiter() == delimiter![none] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
                 out.extend(angle_collect_at(&inner, depth + 1)?);
                 i += 1;
             }
-            // DSL 元组：递归
+            // DSL tuple: recurse
             TokenTree::Group(g) if g.delimiter() == delimiter![()] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
                 out.push(
@@ -64,7 +68,7 @@ fn angle_collect_at(
                 );
                 i += 1;
             }
-            // DSL 列表；`ident![...]` / `#[...]` 透传（内容任意 Rust）
+            // DSL list; `ident![...]` / `#[...]` passthrough (content is arbitrary Rust)
             TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
                 if bracket_is_passthrough(tokens, i) {
                     out.push(tokens[i].clone());
@@ -82,16 +86,17 @@ fn angle_collect_at(
                 }
                 i += 1;
             }
-            // 透传代码（body）：不进入
+            // Passthrough code (body): do not enter
             TokenTree::Group(_) => {
                 out.push(tokens[i].clone());
                 i += 1;
             }
-            // 扁平 `<`：配对到匹配 `>`（`->` 的 `>` 不参与）
+            // Flat `<`: pair to the matching `>` (the `>` of `->` does not
+            // participate)
             TokenTree::Punct(p) if p.as_char() == '<' => {
                 let Some(close) = find_angle_close(tokens, i) else {
                     return Err(compile_error_str(
-                        "batch-impl: 未闭合的 `<`（缺少匹配的 `>`）",
+                        "batch-impl: unclosed `<` (missing matching `>`)",
                     ));
                 };
                 let inner: Vec<_> = tokens[i + 1..close].to_vec();
@@ -104,10 +109,10 @@ fn angle_collect_at(
                 );
                 i = close + 1;
             }
-            // 多余的 `>`（非箭头）：非法
+            // Extra `>` (not an arrow): invalid
             TokenTree::Punct(p) if p.as_char() == '>' && !is_arrow(tokens, i) => {
                 return Err(compile_error_str(
-                    "batch-impl: 多余的 `>`（缺少匹配的 `<`）",
+                    "batch-impl: extra `>` (missing matching `<`)",
                 ));
             }
             _ => {
@@ -119,8 +124,9 @@ fn angle_collect_at(
     Ok(out)
 }
 
-/// 找 `tokens[open]`（`<`）的匹配 `>`：嵌套 `<` 深度跟踪，`->` 箭头的
-/// `>` 不关闭。返回匹配 `>` 的索引；未闭合返回 `None`（`<` 保持扁平）。
+/// Find the matching `>` for `tokens[open]` (`<`): tracks nested `<` depth;
+/// the `>` of a `->` arrow does not close. Returns the index of the matching
+/// `>`; `None` if unclosed (the caller reports `unclosed <`).
 fn find_angle_close(tokens: &[TokenTree], open: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (idx, token) in tokens.iter().enumerate().skip(open + 1) {
@@ -140,13 +146,17 @@ fn is_punct(token: &TokenTree, ch: char) -> bool {
     matches!(token, TokenTree::Punct(p) if p.as_char() == ch)
 }
 
-/// 输出转换：递归把尖括号组（`delimiter![<>]`）还原为 `<` + 内容 + `>` 扁平 token。
-/// 供三个宏入口的返回值收口（quote 插值会把尖括号组散布到输出各处）。
+/// Output transformation: recursively restores angle groups (`delimiter![<>]`)
+/// to flat `<` + content + `>` tokens. Used to finalize the return values of
+/// the three macro entries (quote interpolation would scatter angle groups
+/// across the output).
 ///
-/// 递归规则与 [`angle_collect`] 一致：尖括号组 → 转 `<...>`（内部递归）；
-/// `Paren`/`Bracket`（配对时递归进入过，内部可能有嵌套尖括号组）→ 重建并递归；
-/// `Brace`（透传代码，`angle_collect` 从未进入 → 内部不可能有尖括号组）→
-/// **原样透传，不重建**（保留 span，避免影响透传代码与诊断映射）。
+/// Recursion rules match [`angle_collect`]: angle group → emit `<...>`
+/// (recurse inside); `Paren`/`Bracket` (entered during pairing, may contain
+/// nested angle groups) → rebuild and recurse; `Brace` (passthrough code that
+/// `angle_collect` never entered → cannot contain angle groups) →
+/// **passthrough as-is, no rebuild** (keeps spans, avoiding impact on
+/// passthrough code and diagnostic mapping).
 pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
     let mut out = TokenStream::new();
     for tt in stream {
@@ -167,13 +177,15 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
                 if matches!(g.delimiter(), delimiter![()] | delimiter![[]]) =>
             {
                 let inner = render_angles(g.stream());
-                // 重建并恢复原 span（否则 doc 属性等 Bracket 组 span 变 call_site，
-                // 影响 clippy 等基于 span 的诊断映射）
+                // Rebuild and restore the original span (otherwise Bracket
+                // groups such as doc attributes get call_site spans, affecting
+                // span-based diagnostic mapping in clippy and others)
                 let mut new_g = Group::new(g.delimiter(), inner);
                 new_g.set_span(g.span());
                 out.extend([TokenTree::Group(new_g)]);
             }
-            // Brace（透传代码）：原样保留——内部不可能有尖括号组
+            // Brace (passthrough code): keep as-is — cannot contain angle
+            // groups inside
             other => out.extend([other]),
         }
     }
@@ -186,7 +198,8 @@ mod tests {
     use proc_macro2::TokenStream as TS2;
     use std::str::FromStr;
 
-    /// 入口收集 + 出口还原的往返：<...> 配对成组再还原为扁平，token 等价。
+    /// Roundtrip of entry collect + exit restore: `<...>` is paired into
+    /// groups then restored to flat; the tokens are equivalent.
     fn roundtrip(s: &str) -> String {
         let ts: TS2 = FromStr::from_str(s).unwrap();
         let v: Vec<_> = ts.into_iter().collect();
@@ -194,7 +207,8 @@ mod tests {
         render_angles(collected.into_iter().collect()).to_string()
     }
 
-    /// 递归深度护栏：129 层嵌套组（> MAX_NEST_DEPTH）报错而非栈溢出。
+    /// Recursion depth guard: 129 nested groups (> MAX_NEST_DEPTH) error
+    /// instead of overflowing the stack.
     #[test]
     fn angle_nesting_limit() {
         let ts: TS2 = FromStr::from_str(&format!(
@@ -206,8 +220,8 @@ mod tests {
         let v: Vec<_> = ts.into_iter().collect();
         let err = angle_collect(&v).unwrap_err().to_string();
         assert!(
-            err.contains("嵌套深度超过"),
-            "预期深度超限诊断，实际: {err}"
+            err.contains("nesting depth exceeds"),
+            "expected depth-limit diagnostic, got: {err}"
         );
     }
 
@@ -221,37 +235,41 @@ mod tests {
         );
         assert_eq!(roundtrip("<T: Clone> A<T>"), "< T : Clone > A < T >");
         assert_eq!(roundtrip("A<Item=T>"), "A < Item = T >");
-        // -> 箭头的 > 不参与配对
+        // the > of the -> arrow does not participate in pairing
         assert_eq!(roundtrip("fn(A) -> B"), "fn (A) -> B");
     }
 
     #[test]
     fn angle_unmatched_errors() {
-        // 孤立的 < / > 是非法输入：报 compile_error!（不再透传）
+        // Orphaned < / > is invalid input: reports compile_error! (no longer
+        // passthrough)
         let ts: TS2 = FromStr::from_str("A <").unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
         let ts: TS2 = FromStr::from_str("A >").unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
-        // `ident![...]` 宏体不进入：内部比较 < 不报错
+        // `ident![...]` macro bodies are not entered: inner comparison < does
+        // not error
         let ts: TS2 = FromStr::from_str("m![a < b]").unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
     }
 
     #[test]
     fn bracket_passthrough_guards() {
-        // `ident![...]` 宏体与 `#[...]` 属性均不进入（内容任意 Rust，含比较 <）
+        // `ident![...]` macro bodies and `#[...]` attributes are not entered
+        // (content is arbitrary Rust, incl. comparison <)
         for s in ["m![a < b]", "#[a < b]", "#[#zzz{1}]"] {
             let ts: TS2 = FromStr::from_str(s).unwrap();
             assert!(
                 angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok(),
-                "输入 {s} 应透传"
+                "input {s} should passthrough"
             );
         }
     }
 
     #[test]
     fn none_group_flattened() {
-        // 真实 None 组（宏变量展开产物）：扁平化后内容里的 <...> 照常配对
+        // Real None group (macro-variable expansion output): after flattening,
+        // the <...> in its content pairs as usual
         let inner: TS2 = FromStr::from_str("Vec<T>").unwrap();
         let none = proc_macro2::Group::new(delimiter![none], inner);
         let collected = angle_collect(&[none.into()]).unwrap();
@@ -261,10 +279,12 @@ mod tests {
 
     #[test]
     fn render_rebuilds_nested_groups() {
-        // Paren/Bracket 配对时递归进入过，渲染时重建且内部尖括号组照常还原；
-        // Brace 透传不进入（body 里的 `<` 不配对）。
-        // 注：span 保留无法单测——fallback 模式下 `Span::mixed_site()` 即
-        // call_site，且 `Span::eq` 被 procmacro2_semver_exempt 门控。
+        // Paren/Bracket groups were entered during pairing, so rendering
+        // rebuilds them and inner angle groups restore as usual; Brace
+        // passthrough is not entered (the `<` in its body is not paired).
+        // Note: span preservation cannot be unit-tested — in fallback mode
+        // `Span::mixed_site()` is call_site, and `Span::eq` is gated by
+        // procmacro2_semver_exempt.
         assert_eq!(
             roundtrip("[Vec<T>, (U, W<X>)]"),
             "[Vec < T > , (U , W < X >)]"

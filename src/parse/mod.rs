@@ -1,4 +1,4 @@
-//! 解析层：DSL 优先级攀爬解析器与尖括号泛型解析。
+//! Parsing layer: DSL precedence-climbing parser and angle-bracket generic parsing.
 
 mod generic;
 mod parse_atom;
@@ -17,12 +17,12 @@ use crate::parse::parse_atom::{
 use crate::util::Cursor;
 
 // ============================================================
-// 运算符层级解析
+// Operator-level parsing
 // ============================================================
 
-/// 在 `level` 优先级解析一个表达式；遇到更低优先级的运算符停止（留给调用方）。
-/// `Op::Semi` / `Op::Comma` 只返回第一个非空项，分隔符之后的部分由调用方继续遍历；
-/// Semi 停在 `;` 前且不消费，供 batch_trait! 判断段落边界。
+/// Parse an expression at `level` precedence, stopping at lower-precedence operators (caller).
+/// `Op::Semi` / `Op::Comma` return the first non-empty item; the caller continues after separators.
+/// Semi stops before `;` without consuming it, so batch_trait! can detect paragraph boundaries.
 pub(crate) fn parse_item(
     cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>,
 ) -> Option<Ty> {
@@ -33,11 +33,11 @@ pub(crate) fn parse_item(
             }
             if cursor.is_punct(',') {
                 cursor.bump();
-                // 连续逗号（`,,`）：两个分隔符之间无操作数。
-                // 尾随单逗号合法（由调用方判定 `A,` 结束）；双逗号是笔误。
+                // Consecutive commas (`,,`): no operand between the two separators.
+                // A trailing single comma is legal (the caller decides that `A,` ends); double comma is a typo.
                 if cursor.is_punct(',') {
                     return err_ty(
-                        "batch-impl: 连续逗号 `,,` 之间缺少操作数（如 `A,,B`）",
+                        "batch-impl: missing operand between consecutive commas `,,` (e.g. `A,,B`)",
                     )
                     .into();
                 }
@@ -51,43 +51,48 @@ pub(crate) fn parse_item(
     }
 }
 
-/// `-` 与 `^` 的公共骨架：左操作数 → while 停止符循环收集操作数 → 折叠。
-/// 区别仅结合性：`-` 左结合（`A-B-C = (A-B)-C`），`^` 右结合
-/// （`A^B^C = A^(B^C)`——容器在左，嵌套向内）。
+/// Shared skeleton for `-`/`^`: left operand → while loop collecting operands → fold.
+/// They differ only in associativity: `-` left-assoc (`A-B-C = (A-B)-C`), `^` right-assoc
+/// (`A^B^C = A^(B^C)` — container on the left, nesting inward).
 fn parse_binary_chain(
     cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>, op_punct: char,
     right_assoc: bool,
 ) -> Option<Ty> {
-    // 左操作数：parse_operand 返回 None 仅在游标到末尾（合法终止）或
-    // 空段（`-A`/`^A` 左空，静默吞段）。空段必须报错。
-    let hint = if op_punct == '-' { "（如 `T-U`）" } else { "（如 `T^U`）" };
+    // Left operand: `-A` has an empty left segment — parse_operand returns None only at
+    // the end of the cursor (legal termination) or an empty segment (swallowed silently);
+    // `^A` parses to an empty Primitive instead, caught by is_empty_operand. Empty
+    // segments error either way.
+    let hint = if op_punct == '-' { " (e.g. `T-U`)" } else { " (e.g. `T^U`)" };
     let mut items = match parse_operand(cursor, level, trait_name) {
         Some(op) => vec![op],
         None if cursor.at_end() => return None,
         None => {
             return err_ty(&format!(
-                "batch-impl: `{}` 前缺少操作数{}",
+                "batch-impl: missing operand before `{}`{}",
                 op_punct, hint
             ))
             .into();
         }
     };
     if is_empty_operand(&items[0]) {
-        return err_ty(&format!("batch-impl: `{}` 前缺少操作数{}", op_punct, hint))
-            .into();
+        return err_ty(&format!(
+            "batch-impl: missing operand before `{}`{}",
+            op_punct, hint
+        ))
+        .into();
     }
     while cursor.is_punct(op_punct) {
         cursor.bump();
         let Some(op) = parse_operand(cursor, level, trait_name) else {
             return err_ty(&format!(
-                "batch-impl: `{}` 后缺少操作数{}",
+                "batch-impl: missing operand after `{}`{}",
                 op_punct, hint
             ))
             .into();
         };
         if is_empty_operand(&op) {
             return err_ty(&format!(
-                "batch-impl: `{}` 后缺少操作数{}",
+                "batch-impl: missing operand after `{}`{}",
                 op_punct, hint
             ))
             .into();
@@ -101,17 +106,17 @@ fn parse_binary_chain(
     }
 }
 
-/// 操作数是否为空（`^`/`-` 后紧跟深度 0 的停止符时，`take_segment` 会截出空切片）。
-/// 空操作数即"运算符后缺操作数"；`()`/`[]` 等 Group 虽可为空元组/空基座，
-/// 但它们是一个真实 token，不是空操作数。
+/// Whether an operand is empty (when `^`/`-` is immediately followed by a depth-0 stop char,
+/// `take_segment` cuts out an empty slice). An empty operand means a missing operand before or
+/// after the operator; `()`/`[]` are real tokens (empty tuple/base), not empty operands.
 fn is_empty_operand(ty: &Ty) -> bool {
     matches!(ty, Ty::Primitive(p) if p.0.is_empty())
 }
 
-/// 在 `level` 优先级解析一个操作数（到该层级的停止符为止，停止符不消费）。
+/// Parse an operand at `level` precedence (up to that level's stop chars, unconsumed).
 ///
-/// 操作数边界由 `scan_stop` 确定（只看 `<>` 深度，不理解 Rust 类型文法），
-/// 边界内的切片交给 `parse_item` 以更高优先级递归解析。
+/// Operand bounds come from `scan_stop` (only `<>` depth, not full Rust type grammar);
+/// the slice inside the bounds is handed to `parse_item` to recurse at higher precedence.
 fn parse_operand(
     cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>,
 ) -> Option<Ty> {
@@ -122,15 +127,15 @@ fn parse_operand(
     parse_item(&mut Cursor::new(segment), level.next()?, trait_name)
 }
 
-/// DSL 解析入口：剥离尾部 `{...}` 代码块 / `where{...}` 后缀，
-/// 通过 apply 附着到剩余部分解析出的类型上。
+/// DSL parse entry: strips trailing `{...}` code blocks / `where{...}` suffixes,
+/// attaching them via apply to the type parsed from the remaining tokens.
 ///
-/// 连续附着（`T{a}{b}` / `T where{...}`）是**线性链**：迭代剥离（消除
-/// 递归——深层连续 body 会让递归版栈溢出；迭代后无深度限制需求）。
+/// Consecutive attachments (`T{a}{b}` / `T where{...}`) are a **linear chain**; strip by loop
+/// removes recursion (deep bodies overflow the stack); iteration removes any depth limit.
 pub(crate) fn parse_primitive(
     tokens: &[TokenTree], trait_name: Option<&Ident>,
 ) -> Ty {
-    // 从外到内收集附着块（先剥的是外层）；`rest` 收敛到最内层基础
+    // Collect attachments outside-in (outer first); `rest` shrinks to the innermost base
     let mut attaches = vec![];
     let mut rest = tokens;
     loop {
@@ -148,8 +153,8 @@ pub(crate) fn parse_primitive(
         }
     }
     let mut ty = if rest.is_empty() {
-        // 整个操作数是裸块链（`{a}{b}`）：最内层块即"顶层 item 注入"基础
-        // （`None` 内层标记）；attaches 空 = 输入本身为空，走原子解析
+        // The whole operand is a bare block chain (`{a}{b}`): the innermost block is the "top-level item
+        // injection" base (inner `None` mark); empty attaches = empty input, so parse atomically
         match attaches.pop() {
             Some(inner) => inner,
             None => parse_primary(rest, trait_name),
@@ -157,7 +162,7 @@ pub(crate) fn parse_primitive(
     } else {
         parse_primary(rest, trait_name)
     };
-    // 从内到外 apply（attaches 尾部 = 最内层）
+    // Apply from inside out (attaches tail = innermost)
     while let Some(block) = attaches.pop() {
         ty = block.apply(ty);
     }
@@ -165,24 +170,24 @@ pub(crate) fn parse_primitive(
 }
 
 // ============================================================
-// 原子层解析
+// Atom-level parsing
 // ============================================================
 
-/// 尾部 `{...}` 剥离的结果
+/// Result of stripping the trailing `{...}`
 struct TrailingBody<'a> {
-    /// 剥离尾部代码块后的剩余 token
+    /// Remaining tokens after stripping the trailing code block
     tokens: &'a [TokenTree],
-    /// 剥离出的 body 内容；`None` 表示无尾部代码块
+    /// The stripped body; `None` means there is no trailing code block
     body: Option<TokenStream>,
-    /// `true` 表示 body 是 `where{...}` 谓词后缀
+    /// `true` when the body is a `where{...}` predicate suffix
     is_where: bool,
 }
 
-/// 分离尾部 `{...}` 代码块（`macro!{...}` 不是尾部代码块；`where{...}` 记为谓词）
+/// Split off a trailing `{...}` code block (`macro!{...}` excluded; `where{...}` is a predicate)
 fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
     match tokens.last() {
         Some(TokenTree::Group(group)) if group.delimiter() == delimiter![{}] => {
-            // macro!{...} 不是尾部代码块，排除
+            // macro!{...} is not a trailing code block; exclude it
             if tokens.len() >= 2
                 && let TokenTree::Punct(p) = &tokens[tokens.len() - 2]
                 && p.as_char() == '!'
@@ -209,7 +214,8 @@ fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
     }
 }
 
-/// 解析一个"原子"表达式：属性 → 函数 → 前缀 → 范围 → 数字 → 分组 → 泛型 → 类型参数 → 透传兜底
+/// Parse one "atom" expression: attribute → function → prefix → range → number → group →
+/// generic → type params → primitive fallback
 fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
         let inner = if rest.is_empty() {
@@ -224,7 +230,7 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         return function;
     }
 
-    // 裸 `fn`（无参数）：`fn^(A,B)` 由 `^` 操作符后续填入参数
+    // Bare `fn` (no params): `fn^(A,B)` gets its args filled in later by the `^` operator
     if let [TokenTree::Ident(name)] = tokens
         && name == "fn"
     {
@@ -232,11 +238,11 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     }
 
     if let Some((prefix, rest)) = parse_prefix(tokens) {
-        // `unsafe` 前缀歧义消解：
-        // - 裸 `unsafe`（rest 空）→ unsafe impl 标记（unsafe^T / unsafe-T），原样透传
-        // - `unsafe fn...` → unsafe fn 类型（TyFn.is_unsafe 置位）
-        // - `unsafe X`（X 非 fn）→ 报错：Rust 中 unsafe 只能修饰 fn 类型，
-        //   并列写其他类型几乎必是忘写 `^` 的笔误（unsafe^Vec<T>）
+        // `unsafe` prefix disambiguation:
+        // - bare `unsafe` (rest empty) → unsafe impl marker (unsafe^T / unsafe-T), passthrough verbatim
+        // - `unsafe fn...` → unsafe fn type (TyFn.is_unsafe set)
+        // - `unsafe X` (X not fn) → error: in Rust, unsafe only qualifies fn types; writing it next to
+        //   any other type is almost certainly a forgotten `^` (unsafe^Vec<T>)
         if matches!(prefix, TyPrefix::Unsafe) && !rest.is_empty() {
             if matches!(rest.first(), Some(TokenTree::Ident(f)) if f == "fn") {
                 let inner = parse_primitive(rest, trait_name);
@@ -245,13 +251,13 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
                         f.2 = true;
                         f.into()
                     }
-                    // rest 以 `fn` 开头，parse_primitive 必得 TyFn；防御性兜底
+                    // rest starts with `fn`, so parse_primitive must return TyFn; defensive fallback
                     other => other,
                 };
             }
             return err_ty(
-                "batch-impl: `unsafe` 只能修饰 fn 类型（如 `unsafe fn(u32) -> u32`）\
-                 或作为裸 impl 标记（如 `unsafe^T`）",
+                "batch-impl: `unsafe` can only qualify a fn type (e.g. `unsafe fn(u32) -> u32`) \
+or act as a bare impl marker (e.g. `unsafe^T`)",
             );
         }
         let inner = if rest.is_empty() {
@@ -272,8 +278,8 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         return TyNum(number).into();
     }
 
-    // 尖括号组（`delimiter![<>]`）是泛型/类型参数列表，须走 parse_type_params
-    // （否则 `HashMap^<A,B>` 的右操作数被 parse_group 吞成空、参数静默丢失）
+    // An angle-bracket group (`delimiter![<>]`) is a generic list; must go through
+    // parse_type_params (else `HashMap^<A,B>`'s right operand is swallowed as empty by parse_group)
     if let [TokenTree::Group(group)] = tokens
         && group.delimiter() != delimiter![<>]
     {
@@ -286,8 +292,8 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         let generic = if is_trait_base(&base, trait_name) {
             TyTrait(base.iter().cloned().collect(), params).into()
         } else {
-            // rest 非空且不是尖括号组（`Vec<T><U>` 是连续泛型，走 apply）：
-            // 其他（如 `Vec<T>U`）视为透传
+            // rest non-empty and not an angle-bracket group (`Vec<T><U>` = chained generics, via apply):
+            // anything else (e.g. `Vec<T>U`) is treated as a passthrough
             if !rest.is_empty()
                 && !matches!(rest.first(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>])
             {

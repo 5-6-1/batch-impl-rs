@@ -1,4 +1,4 @@
-error: batch-impl: 继承的 bound `'a` 引用形参 `'a`，impl 未声明同名参数；请声明 `'a` 或手写 bound
+error: batch-impl: inherited bound `'a` references parameter `'a`, but the impl declares no such name; declare `'a` or write the bound manually
  --> tests/ui/rename_ref.rs:4:1
   |
 4 | #[batch_impl(<'b, T> A<'b, T> ())]

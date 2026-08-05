@@ -1,4 +1,4 @@
-error: batch-impl: 指令的参数列表不能为空
+error: batch-impl: the directive's argument list cannot be empty
  --> tests/ui/fill_empty_args.rs:8:1
   |
 8 | #[batch_impl(usize #fill(){0})]

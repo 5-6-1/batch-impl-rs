@@ -1,4 +1,4 @@
-// 错误：`#name{body}` 后既不是 `{body}` 也不是 `(args){body}`
+// Error: `#name{body}` followed by neither `{body}` nor `(args){body}`
 use batch_impl::batch_impl;
 
 trait T {

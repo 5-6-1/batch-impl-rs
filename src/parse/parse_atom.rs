@@ -5,7 +5,7 @@ use crate::parse::{parse_item, parse_primitive};
 use crate::util::{Cursor, contains_punct};
 use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
 
-/// `#[...]` 属性解析
+/// `#[...]` attribute parsing
 pub(crate) fn parse_attribute(
     tokens: &[TokenTree],
 ) -> Option<(TokenStream, &[TokenTree])> {
@@ -19,7 +19,7 @@ pub(crate) fn parse_attribute(
     }
 }
 
-/// `fn(A,B)->C` 函数类型解析（fn + 参数元组 + 可选返回类型）
+/// `fn(A,B)->C` function type parsing (fn + parameter tuple + optional return type)
 pub(crate) fn parse_function(
     tokens: &[TokenTree], trait_name: Option<&Ident>,
 ) -> Option<Ty> {
@@ -34,7 +34,8 @@ pub(crate) fn parse_function(
     let mut cursor = Cursor::new(&args_tokens);
     let mut parameters = vec![];
     if cursor.is_punct(',') {
-        return err_ty("batch-impl: `fn` 参数列表不能以 `,` 开头").into();
+        return err_ty("batch-impl: `fn` parameter list cannot start with `,`")
+            .into();
     }
     while let Some(parameter) = parse_item(&mut cursor, Op::Comma, trait_name) {
         parameters.push(parameter);
@@ -54,8 +55,8 @@ pub(crate) fn parse_function(
     TyFn(parameters.into(), return_type, false).into()
 }
 
-/// 前缀修饰符解析：`&`/`&mut`/`*const`/`*mut`/`self`/`unsafe`
-/// （`fn` 由 `parse_function` 或 parse.rs 的裸 `fn` 分支处理）
+/// Prefix modifier parsing: `&`/`&mut`/`*const`/`*mut`/`self`/`unsafe`
+/// (`fn` is handled by `parse_function` or the bare-`fn` branch in parse.rs)
 pub(crate) fn parse_prefix(tokens: &[TokenTree]) -> Option<(TyPrefix, &[TokenTree])> {
     match tokens {
         [TokenTree::Punct(p), TokenTree::Ident(name), rest @ ..]
@@ -86,7 +87,7 @@ pub(crate) fn parse_prefix(tokens: &[TokenTree]) -> Option<(TyPrefix, &[TokenTre
     }
 }
 
-/// `N..M` / `N..=M` 范围解析
+/// `N..M` / `N..=M` range parsing
 pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     let [
         TokenTree::Literal(start),
@@ -116,7 +117,8 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     TyRange { start, end: end.to_string().parse().ok()?, inclusive }.into()
 }
 
-/// 分组解析：`(A,B)` 元组 / `(A)` 分组 / `[A,B]` 列表 / `[A; N]` 定长数组 / `[A]` 切片 / `{...}` 代码块
+/// Group parsing: `(A,B)` tuple / `(A)` group / `[A,B]` list / `[A; N]` array / `[A]` slice /
+/// `{...}` code block
 pub(crate) fn parse_group(
     group: &proc_macro2::Group, trait_name: Option<&Ident>,
 ) -> Ty {
@@ -134,8 +136,8 @@ pub(crate) fn parse_group(
             }
         }
         delimiter![[]] => {
-            // 有逗号是并列列表；否则以 `;`（Op::Semi）区分定长数组与切片。
-            // 空 `[]` 是数组/切片 builder 基座 `(None, None)`。
+            // With a comma it is a list; otherwise `;` (Op::Semi) distinguishes arrays from slices.
+            // Empty `[]` is the array/slice builder base `(None, None)`.
             if contains_punct(&contents, ',') {
                 Ty::Array(TyArray(parse_list(&contents, Op::Comma, trait_name)))
             } else if contents.is_empty() {
@@ -159,15 +161,15 @@ pub(crate) fn parse_group(
     }
 }
 
-/// 按给定优先级循环解析列表（`parse_item` 返回 None 时停止）
+/// Parse a list by looping at the given level (stops when `parse_item` returns None)
 pub(crate) fn parse_list(
     tokens: &[TokenTree], level: Op, trait_name: Option<&Ident>,
 ) -> Vec<Ty> {
     let mut cursor = Cursor::new(tokens);
     let mut items = vec![];
-    // 前导逗号（`[,A]` / `(,A)`）：列表以 `,` 开头是笔误
+    // Leading comma (`[,A]` / `(,A)`): a list starting with `,` is a typo
     if cursor.is_punct(',') {
-        items.push(err_ty("batch-impl: 列表不能以 `,` 开头"));
+        items.push(err_ty("batch-impl: a list cannot start with `,`"));
     }
     while let Some(item) = parse_item(&mut cursor, level, trait_name) {
         items.push(item);

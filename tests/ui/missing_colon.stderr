@@ -1,4 +1,4 @@
-error: batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs
+error: batch_trait! expects ':' to separate the trait name and impl-specs
  --> tests/ui/missing_colon.rs:7:1
   |
 7 | batch_trait!(A);

@@ -1,7 +1,8 @@
-//! 共享工具：token 游标扫描（[`Cursor`]）与编译期诊断构造（[`compile_error_str`]）。
+//! Shared utilities: token cursor scanning ([`Cursor`]) and compile-time diagnostic
+//! construction ([`compile_error_str`]).
 //!
-//! 本目录无业务依赖，被所有层引用；`mod.rs` 聚合 re-export，
-//! 引用侧统一写 `crate::util::X`（不写子模块路径）。
+//! This directory has no business dependencies and is referenced by every layer; `mod.rs`
+//! aggregates the re-exports, so callers write `crate::util::X` (not submodule paths).
 
 pub(crate) mod diagnostic;
 pub(crate) mod scan;

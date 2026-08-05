@@ -1,15 +1,17 @@
-// batch-impl DSL 功能性回归测试。
+// Functional regression tests for the batch-impl DSL.
 //
-// 这些用例覆盖最核心特性：基础批量生成、泛型、并列列表、^/- 操作符、
-// 元组生成、unsafe impl、关联类型绑定、fn 类型、属性支持、# 指令系统。
-// examples/ 下保留完整的逐项 println 风格用例，本文件提供 `#[test]` 化的核心覆盖。
+// These cases cover the core features: basic batch generation, generics, parallel
+// lists, ^/- operators, tuple generation, unsafe impls, associated type bindings,
+// fn types, attribute support, and the # directive system.
+// examples/ keeps complete per-item println-style cases; this file provides
+// `#[test]`-based core coverage.
 
 use batch_impl::{batch_impl, batch_impl_only, batch_preprocess_test, batch_trait};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 // ============================================================
-// 1. 基础：为具体类型直接实现
+// 1. Basic: implement directly for concrete types
 // ============================================================
 #[batch_impl(usize, isize)]
 trait Numeric {}
@@ -22,7 +24,7 @@ fn basic_numeric() {
 }
 
 // ============================================================
-// 2. 泛型：<T> Vec<T>
+// 2. Generics: <T> Vec<T>
 // ============================================================
 #[batch_impl(<T> Vec<T>)]
 trait Collection {}
@@ -35,7 +37,7 @@ fn generic_vec() {
 }
 
 // ============================================================
-// 3. 共享 + 独立 body 合并
+// 3. Shared + independent body merging
 // ============================================================
 #[batch_impl(
     [usize { fn name() -> &'static str { "usize" } },
@@ -56,7 +58,7 @@ fn shared_independent_body() {
 }
 
 // ============================================================
-// 4. ^ 操作符：[&, Box, Rc]^u32 笛卡尔积
+// 4. ^ operator: [&, Box, Rc]^u32 cartesian product
 // ============================================================
 #[batch_impl([&, Box, Rc]^u32)]
 trait RefOrOwnedEmpty {}
@@ -71,7 +73,7 @@ fn caret_prefix_list() {
 }
 
 // ============================================================
-// 5. 元组生成：()^3
+// 5. Tuple generation: ()^3
 // ============================================================
 #[batch_impl(()^3)]
 trait Tuple3 {}
@@ -83,7 +85,7 @@ fn tuple_pow_basic() {
 }
 
 // ============================================================
-// 6. 范围元组：()^1..=3
+// 6. Range tuples: ()^1..=3
 // ============================================================
 #[batch_impl(()^1)]
 trait Tuple1 {}
@@ -103,7 +105,7 @@ fn tuple_range_pow() {
 }
 
 // ============================================================
-// 7. 关联类型绑定：<T> Iter<Item=T> Vec<T> {...}
+// 7. Associated type bindings: <T> Iter<Item=T> Vec<T> {...}
 // ============================================================
 #[batch_impl(<T> Iter<Item=T> Vec<T> {
     fn count(&self) -> usize { self.len() }
@@ -119,11 +121,11 @@ fn assoc_type_binding() {
 }
 
 // ============================================================
-// 8. unsafe impl：unsafe 前 TRAIT 全 unsafe
+// 8. unsafe impl: `unsafe` before TRAIT makes all impls unsafe
 // ============================================================
 /// # Safety
 ///
-/// 测试用标记 trait，无实际 unsafe 语义。
+/// Marker trait for testing; no actual unsafe semantics.
 #[batch_impl(usize, Box<u32>)]
 unsafe trait UnsafeAll {}
 
@@ -135,11 +137,11 @@ fn unsafe_trait_impls() {
 }
 
 // ============================================================
-// 9. 局部 unsafe
+// 9. Partial unsafe
 // ============================================================
 /// # Safety
 ///
-/// 测试用标记 trait，无实际 unsafe 语义。
+/// Marker trait for testing; no actual unsafe semantics.
 #[batch_impl(unsafe^usize, isize)]
 unsafe trait PartialUnsafe {}
 
@@ -151,7 +153,7 @@ fn partial_unsafe() {
 }
 
 // ============================================================
-// 10. fn 类型
+// 10. fn types
 // ============================================================
 #[batch_impl(fn^(i32, u32))]
 trait FnSimple {}
@@ -170,7 +172,7 @@ fn fn_types() {
 }
 
 // ============================================================
-// 11. 属性支持：#[allow(dead_code)]^usize
+// 11. Attribute support: #[allow(dead_code)]^usize
 // ============================================================
 #[batch_impl(#[allow(dead_code)]^usize, isize)]
 trait AttrSimple {}
@@ -183,7 +185,7 @@ fn attr_support() {
 }
 
 // ============================================================
-// 12. 复杂类型透传
+// 12. Complex type passthrough
 // ============================================================
 #[batch_impl(
     (i32, String),
@@ -208,7 +210,7 @@ fn complex_passthrough() {
 }
 
 // ============================================================
-// 13. #name{body} 单 item 赋值
+// 13. #name{body} single-item assignment
 // ============================================================
 #[batch_impl(
     usize #to_str{"usize"},
@@ -225,7 +227,7 @@ fn directive_single_name() {
 }
 
 // ============================================================
-// 14. #fill(args){body} 多方法同 body
+// 14. #fill(args){body} multiple methods sharing one body
 // ============================================================
 #[batch_impl(usize #fill(name, kind){"u"})]
 trait Describable {
@@ -240,7 +242,7 @@ fn directive_fill() {
 }
 
 // ============================================================
-// 15. #delegate 委托
+// 15. #delegate delegation
 // ============================================================
 #[batch_impl(
     Vec<u32> #d_len{self.len()},
@@ -259,7 +261,7 @@ fn directive_delegate() {
 }
 
 // ============================================================
-// 16. batch_trait! 函数式宏
+// 16. batch_trait! function-like macro
 // ============================================================
 trait BTNumeric {}
 trait BTMap {}
@@ -281,7 +283,7 @@ fn batch_trait_macro_basic() {
 }
 
 // ============================================================
-// 17. batch_trait! 多段落 + unsafe 段
+// 17. batch_trait! multi-segment + unsafe segment
 // ============================================================
 trait PairSegment {}
 
@@ -292,8 +294,8 @@ batch_trait!(
 
 /// # Safety
 ///
-/// 测试用标记 trait，无实际 unsafe 语义。
-#[allow(dead_code)] // 通过 batch_trait! 引用，编译器看不到 impl
+/// Marker trait for testing; no actual unsafe semantics.
+#[allow(dead_code)] // referenced via batch_trait!; the compiler does not see the impl
 unsafe trait YieldUnsafe {}
 
 #[test]
@@ -304,7 +306,7 @@ fn batch_trait_multi_segment_unsafe() {
 }
 
 // ============================================================
-// 18. batch_impl_only 不输出 trait 定义
+// 18. batch_impl_only does not emit the trait definition
 // ============================================================
 trait DropDefOnly {
     fn m(&self) -> u32;
@@ -321,7 +323,7 @@ fn batch_impl_only_drops_trait() {
 }
 
 // ============================================================
-// 19. - 操作符（左结合）
+// 19. - operator (left-associative)
 // ============================================================
 #[batch_impl(HashMap-u32-String)]
 trait DashMapGen {}
@@ -333,7 +335,7 @@ fn dash_op() {
 }
 
 // ============================================================
-// 20. 嵌套泛型合并 <T> Describe<T> [Vec<T>, <U> HashMap<T, U>]
+// 20. Nested generic merging <T> Describe<T> [Vec<T>, <U> HashMap<T, U>]
 // ============================================================
 #[batch_impl(<T> Describe<T> [Vec<T>, <U> HashMap<T, U>] {
     fn describe(&self) -> String { format!("len={}", self.len()) }
@@ -351,7 +353,7 @@ fn nested_generic_list() {
 }
 
 // ============================================================
-// 21. `where{...}` DSL 后缀
+// 21. `where{...}` DSL suffix
 // ============================================================
 #[batch_impl(<T: Clone> Sortable<T> Vec<T> where{ T: Ord } {
     fn is_sorted(&self) -> bool {
@@ -371,7 +373,7 @@ fn dsl_where_clause() {
 }
 
 // ============================================================
-// 22. `where{...}` 后缀形式（后置）
+// 22. `where{...}` suffix form (postfix)
 // ============================================================
 #[batch_impl(
     <T> Singleton<T> Vec<T> where{ T: Clone + Default }
@@ -390,7 +392,7 @@ fn suffix_where_clause() {
 }
 
 // ============================================================
-// 23. `<A><B>T` 合并（apply chain 合并到 impl<A, B>）
+// 23. `<A><B>T` merging (apply chain merged into impl<A, B>)
 // ============================================================
 trait PairAB<A, B> {
     fn pair(&self) -> (A, B);
@@ -411,7 +413,7 @@ fn nested_generics_merge() {
 }
 
 // ============================================================
-// 24. 列表修饰符 + `where{...}`（where 附着在 Array 外层）
+// 24. List modifier + `where{...}` (where attached to the outer Array)
 // ============================================================
 #[batch_impl(
     <T> WrapOrd<T> [Box, Rc]^Vec<T> where{ T: Ord }
@@ -429,7 +431,7 @@ fn where_with_list_modifier() {
 }
 
 // ============================================================
-// 25. 裸 `where 谓词 {body}`（新语法，逗号谓词不被 spec 切分）
+// 25. Bare `where predicate {body}` (new syntax; comma predicates are not split by specs)
 // ============================================================
 #[batch_impl(
     <A> <B> PairComma<A, B> (A, B)
@@ -446,7 +448,7 @@ fn where_bare_comma_predicates() {
 }
 
 // ============================================================
-// 26. 裸 where + `m!{}` 宏体（宏调用不是 body 边界）
+// 26. Bare where + `m!{}` macro body (a macro invocation is not a body boundary)
 // ============================================================
 macro_rules! m {
     () => {
@@ -469,7 +471,7 @@ fn where_macro_body_excluded() {
 }
 
 // ============================================================
-// 27. 裸 where 多段（`where A where B`）+ 空代码块
+// 27. Bare where with multiple segments (`where A where B`) + empty code block
 // ============================================================
 #[batch_impl(
     <T> MultiOrd<T> Vec<T> where T: Ord where T: Clone {}
@@ -483,11 +485,12 @@ fn where_bare_multi_clause() {
 }
 
 // ============================================================
-// 28. 开放扩展机制：用户宏根据 trait 展开为需要的 fn 定义
-//     `usize #batch_preprocess_test(add,inc){*self+1}` 展开为
-//     `usize {batch_preprocess_test!{(add,inc){*self+1} trait AddInc {...}}}` —— 宏调用
-//     落在 impl body，由 batch_preprocess_test! 解析方法名/body/trait 生成 fn 定义，
-//     等价于把 `#fill` 的实现交给用户宏（每类型可各挂一个，trait 不重复）
+// 28. Open extension mechanism: user macros expand to the needed fn definitions based on the trait
+//     `usize #batch_preprocess_test(add,inc){*self+1}` expands to
+//     `usize {batch_preprocess_test!{(add,inc){*self+1} trait AddInc {...}}}` — a macro call
+//     landing in the impl body; batch_preprocess_test! parses method names/body/trait and
+//     generates fn definitions, equivalent to handing the `#fill` implementation to a user macro
+//     (each type can carry its own; the trait is not duplicated)
 // ============================================================
 #[batch_impl(usize #batch_preprocess_test(add,inc){*self+1})]
 trait AddInc {
@@ -502,8 +505,8 @@ fn open_extension_fn_like_macro() {
 }
 
 // ============================================================
-// 29. `unsafe fn(...)` 类型：`unsafe` 修饰 fn 类型本身
-//     （区别于 `unsafe^T` 的 unsafe impl 标记；`unsafe X` 非 fn 会报错）
+// 29. `unsafe fn(...)` types: `unsafe` modifies the fn type itself
+//     (distinct from the unsafe impl marker `unsafe^T`; `unsafe X` errors when X is not a fn)
 // ============================================================
 #[batch_impl(unsafe fn(u32) -> u32)]
 trait UnsafeFnMarker {}
@@ -530,8 +533,8 @@ fn unsafe_fn_type() {
 }
 
 // ============================================================
-// 30. 指令参数列表减法：`-name` / `-@all` 排除项（取代 `#except`）
-//     （排除项走 trait 默认实现，验证未被批量生成）
+// 30. Directive argument list subtraction: `-name` / `-@all` exclusions (replacing `#except`)
+//     (excluded items use the trait's default implementation, verifying they were not batch-generated)
 // ============================================================
 #[batch_impl(usize #fill(@all,-skip_me){0})]
 trait ExceptInline {
@@ -542,7 +545,7 @@ trait ExceptInline {
     const VALUE: u32;
 }
 
-// 标记减法：@all - @all_methods = const + type
+// Marker subtraction: @all - @all_methods = const + type
 #[batch_impl(isize #fill(@all,-@all_methods){1})]
 trait MarkMinus {
     fn m(&self) -> u32 {
@@ -551,7 +554,7 @@ trait MarkMinus {
     const C: u32;
 }
 
-// 显式列表 + 排除项
+// Explicit list + exclusions
 #[batch_impl(u32 #fill(a, -b){2})]
 trait ListMinus {
     fn a(&self) -> u32;
@@ -566,7 +569,7 @@ fn directive_minus_exclude() {
     assert_eq!(1usize.skip_me(), 999);
     assert_eq!(<usize as ExceptInline>::VALUE, 0);
 
-    // `@all - @all_methods` = const + type：方法走默认实现
+    // `@all - @all_methods` = const + type: methods use their default implementations
     assert_eq!(<isize as MarkMinus>::C, 1);
     assert_eq!(0isize.m(), 7);
 
@@ -576,11 +579,11 @@ fn directive_minus_exclude() {
 }
 
 // ============================================================
-// 30b. `@all_default*` / `@all_required*`：按默认实现状态过滤 item
-//     （trait item 的 `default` 字段：fn=默认体、const=默认值、type=默认类型；
-//      required ∪ default = all，二分闭合）
+// 30b. `@all_default*` / `@all_required*`: filter items by default-implementation status
+//     (the trait item `default` field: fn=default body, const=default value, type=default type;
+//      required ∪ default = all, a closed dichotomy)
 // ============================================================
-// 组合：required 填 1、default 覆盖成 2（u32）
+// Combined: required filled with 1, default overridden to 2 (u32)
 #[batch_impl(u32 #fill(@all_required_methods){1} #fill(@all_default_methods){2})]
 trait ReqDefMix {
     fn req(&self) -> u32;
@@ -589,7 +592,7 @@ trait ReqDefMix {
     }
 }
 
-// 只 required：default 方法保留 trait 默认实现（最常见用法，u64）
+// Required only: default methods keep the trait's default impl (most common usage, u64)
 #[batch_impl(u64 #fill(@all_required_methods){3})]
 trait ReqOnly {
     fn req(&self) -> u32;
@@ -598,7 +601,7 @@ trait ReqOnly {
     }
 }
 
-// blanket + required：只委托必须实现的，默认方法保留 trait 默认（u16）
+// blanket + required: only delegate mandatory items; default methods keep the trait default (u16)
 #[batch_impl(#blanket(@all_required_methods){Box})]
 trait BlanketReq {
     fn req(&self) -> u32;
@@ -616,20 +619,21 @@ impl BlanketReq for u16 {
 #[test]
 fn all_default_required_markers() {
     assert_eq!(0u32.req(), 1);
-    assert_eq!(0u32.opt(), 2); // 默认 100 被覆盖 → 2
+    assert_eq!(0u32.opt(), 2); // default 100 overridden → 2
     assert_eq!(0u64.req(), 3);
-    assert_eq!(0u64.opt(), 7); // 默认保留
+    assert_eq!(0u64.opt(), 7); // default kept
     let b = Box::new(1u16);
-    assert_eq!(b.req(), 1); // 委托 (*self).req()
-    assert_eq!(b.opt(), 7); // 默认保留
+    assert_eq!(b.req(), 1); // delegates to (*self).req()
+    assert_eq!(b.opt(), 7); // default kept
 }
 
 // ============================================================
-// 31. 空操作数严格化：合法形态不受影响
-//     （尾随逗号 / 空元组 `()` / 空基座 `[]` 都是真实 token，不是空操作数）
+// 31. Empty operand strictness: legal forms are unaffected
+//     (trailing commas / empty tuple `()` / empty base `[]` are real tokens, not empty operands)
 // ============================================================
-// 尾随逗号必须用 #[rustfmt::skip] 保护：rustfmt 会移除单行宏调用的尾随逗号，
-// 这条用例正是"尾随逗号合法"的回归载体
+// Trailing commas must be guarded with #[rustfmt::skip]: rustfmt removes trailing commas
+// from single-line macro invocations, so this case is the regression vehicle for
+// "trailing commas are legal"
 #[rustfmt::skip]
 #[batch_impl(usize, isize,)]
 trait TrailingCommaOk {}
@@ -654,9 +658,11 @@ fn strictness_legal_forms() {
 }
 
 // ============================================================
-// 32. trait 泛型 bound 自动继承：未写 bound 的 impl 泛型参数按位置 + 同名继承
-//     （写了 = 用户负责，宏不干预——sub trait 蕴含（`trait B: A` 使 `T: B`
-//     隐含 `T: A`）宏无法推理，交由 rustc 验证；异名明确报错，绝不静默）
+// 32. Automatic trait generic bound inheritance: impl generic params without bounds inherit
+//     by position + same name
+//     (if written, the user is responsible; the macro does not interfere — sub-trait implication
+//     (`trait B: A` makes `T: B` imply `T: A`) cannot be inferred by the macro and is left to
+//     rustc; mismatched names error loudly, never silently)
 // ============================================================
 #[batch_impl(<T> Cloned<T> Vec<T> {
     fn get(&self) -> T {
@@ -667,7 +673,7 @@ trait Cloned<T: Clone> {
     fn get(&self) -> T;
 }
 
-// 用户已写 bound（B: A 蕴含 T: A）→ 不干预
+// User already wrote a bound (B: A implies T: A) → no intervention
 trait SupA {}
 trait SupB: SupA {}
 struct SupS;
@@ -676,25 +682,25 @@ impl SupB for SupS {}
 #[batch_impl(<T: SupB> Inherit<T> ())]
 trait Inherit<T: SupA> {}
 
-// 生命周期 bound 继承：`<'a, T>` → `impl<'a, T: 'a>`
+// Lifetime bound inheritance: `<'a, T>` → `impl<'a, T: 'a>`
 #[batch_impl(<'a, T> Lifetime<'a, T> ())]
 trait Lifetime<'a, T: 'a> {}
 
-// 改名场景：生命周期名改（'b vs 'a），trait 名保持一致——impl 无同名 `'a`，
-// 生命周期 bound 不继承，用户手写 `T: 'b`
+// Renaming scenario: lifetime renamed ('b vs 'a), trait name kept — the impl has no `'a`,
+// so the lifetime bound is not inherited; the user writes `T: 'b` manually
 #[batch_impl(<'b, T: 'b> LifetimeRenamed<'b, T> ())]
 trait LifetimeRenamed<'a, T: 'a> {}
 
-// `'static` 全局可用：无需声明，照常继承
+// `'static` is globally available: no declaration needed, inherited as usual
 #[batch_impl(<T> StaticT<T> ())]
 trait StaticT<T: 'static> {}
 
-// 混合 bound：Clone + 'a 一并继承
+// Mixed bounds: Clone + 'a inherited together
 #[batch_impl(<'a, T> Mix<'a, T> ())]
 trait Mix<'a, T: Clone + 'a> {}
 
-// 部分绑定：T 用户写 bound（B 蕴含 A，rustc 验证），U 未写（同名继承 A）——
-// 继承按参数独立判断，部分写/部分继承天然混合
+// Partial binding: T has a user-written bound (B implies A, verified by rustc), U has none
+// (inherits A by name) — inheritance is decided per-parameter, so written/inherited mix naturally
 #[batch_impl(<T: SupB, U> PartialBound<T, U> ())]
 trait PartialBound<T: SupA, U: SupA> {}
 
@@ -723,7 +729,7 @@ fn trait_bound_inherit() {
     fn check4<T: Mix<'static, ()>>() {}
     check4::<()>();
 
-    // 部分绑定：impl<T: SupB, U: SupA> / impl<T: SupA, U: SupB>
+    // Partial binding: impl<T: SupB, U: SupA> / impl<T: SupA, U: SupB>
     fn check_p<T: PartialBound<SupS, i32>>() {}
     check_p::<()>();
     fn check_p2<T: PartialBound2<i32, SupS>>() {}
@@ -731,8 +737,8 @@ fn trait_bound_inherit() {
 }
 
 // ============================================================
-// 33. `A<>`：trait 泛型照抄——实参与 bound 全部来自 trait 定义，
-//     展开为 `<'a, T: bounds, const N> A<'a, T, N>`（与手写等价）
+// 33. `A<>`: trait generics copied verbatim — args and bounds all come from the trait
+//     definition, expanding to `<'a, T: bounds, const N> A<'a, T, N>` (equivalent to writing it by hand)
 // ============================================================
 #[batch_impl(EmptyGenA<> ())]
 trait EmptyGenA<T: Clone> {}
@@ -743,7 +749,7 @@ trait EmptyGenB<'a, T: 'a> {}
 #[batch_impl(EmptyGenC<> Vec<T>)]
 trait EmptyGenC<T> {}
 
-// `A<绑定们>`：位置实参照抄 + 关联类型绑定保留
+// `A<bounds>`: positional args copied verbatim + associated type bindings kept
 // `AssocGen<Item=T>` → `<'T: Clone> AssocGen<T, Item = T>`
 #[batch_impl(AssocGen<Item=T> ())]
 trait AssocGen<T: Clone> {
@@ -775,10 +781,12 @@ fn empty_trait_generics() {
 }
 
 // ============================================================
-// 34. trait 级 where 子句继承：单一形参谓词合并进 bound，其余谓词原样透传
-//     （`trait Foo<T> where T: Clone` → `impl<T: Clone>`；
-//     `T::Item: Clone` 等复合谓词 → impl 的 where 子句，`<T>` 与 `<>` 同效；
-//     引用收集在 syn AST 上做：`A::B` 的 B 是关联类型名，不误判为形参）
+// 34. Trait-level where clause inheritance: single-parameter predicates merge into bounds,
+//     other predicates pass through verbatim
+//     (`trait Foo<T> where T: Clone` → `impl<T: Clone>`;
+//     composite predicates such as `T::Item: Clone` → the impl's where clause; `<T>` and `<>`
+//     behave the same; reference collection happens on the syn AST: the B in `A::B` is an
+//     associated type name, not misjudged as a parameter)
 // ============================================================
 #[batch_impl(<T> WhereCloned<T> Vec<T> {
     fn wget(&self) -> T {
@@ -792,7 +800,7 @@ where
     fn wget(&self) -> T;
 }
 
-// where 谓词 + 内联 bound 合并：T: Clone（内联）+ T: Ord（where）
+// where predicate + inline bound merging: T: Clone (inline) + T: Ord (where)
 #[batch_impl(<T> WhereBoth<T> ())]
 trait WhereBoth<T: Clone>
 where
@@ -800,7 +808,7 @@ where
 {
 }
 
-// 生命周期 where 谓词：`T: 'a`
+// Lifetime where predicate: `T: 'a`
 #[batch_impl(<'a, T> WhereLifetime<'a, T> ())]
 trait WhereLifetime<'a, T>
 where
@@ -808,7 +816,7 @@ where
 {
 }
 
-// 复合谓词 `T::Item: Clone` 原样透传（`<T>` 写法）
+// Composite predicate `T::Item: Clone` passed through verbatim (`<T>` form)
 #[batch_impl(<T> WhereGen<T> ())]
 trait WhereGen<T: Clone>
 where
@@ -817,7 +825,7 @@ where
 {
 }
 
-// 复合谓词同款（`A<>` 照抄写法）
+// Same composite predicate (`A<>` verbatim form)
 #[batch_impl(WhereGen2<> ())]
 trait WhereGen2<T: Clone>
 where
@@ -826,7 +834,8 @@ where
 {
 }
 
-// 撞名：`A::B` 的 B 是关联类型名（非形参引用）——impl 只声明 A 也不报错
+// Name collision: the B in `A::B` is an associated type name (not a parameter reference) —
+// the impl declaring only A does not error
 trait HasB {
     type B;
 }
@@ -845,8 +854,8 @@ where
 {
 }
 
-// const 泛型数组谓词：`[T; N]: Sized` 的 N 是 const 形参引用（Expr 位置），
-// `A<>` 照抄自动声明 N
+// const generic array predicate: the N in `[T; N]: Sized` is a const parameter reference
+// (Expr position), and `A<>` verbatim automatically declares N
 #[batch_impl(WhereArr<> ())]
 trait WhereArr<T, const N: usize>
 where
@@ -854,7 +863,7 @@ where
 {
 }
 
-// 深递归左侧：元组 + 泛型实参 + 限定投影（`<U as HasB2>::B` 的 U）
+// Deep-recursion left side: tuple + generic args + qualified projection (the U in `<U as HasB2>::B`)
 trait HasB2 {
     type B;
 }
@@ -871,7 +880,7 @@ where
 {
 }
 
-// 元组谓词：`(A, B)` 的 A 和 B 都是形参引用（多类型相关）
+// Tuple predicate: A and B in `(A, B)` are both parameter references (multi-type dependency)
 trait TupleT {
     type Assoc;
 }
@@ -889,7 +898,7 @@ where
 {
 }
 
-// fn 类型谓词：`fn(A) -> B` 的参数/返回类型都是引用位置
+// fn type predicate: the parameter/return types of `fn(A) -> B` are both reference positions
 #[batch_impl(FnType<> ())]
 trait FnType<A, B>
 where
@@ -897,7 +906,7 @@ where
 {
 }
 
-// 引用谓词：`&'a T` 的生命周期与类型都收集
+// Reference predicate: both the lifetime and the type of `&'a T` are collected
 #[batch_impl(RefPred<> ())]
 trait RefPred<'a, T>
 where
@@ -906,7 +915,7 @@ where
 {
 }
 
-// 列表分发 + 复合谓词：每个叶子独立做引用检查
+// List distribution + composite predicates: each leaf does its own reference check
 #[batch_impl(<T> ListPred2<T> [Vec<T>, <U> HashMap<T, U>])]
 trait ListPred2<T>
 where
@@ -955,7 +964,7 @@ fn trait_where_clause_inherit() {
 }
 
 // ============================================================
-// 35. @ 常量系统：内置名字族 / 范围族 / batch_trait! 自定义
+// 35. @ constant system: built-in name families / range families / batch_trait! custom
 // ============================================================
 #[batch_impl(@u8..u128)]
 trait UintConst {}
@@ -1002,7 +1011,7 @@ fn const_system() {
 }
 
 // ============================================================
-// 36. #blanket 覆盖式委托（先给内部类型实现，再覆盖包装）
+// 36. #blanket overriding delegation (implement the inner type first, then wrap it)
 // ============================================================
 #[batch_impl(u32 { fn name(&self) -> String { self.to_string() } })]
 #[batch_impl(#blanket(@all){&,Box,Rc})]
@@ -1016,8 +1025,8 @@ trait BlanketInc {
     fn inc(&mut self) -> u16;
 }
 
-// 嵌套包装与 `:N` 深度标注：`Box^Rc:2` → `Box<Rc<T>>`（委托 `***self`）、
-// `Box^Box^Box:3` → `Box<Box<Box<T>>>`（委托 `****self`）
+// Nested wrapping and `:N` depth annotations: `Box^Rc:2` → `Box<Rc<T>>` (delegates `***self`),
+// `Box^Box^Box:3` → `Box<Box<Box<T>>>` (delegates `****self`)
 #[batch_impl(u32 { fn deep(&self) -> u32 { *self } })]
 #[batch_impl(#blanket(deep){Box^Rc:2, Box^Box^Box:3})]
 trait BlanketDeep {
@@ -1032,14 +1041,14 @@ fn blanket_delegate() {
     assert_eq!(Rc::new(9u32).name(), "9");
 
     let mut b = Box::new(2u16);
-    b.inc(); // Deref 到 u16 自身 impl
+    b.inc(); // Derefs to u16's own impl
     assert_eq!(*b, 3);
 
-    // BlanketInc 的 blanket `&mut` 委托路径（`impl<T: BlanketInc> BlanketInc for &mut T`；
-    // `&mut u16` 同时命中 u16 自身 impl 与 blanket impl，需 UFCS 消歧）
+    // BlanketInc's blanket `&mut` delegation path (`impl<T: BlanketInc> BlanketInc for &mut T`;
+    // `&mut u16` matches both u16's own impl and the blanket impl, requiring UFCS disambiguation)
     let mut x = 2u16;
     let mut xr: &mut u16 = &mut x;
-    BlanketInc::inc(&mut xr); // 委托 (**self).inc() → u16 自身 impl
+    BlanketInc::inc(&mut xr); // delegates (**self).inc() → u16's own impl
     assert_eq!(x, 3);
 
     let br: Box<Rc<u32>> = Box::new(Rc::new(1u32));
@@ -1049,7 +1058,7 @@ fn blanket_delegate() {
 }
 
 // ============================================================
-// 37. 懒展开（常量值含 DSL 运算 / 链式引用）+ blanket 泛型 trait / assoc 委托
+// 37. Lazy expansion (constant values with DSL ops / chained references) + blanket generic traits / assoc delegation
 // ============================================================
 trait LazyA {}
 trait LazyB {}
@@ -1061,7 +1070,7 @@ batch_trait!(
     LazyB: @lazy_nums;
 );
 
-// blanket 泛型 trait：形参照抄 + where 透传 + type/const 投影委托（@all）
+// blanket generic trait: params copied verbatim + where passed through + type/const projection delegation (@all)
 #[batch_impl(Foo<u32> u32 {
     type Item = u8;
     const LIMIT: usize = 42;
@@ -1087,20 +1096,22 @@ fn lazy_const_and_generic_blanket() {
     _b(&0u16);
 
     assert_eq!(<u32 as Foo<u32>>::m(&5u32), 5);
-    assert_eq!(<&u32 as Foo<u32>>::m(&&5u32), 5); // blanket 委托
-    assert_eq!(<&u32 as Foo<u32>>::LIMIT, 42); // const 投影
-    let _: <&u32 as Foo<u32>>::Item = 8u8; // type 投影
+    assert_eq!(<&u32 as Foo<u32>>::m(&&5u32), 5); // blanket delegation
+    assert_eq!(<&u32 as Foo<u32>>::LIMIT, 42); // const projection
+    let _: <&u32 as Foo<u32>>::Item = 8u8; // type projection
 }
 
 // ============================================================
-// 38. 评审补充：懒展开值形态 + blanket 泛型 trait 全形态
-//     （值内嵌范围族引用 / 裸列表值 / 列表内嵌引用；多类型参数 /
-//     const 泛型 / 生命周期 trait；&mut 委托；非泛型 assoc 全委托）
+// 38. Review additions: lazy-expansion value forms + full blanket generic trait forms
+//     (values embedding range-family references / bare list values / lists embedding
+//     references; multi-type params / const generics / lifetime traits; &mut delegation;
+//     non-generic assoc full delegation)
 // ============================================================
 
-// 值内嵌范围族引用：`@rv=@u8..u128;`（check_value_refs 的端点判定走
-// split_range_endpoint——`@u8` 裸名不在内置名字族里）；定义段必须全部
-// 位于 trait 段之前（前导语法，收集循环遇首个非定义段即停止）
+// Value embedding a range-family reference: `@rv=@u8..u128;` (check_value_refs endpoint
+// detection uses split_range_endpoint — the bare name `@u8` is not in the built-in name
+// families); definition segments must all precede the trait segments (leading syntax; the
+// collection loop stops at the first non-definition segment)
 trait RangeVal {}
 trait RangeValNested {}
 trait BareVal {}
@@ -1129,19 +1140,21 @@ fn lazy_value_forms() {
     _b::<u32>();
 }
 
-// blanket 泛型 trait：双类型参数（bound `T: Two<A, B>` 的实参已组化为
-// 尖括号组——0.6.1 修复：扁平 `<A, B>` 曾被 depth-0 逗号切分错误切断，
-// 靠渲染幂等侥幸正确；此用例回归锁定组化后解析正确）。
-// 注：`#pair` 指令按 trait 签名原样拷贝（A/B 为形参名），直接 impl 须
-// 手写具体实参签名（无参数替换机制）；泛型 `impl<A, B> for (A, B)` 会与
-// 第 23 节 PairAB 的 `.pair()` 方法解析冲突，故只 impl 具体元组
+// blanket generic trait: two type params (the args of the bound `T: Two<A, B>` are grouped
+// into an angle-bracket group — 0.6.1 fix: flat `<A, B>` used to be wrongly cut by the
+// depth-0 comma split, only correct by render-idempotence luck; this case locks in correct
+// parsing after grouping).
+// Note: the `#pair` directive copies the trait signature verbatim (A/B are parameter names);
+// direct impls must write concrete argument signatures by hand (no parameter substitution);
+// a generic `impl<A, B> for (A, B)` would conflict with section 23's PairAB `.pair()` method
+// resolution, so only concrete tuples are implemented
 #[batch_impl(Two<u8, u16> (u8, u16) { fn pair(&self) -> (u8, u16) { (self.0, self.1) } })]
 #[batch_impl(#blanket(pair){Box})]
 trait Two<A, B> {
     fn pair(&self) -> (A, B);
 }
 
-// blanket const 泛型 trait：`ArrWrap<4>` 直接 impl + `<const N: usize, T: ArrWrap<N>>`
+// blanket const-generic trait: `ArrWrap<4>` direct impl + `<const N: usize, T: ArrWrap<N>>`
 struct Arr4;
 #[batch_impl(ArrWrap<4> Arr4 { fn len(&self) -> usize { 4 } })]
 #[batch_impl(#blanket(len){Box})]
@@ -1149,23 +1162,23 @@ trait ArrWrap<const N: usize> {
     fn len(&self) -> usize;
 }
 
-// blanket 生命周期泛型 trait：`impl<'a, X: Clone, T: LtWrap<'a, X>>`，
-// `'a` 仅出现在 trait 实参（未约束的 impl 生命周期合法）
+// blanket lifetime-generic trait: `impl<'a, X: Clone, T: LtWrap<'a, X>>`,
+// `'a` appears only in the trait args (an unconstrained impl lifetime is legal)
 #[batch_impl(LtWrap<'static, u32> u32 { fn m(&self) -> &'static str { "u32" } })]
 #[batch_impl(#blanket(m){Box})]
 trait LtWrap<'a, X: Clone> {
     fn m(&self) -> &'a str;
 }
 
-// blanket 泛型 trait + `&mut self` 方法（Box: DerefMut 委托 `(**self).inc()`）
+// blanket generic trait + `&mut self` method (Box: DerefMut delegates `(**self).inc()`)
 #[batch_impl(IncGen<u16> u16 { fn inc(&mut self) -> u16 { *self += 1; *self } })]
 #[batch_impl(#blanket(inc){Box})]
 trait IncGen<X: Clone> {
     fn inc(&mut self) -> X;
 }
 
-// blanket 非泛型 trait + assoc type/const 全委托（as_trait 无实参形态
-// `<T as Trait>::Item` / `::TAG`）
+// blanket non-generic trait + full assoc type/const delegation (as_trait with no args form
+// `<T as Trait>::Item` / `::TAG`)
 #[batch_impl(u16 {
     type Item = u32;
     const TAG: u8 = 7;
@@ -1200,9 +1213,10 @@ fn blanket_generic_full_forms() {
 }
 
 // ============================================================
-// 32. batch_trait! 自定义 @ 常量值含 <...>（`@` 先于 `<>` 配对）
-//     （0.6.1 修正管线顺序 `@ <> # where` 前，`Vec<@inner>` 的 @inner
-//     被配对进 <> 组、expand_consts 不进入组而残留——实测编译错）
+// 32. batch_trait! custom @ constant values containing <...> (`@` pairs before `<>`)
+//     (0.6.1 fixed the pipeline order `@ <> # where`: previously the @inner of `Vec<@inner>`
+//     was paired into the <> group and expand_consts did not enter the group, leaving it
+//     behind — an observed compile error)
 // ============================================================
 trait FooMap {}
 trait FooNest {}
@@ -1212,7 +1226,7 @@ batch_trait!(
     FooMap: @map
 );
 
-// 嵌套：@inner 值含 <...>，@outer 引用 @inner——懒展开递归
+// Nested: @inner's value contains <...>, @outer references @inner — lazy expansion recursion
 batch_trait!(
     @inner = Vec<u8>;
     @outer = Vec<@inner>;
@@ -1228,11 +1242,11 @@ fn trait_const_value_with_angles() {
 }
 
 // ============================================================
-// 33. 宏元层完整化：@trait / @Cow / blanket 包装 where / [a,b] 参数 / where 规范
+// 33. Macro meta-layer completion: @trait / @Cow / blanket wrapper where / [a,b] args / where style
 // ============================================================
 use std::borrow::Cow;
 
-// @trait：batch_impl 展开本地 trait 名（blanket 包装 where 谓词中引用）
+// @trait: batch_impl expands the local trait name (referenced in blanket wrapper where predicates)
 #[batch_impl(#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}})]
 trait CowWhereTrait {
     fn klen(&self) -> usize;
@@ -1248,7 +1262,7 @@ impl CowWhereTrait for String {
     }
 }
 
-// @Cow：内置常量（Cow<'_> + 固有约束，deref target = T::Owned）
+// @Cow: built-in constant (Cow<'_> + inherent constraints, deref target = T::Owned)
 #[batch_impl(#blanket(@all_methods){@Cow})]
 trait CowConstTrait {
     fn clen(&self) -> usize;
@@ -1264,7 +1278,7 @@ impl CowConstTrait for String {
     }
 }
 
-// [a,b] 手写指令参数 + @all 减法 -[a,b] 排除
+// [a,b] hand-written directive args + @all subtraction -[a,b] exclusion
 #[batch_impl(u8 #fill([m1, m2]){1} #fill(@all, -[m1, m2]){3})]
 trait BracketArgs {
     fn m1(&self) -> u32;
@@ -1272,7 +1286,7 @@ trait BracketArgs {
     fn m3(&self) -> u32;
 }
 
-// where 规范写法：<> 只留名字，约束在 where
+// where style: <> keeps only the names, constraints go in where
 #[batch_impl(<T> WhereStyle<T> Vec<T> where{T: Clone} { fn wdup(&self) -> usize { self.len() } })]
 trait WhereStyle<T: Clone> {
     fn wdup(&self) -> usize;
@@ -1281,19 +1295,20 @@ trait WhereStyle<T: Clone> {
 #[test]
 fn macro_meta_complete() {
     let c: Cow<'static, str> = Cow::Borrowed("abc");
-    assert_eq!(c.klen(), 3); // @trait 谓词（@0::Owned: @trait → T::Owned: CowWhereTrait）
-    assert_eq!(c.clen(), 3); // @Cow 内置
+    assert_eq!(c.klen(), 3); // @trait predicate (@0::Owned: @trait → T::Owned: CowWhereTrait)
+    assert_eq!(c.clen(), 3); // @Cow built-in
     let s: Cow<'static, str> = Cow::Owned("xy".to_string());
     assert_eq!(s.klen(), 2);
     assert_eq!(s.clen(), 2);
-    assert_eq!(0u8.m1(), 1); // [m1, m2] 填 1
+    assert_eq!(0u8.m1(), 1); // [m1, m2] filled with 1
     assert_eq!(0u8.m2(), 1);
-    assert_eq!(0u8.m3(), 3); // @all -[m1, m2] → m3 填 3
+    assert_eq!(0u8.m3(), 3); // @all -[m1, m2] → m3 filled with 3
     let v = vec![1u32];
-    assert_eq!(v.wdup(), 1); // where 规范
+    assert_eq!(v.wdup(), 1); // where style
 }
 
-// @0 通用化：位置引用在普通 where 谓词可用（元组生成泛型 / 用户泛型）
+// @0 generalization: positional references usable in ordinary where predicates
+// (tuple-generated generics / user generics)
 #[batch_impl(()^2 where{@0: Clone, @1: Copy} { fn tmk() -> u32 { 2 } })]
 trait TupleWhereAt {
     fn tmk() -> u32;
@@ -1312,8 +1327,9 @@ fn where_position_refs() {
 }
 
 // ============================================================
-// 34. batch_trait! 段级 @trait：跨段复用「泛型声明 + trait 名」打包
-//     （常量值里的 @trait 由 entry 分段后逐段替换为本段 trait 路径）
+// 34. batch_trait! segment-level @trait: reusing a "generic declaration + trait name" bundle
+//     across segments (@trait inside constant values is replaced per segment with that
+//     segment's trait path after entry splitting)
 // ============================================================
 trait SegA<T> {}
 trait SegB<T> {}
@@ -1335,11 +1351,11 @@ fn trait_const_segment() {
 }
 
 // ============================================================
-// 35. 评审补充：@all 状态标记全种类 / 标记减法 / @trait 顶层 spec /
-//     [a,b] 委托参数 / blanket 包装 where 的 @0 / 多参数元组 @N
+// 35. Review additions: all @all status-marker kinds / marker subtraction / @trait top-level
+//     spec / [a,b] delegate args / blanket wrapper where @0 / multi-arg tuple @N
 // ============================================================
 
-// @all_required（fn + const 全种类）只填 required，默认保留
+// @all_required (fn + const kinds) fills only required items; defaults are kept
 #[batch_impl(u32 #fill(@all_required){4})]
 trait ReqMix2 {
     fn rfn(&self) -> u32;
@@ -1350,7 +1366,7 @@ trait ReqMix2 {
     const DC: u32 = 2;
 }
 
-// @all_default_constants：只覆盖带默认值的 const（方法不参与）
+// @all_default_constants: only overrides consts with default values (methods excluded)
 #[batch_impl(u64 #fill(@all_default_constants){8})]
 trait DefConstOnly {
     fn m(&self) -> u32 {
@@ -1359,14 +1375,15 @@ trait DefConstOnly {
     const C: u32 = 7;
 }
 
-// @all_required_types：只填必需类型（trait 关联类型默认值是 nightly feature
-// E0658，`@all_default_types` 在 stable 不可用——const/fn 的默认 stable）
+// @all_required_types: only fills required types (trait associated type defaults are a
+// nightly feature E0658, so `@all_default_types` is unavailable on stable — const/fn
+// defaults are stable)
 #[batch_impl(u16 #fill(@all_required_types){u16})]
 trait ReqTypesOnly {
     type RT;
 }
 
-// 标记减法：@all_methods - @all_default_methods = 仅 required 方法
+// Marker subtraction: @all_methods - @all_default_methods = required methods only
 #[batch_impl(u8 #fill(@all_methods, -@all_default_methods){1})]
 trait MarkerMinus2 {
     fn r1(&self) -> u32;
@@ -1376,14 +1393,14 @@ trait MarkerMinus2 {
     }
 }
 
-// @trait 顶层展开：spec 的 trait 名部分写作 `@trait<T>`（懒展开消费 2 token，
-// 余下 `<T>` 由 angle_collect 配对）
+// @trait top-level expansion: the spec's trait-name part is written as `@trait<T>`
+// (lazy expansion consumes 2 tokens; the remaining `<T>` is paired by angle_collect)
 #[batch_impl(<T> @trait<T> Vec<T> { fn tl(&self) -> usize { self.len() } })]
 trait AtTraitSpec<T> {
     fn tl(&self) -> usize;
 }
 
-// [a,b] 参数在 #delegate：Box<Vec<u32>> 委托 dl1/dl2
+// [a,b] args in #delegate: Box<Vec<u32>> delegates dl1/dl2
 #[batch_impl(
     Vec<u32> {
         fn dl1(&self) -> usize { self.len() }
@@ -1396,14 +1413,14 @@ trait DelBr {
     fn dl2(&self) -> usize;
 }
 
-// blanket 包装 where 只含 @0（无 @trait）：`Box where{@0: Copy}`
+// blanket wrapper where with only @0 (no @trait): `Box where{@0: Copy}`
 #[batch_impl(u32 { fn own(&self) -> u32 { *self } })]
 #[batch_impl(#blanket(own){Box where{@0: Copy}})]
 trait OwnAt0 {
     fn own(&self) -> u32;
 }
 
-// @N 位置引用：()^3 where{@2: Clone}（第三位 fresh 泛型）
+// @N positional reference: ()^3 where{@2: Clone} (fresh generic in the third slot)
 #[batch_impl(()^3 where{@2: Clone} { fn tk3() -> u32 { 3 } })]
 trait TupleWhereAt3 {
     fn tk3() -> u32;
@@ -1412,12 +1429,12 @@ trait TupleWhereAt3 {
 #[test]
 fn macro_meta_review_extras() {
     assert_eq!(0u32.rfn(), 4);
-    assert_eq!(0u32.dfn(), 1); // 默认保留
+    assert_eq!(0u32.dfn(), 1); // default kept
     assert_eq!(<u32 as ReqMix2>::RC, 4);
-    assert_eq!(<u32 as ReqMix2>::DC, 2); // 默认保留
+    assert_eq!(<u32 as ReqMix2>::DC, 2); // default kept
 
-    assert_eq!(<u64 as DefConstOnly>::C, 8); // 默认 const 被覆盖
-    assert_eq!(0u64.m(), 3); // 方法不参与
+    assert_eq!(<u64 as DefConstOnly>::C, 8); // default const overridden
+    assert_eq!(0u64.m(), 3); // methods excluded
 
     fn _check_t<T: ReqTypesOnly>() {}
     _check_t::<u16>();
@@ -1425,7 +1442,7 @@ fn macro_meta_review_extras() {
 
     assert_eq!(0u8.r1(), 1);
     assert_eq!(0u8.r2(), 1);
-    assert_eq!(0u8.d1(), 9); // 默认方法保留
+    assert_eq!(0u8.d1(), 9); // default method kept
 
     let v = vec![1u32, 2];
     assert_eq!(v.tl(), 2);
@@ -1439,10 +1456,10 @@ fn macro_meta_review_extras() {
 }
 
 // ============================================================
-// 36. 评测修复锁定：B1（codegen @trait 大小写）+ B2（宏变量 None 组内 @）
+// 36. Review fix lock: B1 (codegen @trait case-sensitivity) + B2 (@ inside None groups from macro variables)
 // ============================================================
-// B1：普通 where 谓词的 @trait（codegen resolve_where_at 路径——
-// 曾写 id == "Trait" 大写，@trait 被错误拒绝）
+// B1: @trait in ordinary where predicates (codegen resolve_where_at path —
+// previously compared id == "Trait" with a capital, wrongly rejecting @trait)
 #[batch_impl(<T> WhereAtTrait<T> Vec<T> where{@0: @trait<T>} { fn wn(&self) -> usize { self.len() } })]
 trait WhereAtTrait<T: Clone> {
     fn wn(&self) -> usize;
@@ -1453,7 +1470,8 @@ impl WhereAtTrait<u32> for u32 {
     }
 }
 
-// B2：宏变量展开产生真实 None 组（$($spec)* 重复展开），组内 @uint 须展开
+// B2: macro-variable expansion produces real None groups ($($spec)* repeated expansion);
+// @uint inside groups must expand
 macro_rules! make_impls {
     ($($spec:tt)*) => {
         #[batch_impl($($spec)*)]
@@ -1467,9 +1485,64 @@ make_impls!([Box, Rc]^@uint { fn gm(&self) -> u32 { 9 } });
 #[test]
 fn review_fixes_locked() {
     let v = vec![1u32];
-    assert_eq!(v.wn(), 1); // B1：@trait 在普通 where 正确展开
+    assert_eq!(v.wn(), 1); // B1: @trait expands correctly in ordinary where
     let b = Box::new(1u32);
     let r = Rc::new(1u32);
-    assert_eq!(b.gm(), 9); // B2：宏变量 None 组内 @uint 展开
+    assert_eq!(b.gm(), 9); // B2: @uint expands inside macro-variable None groups
     assert_eq!(r.gm(), 9);
+}
+
+// ============================================================
+// Receiver-kind `@all` filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`)
+// ============================================================
+
+#[test]
+fn receiver_kind_filters() {
+    #[batch_impl(
+        u8
+        #fill(@all_ref_methods){ 7 }
+        #fill(@all_value_methods){ 8 }
+        #fill(@all_static_methods){ 9 }
+        #C{ 10 }
+        #Item{ u8 }
+    )]
+    trait RecvT {
+        fn by_ref(&self) -> u8;
+        fn by_mut(&mut self) -> u8;
+        fn by_val(self) -> u8;
+        fn make() -> u8;
+        const C: u8;
+        type Item;
+    }
+
+    let x = 5u8;
+    assert_eq!(RecvT::by_ref(&x), 7);
+    let mut y = 5u8;
+    assert_eq!(RecvT::by_mut(&mut y), 7);
+    assert_eq!(RecvT::by_val(x), 8);
+    assert_eq!(<u8 as RecvT>::make(), 9);
+    assert_eq!(<u8 as RecvT>::C, 10);
+    let _: <u8 as RecvT>::Item = 1u8;
+}
+
+#[test]
+fn blanket_receiver_filter() {
+    // `@all_ref_methods`: blanket only delegates `&self`/`&mut self` methods —
+    // by-value receiver methods (delegation semantics unclear for wrappers)
+    // are excluded and fall back to the trait default.
+    #[batch_impl(u8 { fn by_ref(&self) -> u8 { *self } })]
+    #[batch_impl(#blanket(@all_ref_methods){Box})]
+    trait RecvB {
+        fn by_ref(&self) -> u8;
+        fn by_val(self) -> u8
+        where
+            Self: Sized,
+        {
+            0
+        }
+    }
+
+    let b = Box::new(3u8);
+    assert_eq!(RecvB::by_ref(&b), 3); // delegated
+    assert_eq!(RecvB::by_val(b), 0); // trait default (not delegated)
 }

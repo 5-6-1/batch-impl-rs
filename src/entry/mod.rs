@@ -1,14 +1,16 @@
-//! 宏入口的共享实现：属性宏展开、`batch_trait!` 分段展开、公共管线。
+//! Shared implementation of the macro entry points: attribute macro expansion,
+//! `batch_trait!` segment expansion, and the common pipeline.
 //!
-//! 错误机制分工：本层（入口层）用 `Result<_, TokenStream>` 经 `?` 传播，
-//! 错误统一由 `compile_error_str` 构造；DSL 解析层（parse/apply/codegen）
-//! 用 `Ty::Error` 在 AST 链中透传——两种机制服务于不同层级，不合并。
+//! Error handling split: this (entry) layer propagates `Result<_, TokenStream>` via
+//! `?` and builds errors uniformly with `compile_error_str`; the DSL layer (parse/
+//! apply/codegen) passes `Ty::Error` through the AST chain — the two mechanisms serve
+//! different layers and are never merged.
 //!
-//! 公共管线 [`run_pipeline`] = DSL 解析/展开 → 生成 impl → 尖括号组还原。
-//! `angle_collect` 与裸 `where` 改写**不进入**管线：配对是破坏性的
-//! （已配对组再次收集会被当真实 None 组扁平化），且 where 改写必须先于
-//! `A<>` 展开（谓词里的 `Foo<>` 需透传，不得误展开）——二者由两个入口
-//! 按序各调用一次。
+//! Common pipeline [`run_pipeline`] = DSL parse/expand → generate impl → restore angle
+//! brackets. `angle_collect` and the bare `where` rewrite are **not in** the pipeline:
+//! pairing is destructive (re-collecting a paired group flattens it as a real None
+//! group), and the where rewrite must precede `A<>` expansion (`Foo<>` in predicates
+//! must pass through) — both are invoked once by the two entry points in order.
 
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
@@ -27,10 +29,11 @@ use crate::entry::driver::parse_batch_trait_entry;
 pub(crate) mod driver;
 pub(crate) mod path_prefix;
 
-/// 公共管线：DSL 解析/展开 → 生成 impl → 尖括号组还原。
+/// Common pipeline: DSL parse/expand → generate impl → restore angle brackets.
 ///
-/// `tokens` 须已通过 `angle_collect` 配对与裸 `where` 改写（见模块文档）；
-/// `top_level` 控制 spec 列表的停止语义。错误经 `Err` 返回 `compile_error!` 流。
+/// `tokens` must already be paired by `angle_collect` and bare-`where` rewritten
+/// (see module docs); `top_level` controls the stop semantics of the spec list.
+/// Errors are returned via `Err` as a `compile_error!` stream.
 fn run_pipeline(
     tokens: &[TokenTree], top_level: Op, trait_full_path: &TokenStream,
     trait_last_ident: &Ident, is_unsafe: bool, start_trait: Option<ItemTrait>,
@@ -46,13 +49,13 @@ fn run_pipeline(
         start_trait,
         trait_bounds,
     );
-    // 出口转换：尖括号组还原为 `<...>` 扁平（见 render_angles）
+    // Exit conversion: restore angle-bracket groups to flat `<...>` tokens (see render_angles)
     Ok(render_angles(impls))
 }
 
-/// 两个属性宏的共享实现（错误经 `compile_error!` token 流返回）
-/// 参数用 proc_macro2 类型：单元测试（fuzz）可直接调用而无需 proc-macro 运行时；
-/// 属性宏入口（lib.rs）在展开时转换。
+/// Shared implementation of the two attribute macros (errors via `compile_error!` streams)
+/// Parameters use proc_macro2 types: unit tests (fuzz) can call directly without a proc-macro
+/// runtime; the attribute macro entry points (lib.rs) convert at expansion time.
 pub(crate) fn expand_attr_macro(
     attr: TokenStream, trait_item: ItemTrait, include_trait: bool,
 ) -> Result<TokenStream, TokenStream> {
@@ -60,36 +63,36 @@ pub(crate) fn expand_attr_macro(
     let trait_name = trait_item.ident.clone();
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
 
-    // `#[batch_impl_only]` 专属：attr 起首若是 `# Path: ` 形式
-    // （`#` + `Ident (:: Ident)*` + `:`），则把该路径作为外部 trait 路径，
-    // 余下 attr 作为 DSL spec。`#[batch_impl]` 不支持此前缀
-    // （它输出本地 trait 定义，路径前缀无意义）。
-    // 提前到 `@` 展开前：`@trait` 需要 trait_full_path（batch_impl_only
-    // 展开为外部路径，batch_impl 为本地名）。
+    // `#[batch_impl_only]`-specific: if attr starts with a `# Path: ` shape
+    // (`#` + `Ident (:: Ident)*` + `:`), that path is used as the external trait path
+    // and the rest of attr is the DSL spec. `#[batch_impl]` does not support this
+    // prefix (it emits the local trait definition, so a path prefix is meaningless).
+    // This runs before `@` expansion: `@trait` needs trait_full_path (batch_impl_only
+    // expands to the external path, batch_impl to the local name).
     let (trait_full_path, trait_last_ident, rest_tokens) = if !include_trait {
         match crate::entry::path_prefix::try_parse_path_prefix(&attr_vec) {
             Some((path, last_ident, rest)) => {
-                // 路径前缀的 last ident 必须与本地 dummy trait 名一致，
-                // 否则后续 DSL 中的 `Trait<T>` 匹配会失败。
+                // The path prefix's last ident must match the local dummy trait name,
+                // otherwise `Trait<T>` matching in the subsequent DSL would fail.
                 match last_ident {
                     Some(id) if id == trait_name => {
                         let path_ts = path.into_iter().collect();
-                        // 此处借用本地 trait_name 作为匹配标识
-                        // （已校验与路径末段同名）。
+                        // Borrow the local trait_name here as the matching ident
+                        // (already verified to share the name with the path's last segment).
                         (path_ts, trait_name.clone(), rest)
                     }
                     Some(id) => {
                         let msg = format!(
-                            "batch-impl: 路径前缀 `#...{}` \
-                                 的末尾标识符与 trait 名 `{}` \
-                                 不一致；二者必须相同",
+                            "batch-impl: path prefix `#...{}` \
+                                 has a trailing ident that differs from the trait \
+                                 name `{}`; the two must be identical",
                             id, trait_name,
                         );
                         return Err(compile_error_str(&msg));
                     }
                     None => {
-                        let msg = "batch-impl: 路径前缀 `#` 后 \
-                                 期望至少一个标识符作为 trait 路径";
+                        let msg = "batch-impl: expected at least one ident after the \
+                                 path prefix `#` as the trait path";
                         return Err(compile_error_str(msg));
                     }
                 }
@@ -100,10 +103,11 @@ pub(crate) fn expand_attr_macro(
         (quote![#trait_name], trait_name.clone(), attr_vec.clone())
     };
 
-    // 宏元层最外：`@` 常量展开（纯词法替换）先于 `<>` 配对——
-    // 展开产物可能含扁平 `<...>`（如 `@map = HashMap<u32, String>` 的值），
-    // 必须由后续 angle_collect 统一配对；反序则 `Vec<@inner>` 的 `@inner`
-    // 被配对进 `<>` 组、expand_consts 不进入组而残留（实测编译错）。
+    // Outermost macro-meta layer: `@` constant expansion (pure lexical substitution)
+    // precedes `<>` pairing — output may contain flat `<...>` (e.g. `@map = HashMap<u32, String>`
+    // values) that angle_collect must pair uniformly; reversed, `Vec<@inner>`'s
+    // `@inner` is paired into the `<>` group and expand_consts never enters it, leaving
+    // residue behind (observed compile error).
     let rest_tokens = crate::preprocess::expand_consts(
         &rest_tokens,
         crate::preprocess::ConstCtx::Attribute {
@@ -111,7 +115,7 @@ pub(crate) fn expand_attr_macro(
             trait_full_path: &trait_full_path,
         },
     )?;
-    // 入口转换：None 组扁平化 + `<...>` 配对（见 angle_collect）
+    // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)
     let rest_tokens = angle_collect(&rest_tokens)?;
 
     let expanded = expand_tokens(
@@ -119,13 +123,13 @@ pub(crate) fn expand_attr_macro(
         &trait_item,
         &trait_full_path,
     )?;
-    // 裸 `where 谓词 {body}` 新语法 → 统一改写为旧式 `where{谓词}`
-    // （先于 `A<>` 展开：谓词里的 `Foo<>` 须透传，不得照抄展开）
+    // New bare `where predicate {body}` syntax → uniformly rewritten to legacy `where{predicate}`
+    // (before `A<>` expansion: `Foo<>` inside predicates must pass through, not be expanded)
     let expanded = where_process(&mut Cursor::new(&expanded))?;
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = crate::analyze::extract_trait_bounds(&trait_item);
-    // `A<>`：trait 泛型照抄（实参与 bound 全部来自 trait 定义，含 where 谓词），
-    // 展开产物与手写完全等价。
+    // `A<>`: copy the trait generics (args and bounds all come from the trait definition,
+    // including where predicates), so the expansion is fully equivalent to handwritten code.
     let expanded =
         expand_empty_trait_generics(&expanded, &trait_item, &trait_bounds)?;
     let start_trait = if include_trait { trait_item.into() } else { None };
@@ -140,8 +144,9 @@ pub(crate) fn expand_attr_macro(
     )
 }
 
-/// 段级 `@trait` → 本段 trait 完整路径（batch_trait! 专用；常量值
-/// `<T>@trait<T>` 经懒展开保留 `@trait`，此处按段替换——多段各用自己的名）。
+/// Segment-level `@trait` → this segment's full trait path (batch_trait!-specific; constant
+/// values like `<T>@trait<T>` keep `@trait` via lazy expansion, replaced here per segment —
+/// each segment uses its own name).
 fn replace_segment_trait(
     tokens: Vec<TokenTree>, trait_full_path: &TokenStream,
 ) -> Result<Vec<TokenTree>, TokenStream> {
@@ -163,16 +168,16 @@ fn replace_segment_trait(
     Ok(out)
 }
 
-/// `batch_trait!` 的实际展开（错误经 `compile_error!` token 流返回）
+/// Actual expansion of `batch_trait!` (errors returned as `compile_error!` token streams)
 pub(crate) fn expand_batch_trait(
     input: proc_macro::TokenStream,
 ) -> Result<proc_macro::TokenStream, TokenStream> {
     reset_fresh_counter();
     let tokens = TokenStream::from(input).into_iter().collect::<Vec<_>>();
-    // 全局预处理：`@` 常量（宏元层最外）→ 尖括号配对 → 裸 where 改写
-    // （分段前一次完成；`@` 先于配对：展开产物可能含扁平 `<...>`，
-    //  须由 angle_collect 统一配对——反序则 `Vec<@inner>` 的 `@inner`
-    //  进组后不被展开，实测编译错）
+    // Global preprocessing: `@` constants (outermost macro-meta layer) → angle-bracket
+    // pairing → bare where rewrite (done once before segmenting; `@` precedes pairing:
+    // the expansion may contain flat `<...>` that angle_collect must pair uniformly —
+    // reversed, `Vec<@inner>`'s `@inner` enters the group and is never expanded; observed).
     let (tokens, user_consts) = crate::preprocess::collect_user_consts(&tokens)?;
     let tokens = crate::preprocess::expand_consts(
         &tokens,
@@ -183,7 +188,7 @@ pub(crate) fn expand_batch_trait(
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
     loop {
-        // 跳过前导 `;`（允许连续多个分号，尾随分号）
+        // Skip leading `;` (allows consecutive semicolons and a trailing one)
         while cursor.is_punct(';') {
             cursor.bump();
         }
@@ -191,7 +196,7 @@ pub(crate) fn expand_batch_trait(
             break;
         }
 
-        // `unsafe` 前缀：标记该段所有 impl 为 unsafe impl
+        // `unsafe` prefix: mark all impls in this segment as unsafe impls
         let is_unsafe = if matches!(cursor.peek(), Some(TokenTree::Ident(id)) if *id == "unsafe")
         {
             cursor.bump();
@@ -200,8 +205,8 @@ pub(crate) fn expand_batch_trait(
             false
         };
 
-        // 收集 trait 路径（遇到 `:` 停止；`::` 路径分隔符一并收集）。
-        // 尖括号已由 angle_collect 配对为不透明组，无需跟踪 `<>` 深度。
+        // Collect the trait path (stop at `:`; collect `::` path separators too).
+        // Angle brackets were paired into opaque groups by angle_collect, so no `<>` depth tracking.
         let path_start = cursor.pos();
         while let Some(token) = cursor.peek() {
             match token {
@@ -218,11 +223,11 @@ pub(crate) fn expand_batch_trait(
         }
         let trait_path = cursor.slice_since(path_start);
         if trait_path.is_empty() {
-            return Err(compile_error_str("batch_trait! 中期望 trait 名称"));
+            return Err(compile_error_str("batch_trait! expects a trait name"));
         }
-        // trait 完整路径：原样收集 trait_path 的 token 流即可
+        // Full trait path: just collect the token stream of trait_path as-is
         let trait_full_path = trait_path.iter().cloned().collect();
-        // 取路径中的最后一个标识符作为 `trait_name` 匹配用
+        // Take the last ident in the path as the `trait_name` used for matching
         let trait_last_ident =
             match trait_path
                 .iter()
@@ -234,21 +239,22 @@ pub(crate) fn expand_batch_trait(
                 Some(ident) => ident,
                 None => {
                     return Err(compile_error_str(
-                        "batch_trait! 中期望标识符作为 trait 名称",
+                        "batch_trait! expects an ident as the trait name",
                     ));
                 }
             };
         if !cursor.is_punct(':') {
             return Err(compile_error_str(
-                "batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs",
+                "batch_trait! expects ':' to separate the trait name and impl-specs",
             ));
         }
         cursor.bump();
-        // 段边界 = 首个深度 0 的 `;`（不消费，由循环头部跳过）
+        // Segment boundary = first depth-0 `;` (not consumed; skipped by the loop head)
         let spec = cursor.take_segment(&[';']).to_vec();
-        // 段级 `@trait` 替换：batch_trait! 的 `@trait` 在常量阶段保留原样
-        // （多段每段 trait 名不同），此处展开为本段 trait 完整路径——
-        // `@type_t=<T>@trait<T>` 跨段复用场景（`A: @type_t ...` / `B: @type_t ...`）。
+        // Segment-level `@trait` replacement: batch_trait!'s `@trait` is kept as-is during
+        // the constant stage (each segment has a different trait name), expanded here to
+        // this segment's full trait path — the `@type_t=<T>@trait<T>` cross-segment reuse
+        // scenario (`A: @type_t ...` / `B: @type_t ...`).
         let spec = replace_segment_trait(spec, &trait_full_path)?;
         result.extend(run_pipeline(
             &spec,
@@ -257,7 +263,7 @@ pub(crate) fn expand_batch_trait(
             trait_last_ident,
             is_unsafe,
             None,
-            // batch_trait! 无 trait 定义，无法继承泛型 bound
+            // batch_trait! has no trait definition, so generic bounds cannot be inherited
             &Default::default(),
         )?);
     }

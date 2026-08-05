@@ -1,4 +1,4 @@
-// 错误：`#delegate` 参数是解构模式，无法委托转发
+// Error: `#delegate` argument is a destructuring pattern, cannot be forwarded
 use batch_impl::batch_impl_only;
 
 #[batch_impl_only(usize #delegate(m){**self})]

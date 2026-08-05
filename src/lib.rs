@@ -1,13 +1,16 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/tutorial.md"))]
-// 库不使用任何 unsafe；缺失文档按错误拒绝（仅作用于 pub 项，内部 pub(crate) 不受限）。
+// The library uses no unsafe; missing docs are rejected as errors (only for pub items;
+// internal pub(crate) is exempt).
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-// MSVC 链接器输出"正在创建库…和对象…"到 stdout，被 rustc 当 linker_messages 告警，
-// 属于无害的 Windows 链接产物提示，全局抑制。
+// The MSVC linker prints "creating library ... and object ..." to stdout, which rustc
+// treats as linker_messages warnings; these are harmless Windows link-product notices,
+// suppressed globally.
 #![allow(linker_messages)]
-// `delimiter!` 宏定义在 preprocess 顶部，经 `#[macro_use]` 导入 crate 根；
-// 文本作用域要求其声明先于所有使用者（fuzz / parse / 本模块）。
+// The `delimiter!` macro is defined at the top of preprocess and imported into the crate
+// root via `#[macro_use]`; textual scope requires its declaration to precede all users
+// (fuzz / parse / this module).
 #[macro_use]
 pub(crate) mod preprocess;
 #[cfg(test)]
@@ -29,23 +32,23 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 use preprocess::{build_from_item, get_trait_item, parse_names_from_tokens};
 use util::compile_error_str;
 
-/// 为 trait 批量生成 `impl` 块的属性宏。
+/// Attribute macro that generates `impl` blocks for a trait in batch.
 ///
-/// 在 trait 定义上标注 `#[batch_impl(...)]`，宏参数中的每个 impl-spec 都会
-/// 为该 trait 生成一个对应的 `impl` 块。
+/// Annotate a trait definition with `#[batch_impl(...)]`; every impl-spec in the macro
+/// arguments generates a corresponding `impl` block for that trait.
 ///
-/// ## 语法
+/// ## Syntax
 ///
 /// ```text
 /// #[batch_impl( impl-spec [, impl-spec]* [{ body }]? )]
 /// ```
 ///
-/// impl-spec 由三部分组成（均可省略后半部分）：
-/// - `<impl-泛型>` — `impl` 块的泛型参数
-/// - `Trait名<trait-泛型>` — trait 的泛型参数与关联类型绑定
-/// - 目标类型 — 用 `[]` 包裹表示并列，用 `^`/`-` 表示泛型应用
+/// An impl-spec has three parts (the tail of each part may be omitted):
+/// - `<impl generics>` — generic params of the `impl` block
+/// - `Trait name<trait generics>` — the trait's generic args and associated type bindings
+/// - target type — wrapped in `[]` for a parallel list, `^`/`-` for generic application
 ///
-/// ## 示例
+/// ## Examples
 ///
 /// ```
 /// # use batch_impl::batch_impl;
@@ -58,7 +61,7 @@ use util::compile_error_str;
 /// #[batch_impl(<T> FromValue<T> [i32 { fn wrap(_: T) -> Self { 0 }}, u32 #wrap{0}] )]
 /// trait FromValue<T> { fn wrap(val: T) -> Self; }
 ///
-/// // #name{body} 也支持 const 和 type 项
+/// // #name{body} also supports const and type items
 /// #[batch_impl(usize #MY_CONST{42})]
 /// trait HasConst { const MY_CONST: usize; }
 ///
@@ -73,22 +76,25 @@ pub fn batch_impl(
         .unwrap_or_else(Into::into)
 }
 
-/// 与 `#[batch_impl]` 相同，但丢弃被标注的 trait 定义，只输出 `impl` 块。
+/// Same as `#[batch_impl]`, but discards the annotated trait definition and only emits
+/// `impl` blocks.
 ///
-/// 用于 trait 已在别处定义、只需批量生成 impl 的场景。被标注的 trait 仅作为
-/// 指令系统的"签名真相源"：`#name`/`#fill`/`#delegate` 从它读取 item 签名，
-/// 开放扩展 `#name(args){body}` 把（方法名列表, body, 整个 trait）一起交给
-/// 用户的同名函数式宏（见 README「指令系统」）。语法与 `#[batch_impl]` 完全一致。
+/// For traits already defined elsewhere where only batched impl generation is needed. The
+/// annotated trait merely serves as the "signature source of truth" for the directive system:
+/// `#name`/`#fill`/`#delegate` read item signatures from it, and the open extension
+/// `#name(args){body}` hands (method name list, body, the whole trait) to the user's
+/// same-named function-like macro (see README "Directive System"). The syntax is identical
+/// to `#[batch_impl]`.
 ///
-/// ## 示例
+/// ## Examples
 ///
 /// ```
 /// # use batch_impl::batch_impl_only;
 /// trait Greet { fn hello(&self) -> &str; }
 ///
 /// #[batch_impl_only(usize #hello{"hi"})]
-/// trait Greet { fn hello(&self) -> &str; } // 此 trait 定义被丢弃，不影响已有的定义
-/// // 这样写而不用batch_trait是为了使用指令系统，建议按trait定义处按原样写
+/// trait Greet { fn hello(&self) -> &str; } // this trait definition is dropped, existing definitions are unaffected
+/// // Written with batch_impl_only instead of batch_trait to use the directive system; write it verbatim at the trait definition site
 /// ```
 #[proc_macro_attribute]
 pub fn batch_impl_only(
@@ -100,16 +106,18 @@ pub fn batch_impl_only(
         .unwrap_or_else(Into::into)
 }
 
-/// 对已声明的 trait 批量生成 `impl` 块的函数式宏。
+/// Function-like macro that generates `impl` blocks for a declared trait in batch.
 ///
-/// 语法：`unsafe? Trait路径: impl-specs;`，以 `;` 分隔多个 trait 段。
-/// 每段的 `:` 之后是 DSL 表达式（类型 DSL + `@` 常量，与 `#[batch_impl]` 相同）。
+/// Syntax: `unsafe? Trait path: impl-specs;`, with `;` separating multiple trait segments.
+/// After each segment's `:` comes a DSL expression (type DSL + `@` constants, same as
+/// `#[batch_impl]`).
 ///
-/// **不支持 `#` 指令**（`#fill`/`#delegate`/`#blanket`/开放扩展）：指令需要
-/// trait 定义作签名真相源，`batch_trait!` 作为函数式宏拿不到定义；需要指令时
-/// 请用 `#[batch_impl]` / `#[batch_impl_only]`。
+/// **`#` directives are not supported** (`#fill`/`#delegate`/`#blanket`/open extension):
+/// directives need the trait definition as the signature source of truth, which `batch_trait!`
+/// as a function-like macro cannot access; use `#[batch_impl]` / `#[batch_impl_only]` when
+/// you need directives.
 ///
-/// ## 示例
+/// ## Examples
 ///
 /// ```
 /// # use batch_impl::batch_trait;
@@ -124,24 +132,27 @@ pub fn batch_impl_only(
 /// );
 /// ```
 ///
-/// 路径 trait（如 `foo::C`）同样支持，见 tests/regression.rs。
+/// Path traits (such as `foo::C`) are supported too; see tests/regression.rs.
 #[proc_macro]
 pub fn batch_trait(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     expand_batch_trait(input).unwrap_or_else(Into::into)
 }
 
-/// 测试用开放扩展宏（函数式）：`name!{(方法名列表){body} trait T {...}}`。
+/// Test-only open-extension macro (function-like): `name!{(method name list){body} trait T {...}}`.
 ///
-/// 从宏输入解析方法名列表、body 与 trait 定义，为每个方法生成
-/// `fn 签名 { body }`（沿用 trait 签名）——等价于把 `#fill` 的实现交给用户。
+/// Parses the method name list, body, and trait definition from the macro input, generating
+/// `fn signature { body }` per method (reusing the trait signature) — equivalent to handing
+/// the `#fill` implementation to the user.
 ///
-/// 用于验证开放指令扩展：`#name(args){body}` 展开为 `{name!{(args){body} trait ...}}`，
-/// 宏调用落在 impl body 中，由用户宏根据 trait 展开为需要的 fn 定义
-/// （见 `tests/dsl.rs` 第 28 节）。
+/// Used to verify open instruction extension: `#name(args){body}` expands to
+/// `{name!{(args){body} trait ...}}`, with the macro call landing in the impl body and being
+/// expanded by the user macro into the needed fn definitions based on the trait
+/// (see section 28 of `tests/dsl.rs`).
 ///
-/// 设计要点：这里必须是**函数式宏调用** `name!{...}`，不能是 `#[name[...]] trait ...`
-/// 属性——trait 不是 impl 块内的合法项（`#[attr] trait` 无法出现在 impl 中），
-/// 而函数式宏在 impl body 位置会被 rustc 展开成关联项。
+/// Design point: this must be a **function-like macro call** `name!{...}`, not an
+/// `#[name[...]] trait ...` attribute — a trait is not a valid item inside an impl block
+/// (`#[attr] trait` cannot appear in an impl), whereas a function-like macro in an impl
+/// body position is expanded by rustc into associated items.
 #[doc(hidden)]
 #[proc_macro]
 pub fn batch_preprocess_test(
@@ -152,28 +163,28 @@ pub fn batch_preprocess_test(
         Ok(v) => v,
         Err(e) => return e.into(),
     };
-    // 形如：`(add, inc) {*self+1} trait AddInc {...}`
+    // Shape: `(add, inc) {*self+1} trait AddInc {...}`
     let Some(TokenTree::Group(names_group)) = tokens.first() else {
         return compile_error_str(
-            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
         )
         .into();
     };
     if names_group.delimiter() != delimiter![()] {
         return compile_error_str(
-            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
         )
         .into();
     }
     let Some(TokenTree::Group(body_group)) = tokens.get(1) else {
         return compile_error_str(
-            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
         )
         .into();
     };
     if body_group.delimiter() != delimiter![{}] {
         return compile_error_str(
-            "batch-impl: batch_preprocess_test 期望 `(方法名列表){body} trait ...`",
+            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
         )
         .into();
     }
@@ -182,7 +193,7 @@ pub fn batch_preprocess_test(
         Ok(t) => t,
         Err(_) => {
             return compile_error_str(
-                "batch-impl: batch_preprocess_test 无法解析 trait 定义",
+                "batch-impl: batch_preprocess_test cannot parse the trait definition",
             )
             .into();
         }

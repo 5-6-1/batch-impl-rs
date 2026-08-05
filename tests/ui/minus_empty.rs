@@ -1,4 +1,4 @@
-// 错误：排除全部（`-@all`）后保留列表为空
+// Error: the kept list is empty after excluding everything (`-@all`)
 use batch_impl::batch_impl;
 
 #[batch_impl(usize #fill(@all,-@all){0})]

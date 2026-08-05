@@ -1,16 +1,19 @@
-//! 裸 `where` 新语法预处理。
+//! Bare `where` new-syntax preprocessing.
 //!
-//! [`where_process`] 在指令预处理之后、DSL 解析之前扫描 token 流中的
-//! 裸 `where 谓词 {代码块}` 形式：收集谓词直至首个深度 0 的 `{...}`
-//! 代码块（排除 `ident!{...}` 宏调用体与尖括号内代码块），改写为旧式
-//! `where{谓词}` 后缀；缺代码块时报 `compile_error!`。三个接口
-//! （`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`）共用，
-//! 解析层无需感知新语法。
+//! [`where_process`] scans the token stream after directive preprocessing and
+//! before DSL parsing for the bare `where predicates {code block}` form:
+//! collects predicates up to the first top-level `{...}` code block
+//! (excluding `ident!{...}` macro-call bodies), rewrites it into the legacy
+//! `where{predicates}` suffix; a missing code
+//! block reports `compile_error!`. Shared by all three entries
+//! (`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`); the parse layer
+//! need not know about the new syntax.
 //!
-//! **限制**：谓词区边界只按 `<>` 深度扫描，不跟踪 `()`/`[]` 深度——但
-//! proc-macro2 会把平衡的 `(...)`/`[...]` 聚合成单个 Group token（对扫描不透明），
-//! 因此 `Fn({code})` 这类括号内代码块不会误判为 body 边界；仅**不平衡**的
-//! 括号（本就是非法输入）才可能受影响。
+//! **Boundary rule**: the scan operates on the top-level token list only —
+//! `angle_collect` has already paired `<...>` into opaque groups, and
+//! proc-macro2 aggregates balanced `(...)`/`[...]` into single Group tokens,
+//! so nested code blocks like `Fn({code})` are never mistaken for the body
+//! boundary.
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
@@ -24,7 +27,8 @@ pub(crate) fn where_process(
     let mut result = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        // 裸 `where`：后紧跟 {group} 是旧式 `where{...}`，原样跳过；否则改写为 where{谓词}
+        // Bare `where`: a directly following {group} is the legacy
+        // `where{...}`, skipped as-is; otherwise rewrite into where{predicates}
         if let TokenTree::Ident(ident) = &tokens[i]
             && ident == "where"
             && i + 1 < tokens.len()
@@ -34,7 +38,7 @@ pub(crate) fn where_process(
             let Some((where_body, rest_index)) = scan_body_boundary(&tokens[i + 1..])
             else {
                 return Err(compile_error_str(
-                    "batch-impl: `where` 谓词后缺少代码块 {...}",
+                    "batch-impl: `where` predicates are missing a code block {...}",
                 ));
             };
             result.push(ident.clone().into());
@@ -42,7 +46,8 @@ pub(crate) fn where_process(
             i += 1 + rest_index;
         } else if let TokenTree::Group(g) = &tokens[i]
             && g.delimiter() == delimiter!([])
-            // `ident![...]` 宏体与 `#[...]` 属性透传，不递归
+            // `ident![...]` macro bodies and `#[...]` attributes passthrough,
+            // no recursion
             && !bracket_is_passthrough(tokens, i)
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
@@ -56,7 +61,8 @@ pub(crate) fn where_process(
     }
     Ok(result)
 }
-/// 谓词区边界 = 首个 `{...}` 组（排除 `ident!{...}` 宏体）。
+/// The predicate-region boundary = the first `{...}` group (excluding
+/// `ident!{...}` macro bodies) or an ident `where`.
 fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
     let mut j = 0;
     let mut result = vec![];

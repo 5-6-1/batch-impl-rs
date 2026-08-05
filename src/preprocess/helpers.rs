@@ -8,26 +8,31 @@ pub(crate) fn parse_names_from_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait,
 ) -> Result<Vec<Ident>, TokenStream> {
     if tokens.is_empty() {
-        return Err(compile_error_str("batch-impl: 指令的参数列表不能为空"));
+        return Err(compile_error_str(
+            "batch-impl: the directive's argument list cannot be empty",
+        ));
     }
-    parse_name_tokens(tokens, trait_def, "指令参数")
+    parse_name_tokens(tokens, trait_def, "directive arguments")
 }
 
-/// 解析指令参数为 item 名列表：`@all` 系列标记、逗号分隔的标识符列表、
-/// 以及 `-name` 排除项（保留列表减去排除列表，如 `#fill(@all,-foo)`）。
+/// Parses directive arguments into an item-name list: `@all`-family markers,
+/// comma-separated identifier lists, and `-name` exclusions (keep list minus
+/// exclude list, e.g. `#fill(@all,-foo)`).
 ///
-/// 指令参数域里 `-` 此前无语义（参数只解析标识符/逗号），专用于列表减法，
-/// 不与类型 DSL 的 `-` 连接运算符冲突（DSL 解析不进入指令参数）。
-/// `what` 用于诊断措辞（主参数为"指令参数"）。
+/// In the directive-argument domain `-` had no meaning before (arguments
+/// parse only identifiers/commas) and is dedicated to list subtraction; it
+/// does not clash with the `-` join operator of the type DSL (DSL parsing
+/// never enters directive arguments). `what` is used for diagnostic wording
+/// (the main args are "directive arguments").
 fn parse_name_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
 ) -> Result<Vec<Ident>, TokenStream> {
     if tokens.is_empty() {
-        return Err(compile_err!("batch-impl: {}不能为空", what));
+        return Err(compile_err!("batch-impl: {} cannot be empty", what));
     }
     let mut keep: Vec<Ident> = vec![];
     let mut exclude: Vec<Ident> = vec![];
-    let mut prev_was_comma = true; // 起始视为"刚经过逗号"，用于拦截前导逗号
+    let mut prev_was_comma = true; // Start is treated as "just passed a comma", to catch a leading comma
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
@@ -36,8 +41,10 @@ fn parse_name_tokens(
                 prev_was_comma = false;
                 i += 1;
             }
-            // `[a, b]` 列表：递归解析组内容为名字（`@all` 系展开产物即此形态；
-            // 用户也可手写 `[a,b]` 或 `-[a,b]` 排除；空组经递归报"不能为空"）
+            // `[a, b]` list: parse the group contents into names recursively
+            // (`@all` family expansions have this shape; users may also
+            // hand-write `[a,b]` or `-[a,b]` exclusions; an empty group
+            // errors "cannot be empty" via recursion)
             TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
                 keep.extend(parse_name_tokens(&inner, trait_def, what)?);
@@ -47,14 +54,16 @@ fn parse_name_tokens(
             TokenTree::Punct(p) if p.as_char() == ',' => {
                 if prev_was_comma {
                     return Err(compile_err!(
-                        "batch-impl: {}中逗号位置不合法（不允许前导/尾随/连续逗号）",
+                        "batch-impl: in {}, a comma is in an illegal position \
+                         (no leading/trailing/consecutive commas)",
                         what
                     ));
                 }
                 prev_was_comma = true;
                 i += 1;
             }
-            // `-name` / `-[a,b]` / `-@all`（@all 展开为 Bracket 组后走组分支）：排除项
+            // `-name` / `-[a,b]` / `-@all` (@all expands to a Bracket group
+            // and takes the group branch): exclusion
             TokenTree::Punct(p) if p.as_char() == '-' => {
                 let (ids, consumed) =
                     parse_minus_target(&tokens[i + 1..], trait_def, what)?;
@@ -62,10 +71,13 @@ fn parse_name_tokens(
                 i += 1 + consumed;
                 prev_was_comma = false;
             }
-            // `#` 不再出现在指令参数域：`#` 只剩指令名一种格式，范围选择归 `@all` 系
+            // `#` no longer appears in the directive-argument domain: `#`
+            // remains only as the directive-name format; scope selection
+            // belongs to the `@all` family
             _ => {
                 return Err(compile_err!(
-                    "batch-impl: {}中期望标识符、逗号、`[...]` 列表或 `-` 排除项，得到 `{}`",
+                    "batch-impl: in {}, expected an identifier, comma, `[...]` \
+                     list, or `-` exclusion, got `{}`",
                     what,
                     tokens[i]
                 ));
@@ -74,20 +86,21 @@ fn parse_name_tokens(
     }
     if prev_was_comma {
         return Err(compile_err!(
-            "batch-impl: {}中逗号位置不合法（不允许前导/尾随/连续逗号）",
+            "batch-impl: in {}, a comma is in an illegal position \
+             (no leading/trailing/consecutive commas)",
             what
         ));
     }
     let names: Vec<Ident> =
         keep.into_iter().filter(|id| !exclude.iter().any(|e| e == id)).collect();
     if names.is_empty() {
-        return Err(compile_err!("batch-impl: {}不能为空", what));
+        return Err(compile_err!("batch-impl: {} cannot be empty", what));
     }
     Ok(names)
 }
 
-/// `-` 后的目标：标识符（`-foo`）或 `@all` 系列标记（`-@all_methods`）。
-/// 返回（展开的 item 名列表, 消费的 token 数）。
+/// The target after `-`: an identifier (`-foo`) or an `@all`-family marker
+/// (`-@all_methods`). Returns (expanded item-name list, tokens consumed).
 fn parse_minus_target(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
 ) -> Result<(Vec<Ident>, usize), TokenStream> {
@@ -101,41 +114,68 @@ fn parse_minus_target(
             Ok((ids, 1))
         }
         _ => Err(compile_err!(
-            "batch-impl: {}中 `-` 后期望标识符或 `[...]` 列表（如 `-foo`、`-[a,b]`）",
+            "batch-impl: in {}, after `-` expected an identifier or `[...]` \
+             list (e.g. `-foo`, `-[a,b]`)",
             what
         )),
     }
 }
 
-/// `all` 系标记 → (include_fn, include_const, include_type, default 过滤)。
-/// `default=None` 全含；`Some(true)` 仅默认实现；`Some(false)` 仅无默认（required）。
-/// 指令域（`@all`）与宏元层（`@all`）共用同一张表。
-pub(crate) fn resolve_all_marker(
-    name: &str,
-) -> Option<((bool, bool, bool), Option<bool>)> {
+/// Receiver kind filter for fn items (`@all_ref_methods` etc.).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum ReceiverFilter {
+    /// `&self` / `&mut self`
+    Ref,
+    /// `self` (by-value, including typed receivers like `self: Box<Self>`)
+    Value,
+    /// no receiver — an associated function (e.g. `fn new() -> Self`)
+    Static,
+}
+
+/// `all`-family marker → (include_fn, include_const, include_type, default
+/// filter, receiver filter).
+pub(crate) type AllMarkerSpec =
+    ((bool, bool, bool), Option<bool>, Option<ReceiverFilter>);
+
+/// Resolves an `all`-family marker. `default=None` includes everything;
+/// `Some(true)` only default impls; `Some(false)` only no-default (required);
+/// `receiver` filters fn items by receiver kind (`None` = all). The directive
+/// domain (`@all`) and the macro-meta layer (`@all`) share the same table.
+pub(crate) fn resolve_all_marker(name: &str) -> Option<AllMarkerSpec> {
     match name {
-        "all" => Some(((true, true, true), None)),
-        "all_methods" => Some(((true, false, false), None)),
-        "all_constants" => Some(((false, true, false), None)),
-        "all_types" => Some(((false, false, true), None)),
-        "all_default" => Some(((true, true, true), Some(true))),
-        "all_default_methods" => Some(((true, false, false), Some(true))),
-        "all_default_constants" => Some(((false, true, false), Some(true))),
-        "all_default_types" => Some(((false, false, true), Some(true))),
-        "all_required" => Some(((true, true, true), Some(false))),
-        "all_required_methods" => Some(((true, false, false), Some(false))),
-        "all_required_constants" => Some(((false, true, false), Some(false))),
-        "all_required_types" => Some(((false, false, true), Some(false))),
+        "all" => Some(((true, true, true), None, None)),
+        "all_methods" => Some(((true, false, false), None, None)),
+        "all_constants" => Some(((false, true, false), None, None)),
+        "all_types" => Some(((false, false, true), None, None)),
+        "all_default" => Some(((true, true, true), Some(true), None)),
+        "all_default_methods" => Some(((true, false, false), Some(true), None)),
+        "all_default_constants" => Some(((false, true, false), Some(true), None)),
+        "all_default_types" => Some(((false, false, true), Some(true), None)),
+        "all_required" => Some(((true, true, true), Some(false), None)),
+        "all_required_methods" => Some(((true, false, false), Some(false), None)),
+        "all_required_constants" => Some(((false, true, false), Some(false), None)),
+        "all_required_types" => Some(((false, false, true), Some(false), None)),
+        "all_ref_methods" => {
+            Some(((true, false, false), None, Some(ReceiverFilter::Ref)))
+        }
+        "all_value_methods" => {
+            Some(((true, false, false), None, Some(ReceiverFilter::Value)))
+        }
+        "all_static_methods" => {
+            Some(((true, false, false), None, Some(ReceiverFilter::Static)))
+        }
         _ => None,
     }
 }
 
-/// 收集 trait item 名。`include_*` 控制种类；`default` 过滤默认实现状态：
-/// `Some(true)` 仅含带默认实现的、`Some(false)` 仅含无默认（required）、
-/// `None` 全含（syn 的 `default` 字段：fn=默认体、const=默认值、type=默认类型）。
+/// Collects trait item names. `include_*` controls the kinds; `default`
+/// filters default-implementation state: `Some(true)` only those with a
+/// default, `Some(false)` only those without (required), `None` all (syn's
+/// `default` field: fn=default body, const=default value, type=default type);
+/// `receiver` filters fn items by receiver kind (`None` = all).
 pub(crate) fn get_trait_item_names(
     trait_def: &ItemTrait, include_fn: bool, include_const: bool, include_type: bool,
-    default: Option<bool>,
+    default: Option<bool>, receiver: Option<ReceiverFilter>,
 ) -> Vec<Ident> {
     let mut names = vec![];
     for item in &trait_def.items {
@@ -151,7 +191,28 @@ pub(crate) fn get_trait_item_names(
             2 => include_type,
             _ => false,
         };
-        if include && default.is_none_or(|d| d == has_default) {
+        let receiver_ok = match (kind, receiver) {
+            (0, Some(rk)) => {
+                // syn 3: `receiver()` returns `Option<&Receiver>` with a
+                // `ReceiverKind` (Value / Reference / Typed).
+                let rk_syn = match item {
+                    syn::TraitItem::Fn(f) => f.sig.receiver().map(|r| &r.kind),
+                    _ => None,
+                };
+                match rk {
+                    ReceiverFilter::Ref => {
+                        matches!(rk_syn, Some(syn::ReceiverKind::Reference(..)))
+                    }
+                    ReceiverFilter::Value => matches!(
+                        rk_syn,
+                        Some(syn::ReceiverKind::Value | syn::ReceiverKind::Typed(..))
+                    ),
+                    ReceiverFilter::Static => rk_syn.is_none(),
+                }
+            }
+            _ => true,
+        };
+        if include && receiver_ok && default.is_none_or(|d| d == has_default) {
             match item {
                 syn::TraitItem::Fn(f) => names.push(f.sig.ident.clone()),
                 syn::TraitItem::Const(c) => names.push(c.ident.clone()),
@@ -178,7 +239,7 @@ pub(crate) fn get_trait_item<'a>(
         }
     }
     Err(compile_err!(
-        "batch-impl: trait `{}` 中没有找到 item `{}`",
+        "batch-impl: item `{}` not found in trait `{}`",
         trait_def.ident,
         name
     ))
@@ -210,14 +271,17 @@ pub(crate) fn build_from_item(
                 (syn::token::Eq::default(), syn::Type::Verbatim(body.clone())).into();
             quote! {#t}
         }
-        _ => compile_error_str("item格式错误，不可能出现的错误"),
+        _ => compile_error_str("invalid item form; this error cannot occur"),
     }
 }
 
-/// 收集委托调用要转发的参数标识符（跳过 `self` 接收者）。
+/// Collects the argument identifiers to forward in a delegation call
+/// (skipping the `self` receiver).
 ///
-/// 仅支持 `self` 与纯标识符模式；解构模式（如 `(a, b)`、`_`）无法按名转发，
-/// 返回包含该模式文本的 `Err`，由调用方构造诊断。
+/// Only `self` and plain identifier patterns are supported; non-identifier
+/// patterns (e.g. `(a, b)`, `_`) cannot be forwarded by name, and an `Err`
+/// containing that pattern's text is returned for the caller to build a
+/// diagnostic from.
 pub(crate) fn collect_call_args(sig: &syn::Signature) -> Result<Vec<Ident>, String> {
     let mut args = vec![];
     for arg in &sig.inputs {

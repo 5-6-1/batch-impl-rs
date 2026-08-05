@@ -1,4 +1,4 @@
-error: batch-impl: #blanket 不支持 `*const`/`*mut` 包装（解引用 unsafe，无法委托）；请手写 #delegate
+error: batch-impl: #blanket does not support `*const`/`*mut` wrappers (deref is unsafe, cannot delegate); write #delegate by hand
  --> tests/ui/blanket_ptr.rs:3:1
   |
 3 | #[batch_impl(#blanket(@all){*const})]

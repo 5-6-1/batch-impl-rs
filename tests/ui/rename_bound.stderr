@@ -1,4 +1,4 @@
-error: batch-impl: trait 实参 `X` 对应形参 `T`（bound `Clone`），自动继承要求同名；请改名为 `T` 或手写 bound
+error: batch-impl: trait argument `X` maps to parameter `T` (bound `Clone`); automatic inheritance requires the same name; rename to `T` or write the bound manually
  --> tests/ui/rename_bound.rs:4:1
   |
 4 | #[batch_impl(<X> A<X> ())]
