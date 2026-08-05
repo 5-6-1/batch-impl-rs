@@ -456,9 +456,9 @@ trait Name {
     fn name(&self) -> String;
 }
 // → impl Name for u32 { ... }                       // first batch_impl
-// → impl<T: Name> Name for &T    { fn name(&self) -> String { (**self).name() } }
-// → impl<T: Name> Name for Box<T> { ... }           // blanket: one delegated body per wrapper
-// → impl<T: Name> Name for Rc<T>  { ... }
+// → impl<T> Name for &T    where T: Name { fn name(&self) -> String { (**self).name() } }
+// → impl<T> Name for Box<T> where T: Name { ... }   // blanket: one delegated body per wrapper
+// → impl<T> Name for Rc<T>  where T: Name { ... }
 ```
 
 **Nested wrappers use `^` chains** (target type = wrapper expression `^T`, where T is a fresh generic); `<` prefill is append semantics (`Box<Arc>^T` = `Box<Arc, T>`, wrong):
@@ -515,7 +515,7 @@ trait Foo<X: Clone> {
     type Item;
     fn m(&self) -> X;
 }
-// → impl<X: Clone, T: Foo<X>> Foo<X> for Box<T> {
+// → impl<X: Clone, T> Foo<X> for Box<T> where T: Foo<X> {
 //     type Item = <T as Foo<X>>::Item;
 //     fn m(&self) -> X { (**self).m() }
 //   }
