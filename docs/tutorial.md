@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.6.2 (in development)** — on top of 0.6.1, adds: filtering by receiver kind (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, and span diagnostics; error messages are fully in English.
+**v0.6.2** — on top of 0.6.1, adds: filtering by receiver kind (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, and span diagnostics; error messages are fully in English.
 
 A progressively-learned DSL: start from a single impl line and work up to advanced matrix composition. All examples are compilable code; the product of every step is ordinary Rust — the impls the macro generates are token-for-token equivalent to handwritten ones.
 

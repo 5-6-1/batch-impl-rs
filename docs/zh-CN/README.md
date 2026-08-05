@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.6.2（开发中）**——receiver 过滤（`@all_ref_methods` 等）+ `#blanket` 静态方法委托 + span 诊断；错误消息全英文。
+**v0.6.3（开发中）**——0.6.2 已发布：receiver 过滤（`@all_ref_methods` 等）+ `#blanket` 静态方法委托 + span 诊断；错误消息全英文。0.6.3 为文档修正。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 

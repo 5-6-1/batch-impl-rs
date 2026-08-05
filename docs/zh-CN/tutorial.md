@@ -1,8 +1,8 @@
 # batch-impl 教程
 
-**v0.6.2（开发中）**——在 0.6.1 基础上新增：按 receiver 种类过滤
+**v0.6.3（开发中）**——0.6.2 已发布：按 receiver 种类过滤
 （`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`）、
-`#blanket` 静态方法委托、span 诊断；错误消息全英文。
+`#blanket` 静态方法委托、span 诊断；错误消息全英文。0.6.3 为文档修正。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码，
 每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
