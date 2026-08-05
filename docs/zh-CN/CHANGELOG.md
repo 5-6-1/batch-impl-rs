@@ -4,6 +4,17 @@
 
 ## 0.6.4 (2026-08-05)
 
+### 泛型参数族：`@all_type_params` / `@all_const_params` / `@all_lifetimes`
+
+- 泛型声明照抄 trait 形参：类型参数只名字（`@all_type_params` → `<T, U>`）、
+  const 完整声明（`@all_const_params` → `<const N: usize>`）、生命周期原样
+  （`@all_lifetimes` → `<'a>`）；bound 由既有同名继承自动补；
+- 用法：`#[batch_impl(@all_type_params GenT<T> Vec<T>)]`——声明与 trait 同步，
+  改 trait 形参不必改宏；
+- 组合（如 `@all_lifetimes @all_type_params`）保持生命周期在前——顺带修复
+  了 DSL 分离泛型声明的顺序 bug（`<'a> <T> X` 曾生成 `<T, 'a>`）；
+- batch_impl/batch_impl_only 专属（需要 trait_def）；trait 无该类参数时报错。
+
 ### `@` 常量名字族改名：`@uint`/`@int`/`@float` → `@u*`/`@i*`/`@f*`
 
 - 名字族符号与范围族统一：`u`/`i`/`f` = 族、`*` = 通配全集——`@u*` 与

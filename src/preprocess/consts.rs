@@ -235,6 +235,38 @@ fn try_expand_at(
             )),
         };
     }
+    // `@all_type_params` / `@all_const_params` / `@all_lifetimes`: generic-
+    // parameter family (batch_impl-only, needs trait_def); expands to a flat
+    // `<...>` declaration (paired by angle_collect, bounds via same-name
+    // inheritance); batch_trait! errors.
+    if let Some(gf) = crate::preprocess::resolve_generic_marker(&name_str) {
+        return match ctx.trait_def() {
+            Some(td) => match crate::preprocess::get_trait_generic_decl(td, gf) {
+                Some(decl) => {
+                    let decl = decl.into_iter().collect();
+                    Ok(Some((decl, 2)))
+                }
+                None => Err(compile_err!(
+                    "batch-impl: `@{}` cannot expand — trait `{}` has no {} \
+                     parameters",
+                    name_str,
+                    td.ident,
+                    match gf {
+                        crate::preprocess::GenericFilter::Type => "type",
+                        crate::preprocess::GenericFilter::Const => "const",
+                        crate::preprocess::GenericFilter::Lifetime => "lifetime",
+                    }
+                )),
+            },
+            None => Err(compile_err!(
+                "batch-impl: `@{}` is supported only by `#[batch_impl]` / \
+                 `#[batch_impl_only]` (needs a trait definition to read its \
+                 generic parameters; `batch_trait!` is a function-like macro \
+                 without one)",
+                name_str
+            )),
+        };
+    }
     if let Some(expanded) = ctx.user_table().and_then(|t| t.get(&name_str)) {
         return Ok(Some((expanded.clone(), 2)));
     }

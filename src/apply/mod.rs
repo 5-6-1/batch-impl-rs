@@ -135,6 +135,13 @@ impl TyKind {
             // When the right operand is `WithType` (e.g. the fresh generic tuple of `()^N`),
             // hoist the generic declaration outward: `T^<A>X` => `<A>(T^X)`,
             // so the type does not leak a generic declaration as `T<<A>X>`.
+            // But when self is itself a generic declaration (`<'a>^<T>X` — the
+            // `<'a> <T> X` consecutive-declaration form), hoisting would reorder
+            // lifetimes after type params (E0xxx); keep declaration order via
+            // `WithType(self, o)` so `<'a, T>` stays lifetimes-first.
+            TyKind::WithType(wt) if matches!(self, TyKind::TypeParam(_)) => {
+                self.apply_help(Ty::new(o.span, TyKind::WithType(wt)), span)
+            }
             TyKind::WithType(wt) => Ty::new(
                 span,
                 TyKind::WithType(TyWithType(

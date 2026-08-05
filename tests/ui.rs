@@ -70,6 +70,9 @@ fn ui() {
     t.compile_fail("tests/ui/blanket_ptr.rs");
     t.compile_fail("tests/ui/blanket_bad_depth.rs");
 
+    // @all generic-parameter families need trait_def (batch_trait! has none)
+    t.compile_fail("tests/ui/generic_family_batch_trait.rs");
+
     // one pass path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");
 }

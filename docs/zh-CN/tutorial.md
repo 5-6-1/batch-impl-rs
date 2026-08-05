@@ -825,6 +825,7 @@ batch_trait!{
 | `@all` / `@all_methods` / `@all_constants` / `@all_types` | `[item名, ...]`（Bracket 组） | 指令范围选择——`#fill(@all)` / `#fill(@all, -[a,b])` |
 | `@all_required*` / `@all_default*` | 按默认实现状态过滤的 Bracket 组 | 只填必须的 / 只覆盖默认的 |
 | `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | 按 receiver 类型过滤的 Bracket 组（`&self`/`&mut self` / `self` / 关联函数） | 只委托引用方法（绕开 by-value 委托语义不定）；`#blanket(@all_ref_methods){Box}` |
+| `@all_type_params` / `@all_const_params` / `@all_lifetimes` | 泛型参数族：展开为**扁平 `<...>` 泛型声明**（类型参数只名字、const 完整 `const N: usize`、生命周期原样） | 泛型声明照抄 trait 形参（bound 走同名继承）；`#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T)]`——连续声明保持生命周期在前 |
 | `@Cow` | `Cow<'_>` + 固有约束谓词 | blanket 包装（deref target = `T::Owned`） |
 | `@N`（位置引用） | where 谓词内第 N 个泛型的名字 | blanket 包装谓词中 `@0` = 目标泛型（fresh T）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；用户泛型中 `@k` = 第 k 个 impl 泛型 |
 
@@ -853,6 +854,20 @@ trait AtWhere<T: Clone> { fn an(&self) -> usize; }
 
 （blanket 包装谓词中 `@0` = 目标泛型 fresh T，见 §7 `#blanket`；`@trait` 也可
 出现在普通 where 谓词中，如 `where{@0: @trait<T>}`。）
+
+**泛型参数族**（0.6.4）：泛型声明照抄 trait 形参（类型参数只名字、const 完整
+声明、生命周期原样）——bound 由同名继承自动补：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(@all_type_params GenT<T> Vec<T> { fn head(&self) -> T { self[0].clone() } })]
+trait GenT<T: Clone> { fn head(&self) -> T; }
+// → impl<T: Clone> GenT<T> for Vec<T> { fn head(&self) -> T { self[0].clone() } }
+
+#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T { fn get(&self) -> &'a T { *self } })]
+trait Borrowed<'a, T: Clone> { fn get(&self) -> &'a T; }
+// → impl<'a, T: Clone> Borrowed<'a, T> for &'a T { ... }（连续声明生命周期在前）
+```
 
 ## 12. 三个入口
 

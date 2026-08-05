@@ -169,6 +169,54 @@ pub(crate) fn resolve_all_marker(name: &str) -> Option<AllMarkerSpec> {
     }
 }
 
+/// Generic-parameter family markers (`@all_type_params` / `@all_const_params` /
+/// `@all_lifetimes`): expand to a flat `<...>` generic declaration copied from
+/// the trait's own generic parameters (type params by name — bounds are picked
+/// up by codegen's same-name inheritance; const params need the full
+/// `const N: usize` declaration (a bare name is E0747); lifetimes as-is).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum GenericFilter {
+    Type,
+    Const,
+    Lifetime,
+}
+
+pub(crate) fn resolve_generic_marker(name: &str) -> Option<GenericFilter> {
+    match name {
+        "all_type_params" => Some(GenericFilter::Type),
+        "all_const_params" => Some(GenericFilter::Const),
+        "all_lifetimes" => Some(GenericFilter::Lifetime),
+        _ => None,
+    }
+}
+
+/// Builds the `<...>` declaration for the selected parameter kind; `None`
+/// when the trait has no parameters of that kind.
+pub(crate) fn get_trait_generic_decl(
+    trait_def: &ItemTrait, f: GenericFilter,
+) -> Option<proc_macro2::TokenStream> {
+    use proc_macro2::TokenStream;
+    use quote::quote;
+    let names: Vec<TokenStream> = trait_def
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match (p, f) {
+            (syn::GenericParam::Type(tp), GenericFilter::Type) => {
+                let id = &tp.ident;
+                Some(quote!(#id))
+            }
+            (syn::GenericParam::Const(cp), GenericFilter::Const) => Some(quote!(#cp)),
+            (syn::GenericParam::Lifetime(ld), GenericFilter::Lifetime) => Some(quote!(#ld)),
+            _ => None,
+        })
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    Some(quote!(< #(#names),* >))
+}
+
 /// Collects trait item names. `include_*` controls the kinds; `default`
 /// filters default-implementation state: `Some(true)` only those with a
 /// default, `Some(false)` only those without (required), `None` all (syn's

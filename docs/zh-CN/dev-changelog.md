@@ -4,6 +4,23 @@
 
 ## 0.6.4 (2026-08-05)
 
+### 泛型参数族 + 分离声明顺序修复
+
+- 新增 `@all_type_params` / `@all_const_params` / `@all_lifetimes`：
+  `GenericFilter` 枚举 + `resolve_generic_marker` + `get_trait_generic_decl`
+  （helpers.rs），展开为**扁平** `<...>` 声明（angle_collect 统一配对）；
+  类型参数只名字（bound 走同名继承）、const 完整（裸名 E0747）、生命周期原样；
+  try_expand_at 在 @all 分支后分发（batch_impl-only，batch_trait! 报错）；
+  无该类参数时报错；
+- **顺带修复真实 bug**：`TyKind::apply` 的 WithType hoist 分支（`T^<A>X` →
+  `<A>(T^X)`）对"声明 apply 声明"（`<'a> <T> X` 连续声明）错误地把内层参数
+  提到外层 → 生成 `<T, 'a>`（lifetime must be prior）。修复：self 是
+  `TyKind::TypeParam` 时走 `apply_help` 保持声明顺序（`<'a, T>` lifetimes
+  first）。手写 `<'a> <T>` 此前也炸——测试 `generic_param_families` 锁定
+  组合形态；
+- 测试：dsl 51（type/lifetime/const 三族 + 组合 + bound 继承）；ui
+  `generic_family_batch_trait`（batch_trait! 报错）。
+
 ### 常量名字族改名（用户拍板）
 
 - 提案：`@i*`/`@u*`/`@f*` 取代 `@uint`/`@int`/`@float`（族符号统一——原

@@ -1,0 +1,9 @@
+error: batch-impl: `@all_type_params` is supported only by `#[batch_impl]` / `#[batch_impl_only]` (needs a trait definition to read its generic parameters; `batch_trait!` is a function-like macro without one)
+ --> tests/ui/generic_family_batch_trait.rs:3:1
+  |
+3 | / batch_trait!(
+4 | |     NoGen: @all_type_params;
+5 | | );
+  | |_^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)
