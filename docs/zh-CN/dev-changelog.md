@@ -2,6 +2,88 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.6.2 (2026-08-05)
+
+### 基于 span 的诊断（L3）
+
+- **结构改造**：`enum Ty` → `struct Ty { span: Span, kind: TyKind }`（变体级 span
+  被否决——"span 放 Ty 层，不放 TyNum"）；`TyKind` 以普通方法承载右操作数分发
+  （`TyKind::apply` / `TyKind::apply_help`），`trait Apply` 只留
+  `apply_help(self, o, span)`（bound 为 `Clone + Into<Ty>`——TyKind 无法满足
+  `Into<Ty>`，故用普通方法而非 trait）；`Ty::apply` 取 span 后委托——span 贯穿
+  的唯一入口；
+- **递归修复**：迁移时 `TyGroup::apply_help` 被改成"包回 Group 再 apply"，
+  `o` 为普通类型时无限递归（fuzz `parse_no_panic` / `full_pipeline_no_panic`
+  栈溢出）；改回 `self.0.apply(o)`（组的透明性）。fuzz 抓到了它——no-panic
+  承诺的价值所在；
+- **诊断层**：`compile_error_str(msg, span)`；ident-span 方案——
+  `Ident::new("compile_error", span)` + `quote!`（括号/字符串/分号保持
+  call-site），因为 `quote_spanned!(span => compile_error!(...))` 会让 rustc
+  把错误当作 item 位置的用户代码（"macros that expand to items must be
+  delimited with braces..."）；新增 `compile_err_at!(span, ...)` 宏；
+- **接线**：parse（cursor/op 的 span——`^` 缺操作数现在指向 `^`）、consts
+  （`@` 引用 span）、blanket 包装、where_process、entry、lib、codegen；
+  apply 错误用 `err_ty_at`（span 参数已由 `apply_help` 贯穿）；
+- **平台限制（已记录）**：属性宏输入 span——顶层 token 精确、组内 token
+  退化 call-site、`Err` 返回的错误显示在宏调用行。精确 span 只出现在
+  Ok 输出的 `Ty::Error` 路径（parse/apply）。这是 rustc 行为，宏侧无法修复；
+- ui 快照经 TRYBUILD=overwrite 重新生成（span 变化移动了错误位置）。
+
+### 按 receiver 种类的 `@all` 过滤（L1）
+
+- `ReceiverFilter` 枚举（Ref / Value / Static）+ `AllMarkerSpec` 类型别名在
+  `helpers.rs`；`resolve_all_marker` 表新增 `all_ref_methods` /
+  `all_value_methods` / `all_static_methods`，`get_trait_item_names` 增加
+  receiver 过滤维度；
+- syn 3 receiver API：`f.sig.receiver()` 返回 `Option<&Receiver>`，其
+  `kind: ReceiverKind` 为 `Value` / `Reference(..)` / `Typed(..)`
+  （syn 2 风格的 `receiver.reference` 字段已不存在——E0609 抓出，
+  改为匹配 `ReceiverKind`）；
+- 动机：blanket 的 by-value 委托语义模糊（展开时无法判定 Deref/移动能力）；
+  `#blanket(@all_ref_methods)` 让用户只委托 `&self`/`&mut self` 方法、
+  by-value 方法保留 trait 默认实现；
+- 测试：`receiver_kind_filters`（ref/mut/val/static 各被正确标记选中）+
+  `blanket_receiver_filter`（Box blanket 委托 `by_ref`、`by_val` 回落默认——
+  注意默认实现需要 `where Self: Sized`，因为默认方法里的 `self` receiver
+  要求它，E0277）；
+- 文档（zh-CN）：tutorial 常量表 + architecture 的 `@all` 描述与指令表已更新；
+  英文镜像发布时补。
+
+### `#blanket` 静态方法委托（F1，重构）
+
+- 评测员报告：`#blanket(@all_static_methods)` 生成 `(**self).make()` —
+  E0424（关联函数没有 `self`）。blanket 的既有漏洞（委托体总引用 self），
+  被 L1 静态过滤暴露；
+- 第一版修复：守卫 + 指向 `#fill(@all_static_methods)` 的报错（评测员方案 A）；
+- 设计评审后重构：委托严格更优——静态方法没有可 deref 的 receiver，但
+  blanket impl 携带 `t: Trait`，`t::make(...)` 与 `<t as Trait>::Item`
+  投影完全同构。`expand_blanket` 现在按 receiver 选择委托体：
+  `(#self_ty).#name(...)`（有 receiver）vs `#t::#name(...)`（无 receiver）。
+  dsl 测试 `blanket_static_delegation` 锁定直接、链式（`Box<Box<u8>>`）与
+  参数转发三种形态；临时 ui 报错 fixture 已删除。符合 blanket 哲学：
+  实例方法经 deref 转发、静态方法经 bound 转发——都是转发，不特判。
+
+### 全英文化（注释、错误消息、文档）
+
+- **范围**：`src/` 全部中文注释（`//`、`///`、`//!`，29 文件 ~356 处）与
+  `tests/`（28 .rs + 31 .stderr）译为英文；59 条 `compile_err!` /
+  `compile_error_str!` 消息全部翻译；消息中的 DSL 记号原样保留；
+- **过程**：5 个并行子代理按模块分组（preprocess / parse+apply /
+  ast+codegen / entry+util+analyze+testing+lib / tests），每组带
+  "绝不改动代码逻辑"的硬规则；ui `.stderr` 快照经 `TRYBUILD=overwrite`
+  重新生成（56 文件）——权威消息文本以实际输出为准，快照从真实输出重写；
+- **翻译后清理**：子代理嵌套列表引入的 clippy `doc list item without
+  indentation` 警告，把 doc 注释拍平为散文修复；
+- **文档**：中文文档移入 `docs/zh-CN/`（冻结归档），英文版原地书写
+  （README / CHANGELOG 全量 19 版本条目翻译 / tutorial 816 行 40 个 rust
+  块逐字保留 / architecture / dev-changelog）；二次扫描翻译了 doc 代码块
+  **内部**的中文注释（仅 rust 块的 `//` 注释，代码 token 不动）；
+- **损坏围栏修复**：tutorial 段级 `@trait` 示例的围栏损坏
+  （`` `ust `` — backtick + CR + `ust`），修成 ```rust 后作为 doctest
+  编译通过；块内容与通过的 `tests/dsl.rs` 段级测试一致，安全；
+- **验证**：fmt 干净、clippy 零警告、`cargo test --all-targets` 全绿
+  （lib 10 / dsl 46 / regression 26 / ui 全部 fixture）、doctest 46
+  （原 45，+1 修复块）、`src/`、`tests/` 与全部英文 doc 中文零残留。
 ## 0.6.1 (2026-08-05)
 
 ### 递归深度护栏恢复（0.1 承诺的回归修复）

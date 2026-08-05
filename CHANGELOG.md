@@ -2,48 +2,8 @@
 
 > User-visible feature and behavior changes; for internal implementation details, see `docs/dev-changelog.md`.
 >
-> English is the primary language of this crate. A Chinese mirror of this file (and the other docs,
-> frozen at the 0.6.1 state) lives in `docs/zh-CN/`.
-
-## 0.6.2 (2026-08-05)
-
-### Span-based diagnostics
-
-- Every `Ty` node now carries a source `Span` (`enum Ty` → `struct Ty { span, kind: TyKind }`);
-  `Ty::apply` takes the node's own span and threads it through combinator output — errors
-  raised inside `apply` report the left operand's position;
-- `compile_error_str` / `compile_err_at!` accept an explicit span; parse, constant,
-  directive, blanket and apply errors are wired to the offending token's span
-  (`^`-missing-operand now points at the `^`, not the whole macro call);
-- Platform limitation (rustc behavior): top-level tokens in attribute-macro input carry
-  precise spans, but tokens inside groups degrade to call-site spans, and errors returned
-  as `Err` are always displayed at the macro-call line — the precise spans that do show up
-  are the `Ty::Error` (Ok-output) path for parse/apply errors;
-- The `compile_error!` ident is stamped with the target span while the rest of the
-  invocation keeps call-site spans — stamping every token instead makes rustc treat the
-  error as user code in item position ("macros that expand to items must be delimited...").
-
-### Receiver-kind `@all` filters
-
-- New `@all`-family markers filter trait methods by receiver kind:
-  `@all_ref_methods` (`&self` / `&mut self`), `@all_value_methods`
-  (`self`, incl. typed receivers), `@all_static_methods` (associated
-  functions);
-- Typical use: `#blanket(@all_ref_methods){Box}` delegates only
-  reference-receiver methods, sidestepping the unclear by-value delegation
-  semantics for wrappers (by-value methods fall back to trait defaults);
-- Shared by `#fill` / `#delegate` / `#blanket` and the `-` exclusion, like
-  the rest of the `@all` family; `batch_trait!` errors (needs trait_def).
-
-### All-English comments, error messages and docs
-
-- **Comments and error messages are now entirely in English** (source, tests, ui fixtures) — wider
-  audience compatibility; DSL markers in messages (`` `@uint` ``, `` `#fill` ``, `` `@0` ``) are unchanged;
-- **Documentation is now English-first**: `README.md`, `CHANGELOG.md`, `docs/tutorial.md`,
-  `docs/architecture.md`, `docs/dev-changelog.md` are translated; the Chinese versions are archived
-  (frozen at the 0.6.1 state) under `docs/zh-CN/`;
-- Code examples in the docs are unchanged (they double as doctests — all 46 pass);
-- A corrupted fenced block in the tutorial's segment-level `@trait` example was repaired (` `ust ` → `` ```rust ``), which also brings it under doctest coverage.
+> English docs are the release artifact, translated from the development Chinese docs in
+> `docs/zh-CN/` right before publishing.
 
 ## 0.6.1 (2026-08-05)
 

@@ -2,6 +2,53 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.6.2 (2026-08-05)
+
+### 基于 span 的诊断
+
+- 每个 `Ty` 节点携带源 `Span`（`enum Ty` → `struct Ty { span, kind: TyKind }`）；
+  `Ty::apply` 取节点自身的 span 并在组合子输出中贯穿——`apply` 内产生的错误
+  指向左操作数的位置；
+- `compile_error_str` / `compile_err_at!` 接受显式 span；parse、常量、指令、
+  blanket、apply 的错误全部接到肇事 token 的 span（`^` 缺操作数现在指向 `^`
+  本身，而非整个宏调用）；
+- 平台限制（rustc 行为）：属性宏输入的顶层 token 携带精确 span，但组内 token
+  退化为 call-site span，且以 `Err` 返回的错误总是显示在宏调用行——真正显示
+  精确位置的是 `Ty::Error`（Ok 输出）路径上的 parse/apply 错误；
+- `compile_error!` 只把关键字标识符盖上目标 span、其余保持 call-site——若全
+  token 都带 span，rustc 会把错误当作 item 位置的用户代码
+  （"macros that expand to items must be delimited..."）。
+
+### `#blanket` 静态方法委托
+
+- `#blanket` 现在把无 receiver 的方法（静态方法 / `@all_static_methods` /
+  `@all_methods`）经 blanket 泛型 `t` 转发——`fn make() -> u8 { t::make() }`，
+  而非 deref 链委托体 `(**self).make()`（静态方法没有 `self`，E0424）；
+- 直接调用、嵌套包装（`Box<Box<u8>>`）、参数转发都能经 `t: Trait` bound 到达
+  底层 impl——与 assoc item 投影同一转发语义；
+- 哲学统一：实例方法经 deref 转发、静态方法经 bound 转发，都是转发，不特判。
+
+### 按 receiver 种类的 `@all` 过滤
+
+- 新增 `@all` 族标记按 receiver 种类过滤 trait 方法：
+  `@all_ref_methods`（`&self` / `&mut self`）、`@all_value_methods`
+  （`self`，含 typed receiver）、`@all_static_methods`（关联函数）；
+- 典型用法：`#blanket(@all_ref_methods){Box}` 只委托引用 receiver 的方法，
+  绕开 by-value 委托对包装类型的语义模糊（by-value 方法回落到 trait 默认实现）；
+- 与其余 `@all` 族一样被 `#fill` / `#delegate` / `#blanket` 与 `-` 排除共享；
+  `batch_trait!` 报错（需要 trait_def）。
+
+### 注释、错误消息与文档全英文化
+
+- **注释与错误消息全部改为英文**（源码、测试、ui fixture）——受众更广；消息中的
+  DSL 记号（`` `@uint` ``、`` `#fill` ``、`` `@0` ``）保持不变；
+- **文档语言策略确立**：开发期以中文 doc（`docs/zh-CN/`）为主文档记录改动，
+  发布前翻译为英文放入英文 doc（`README.md`、`CHANGELOG.md`、`docs/tutorial.md`、
+  `docs/architecture.md`、`docs/dev-changelog.md`）；0.6.2 已完成英文版初译，
+  中文版继续作为开发态主文档演进；
+- 文档中的代码示例不变（兼作 doctest——46 个全过）；
+- 修复了 tutorial 中段级 `@trait` 示例的损坏围栏（`` `ust `` → `` ```rust ``），
+  顺带纳入 doctest 覆盖。
 ## 0.6.1 (2026-08-05)
 
 ### 新特性：`@all_required*` / `@all_default*` 范围标记
