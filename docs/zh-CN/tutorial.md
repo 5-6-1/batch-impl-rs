@@ -1,6 +1,8 @@
 # batch-impl 教程
 
-**v0.6.1**（2026-08-05）——`@` 唯一宏元记号、`@all` 系范围选择、blanket 包装约束、`<>` 只留名字。
+**v0.6.2（开发中）**——在 0.6.1 基础上新增：按 receiver 种类过滤
+（`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`）、
+`#blanket` 静态方法委托、span 诊断；错误消息全英文。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码，
 每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
@@ -333,6 +335,37 @@ trait KeepDefault {
 }
 ```
 
+**按 receiver 种类过滤**（0.6.2 新增）：trait 方法按 receiver 形状分三类——
+`&self` / `&mut self`（引用）、`self`（by-value，含 `self: Box<Self>` 等 typed
+receiver）、无 receiver（关联函数 / 静态方法）：
+
+| 标记 | 选取范围 |
+|---|---|
+| `@all_ref_methods` | `&self` / `&mut self` 方法 |
+| `@all_value_methods` | `self`（含 typed receiver）方法 |
+| `@all_static_methods` | 关联函数（无 receiver） |
+
+典型场景是 blanket：by-value 委托语义取决于包装的 Deref/move 能力，展开期无法
+区分——用 `@all_ref_methods` 只委托引用方法，by-value 方法保留 trait 默认实现：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(u8 { fn by_ref(&self) -> u8 { *self } })]
+#[batch_impl(#blanket(@all_ref_methods){Box})]
+trait RecvB {
+    fn by_ref(&self) -> u8;
+    fn by_val(self) -> u8 where Self: Sized { 0 }
+}
+// → impl<T> RecvB for Box<T> where T: RecvB {
+//       fn by_ref(&self) -> u8 { (**self).by_ref() }   // 委托
+//       // by_val 不生成 → Box<T> 走 trait 默认实现
+//   }
+// 注意：默认实现里的 `self` receiver 需要 `where Self: Sized`
+```
+
+三个标记在 `#fill` / `#delegate` / `#blanket` 与 `-` 排除中通用
+（如 `#fill(@all_methods, -@all_value_methods)` = 只填引用 + 静态方法）。
+
 ### 列表减法 `-name`
 
 参数中 `-` 前缀表示排除项（保留列表减去排除列表，排除优先）。
@@ -377,6 +410,10 @@ trait MyLen { fn d_len(&self) -> usize; }
 trait ToI32 { fn to_i32(&self) -> i32; }
 // → impl<T: ToI32> ToI32 for &T { fn to_i32(&self) -> i32 { (**self).to_i32() } }
 ```
+
+> **委托限制**：`#delegate` 只支持**方法**（const / type 项报错），参数只支持
+> `self` 与普通标识符（pattern 参数如 `(a, b)` 无法转发，报错）。其余限制与
+> blanket 委托相同——`*const`/`*mut`、`self`、空列表均报 `compile_error!`。
 
 ### 指令与 DSL 组合
 
@@ -510,6 +547,31 @@ trait Foo<X: Clone> {
 （`fn consume(self)`）委托语义取决于包装的 Deref/move 能力，宏展开期无法
 区分——维持全放行，由 rustc 兜底。
 
+**静态方法委托**（0.6.2）：无 receiver 的方法（`@all_static_methods` /
+`@all_methods` 中的关联函数）经 blanket 泛型 `t` 转发——委托体是
+`t::make(...)` 而非 deref 链（静态方法没有 `self` 可解引用）。直接调用、
+嵌套包装（`Box<Box<u8>>`）、参数转发都经 `t: Trait` bound 到达底层 impl——
+与 assoc item 的 `<t as Trait>::Item` 投影同一转发语义：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(#blanket(@all_static_methods){Box})]
+trait StaticT {
+    fn make() -> u8;
+    fn pair(a: u8, b: u8) -> u16;
+}
+impl StaticT for u8 {
+    fn make() -> u8 { 7 }
+    fn pair(a: u8, b: u8) -> u16 { (a as u16) * 10 + b as u16 }
+}
+// → impl<T> StaticT for Box<T> where T: StaticT {
+//       fn make() -> u8 { T::make() }
+//       fn pair(a: u8, b: u8) -> u16 { T::pair(a, b) }
+//   }
+// 调用：<Box<u8> as StaticT>::make() → T::make() → u8::make() → 7
+//      <Box<Box<u8>> as StaticT>::make() → 递归委托（Box<u8>: StaticT bound）
+```
+
 ## 8. where 子句
 
 ### `where{...}` 后缀
@@ -615,6 +677,9 @@ trait ConstPtrChain {}
 #[batch_impl(#[allow(dead_code)]^usize, isize)]
 trait AttrSimple {}
 ```
+
+前缀作用于**整个列表**时自动分发到每项（`#[attr] [u8, u16]` 与
+`& [u8, u16]` 都展开为每项各带前缀/修饰符的 impl）。
 
 ### 数组/切片 builder
 
@@ -756,12 +821,12 @@ batch_trait!{
 
 | 记号 | 展开 | 场景 |
 |---|---|---|
-| `@trait` | trait 完整路径（`batch_impl`=本地名、`batch_impl_only`=外部路径）；`batch_trait!` 中为**段级**：展开为本段 trait 路径 | blanket 包装 where 谓词；`batch_trait!` 跨段打包「泛型声明+trait 名」 |
+| `@trait` | trait 完整路径（`batch_impl`=本地名、`batch_impl_only`=外部路径）；`batch_trait!` 中为**段级**：展开为本段 trait 路径 | blanket 包装 where 谓词；`batch_trait!` 跨段打包「泛型声明+trait 名」；**顶层 spec 的 trait 名部分**（`<T> @trait<T> Vec<T>`） |
 | `@all` / `@all_methods` / `@all_constants` / `@all_types` | `[item名, ...]`（Bracket 组） | 指令范围选择——`#fill(@all)` / `#fill(@all, -[a,b])` |
 | `@all_required*` / `@all_default*` | 按默认实现状态过滤的 Bracket 组 | 只填必须的 / 只覆盖默认的 |
 | `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | 按 receiver 类型过滤的 Bracket 组（`&self`/`&mut self` / `self` / 关联函数） | 只委托引用方法（绕开 by-value 委托语义不定）；`#blanket(@all_ref_methods){Box}` |
 | `@Cow` | `Cow<'_>` + 固有约束谓词 | blanket 包装（deref target = `T::Owned`） |
-| `@0`（位置引用） | 目标泛型名（fresh T） | **仅 blanket 包装 where 谓词内** |
+| `@N`（位置引用） | where 谓词内第 N 个泛型的名字 | blanket 包装谓词中 `@0` = 目标泛型（fresh T）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；用户泛型中 `@k` = 第 k 个 impl 泛型 |
 
 `@all` 系展开为 Bracket 组后走指令参数解析：**`#` 不再作为范围标记**——
 `#` 只剩指令名一种格式（`#fill`/`#delegate`/`#blanket`/开放扩展），范围
@@ -769,6 +834,25 @@ batch_trait!{
 
 **指令参数支持 `[a, b]` 列表**：`#fill([m1, m2]){...}`、`-` 排除也可写
 `-[a, b]`（`@all` 展开产物即此形态，用户手写等价）。
+
+**where 谓词里的 `@N` 位置引用**——宏生成的泛型名用户不知道（fresh 名），
+用位置引用约束它们：
+
+```rust
+# use batch_impl::batch_impl;
+// 元组生成的 fresh 泛型：@0 = 第 0 个、@1 = 第 1 个
+#[batch_impl(()^2 where{@0: Clone, @1: Copy} { fn tmk() -> u32 { 2 } })]
+trait TupleWhereAt { fn tmk() -> u32; }
+// → impl<A: Clone, B: Copy> TupleWhereAt for (A, B) { fn tmk() -> u32 { 2 } }
+
+// 用户泛型：@0 = 第 0 个 impl 泛型
+#[batch_impl(<T> AtWhere<T> Vec<T> where{@0: Default} { fn an(&self) -> usize { self.len() } })]
+trait AtWhere<T: Clone> { fn an(&self) -> usize; }
+// → impl<T: Clone + Default> AtWhere<T> for Vec<T> { ... }
+```
+
+（blanket 包装谓词中 `@0` = 目标泛型 fresh T，见 §7 `#blanket`；`@trait` 也可
+出现在普通 where 谓词中，如 `where{@0: @trait<T>}`。）
 
 ## 12. 三个入口
 
@@ -832,12 +916,25 @@ batch_trait!(
 
 ## 13. 错误提示
 
-所有 DSL 语法错误通过 `compile_error!()` 输出中文提示并指向源码位置，永不 panic：
+所有 DSL 语法错误通过 `compile_error!()` 输出英文提示（0.6.2 起），并尽量指向
+源码中出错的具体 token（span 诊断；组内 token 与 `Err` 返回路径显示宏调用行），
+永不 panic：
 
-| 错误输入                 | 错误信息                                                             |
-|--------------------------|----------------------------------------------------------------------|
-| `batch_trait!(;)`        | `batch_trait! 中期望 trait 名称`                                     |
-| `batch_trait!(A)`        | `batch_trait! 中期望 ':' 分隔 trait 名称和 impl-specs`               |
-| `batch_trait!(A: B::)`   | `batch_trait! 中期望标识符作为 trait 名称`                           |
-| 裸 `where` 缺代码块      | `batch-impl: \`where\` 谓词后缺少代码块 {...}`                       |
-| where 谓词引用未声明形参 | `batch-impl: 继承的 where 谓词 ... 引用形参 ...，请声明或手写 where` |
+| 错误输入 | 错误信息（节选） |
+|---|---|
+| `batch_trait!(;)` | `batch_trait! expects a trait name` |
+| `batch_trait!(A)` | `batch_trait! expects ':' to separate the trait name and impl-specs` |
+| `batch_trait!(A: B::)` | `batch_trait! expects an ident as the trait name` |
+| `A^`（缺右操作数） | `batch-impl: missing operand after '^' (e.g. 'T^U')`——指向 `^` 本身 |
+| `A,,B` | `batch-impl: missing operand between consecutive commas ',,`'` |
+| `3..2`（空范围） | `batch-impl: range '3..2' is empty (start not below end); no impls will be generated` |
+| `^2000`（超上限） | `batch-impl: tuple '^2000' expands to 2000 items (limit 1024); likely exponential/range/Cartesian typo` |
+| 深度超 128 | `batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket)` |
+| `@unknown` | `batch-impl: unknown @ constant '@unknown'; built-ins: '@uint' ...` |
+| `@u32..u8`（端点反序） | `batch-impl: range start is greater than end: 'u32..u8'` |
+| `@a=@a`（循环引用） | `batch-impl: constant '@a' references unknown '@a' (undefined or defined later; ...)` |
+| `#fill()`（空参数） | `batch-impl: the directive's argument list cannot be empty` |
+| `-` 后缺目标 | `batch-impl: directive arguments cannot be empty` |
+| 裸 `where` 缺代码块 | `batch-impl: `where` predicates are missing a code block {...}` |
+| 继承谓词引用未声明形参 | `batch-impl: trait argument 'X' maps to parameter 'T' (bound 'IntoIterator'); automatic inheritance requires the same name; rename to 'T' or write the bound manually` |
+| `#blanket` 非法包装 | `batch-impl: #blanket ...`（`*const`/`*mut`、`self`、空元素、非法 `:N`、无法转发的 pattern 参数均报错） |
