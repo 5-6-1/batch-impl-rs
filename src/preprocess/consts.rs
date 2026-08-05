@@ -131,6 +131,11 @@ fn try_expand_at(
     tokens: &[TokenTree], ctx: ConstCtx,
 ) -> Result<Option<(Vec<TokenTree>, usize)>, TokenStream> {
     let Some(TokenTree::Ident(name)) = tokens.get(1) else {
+        // `@N` position references (Literal after `@`) are codegen-resolved
+        // (impl generic list known only there) — keep as-is, no error here.
+        if matches!(tokens.get(1), Some(TokenTree::Literal(_))) {
+            return Ok(None);
+        }
         let sp = tokens
             .first()
             .map(|t| t.span())
@@ -409,13 +414,35 @@ pub(crate) fn expand_consts(
                         result.extend(expanded);
                         i += consumed;
                     }
-                    // `None` (batch_trait!'s `@trait`): keep as-is and do not
-                    // recurse (otherwise `@trait` expands to itself → hit
-                    // again → infinite recursion)
+                    // `None` (batch_trait!'s `@trait`, or `@N` position refs —
+                    // Literal after `@`): keep as-is and do not recurse
+                    // (otherwise `@trait` expands to itself → hit again →
+                    // infinite recursion; `@N` is resolved by codegen where
+                    // the impl generic list is known)
                     None => {
                         result.push(tokens[i].clone());
                         i += 1;
                     }
+                }
+            }
+            // `where{...}` predicate suffix: a Brace group right after the
+            // `where` ident is a DSL structure (not a body), so enter it to
+            // expand `@trait` (batch_impl knows the trait path) — `@N` stays
+            // untouched for codegen. Bare `where pred {body}` has its
+            // predicate at the top level and is already covered by the loop.
+            TokenTree::Ident(id) if id == "where" => {
+                if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
+                    && g.delimiter() == delimiter![{}]
+                {
+                    let inner: Vec<_> = g.stream().into_iter().collect();
+                    let expanded =
+                        expand_consts(&inner, ctx)?.into_iter().collect();
+                    result.push(tokens[i].clone());
+                    result.push(Group::new(delimiter![{}], expanded).into());
+                    i += 2;
+                } else {
+                    result.push(tokens[i].clone());
+                    i += 1;
                 }
             }
             _ => {

@@ -4,6 +4,23 @@
 
 ## 0.6.4 (2026-08-05)
 
+### `@trait` 提前展开（常量阶段/段级），`@N` 成为唯一 codegen 记号
+
+- 问题：`where{...}` 是 Brace 组，`expand_consts` 原先不进入（body 的 `@` 是
+  pattern 语法）——where 谓词里的 `@trait`/`@N` 都残留到 codegen 的
+  `resolve_where_at`；用户指出 `@trait` 不该留到 codegen（只有 `@N` 需要
+  impl 泛型列表）；
+- 修复三处：
+  - `expand_consts` 识别 `where` Ident + Brace 组（DSL 结构非 body）→ 进入展开
+    `@trait`（batch_impl 用 trait 路径）；`@N`（`@` + Literal）在
+    `try_expand_at` 返回 None 保留（不再误报"must be followed by a name"）；
+  - `replace_segment_trait`（batch_trait! 段级）递归进组——where{...} 谓词里的
+    `@trait` 也能段级替换；
+  - `resolve_where_at` 删除 `@trait` 分支——现在只处理 `@N`（签名去掉
+    trait_name 参数），架构上"`@N` 是唯一 codegen 解析的记号"成立；
+- 验证：batch_impl `where{T: @trait<T>}`（B1）、batch_trait! 段级 where 组内
+  `@trait`（探针）都提前展开；`where{@0: Clone}` 纯 fresh 场景回归全绿。
+
 ### `@N` 位置引用语义修正：只索引 fresh 泛型
 
 - `@N` 现在指 where 谓词内**第 N 个宏生成的 fresh 泛型**（`_Param_{N}_BatchGen_`

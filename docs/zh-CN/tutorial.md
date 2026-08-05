@@ -827,7 +827,11 @@ batch_trait!{
 | `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | 按 receiver 类型过滤的 Bracket 组（`&self`/`&mut self` / `self` / 关联函数） | 只委托引用方法（绕开 by-value 委托语义不定）；`#blanket(@all_ref_methods){Box}` |
 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | 泛型参数族：展开为**扁平 `<...>` 泛型声明**（类型参数只名字、const 完整 `const N: usize`、生命周期原样） | 泛型声明照抄 trait 形参（bound 走同名继承）；`#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T)]`——连续声明保持生命周期在前 |
 | `@Cow` | `Cow<'_>` + 固有约束谓词 | blanket 包装（deref target = `T::Owned`） |
-| `@N`（位置引用） | where 谓词内第 N 个泛型的名字 | blanket 包装谓词中 `@0` = 目标泛型（fresh T）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；用户泛型中 `@k` = 第 k 个 impl 泛型 |
+| `@N`（位置引用） | where 谓词内**第 N 个 fresh 泛型**（`_Param_{N}_BatchGen_` 形式）的名字 | blanket 包装谓词中 `@0` = 目标泛型（唯一 fresh）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；**用户泛型直接写名字**（不参与 @N 索引） |
+
+> `@N` 是唯一在 **codegen 阶段**解析的记号（需要最终 impl 泛型列表）；
+> `@trait` 已提前：batch_impl 在常量阶段展开（trait 路径已知）、
+> batch_trait! 在段级替换（递归进入 where 组）。
 
 `@all` 系展开为 Bracket 组后走指令参数解析：**`#` 不再作为范围标记**——
 `#` 只剩指令名一种格式（`#fill`/`#delegate`/`#blanket`/开放扩展），范围
@@ -868,6 +872,12 @@ trait GenT<T: Clone> { fn head(&self) -> T; }
 trait Borrowed<'a, T: Clone> { fn get(&self) -> &'a T; }
 // → impl<'a, T: Clone> Borrowed<'a, T> for &'a T { ... }（连续声明生命周期在前）
 ```
+
+> **与 `A<>` 的关系**：`A<>`（§5）的展开**同时**包含形参声明（含 bound）和实参——
+> 本身就是"全自动"（`#[batch_impl(Foo<> Vec<T>)]` 一行即声明 + 实参 + bound 全照抄）。
+> `@all_type_params` 是**只自动声明**的粒度选择（实参要自定义时用）。
+> **不要叠加**：`@all_type_params Foo<>` 会让两个声明源重复（rustc E0403），
+> 二选一即可。
 
 ## 12. 三个入口
 

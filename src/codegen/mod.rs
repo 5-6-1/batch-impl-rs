@@ -123,7 +123,7 @@ pub(crate) fn generate_impl(
     // where-predicate macro-meta replacement (`@N` → impl generic N, `@trait` → trait name)
     let mut where_resolved: Vec<TokenStream> = vec![];
     for pred in &parts.where_clauses {
-        match resolve_where_at(pred, &impl_name_streams, trait_name) {
+        match resolve_where_at(pred, &impl_name_streams) {
             Ok(p) => where_resolved.push(p),
             Err(e) => errs.push(e),
         }
@@ -188,14 +188,15 @@ pub(crate) fn generate_impl(
 }
 
 /// Macro-meta position references in where predicates: `@N` → the N-th impl generic
-/// name, `@trait` → the trait name. `@N` refers to the N-th generic whose name
-/// matches the fresh-generic form (`_Param_{n}_BatchGen_`) — user-written params
-/// are addressed by their own names; `@N` exists exactly because fresh names are
-/// unknowable. `@N` out of range or a non-position digit / other token after `@`
-/// errors. Blanket-wrapped where is pre-resolved; only user where predicates are
-/// handled here (tuple/normal specs — `()^2 where{@0: Clone}`, `<T> where{T: X}`).
+/// name; `@N` refers to the N-th generic whose name matches the fresh-generic
+/// form (`_Param_{n}_BatchGen_`) — user-written params are addressed by their own
+/// names; `@N` exists exactly because fresh names are unknowable. `@N` out of
+/// range or a non-position digit / other token after `@` errors. `@trait` is
+/// resolved earlier (constant stage for batch_impl, segment-level replacement
+/// for batch_trait!) and never reaches here. Blanket-wrapped where is
+/// pre-resolved; only user where predicates are handled here.
 fn resolve_where_at(
-    pred: &TokenStream, impl_names: &[TokenStream], trait_name: &TokenStream,
+    pred: &TokenStream, impl_names: &[TokenStream],
 ) -> Result<TokenStream, TokenStream> {
     let fresh_names: Vec<&TokenStream> = impl_names
         .iter()
@@ -231,13 +232,9 @@ fn resolve_where_at(
                     out.extend((*name).clone());
                     i += 2;
                 }
-                Some(TokenTree::Ident(id)) if id == "trait" => {
-                    out.extend(trait_name.clone());
-                    i += 2;
-                }
                 _ => {
                     return Err(compile_error_str(
-                        "batch-impl: `@` in a where predicate must be a position digit (e.g. `@0`) or `@trait`",
+                        "batch-impl: `@` in a where predicate must be a position digit (e.g. `@0`)",
                         tokens[i].span(),
                     ));
                 }

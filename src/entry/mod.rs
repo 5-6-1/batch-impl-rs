@@ -163,6 +163,16 @@ fn replace_segment_trait(
         {
             out.extend(trait_full_path.clone());
             i += 2;
+        } else if let TokenTree::Group(g) = &tokens[i] {
+            // Recurse into groups (where{...} predicates and type groups):
+            // segment-level `@trait` must reach every DSL structure, not
+            // just the top level.
+            let inner: Vec<_> = g.stream().into_iter().collect();
+            let inner = replace_segment_trait(inner, trait_full_path)?;
+            out.push(
+                proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect()).into(),
+            );
+            i += 1;
         } else {
             out.push(tokens[i].clone());
             i += 1;
