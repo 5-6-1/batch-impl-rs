@@ -63,7 +63,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.6.1"
+batch-impl = "0.6.2"
 ```
 
 Requires Rust 2024 edition or newer.
@@ -83,6 +83,16 @@ trait Tagged { fn name(&self) -> &str; }
 // → impl Tagged for usize  { fn name(&self) -> &str { "number" } }
 // → impl Tagged for isize  { fn name(&self) -> &str { "number" } }
 // → impl Tagged for String { fn name(&self) -> &str { "string" } }
+
+// 3. 0.6.2: one-line blanket — delegation impls for every wrapper type
+//    (instance methods forward via deref; @all_ref_methods selects only
+//    reference-receiver methods, by-value ones keep the trait default)
+# use std::rc::Rc;
+#[batch_impl(#blanket(@all_ref_methods){&, Box, Rc})]
+trait Describe2 { fn describe(&self) -> String; }
+// → impl<T> Describe2 for &T    where T: Describe2 { fn describe(&self) -> String { (**self).describe() } }
+// → impl<T> Describe2 for Box<T> where T: Describe2 { ... }
+// → impl<T> Describe2 for Rc<T>  where T: Describe2 { ... }
 ```
 
 ## Feature overview

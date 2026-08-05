@@ -70,7 +70,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.6.1"
+batch-impl = "0.6.2"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -90,6 +90,15 @@ trait Tagged { fn name(&self) -> &str; }
 // → impl Tagged for usize  { fn name(&self) -> &str { "number" } }
 // → impl Tagged for isize  { fn name(&self) -> &str { "number" } }
 // → impl Tagged for String { fn name(&self) -> &str { "string" } }
+
+// 3. 0.6.2：一行 blanket——为所有包装类型生成委托 impl
+//    （实例方法经 deref 转发；@all_ref_methods 只选引用方法，by-value 走默认）
+# use std::rc::Rc;
+#[batch_impl(#blanket(@all_ref_methods){&, Box, Rc})]
+trait Describe2 { fn describe(&self) -> String; }
+// → impl<T> Describe2 for &T    where T: Describe2 { fn describe(&self) -> String { (**self).describe() } }
+// → impl<T> Describe2 for Box<T> where T: Describe2 { ... }
+// → impl<T> Describe2 for Rc<T>  where T: Describe2 { ... }
 ```
 
 ## 特性一览
