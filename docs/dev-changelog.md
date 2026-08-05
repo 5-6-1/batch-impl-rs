@@ -54,15 +54,20 @@
 - Docs (zh-CN): tutorial constant table + architecture `@all` description and
   directive table updated; EN mirror pending at release.
 
-### #blanket static-method guard (F1)
+### #blanket static-method delegation (F1, reworked)
 
 - Reported by reviewer: #blanket(@all_static_methods) generated (**self).make() —
   E0424 (no self for associated functions). Pre-existing hole in blanket (bodies
   always referenced self), made reachable by the L1 static filter.
-- Fix: xpand_blanket checks .sig.receiver().is_none() per selected method and
-  errors with a pointer to #fill(@all_static_methods); ui fixture lanket_static
-  locks the wording. Verified: @all_methods (which also includes static methods) is
-  covered by the same guard — any receiver-less method selected by #blanket errors.
+- First fix: guard + error pointing to #fill(@all_static_methods) (reviewer's option A).
+- Reworked after user's design review: delegation is strictly better — a static method
+  has no receiver to deref, but the blanket impl carries 	: Trait, so 	::make(...)
+  forwards exactly like the <t as Trait>::Item projection. xpand_blanket now picks
+  the body per receiver: (#self_ty).#name(...) (with receiver) vs #t::#name(...)
+  (receiver-less). dsl test lanket_static_delegation locks direct, chained
+  (Box<Box<u8>>) and argument-forwarding forms; the temporary ui error fixture was
+  removed. This matches the blanket philosophy: instance methods delegate through deref,
+  static methods delegate through the bound — both are forwarding, no special-casing.
 
 ### English-only pass (comments, error messages, docs)
 

@@ -1588,3 +1588,28 @@ fn receiver_filters_review() {
     assert_eq!(MarkerMinus3::by_val(1u16), 0); // excluded -> default
     assert_eq!(<u16 as MarkerMinus3>::make(), 6);
 }
+#[batch_impl(#blanket(@all_static_methods){Box})]
+trait BlanketStaticT {
+    fn make() -> u8;
+    fn pair(a: u8, b: u8) -> u16;
+}
+impl BlanketStaticT for u8 {
+    fn make() -> u8 {
+        7
+    }
+    fn pair(a: u8, b: u8) -> u16 {
+        (a as u16) * 10 + b as u16
+    }
+}
+
+#[test]
+fn blanket_static_delegation() {
+    // Static methods (no receiver) delegate through the blanket generic `t`:
+    // `impl<t> BlanketStaticT for Box<t> where t: BlanketStaticT` with
+    // `fn make() -> u8 { t::make() }` — direct, chained (Box<Box<u8>>) and
+    // argument-forwarding forms all reach the underlying impl.
+    assert_eq!(<Box<u8> as BlanketStaticT>::make(), 7);
+    assert_eq!(<Box<Box<u8>> as BlanketStaticT>::make(), 7);
+    assert_eq!(<Box<u8> as BlanketStaticT>::pair(3, 4), 34);
+    assert_eq!(<Box<Box<u8>> as BlanketStaticT>::pair(3, 4), 34);
+}

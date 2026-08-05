@@ -156,22 +156,11 @@ pub(crate) fn expand_blanket(
         for name in &method_names {
             let item = get_trait_item(trait_def, name)?;
             match item {
-                // Method: deref delegation
+                // Method: deref delegation; static methods (no receiver)
+                // delegate through the fresh generic `t` — the same forwarding
+                // as assoc items (`t::make(...)`), valid because the blanket
+                // impl carries the `t: Trait` bound.
                 syn::TraitItem::Fn(f) => {
-                    // Static methods (no receiver) cannot be blanket-delegated:
-                    // the delegation body would reference `self`, which does not
-                    // exist for an associated function (E0424). `@all_static_methods`
-                    // is for `#fill`/`#name` — implement static methods explicitly.
-                    if f.sig.receiver().is_none() {
-                        return Err(compile_err_at!(
-                            f.sig.ident.span(),
-                            "batch-impl: #blanket cannot delegate associated function \
-                             `{}::{}` (no receiver — static methods have no `self`); \
-                             implement it with #fill(@all_static_methods) instead",
-                            trait_def.ident,
-                            name
-                        ));
-                    }
                     let sig = f.sig.clone();
                     let call_args = collect_call_args(&sig).map_err(|pat| {
                         compile_err!(
@@ -180,7 +169,11 @@ pub(crate) fn expand_blanket(
                             trait_def.ident, name, pat
                         )
                     })?;
-                    let body = quote! { (#self_ty) . #name ( #(#call_args),* ) };
+                    let body = if f.sig.receiver().is_none() {
+                        quote! { #t :: #name ( #(#call_args),* ) }
+                    } else {
+                        quote! { (#self_ty) . #name ( #(#call_args),* ) }
+                    };
                     methods.extend(build_from_item(item, &body));
                 }
                 // Assoc type/const: projection (not through self)
