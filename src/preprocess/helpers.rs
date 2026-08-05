@@ -203,11 +203,13 @@ pub(crate) fn get_trait_generic_decl(
         .iter()
         .filter_map(|p| match (p, f) {
             (syn::GenericParam::Type(tp), GenericFilter::Type) => {
-                let id = &tp.ident;
+                let id = tp.ident.clone();
                 Some(quote!(#id))
             }
             (syn::GenericParam::Const(cp), GenericFilter::Const) => Some(quote!(#cp)),
-            (syn::GenericParam::Lifetime(ld), GenericFilter::Lifetime) => Some(quote!(#ld)),
+            (syn::GenericParam::Lifetime(ld), GenericFilter::Lifetime) => {
+                Some(quote!(#ld))
+            }
             _ => None,
         })
         .collect();

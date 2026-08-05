@@ -1618,7 +1618,7 @@ trait GenT<T: Clone> {
     fn head(&self) -> T;
 }
 
-#[batch_impl(@all_lifetimes @all_type_params GenB<'a, T> &'a T { fn get(&self) -> &'a T { *self } })]
+#[batch_impl(@all_lifetimes @all_type_params GenB<'a, T> &'a T { fn get(&self) -> &'a T { self } })]
 trait GenB<'a, T: Clone> {
     fn get(&self) -> &'a T;
 }
