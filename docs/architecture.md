@@ -1,6 +1,6 @@
 # batch-impl Internal Architecture
 
-**v0.6.2** — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation.
+**v0.6.3** — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation (0.6.2); 0.6.3 is a doc fix.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 

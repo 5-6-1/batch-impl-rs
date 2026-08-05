@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.6.2** (2026-08-05) — receiver-kind filters (`@all_ref_methods` etc.) + `#blanket` static-method delegation + span-based diagnostics; error messages fully in English.
+**v0.6.3** (2026-08-05) — 0.6.2: receiver-kind filters (`@all_ref_methods` etc.) + `#blanket` static-method delegation + span-based diagnostics; error messages fully in English. 0.6.3: doc fix.
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -60,7 +60,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.6.2"
+batch-impl = "0.6.3"
 ```
 
 Requires Rust 2024 edition or newer.

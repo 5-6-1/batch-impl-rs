@@ -67,7 +67,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.6.2"
+batch-impl = "0.6.3"
 ```
 
 需要 Rust 2024 edition 及以上。

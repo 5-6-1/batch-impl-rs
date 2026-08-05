@@ -5,6 +5,14 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.3 (2026-08-05)
+
+### Doc fix
+
+- README (EN + zh-CN) header example: the `()^4` expansion annotation was wrong —
+  `()^N` is a **single** N-tuple (`()^4` → one `impl<A, B, C, D>`); length ranges
+  use `()^1..=4`. Annotation-only fix, no behavior change.
+
 ## 0.6.2 (2026-08-05)
 
 ### Span-based diagnostics

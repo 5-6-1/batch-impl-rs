@@ -5,6 +5,19 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.3 (2026-08-05)
+
+### Doc fix
+
+- User caught a wrong `// →` annotation in the README header example:
+  `#[batch_impl(()^4)]` claimed to expand to 4 tuple impls of different lengths
+  (`(A,)` through `(A, B, C, D)`) — `()^N` is a **single** N-tuple
+  (`()^4` → `(A, B, C, D)`); multiple lengths come from the `()^1..=4` range
+  syntax (tutorial §11 table was always correct; `tuple_pow_basic` locks the
+  semantics). Probe-verified before fixing; both EN and zh-CN README annotations
+  corrected. Annotation-only, no behavior change.
+- Cargo.toml bumped 0.6.2 → 0.6.3.
+
 ## 0.6.2 (2026-08-05)
 
 ### Span-based diagnostics (L3)
