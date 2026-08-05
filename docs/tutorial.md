@@ -819,7 +819,7 @@ trait TupleWhereAt { fn tmk() -> u32; }
 // → impl<A: Clone, B: Copy> TupleWhereAt for (A, B) { fn tmk() -> u32 { 2 } }
 
 // user generics: @0 = the 0th impl generic
-#[batch_impl(<T> AtWhere<T> Vec<T> where{@0: Default} { fn an(&self) -> usize { self.len() } })]
+#[batch_impl(<T> AtWhere<T> Vec<T> where{T: Default} { fn an(&self) -> usize { self.len() } })]
 trait AtWhere<T: Clone> { fn an(&self) -> usize; }
 // → impl<T: Clone + Default> AtWhere<T> for Vec<T> { ... }
 ```

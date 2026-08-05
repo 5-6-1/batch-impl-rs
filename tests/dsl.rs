@@ -1314,7 +1314,7 @@ trait TupleWhereAt {
     fn tmk() -> u32;
 }
 
-#[batch_impl(<T> AtWhere<T> Vec<T> where{@0: Default} { fn an(&self) -> usize { self.len() } })]
+#[batch_impl(<T> AtWhere<T> Vec<T> where{T: Default} { fn an(&self) -> usize { self.len() } })]
 trait AtWhere<T: Clone> {
     fn an(&self) -> usize;
 }
@@ -1460,7 +1460,7 @@ fn macro_meta_review_extras() {
 // ============================================================
 // B1: @trait in ordinary where predicates (codegen resolve_where_at path —
 // previously compared id == "Trait" with a capital, wrongly rejecting @trait)
-#[batch_impl(<T> WhereAtTrait<T> Vec<T> where{@0: @trait<T>} { fn wn(&self) -> usize { self.len() } })]
+#[batch_impl(<T> WhereAtTrait<T> Vec<T> where{T: @trait<T>} { fn wn(&self) -> usize { self.len() } })]
 trait WhereAtTrait<T: Clone> {
     fn wn(&self) -> usize;
 }

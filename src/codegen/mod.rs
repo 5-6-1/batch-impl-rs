@@ -188,12 +188,22 @@ pub(crate) fn generate_impl(
 }
 
 /// Macro-meta position references in where predicates: `@N` → the N-th impl generic
-/// name, `@trait` → the trait name. `@N` out of range or a non-position digit / other
-/// token after `@` errors. Blanket-wrapped where is pre-resolved; only user where
-/// predicates are handled here (tuple/normal specs — `()^2 where{@0: Clone}`, `<T> where{@0: X}`).
+/// name, `@trait` → the trait name. `@N` refers to the N-th generic whose name
+/// matches the fresh-generic form (`_Param_{n}_BatchGen_`) — user-written params
+/// are addressed by their own names; `@N` exists exactly because fresh names are
+/// unknowable. `@N` out of range or a non-position digit / other token after `@`
+/// errors. Blanket-wrapped where is pre-resolved; only user where predicates are
+/// handled here (tuple/normal specs — `()^2 where{@0: Clone}`, `<T> where{T: X}`).
 fn resolve_where_at(
     pred: &TokenStream, impl_names: &[TokenStream], trait_name: &TokenStream,
 ) -> Result<TokenStream, TokenStream> {
+    let fresh_names: Vec<&TokenStream> = impl_names
+        .iter()
+        .filter(|n| {
+            let s = n.to_string();
+            s.starts_with("_Param_") && s.ends_with("_BatchGen_")
+        })
+        .collect();
     let tokens: Vec<_> = pred.clone().into_iter().collect();
     let mut out = vec![];
     let mut i = 0;
@@ -209,14 +219,16 @@ fn resolve_where_at(
                             tokens[i].span(),
                         )
                     })?;
-                    let Some(name) = impl_names.get(idx) else {
+                    let Some(name) = fresh_names.get(idx) else {
                         return Err(compile_err!(
-                            "batch-impl: `@{}` out of range in a where predicate (impl has {} generics, indexed from 0)",
+                            "batch-impl: `@{}` out of range in a where predicate \
+                             (impl has {} fresh generics, indexed from 0; \
+                             user-written params are addressed by name)",
                             idx,
-                            impl_names.len()
+                            fresh_names.len()
                         ));
                     };
-                    out.extend(name.clone());
+                    out.extend((*name).clone());
                     i += 2;
                 }
                 Some(TokenTree::Ident(id)) if id == "trait" => {

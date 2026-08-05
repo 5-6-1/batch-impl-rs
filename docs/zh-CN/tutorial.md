@@ -846,8 +846,8 @@ batch_trait!{
 trait TupleWhereAt { fn tmk() -> u32; }
 // → impl<A: Clone, B: Copy> TupleWhereAt for (A, B) { fn tmk() -> u32 { 2 } }
 
-// 用户泛型：@0 = 第 0 个 impl 泛型
-#[batch_impl(<T> AtWhere<T> Vec<T> where{@0: Default} { fn an(&self) -> usize { self.len() } })]
+// 用户泛型：直接写名字（@N 只索引宏生成的 fresh 泛型）
+#[batch_impl(<T> AtWhere<T> Vec<T> where{T: Default} { fn an(&self) -> usize { self.len() } })]
 trait AtWhere<T: Clone> { fn an(&self) -> usize; }
 // → impl<T: Clone + Default> AtWhere<T> for Vec<T> { ... }
 ```

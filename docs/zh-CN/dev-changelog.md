@@ -4,6 +4,20 @@
 
 ## 0.6.4 (2026-08-05)
 
+### `@N` 语义修正（用户设计评审）
+
+- 用户初衷：`@N` 应是 `_Param_N_BatchGen_` 的直接映射（宏元层常量）——但 fresh
+  编号是全局计数器、与最终 impl 泛型位置无关（多 fresh 源/用户泛型混排时错位），
+  直接映射不可靠；
+- 定案：`@N` = where 谓词内**第 N 个 fresh 泛型**（`_Param_{N}_BatchGen_` 形式）。
+  `resolve_where_at` 把 impl 泛型列表过滤出 fresh 形式后按位置取——用户泛型
+  直接写名字；blanket 包装谓词 `@0`（= 唯一 fresh T）与新规则自然统一，不再
+  是特例；
+- 破坏点：B1 测试 `where{@0: @trait<T>}` → `where{T: @trait<T>}`；
+  tutorial AtWhere 示例同理；越界报错文案更新；
+- 测试：`()^2 where{@0: Clone, @1: Copy}`、`()^3 where{@2: Clone}`（纯 fresh）
+  不变全绿。
+
 ### 泛型参数族 + 分离声明顺序修复
 
 - 新增 `@all_type_params` / `@all_const_params` / `@all_lifetimes`：

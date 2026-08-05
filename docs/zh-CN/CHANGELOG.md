@@ -4,6 +4,18 @@
 
 ## 0.6.4 (2026-08-05)
 
+### `@N` 位置引用语义修正：只索引 fresh 泛型
+
+- `@N` 现在指 where 谓词内**第 N 个宏生成的 fresh 泛型**（`_Param_{N}_BatchGen_`
+  形式）——用户泛型（`<T>` 等）**不参与 @N 索引**，直接写名字（`where{T: Default}`）；
+- 与 blanket 包装谓词的 `@0`（= 目标泛型 fresh T）自然统一：blanket 只有一个
+  fresh，`@0` 恰好是"第 0 个 fresh"，不再是特例规则；
+- 破坏点：`<T> ... where{@0: Default}` 曾指用户泛型 T——改为 `where{T: Default}`
+  （更自然）；越界报错更新（"impl has N fresh generics"）；
+- 用户初衷：`@N` 本意就是 `_Param_N_BatchGen_` 的直接映射——fresh 编号是全局
+  计数器、与最终位置无关（多 fresh 源/用户泛型混排时错位），故用"第 N 个 fresh"
+  加固：位置可数、与编号无关、含用户泛型场景的纯粹性。
+
 ### 泛型参数族：`@all_type_params` / `@all_const_params` / `@all_lifetimes`
 
 - 泛型声明照抄 trait 形参：类型参数只名字（`@all_type_params` → `<T, U>`）、
