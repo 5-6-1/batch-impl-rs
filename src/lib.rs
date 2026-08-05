@@ -167,24 +167,40 @@ pub fn batch_preprocess_test(
     let Some(TokenTree::Group(names_group)) = tokens.first() else {
         return compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
+            tokens
+                .first()
+                .map(|t| t.span())
+                .unwrap_or_else(proc_macro2::Span::call_site),
         )
         .into();
     };
     if names_group.delimiter() != delimiter![()] {
         return compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
+            tokens
+                .first()
+                .map(|t| t.span())
+                .unwrap_or_else(proc_macro2::Span::call_site),
         )
         .into();
     }
     let Some(TokenTree::Group(body_group)) = tokens.get(1) else {
         return compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
+            tokens
+                .get(1)
+                .map(|t| t.span())
+                .unwrap_or_else(proc_macro2::Span::call_site),
         )
         .into();
     };
     if body_group.delimiter() != delimiter![{}] {
         return compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
+            tokens
+                .get(1)
+                .map(|t| t.span())
+                .unwrap_or_else(proc_macro2::Span::call_site),
         )
         .into();
     }
@@ -194,6 +210,7 @@ pub fn batch_preprocess_test(
         Err(_) => {
             return compile_error_str(
                 "batch-impl: batch_preprocess_test cannot parse the trait definition",
+                proc_macro2::Span::call_site(),
             )
             .into();
         }

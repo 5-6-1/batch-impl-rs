@@ -1,15 +1,11 @@
 error: batch-impl: missing operand before `-` (e.g. `T-U`)
- --> tests/ui/leading_operator.rs:5:1
+ --> tests/ui/leading_operator.rs:5:14
   |
 5 | #[batch_impl(-usize)]
-  | ^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |              ^
 
 error: batch-impl: missing operand before `^` (e.g. `T^U`)
- --> tests/ui/leading_operator.rs:8:1
+ --> tests/ui/leading_operator.rs:8:14
   |
 8 | #[batch_impl(^isize)]
-  | ^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |              ^

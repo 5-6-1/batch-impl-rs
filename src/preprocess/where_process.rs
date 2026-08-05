@@ -39,6 +39,7 @@ pub(crate) fn where_process(
             else {
                 return Err(compile_error_str(
                     "batch-impl: `where` predicates are missing a code block {...}",
+                    tokens[i].span(),
                 ));
             };
             result.push(ident.clone().into());

@@ -41,10 +41,17 @@ fn angle_collect_at(
     tokens: &[TokenTree], depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
-        return Err(compile_error_str(&format!(
-            "batch-impl: nesting depth exceeds {} levels (perhaps an accidental extra bracket)",
-            MAX_NEST_DEPTH
-        )));
+        let sp = tokens
+            .first()
+            .map(|t| t.span())
+            .unwrap_or_else(proc_macro2::Span::call_site);
+        return Err(compile_error_str(
+            &format!(
+                "batch-impl: nesting depth exceeds {} levels (perhaps an accidental extra bracket)",
+                MAX_NEST_DEPTH
+            ),
+            sp,
+        ));
     }
     let mut out = vec![];
     let mut i = 0;
@@ -59,13 +66,12 @@ fn angle_collect_at(
             // DSL tuple: recurse
             TokenTree::Group(g) if g.delimiter() == delimiter![()] => {
                 let inner: Vec<_> = g.stream().into_iter().collect();
-                out.push(
-                    Group::new(
-                        g.delimiter(),
-                        angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
-                    )
-                    .into(),
+                let mut new_g = Group::new(
+                    g.delimiter(),
+                    angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
                 );
+                new_g.set_span(g.span());
+                out.push(new_g.into());
                 i += 1;
             }
             // DSL list; `ident![...]` / `#[...]` passthrough (content is arbitrary Rust)
@@ -74,15 +80,12 @@ fn angle_collect_at(
                     out.push(tokens[i].clone());
                 } else {
                     let inner: Vec<_> = g.stream().into_iter().collect();
-                    out.push(
-                        Group::new(
-                            g.delimiter(),
-                            angle_collect_at(&inner, depth + 1)?
-                                .into_iter()
-                                .collect(),
-                        )
-                        .into(),
+                    let mut new_g = Group::new(
+                        g.delimiter(),
+                        angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
                     );
+                    new_g.set_span(g.span());
+                    out.push(new_g.into());
                 }
                 i += 1;
             }
@@ -97,6 +100,7 @@ fn angle_collect_at(
                 let Some(close) = find_angle_close(tokens, i) else {
                     return Err(compile_error_str(
                         "batch-impl: unclosed `<` (missing matching `>`)",
+                        tokens[i].span(),
                     ));
                 };
                 let inner: Vec<_> = tokens[i + 1..close].to_vec();
@@ -113,6 +117,7 @@ fn angle_collect_at(
             TokenTree::Punct(p) if p.as_char() == '>' && !is_arrow(tokens, i) => {
                 return Err(compile_error_str(
                     "batch-impl: extra `>` (missing matching `<`)",
+                    tokens[i].span(),
                 ));
             }
             _ => {

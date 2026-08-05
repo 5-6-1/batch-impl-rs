@@ -1,22 +1,26 @@
 use quote::ToTokens;
 
-use crate::apply::{Apply, check_expand_limit, err_ty};
+use crate::apply::{Apply, check_expand_limit, err_ty, err_ty_at};
 use crate::ast::*;
 use crate::parse::parse_primitive;
+use proc_macro2::Span;
 
 /// `N..M` / `N..=M`: calls f for every length n in the range, packing results into a list.
 /// Empty range (`start >= end`) or over-limit (len > [`MAX_EXPAND`]): a typo diagnostic
 pub(crate) fn map_range(
-    start: usize, end: usize, inclusive: bool, f: impl Fn(usize) -> Ty,
+    start: usize, end: usize, inclusive: bool, span: Span, f: impl Fn(usize) -> Ty,
 ) -> Ty {
     let end_mark = if inclusive { "=" } else { "" };
     let ns: Vec<_> =
         if inclusive { (start..=end).collect() } else { (start..end).collect() };
     if ns.is_empty() {
-        return err_ty(&format!(
-            "batch-impl: range `{}..{}{}` is empty (start not below end); no impls will be generated",
-            start, end, end_mark
-        ));
+        return err_ty_at(
+            &format!(
+                "batch-impl: range `{}..{}{}` is empty (start not below end); no impls will be generated",
+                start, end, end_mark
+            ),
+            span,
+        );
     }
     if let Some(e) = check_expand_limit(
         &format!("range `{}..{}{}`", start, end, end_mark),
@@ -48,16 +52,18 @@ fn pow_empty(n: usize) -> Ty {
     }
     let params = fresh_params(n);
     let param_names = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
-    TyTypeParam {
+    let tp: Ty = TyTypeParam {
         params: param_names.into_iter().map(|n| (n, None)).collect(),
         bindings: vec![],
     }
-    .apply(TyTuple(params).into())
+    .into();
+    tp.apply(TyTuple(params).into())
 }
 
 /// `(T,)^N` => `(T,T,...,T)`; `(<Bound>)^N` => `(A:Bound, B:Bound, ...)`
 fn pow_single(template: Ty, n: usize) -> Ty {
-    if let Ty::TypeParam(tp) = template {
+    let template_span = template.span;
+    if let TyKind::TypeParam(tp) = template.kind.clone() {
         // From `(<Bound>)^N`: exactly one unbound param (guaranteed by parse_angle_bracket_contents)
         if tp.params.len() != 1 || tp.params[0].1.is_some() {
             return err_ty(
@@ -68,16 +74,20 @@ fn pow_single(template: Ty, n: usize) -> Ty {
         let param_names =
             params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
         let bound_tokens = tp.params[0].0.clone().into_iter().collect::<Vec<_>>();
-        return TyTypeParam {
-            params: param_names
-                .into_iter()
-                .map(|n| (n, parse_primitive(&bound_tokens, None).into()))
-                .collect(),
-            bindings: vec![],
-        }
+        return Ty::new(
+            template_span,
+            TyKind::TypeParam(TyTypeParam {
+                params: param_names
+                    .into_iter()
+                    .map(|n| (n, parse_primitive(&bound_tokens, None).into()))
+                    .collect(),
+                bindings: vec![],
+            }),
+        )
         .apply(TyTuple(params).into());
     }
-    TyTuple((0..n).map(|_| template.clone()).collect()).into()
+    TyTuple((0..n).map(|_| Ty::new(template_span, template.kind.clone())).collect())
+        .into()
 }
 
 /// `(A,B,..)^N`: N-way Cartesian product, choosing one of all elements per position.
@@ -107,8 +117,9 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     let mut tuple_elems = vec![];
     let mut param_decls = vec![];
     for elem in elems {
-        match elem {
-            Ty::TypeParam(tp) => {
+        let elem_span = elem.span;
+        match elem.kind {
+            TyKind::TypeParam(tp) => {
                 let name = fresh_param();
                 // Keep the original bound (previously the param name was mistaken for the bound;
                 // `(A: Clone, T)^N` produced `_Param: A` instead of `_Param: Clone`)
@@ -118,9 +129,10 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                     .map(|(_, bound)| (name.clone(), bound.clone()))
                     .collect();
                 param_decls.push(TyTypeParam { params, bindings: vec![] });
-                tuple_elems.push(TyPrimitive(name).into());
+                tuple_elems
+                    .push(Ty::new(elem_span, TyKind::Primitive(TyPrimitive(name))));
             }
-            _ => tuple_elems.push(elem),
+            _ => tuple_elems.push(Ty::new(elem_span, elem.kind)),
         }
     }
     let tuple = TyTuple(tuple_elems).into();
@@ -131,7 +143,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     for tp in param_decls {
         merged.extend(tp);
     }
-    merged.apply(tuple)
+    Ty::new(Span::call_site(), TyKind::TypeParam(merged)).apply(tuple)
 }
 
 fn fresh_params(n: usize) -> Vec<Ty> {
@@ -140,12 +152,13 @@ fn fresh_params(n: usize) -> Vec<Ty> {
 
 impl Apply for TyTuple {
     /// `(A,B,)^C` => append C; `(A,)^N` => tuple-length expansion; `(A,)^N..M` => range expansion
-    fn apply_help(mut self, o: Ty) -> Ty {
-        match o {
-            Ty::Num(TyNum(n)) => tuple_pow(self.0, n),
+    fn apply_help(mut self, o: Ty, span: Span) -> Ty {
+        let o_span = o.span;
+        match o.kind {
+            TyKind::Num(TyNum(n)) => tuple_pow(self.0, n),
             _ => {
-                self.0.push(o);
-                self.into()
+                self.0.push(Ty::new(o_span, o.kind));
+                Ty::new(span, TyKind::Tuple(self))
             }
         }
     }
@@ -153,11 +166,14 @@ impl Apply for TyTuple {
 
 impl Apply for TyGroup {
     /// `(T)^N` / `(<Bound>)^N` reuse the tuple's Num logic; `(T)^other` delegates to the inner type
-    fn apply_help(self, o: Ty) -> Ty {
-        match o {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
+        let o_span = o.span;
+        match o.kind {
             // (T)^N / (<tr>)^N → reuse the tuple's Num logic
-            Ty::Num(TyNum(n)) => tuple_pow(vec![*self.0], n),
-            _ => self.0.apply(o),
+            TyKind::Num(TyNum(n)) => {
+                tuple_pow(vec![Ty::new(span, TyKind::Group(self))], n)
+            }
+            _ => self.0.apply(Ty::new(o_span, o.kind)),
         }
     }
 }
@@ -165,26 +181,37 @@ impl Apply for TyGroup {
 impl Apply for TyFn {
     /// `fn^(A,B)` => `fn(A,B)` (fills in params); `fn(A,B)-C` => `fn(A,B)->C` (adds return type).
     /// The `is_unsafe` field passes through (`unsafe fn^(A,B)` => `unsafe fn(A,B)`).
-    fn apply_help(self, o: Ty) -> Ty {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
+        let o_span = o.span;
         match self {
             // A bare fn gets its params via `^`; the right side must be a tuple (a Group like
             // `fn^((i8,i16))` is unwrapped by the default apply's Group branch; here `o` is always plain)
-            TyFn(None, None, is_unsafe) => match o {
-                Ty::Tuple(t) => TyFn(t.0.into(), None, is_unsafe).into(),
-                _ => err_ty(
+            TyFn(None, None, is_unsafe) => match o.kind {
+                TyKind::Tuple(t) => {
+                    Ty::new(span, TyKind::Fn(TyFn(t.0.into(), None, is_unsafe)))
+                }
+                _ => err_ty_at(
                     "batch-impl: the right side of the `fn` prefix must be a tuple type, e.g. fn^(i32, u32)",
+                    span,
                 ),
             },
             // Has params: append the return type via `-`
-            TyFn(Some(params), None, is_unsafe) => {
-                TyFn(params.into(), o.into(), is_unsafe).into()
-            }
-            TyFn(Some(_), Some(_), _) => err_ty(
+            TyFn(Some(params), None, is_unsafe) => Ty::new(
+                span,
+                TyKind::Fn(TyFn(
+                    params.into(),
+                    Ty::new(o_span, o.kind).into(),
+                    is_unsafe,
+                )),
+            ),
+            TyFn(Some(_), Some(_), _) => err_ty_at(
                 "batch-impl: the `fn` type already has a return type; cannot apply again",
+                span,
             ),
             // Impossible: params None but return Some
-            TyFn(None, Some(_), _) => err_ty(
+            TyFn(None, Some(_), _) => err_ty_at(
                 "batch-impl: the `fn` type is missing a parameter list; internal error",
+                span,
             ),
         }
     }
@@ -192,34 +219,40 @@ impl Apply for TyFn {
 
 impl Apply for TyWithAttr {
     /// `#[attr]^T` => `#[attr] T` (attaches the attribute to the type)
-    fn apply_help(self, o: Ty) -> Ty {
-        TyWithAttr(self.0, o.into()).into()
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
+        Ty::new(span, TyKind::WithAttr(TyWithAttr(self.0, o.into())))
     }
 }
 
 impl Apply for TyTypeParam {
     /// `<T>^U` => `WithType(<T>, U)` (generic parameters applied to the target type)
-    fn apply_help(self, o: Ty) -> Ty {
-        TyWithType(self, o.into()).into()
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
+        Ty::new(span, TyKind::WithType(TyWithType(self, o.into())))
     }
 }
 impl Apply for TyNum {
     /// A number cannot be a left operand (used only on the right, e.g. `T^3`)
-    fn apply_help(self, _: Ty) -> Ty {
-        err_ty(&format!(
-            "batch-impl: number `{}` cannot be a left operand; use it on the right (e.g. T^{})",
-            self.0, self.0
-        ))
+    fn apply_help(self, _: Ty, span: Span) -> Ty {
+        err_ty_at(
+            &format!(
+                "batch-impl: number `{}` cannot be a left operand; use it on the right (e.g. T^{})",
+                self.0, self.0
+            ),
+            span,
+        )
     }
 }
 impl Apply for TyRange {
     /// A range cannot be a left operand (used only on the right, e.g. `T^1..3`)
-    fn apply_help(self, _: Ty) -> Ty {
+    fn apply_help(self, _: Ty, span: Span) -> Ty {
         let end_mark = if self.inclusive { "=" } else { "" };
-        err_ty(&format!(
-            "batch-impl: range `{}..{}{}` cannot be a left operand; it goes on the right (e.g. T^{}..{}{})",
-            self.start, self.end, end_mark, self.start, self.end, end_mark
-        ))
+        err_ty_at(
+            &format!(
+                "batch-impl: range `{}..{}{}` cannot be a left operand; it goes on the right (e.g. T^{}..{}{})",
+                self.start, self.end, end_mark, self.start, self.end, end_mark
+            ),
+            span,
+        )
     }
 }
 impl Apply for TyPrimitiveArray {
@@ -228,14 +261,22 @@ impl Apply for TyPrimitiveArray {
     /// The length right side can be a numeric literal (`[u8]^3`), a const generic (`[u8]^N`), or a
     /// list/range (expanded item-wise by the top-level right-operand dispatch); re-applying to
     /// a finished array is an error.
-    fn apply_help(self, o: Ty) -> Ty {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
         match (self.0, self.1) {
-            (None, None) => TyPrimitiveArray(o.into(), None).into(),
-            (Some(elem), None) => {
-                TyPrimitiveArray(elem.into(), o.to_token_stream().into()).into()
-            }
-            _ => err_ty(
+            (None, None) => Ty::new(
+                span,
+                TyKind::PrimitiveArray(TyPrimitiveArray(o.into(), None)),
+            ),
+            (Some(elem), None) => Ty::new(
+                span,
+                TyKind::PrimitiveArray(TyPrimitiveArray(
+                    elem.into(),
+                    o.to_token_stream().into(),
+                )),
+            ),
+            _ => err_ty_at(
                 "batch-impl: fixed-size array `[T; N]` cannot be a left operand",
+                span,
             ),
         }
     }
@@ -250,30 +291,30 @@ impl Apply for TyPrimitiveArray {
 /// a macro argument — argument tokens keep the call-site context, and `self` would resolve to the
 /// module's self (E0424).
 macro_rules! impl_apply_optional_inner {
-    ($ty:ident) => {
+    ($ty:ident, $variant:ident) => {
         impl Apply for $ty {
-            fn apply_help(self, o: Ty) -> Ty {
+            fn apply_help(self, o: Ty, span: Span) -> Ty {
                 let inner = match self.0 {
                     Some(t) => t.apply(o),
                     None => o,
                 };
-                $ty(inner.into(), self.1).into()
+                Ty::new(span, TyKind::$variant($ty(inner.into(), self.1)))
             }
         }
     };
 }
 /// Always-inner form: apply the right operand to the inner type, then re-wrap.
 macro_rules! impl_apply_inner {
-    ($ty:ident) => {
+    ($ty:ident, $variant:ident) => {
         impl Apply for $ty {
-            fn apply_help(self, o: Ty) -> Ty {
-                $ty(self.0, self.1.apply(o).into()).into()
+            fn apply_help(self, o: Ty, span: Span) -> Ty {
+                Ty::new(span, TyKind::$variant($ty(self.0, self.1.apply(o).into())))
             }
         }
     };
 }
 
-impl_apply_inner!(TyWithTrait);
-impl_apply_inner!(TyWithType);
-impl_apply_optional_inner!(TyWithCode);
-impl_apply_optional_inner!(TyWithWhere);
+impl_apply_inner!(TyWithTrait, WithTrait);
+impl_apply_inner!(TyWithType, WithType);
+impl_apply_optional_inner!(TyWithCode, WithCode);
+impl_apply_optional_inner!(TyWithWhere, WithWhere);

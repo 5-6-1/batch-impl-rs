@@ -7,9 +7,7 @@ error: batch-impl: spec list cannot start with `,`
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: batch-impl: missing operand between consecutive commas `,,` (e.g. `A,,B`)
- --> tests/ui/leading_comma.rs:7:1
+ --> tests/ui/leading_comma.rs:7:20
   |
 7 | #[batch_impl(usize,,isize)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                    ^

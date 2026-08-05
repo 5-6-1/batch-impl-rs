@@ -5,7 +5,7 @@ mod parse_atom;
 
 use proc_macro2::{Ident, TokenStream, TokenTree};
 
-use crate::apply::{Apply, err_ty};
+use crate::apply::{err_ty, err_ty_at};
 use crate::ast::*;
 use crate::parse::generic::{
     is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params,
@@ -36,8 +36,13 @@ pub(crate) fn parse_item(
                 // Consecutive commas (`,,`): no operand between the two separators.
                 // A trailing single comma is legal (the caller decides that `A,` ends); double comma is a typo.
                 if cursor.is_punct(',') {
-                    return err_ty(
+                    let sp = cursor
+                        .peek()
+                        .map(|t| t.span())
+                        .unwrap_or_else(proc_macro2::Span::call_site);
+                    return err_ty_at(
                         "batch-impl: missing operand between consecutive commas `,,` (e.g. `A,,B`)",
+                        sp,
                     )
                     .into();
                 }
@@ -67,34 +72,46 @@ fn parse_binary_chain(
         Some(op) => vec![op],
         None if cursor.at_end() => return None,
         None => {
-            return err_ty(&format!(
-                "batch-impl: missing operand before `{}`{}",
-                op_punct, hint
-            ))
+            let sp = cursor
+                .peek()
+                .map(|t| t.span())
+                .unwrap_or_else(proc_macro2::Span::call_site);
+            return err_ty_at(
+                &format!("batch-impl: missing operand before `{}`{}", op_punct, hint),
+                sp,
+            )
             .into();
         }
     };
     if is_empty_operand(&items[0]) {
-        return err_ty(&format!(
-            "batch-impl: missing operand before `{}`{}",
-            op_punct, hint
-        ))
+        let sp = cursor
+            .peek()
+            .map(|t| t.span())
+            .unwrap_or_else(proc_macro2::Span::call_site);
+        return err_ty_at(
+            &format!("batch-impl: missing operand before `{}`{}", op_punct, hint),
+            sp,
+        )
         .into();
     }
     while cursor.is_punct(op_punct) {
+        let op_span = cursor
+            .peek()
+            .map(|t| t.span())
+            .unwrap_or_else(proc_macro2::Span::call_site);
         cursor.bump();
         let Some(op) = parse_operand(cursor, level, trait_name) else {
-            return err_ty(&format!(
-                "batch-impl: missing operand after `{}`{}",
-                op_punct, hint
-            ))
+            return err_ty_at(
+                &format!("batch-impl: missing operand after `{}`{}", op_punct, hint),
+                op_span,
+            )
             .into();
         };
         if is_empty_operand(&op) {
-            return err_ty(&format!(
-                "batch-impl: missing operand after `{}`{}",
-                op_punct, hint
-            ))
+            return err_ty_at(
+                &format!("batch-impl: missing operand after `{}`{}", op_punct, hint),
+                op_span,
+            )
             .into();
         }
         items.push(op);
@@ -110,7 +127,7 @@ fn parse_binary_chain(
 /// `take_segment` cuts out an empty slice). An empty operand means a missing operand before or
 /// after the operator; `()`/`[]` are real tokens (empty tuple/base), not empty operands.
 fn is_empty_operand(ty: &Ty) -> bool {
-    matches!(ty, Ty::Primitive(p) if p.0.is_empty())
+    matches!(&ty.kind, TyKind::Primitive(p) if p.0.is_empty())
 }
 
 /// Parse an operand at `level` precedence (up to that level's stop chars, unconsumed).
@@ -219,9 +236,16 @@ fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
 fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
         let inner = if rest.is_empty() {
-            TyWithAttr(TyAttr(attr), None).into()
+            Ty::new(
+                proc_macro2::Span::call_site(),
+                TyKind::WithAttr(TyWithAttr(TyAttr(attr), None)),
+            )
         } else {
-            TyWithAttr(TyAttr(attr), None).apply(parse_primitive(rest, trait_name))
+            Ty::new(
+                proc_macro2::Span::call_site(),
+                TyKind::WithAttr(TyWithAttr(TyAttr(attr), None)),
+            )
+            .apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }
@@ -246,13 +270,13 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
         if matches!(prefix, TyPrefix::Unsafe) && !rest.is_empty() {
             if matches!(rest.first(), Some(TokenTree::Ident(f)) if f == "fn") {
                 let inner = parse_primitive(rest, trait_name);
-                return match inner {
-                    Ty::Fn(mut f) => {
+                return match inner.kind {
+                    TyKind::Fn(mut f) => {
                         f.2 = true;
-                        f.into()
+                        Ty::new(inner.span, TyKind::Fn(f))
                     }
                     // rest starts with `fn`, so parse_primitive must return TyFn; defensive fallback
-                    other => other,
+                    other => Ty::new(inner.span, other),
                 };
             }
             return err_ty(
@@ -261,9 +285,16 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
             );
         }
         let inner = if rest.is_empty() {
-            TyWithPrefix(prefix, None).into()
+            Ty::new(
+                proc_macro2::Span::call_site(),
+                TyKind::WithPrefix(TyWithPrefix(prefix, None)),
+            )
         } else {
-            TyWithPrefix(prefix, None).apply(parse_primitive(rest, trait_name))
+            Ty::new(
+                proc_macro2::Span::call_site(),
+                TyKind::WithPrefix(TyWithPrefix(prefix, None)),
+            )
+            .apply(parse_primitive(rest, trait_name))
         };
         return inner;
     }

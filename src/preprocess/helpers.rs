@@ -10,6 +10,7 @@ pub(crate) fn parse_names_from_tokens(
     if tokens.is_empty() {
         return Err(compile_error_str(
             "batch-impl: the directive's argument list cannot be empty",
+            proc_macro2::Span::call_site(),
         ));
     }
     parse_name_tokens(tokens, trait_def, "directive arguments")
@@ -271,7 +272,10 @@ pub(crate) fn build_from_item(
                 (syn::token::Eq::default(), syn::Type::Verbatim(body.clone())).into();
             quote! {#t}
         }
-        _ => compile_error_str("invalid item form; this error cannot occur"),
+        _ => compile_error_str(
+            "invalid item form; this error cannot occur",
+            proc_macro2::Span::call_site(),
+        ),
     }
 }
 

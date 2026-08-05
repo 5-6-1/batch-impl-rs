@@ -88,12 +88,15 @@ pub(crate) fn expand_attr_macro(
                                  name `{}`; the two must be identical",
                             id, trait_name,
                         );
-                        return Err(compile_error_str(&msg));
+                        return Err(compile_error_str(&msg, id.span()));
                     }
                     None => {
                         let msg = "batch-impl: expected at least one ident after the \
                                  path prefix `#` as the trait path";
-                        return Err(compile_error_str(msg));
+                        return Err(compile_error_str(
+                            msg,
+                            proc_macro2::Span::call_site(),
+                        ));
                     }
                 }
             }
@@ -223,7 +226,13 @@ pub(crate) fn expand_batch_trait(
         }
         let trait_path = cursor.slice_since(path_start);
         if trait_path.is_empty() {
-            return Err(compile_error_str("batch_trait! expects a trait name"));
+            return Err(compile_error_str(
+                "batch_trait! expects a trait name",
+                cursor
+                    .peek()
+                    .map(|t| t.span())
+                    .unwrap_or_else(proc_macro2::Span::call_site),
+            ));
         }
         // Full trait path: just collect the token stream of trait_path as-is
         let trait_full_path = trait_path.iter().cloned().collect();
@@ -240,12 +249,20 @@ pub(crate) fn expand_batch_trait(
                 None => {
                     return Err(compile_error_str(
                         "batch_trait! expects an ident as the trait name",
+                        trait_path
+                            .first()
+                            .map(|t| t.span())
+                            .unwrap_or_else(proc_macro2::Span::call_site),
                     ));
                 }
             };
         if !cursor.is_punct(':') {
             return Err(compile_error_str(
                 "batch_trait! expects ':' to separate the trait name and impl-specs",
+                cursor
+                    .peek()
+                    .map(|t| t.span())
+                    .unwrap_or_else(proc_macro2::Span::call_site),
             ));
         }
         cursor.bump();

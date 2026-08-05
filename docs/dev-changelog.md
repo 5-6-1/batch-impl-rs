@@ -6,6 +6,33 @@
 
 ## 0.6.2 (2026-08-05)
 
+### Span-based diagnostics (L3)
+
+- **Structural**: `enum Ty` → `struct Ty { span: Span, kind: TyKind }` (variant-level span
+  rejected — "put it on Ty itself, not per TyNum"); `TyKind` hosts the right-operand
+  dispatch as ordinary methods (`TyKind::apply` / `TyKind::apply_help`), `trait Apply`
+  keeps only `apply_help(self, o, span)` (bound `Clone + Into<Ty>` — TyKind cannot satisfy
+  `Into<Ty>`, so it implements plain methods instead of the trait); `Ty::apply` extracts
+  the span and delegates — the single span-threading point;
+- **Recursion fix**: `TyGroup::apply_help` was rewritten as "re-wrap Group and re-apply"
+  during the migration, causing infinite recursion when `o` is a plain type (fuzz
+  `parse_no_panic` / `full_pipeline_no_panic` stack-overflowed); reverted to
+  `self.0.apply(o)` (group transparency). fuzz caught it — the value of the no-panic
+  promise;
+- **Diagnostic layer**: `compile_error_str(msg, span)`; ident-span scheme —
+  `Ident::new("compile_error", span)` + `quote!` (parens/string/semicolon keep call-site)
+  because `quote_spanned!(span => compile_error!(...))` makes rustc treat the error as user
+  code in item position ("macros that expand to items must be delimited with braces...");
+  `compile_err_at!(span, ...)` macro added;
+- **Wiring**: parse (cursor/op spans — `^`-missing-operand now points at `^`), consts
+  (`@`-reference spans), blanket wrappers, where_process, entry, lib, codegen; `err_ty_at`
+  for apply errors (span parameter already threaded through `apply_help`);
+- **Platform limitation (documented)**: attribute-macro input spans — top-level tokens are
+  precise, tokens inside groups degrade to call-site, `Err`-returned errors display at the
+  macro-call line. Precise spans show for the Ok-output `Ty::Error` path (parse/apply).
+  This is rustc behavior, not fixable from the macro side;
+- ui snapshots regenerated via TRYBUILD=overwrite (span changes moved error positions).
+
 ### Receiver-kind `@all` filters (L1)
 
 - `ReceiverFilter` enum (Ref / Value / Static) + `AllMarkerSpec` type alias in

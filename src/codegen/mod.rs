@@ -33,13 +33,13 @@ pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
     trait_bounds: &TraitBounds,
 ) -> TokenStream {
-    if let Ty::Error(e) = ty {
-        return e.0;
-    }
     // bare code block: `{...}` as the whole spec → emit verbatim as a top-level item
     // (not wrapped in an impl block)
-    if let Ty::WithCode(TyWithCode(None, code)) = &ty {
+    if let Ty { kind: TyKind::WithCode(TyWithCode(None, code)), .. } = &ty {
         return code.0.clone();
+    }
+    if let Ty { kind: TyKind::Error(e), .. } = ty {
+        return e.0;
     }
     let mut parts = extract_impl_parts(ty);
 
@@ -101,7 +101,10 @@ pub(crate) fn generate_impl(
             ));
             continue;
         }
-        *bound = Some(Ty::Primitive(TyPrimitive(b.clone())));
+        *bound = Some(Ty::new(
+            proc_macro2::Span::call_site(),
+            TyKind::Primitive(TyPrimitive(b.clone())),
+        ));
     }
     // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
     for (pred, refs) in &trait_bounds.extra_predicates {
@@ -201,7 +204,10 @@ fn resolve_where_at(
             match tokens.get(i + 1) {
                 Some(TokenTree::Literal(lit)) => {
                     let idx: usize = lit.to_string().parse().map_err(|_| {
-                        compile_error_str("batch-impl: `@` in a where predicate must be followed by a position digit (e.g. `@0`)")
+                        compile_error_str(
+                            "batch-impl: `@` in a where predicate must be followed by a position digit (e.g. `@0`)",
+                            tokens[i].span(),
+                        )
                     })?;
                     let Some(name) = impl_names.get(idx) else {
                         return Err(compile_err!(
@@ -220,6 +226,7 @@ fn resolve_where_at(
                 _ => {
                     return Err(compile_error_str(
                         "batch-impl: `@` in a where predicate must be a position digit (e.g. `@0`) or `@trait`",
+                        tokens[i].span(),
                     ));
                 }
             }
@@ -266,7 +273,10 @@ mod tests {
                     (quote!(T), None),
                     (
                         quote!(const N),
-                        Some(Ty::Primitive(TyPrimitive(quote!(usize)))),
+                        Some(Ty::new(
+                            proc_macro2::Span::call_site(),
+                            TyKind::Primitive(TyPrimitive(quote!(usize))),
+                        )),
                     ),
                 ],
                 bindings: vec![],

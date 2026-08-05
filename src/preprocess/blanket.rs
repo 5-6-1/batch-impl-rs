@@ -16,7 +16,7 @@ use crate::preprocess::{
     parse_names_from_tokens,
 };
 use crate::util::is_single_colon;
-use crate::util::{compile_err, compile_error_str};
+use crate::util::{compile_err, compile_err_at, compile_error_str};
 
 /// `#blanket(@all){&,Box,Rc}` — blanket delegation: emits one complete spec
 /// per wrapper type.
@@ -227,6 +227,7 @@ fn resolve_target_predicates(
                     return Err(compile_error_str(
                         "batch-impl: in #blanket wrapper where, `@` must be \
                          followed by a positional number (e.g. `@0`) or `@trait`",
+                        preds[i].span(),
                     ));
                 }
             },
@@ -275,6 +276,7 @@ fn parse_blanket_wrappers(
             return Err(compile_error_str(
                 "batch-impl: #blanket wrapper list contains an empty element \
                  (e.g. `&,Box`); separate elements with `,`",
+                proc_macro2::Span::call_site(),
             ));
         }
         // Trailing `where{...}` bound predicates (last part of the element,
@@ -308,12 +310,14 @@ fn parse_blanket_wrappers(
                             return Err(compile_error_str(
                                 "batch-impl: #blanket `:0` is meaningless \
                                  (deref depth must be ≥ 1)",
+                                lit.span(),
                             ));
                         }
                         ty_end = i;
                     }
                     Some(other) => {
-                        return Err(compile_err!(
+                        return Err(compile_err_at!(
+                            other.span(),
                             "batch-impl: after #blanket `:{}` must come a number \
                              (e.g. `Box^Arc:2`)",
                             other
@@ -329,6 +333,7 @@ fn parse_blanket_wrappers(
             [] => Err(compile_error_str(
                 "batch-impl: #blanket `:N` is missing the wrapper type before it \
                  (e.g. `Box^Arc:2`)",
+                proc_macro2::Span::call_site(),
             )),
             // Built-in wrapper constant: `@Cow` → `Cow<'_>` + inherent bound
             // predicates (deref target = T::Owned, requiring
@@ -359,11 +364,13 @@ fn parse_blanket_wrappers(
                     "batch-impl: #blanket does not support `*const`/`*mut` \
                      wrappers (deref is unsafe, cannot delegate); write \
                      #delegate by hand",
+                    ty_tokens[0].span(),
                 ))
             }
             [TokenTree::Ident(id)] if id == "self" => Err(compile_error_str(
                 "batch-impl: #blanket does not support `self` wrappers \
                  (delegation is meaningless); write #delegate by hand",
+                ty_tokens[0].span(),
             )),
             _ => {
                 let ty = ty_tokens.iter().cloned().collect();

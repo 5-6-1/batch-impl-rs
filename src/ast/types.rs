@@ -1,4 +1,4 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::cell::Cell;
 use syn::Ident;
@@ -124,6 +124,21 @@ pub(crate) struct TyWhere(pub(crate) TokenStream);
 /// Bare `where{...}` or `T where{...}` — inner `None` means a bare where suffix
 pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 
+#[derive(Clone, Debug)]
+pub(crate) struct Ty {
+    /// Source span: the user-written token(s) this node came from;
+    /// `Span::call_site()` for macro-generated nodes (fresh generics,
+    /// `@`-expansion products, directive output).
+    pub(crate) span: Span,
+    pub(crate) kind: TyKind,
+}
+
+impl Ty {
+    pub(crate) fn new(span: Span, kind: TyKind) -> Self {
+        Ty { span, kind }
+    }
+}
+
 /// The type expression AST produced by DSL parsing.
 ///
 /// Nodes fall into three categories:
@@ -137,7 +152,7 @@ pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 /// variants; `Fn` tracks its params as `Option<Vec<Ty>>` (bare `fn` = `None`) with the
 /// return type as `Option<Box<Ty>>`.
 #[derive(Clone, Debug)]
-pub(crate) enum Ty {
+pub(crate) enum TyKind {
     Array(TyArray),
     Tuple(TyTuple),
     Group(TyGroup),
@@ -204,34 +219,71 @@ impl Ty {
     /// repeated into a single impl); WithAttr/WithPrefix passthrough is defensive
     /// (array dispatch already happens in apply; uniform passthrough prevents regressions).
     pub(crate) fn expand(self) -> Expand {
-        match self {
-            Ty::Array(ty) => Expand::Many(ty.0),
-            Ty::WithCode(wc) => {
+        let Ty { span, kind } = self;
+        match kind {
+            TyKind::Array(ty) => Expand::Many(ty.0),
+            TyKind::WithCode(wc) => {
                 let TyWithCode(inner, payload) = wc;
-                expand_wrapped(move |i| TyWithCode(i, payload.clone()).into(), inner)
+                expand_wrapped(
+                    move |i| {
+                        Ty::new(
+                            span,
+                            TyKind::WithCode(TyWithCode(i, payload.clone())),
+                        )
+                    },
+                    inner,
+                )
             }
-            Ty::WithWhere(ww) => {
+            TyKind::WithWhere(ww) => {
                 let TyWithWhere(inner, payload) = ww;
-                expand_wrapped(move |i| TyWithWhere(i, payload.clone()).into(), inner)
+                expand_wrapped(
+                    move |i| {
+                        Ty::new(
+                            span,
+                            TyKind::WithWhere(TyWithWhere(i, payload.clone())),
+                        )
+                    },
+                    inner,
+                )
             }
-            Ty::WithType(wt) => {
+            TyKind::WithType(wt) => {
                 let TyWithType(params, inner) = wt;
-                expand_rebuild(move |e| TyWithType(params.clone(), e).into(), *inner)
+                expand_rebuild(
+                    move |e| {
+                        Ty::new(span, TyKind::WithType(TyWithType(params.clone(), e)))
+                    },
+                    *inner,
+                )
             }
-            Ty::WithTrait(wt) => {
+            TyKind::WithTrait(wt) => {
                 let TyWithTrait(t, inner) = wt;
-                expand_rebuild(move |e| TyWithTrait(t.clone(), e).into(), *inner)
+                expand_rebuild(
+                    move |e| {
+                        Ty::new(span, TyKind::WithTrait(TyWithTrait(t.clone(), e)))
+                    },
+                    *inner,
+                )
             }
-            Ty::WithAttr(wa) => {
+            TyKind::WithAttr(wa) => {
                 let TyWithAttr(attr, inner) = wa;
-                expand_wrapped(move |i| TyWithAttr(attr.clone(), i).into(), inner)
+                expand_wrapped(
+                    move |i| {
+                        Ty::new(span, TyKind::WithAttr(TyWithAttr(attr.clone(), i)))
+                    },
+                    inner,
+                )
             }
-            Ty::WithPrefix(wp) => {
+            TyKind::WithPrefix(wp) => {
                 let TyWithPrefix(prefix, inner) = wp;
-                expand_wrapped(move |i| TyWithPrefix(prefix, i).into(), inner)
+                expand_wrapped(
+                    move |i| {
+                        Ty::new(span, TyKind::WithPrefix(TyWithPrefix(prefix, i)))
+                    },
+                    inner,
+                )
             }
-            Ty::Group(g) => (*g.0).expand(),
-            other => Expand::Leaf(other),
+            TyKind::Group(g) => (*g.0).expand(),
+            other => Expand::Leaf(Ty::new(span, other)),
         }
     }
 }
@@ -241,7 +293,7 @@ macro_rules! impl_from_for_ty {
         $(
             impl From<$struct> for Ty {
                 fn from(value: $struct) -> Self {
-                    Ty::$variant(value)
+                    Ty::new(Span::call_site(), TyKind::$variant(value))
                 }
             }
             impl From<$struct> for Box<Ty> {
@@ -336,8 +388,8 @@ pub(crate) const MAX_EXPAND: usize = 1024;
 /// Counts leaves in a `Ty` tree (`Array` sums per element, everything else counts 1).
 /// Used to validate the product cap of chained array dispatch.
 pub(crate) fn count_leaves(ty: &Ty) -> usize {
-    match ty {
-        Ty::Array(a) => a.0.iter().map(count_leaves).sum(),
+    match &ty.kind {
+        TyKind::Array(a) => a.0.iter().map(count_leaves).sum(),
         _ => 1,
     }
 }

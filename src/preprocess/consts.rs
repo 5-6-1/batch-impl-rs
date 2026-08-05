@@ -25,7 +25,7 @@ use std::collections::HashMap;
 
 use crate::preprocess::consts_ctx::{ConstCtx, UserConsts};
 use crate::util::bracket_is_passthrough;
-use crate::util::{compile_err, compile_error_str};
+use crate::util::{compile_err, compile_err_at, compile_error_str};
 
 /// Built-in name families: `@name` → list of type identifiers.
 fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
@@ -131,9 +131,14 @@ fn try_expand_at(
     tokens: &[TokenTree], ctx: ConstCtx,
 ) -> Result<Option<(Vec<TokenTree>, usize)>, TokenStream> {
     let Some(TokenTree::Ident(name)) = tokens.get(1) else {
+        let sp = tokens
+            .first()
+            .map(|t| t.span())
+            .unwrap_or_else(proc_macro2::Span::call_site);
         return Err(compile_error_str(
             "batch-impl: `@` must be followed by a constant name (e.g. `@uint`, \
              `@u8..u128`)",
+            sp,
         ));
     };
     let name_str = name.to_string();
@@ -157,7 +162,11 @@ fn try_expand_at(
              by `batch_trait!` (leading `@name=value;` segment)"
                 .to_string()
         };
-        return Err(compile_error_str(&msg));
+        let sp = tokens
+            .first()
+            .map(|t| t.span())
+            .unwrap_or_else(proc_macro2::Span::call_site);
+        return Err(compile_error_str(&msg, sp));
     }
     // Range family: `@` Ident `..` Ident (`..` is Joint '.' + any '.';
     // optional `=`)
@@ -231,7 +240,8 @@ fn try_expand_at(
     }
     match builtin_named(&name_str) {
         Some(types) => Ok(Some((vec![render_list(types.iter().copied())], 2))),
-        None => Err(compile_err!(
+        None => Err(compile_err_at!(
+            tokens[0].span(),
             "batch-impl: unknown @ constant `@{}`; built-ins: `@uint` `@int` \
              `@float` `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` \
              `@f32..f64`\
@@ -265,6 +275,7 @@ fn check_value_refs(
                     return Err(compile_error_str(
                         "batch-impl: inside a constant value, `@` must be followed \
                      by a constant name (e.g. `@uint`, `@u8..u128`)",
+                        tokens[i].span(),
                     ));
                 };
                 let name_str = name.to_string();

@@ -7,6 +7,22 @@
 
 ## 0.6.2 (2026-08-05)
 
+### Span-based diagnostics
+
+- Every `Ty` node now carries a source `Span` (`enum Ty` → `struct Ty { span, kind: TyKind }`);
+  `Ty::apply` takes the node's own span and threads it through combinator output — errors
+  raised inside `apply` report the left operand's position;
+- `compile_error_str` / `compile_err_at!` accept an explicit span; parse, constant,
+  directive, blanket and apply errors are wired to the offending token's span
+  (`^`-missing-operand now points at the `^`, not the whole macro call);
+- Platform limitation (rustc behavior): top-level tokens in attribute-macro input carry
+  precise spans, but tokens inside groups degrade to call-site spans, and errors returned
+  as `Err` are always displayed at the macro-call line — the precise spans that do show up
+  are the `Ty::Error` (Ok-output) path for parse/apply errors;
+- The `compile_error!` ident is stamped with the target span while the rest of the
+  invocation keeps call-site spans — stamping every token instead makes rustc treat the
+  error as user code in item position ("macros that expand to items must be delimited...").
+
 ### Receiver-kind `@all` filters
 
 - New `@all`-family markers filter trait methods by receiver kind:

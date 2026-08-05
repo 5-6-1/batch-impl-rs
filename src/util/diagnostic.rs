@@ -1,19 +1,41 @@
 //! Compile-time diagnostic construction.
 //!
-//! Central entry point; a future diagnostic structure carrying Span only needs changes here.
+//! Central entry point; the error span is threaded through every call:
+//! [`compile_err!`] keeps the macro call site (no span), while
+//! [`compile_err_at!`] attaches an explicit span (``compile_err_at!(span,
+//! "msg {}")``) — precise spans are added incrementally at the error points
+//! where the offending token is in hand.
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 
-/// Build `compile_error!(msg);` for compile-time errors.
-pub(crate) fn compile_error_str(msg: &str) -> TokenStream {
-    quote! { compile_error!(#msg); }
+/// Build `compile_error!(msg);` at `span` (the token the error is about).
+pub(crate) fn compile_error_str(msg: &str, span: Span) -> TokenStream {
+    // `compile_error!` in a macro's Ok output is only recognized as a
+    // macro-generated error when the invocation parses as macro syntax with a
+    // call-site context; stamping the *ident* with the target span (the
+    // offending token) reports the error at that position while the rest of
+    // the invocation keeps call-site spans (avoiding rustc treating it as user
+    // code in item position — "macros that expand to items must be delimited
+    // with braces or followed by a semicolon").
+    let err_ident = Ident::new("compile_error", span);
+    quote! { #err_ident!(#msg); }
 }
 
-/// `compile_err!("msg {}", x)` expands to `compile_error_str(&format!(...))`.
+/// `compile_err!("msg {}", x)` → `compile_error_str(&format!(...), call_site)`.
 macro_rules! compile_err {
     ($($t:tt)*) => {
-        compile_error_str(&format!($($t)*))
+        compile_error_str(&format!($($t)*), proc_macro2::Span::call_site())
     };
 }
 pub(crate) use compile_err;
+
+/// `compile_err_at!(span, "msg {}", x)` → `compile_error_str(&format!(...), span)`.
+/// Use where the offending token's span is in hand (parse cursor position,
+/// `@` reference, directive argument group, `Ty::span`).
+macro_rules! compile_err_at {
+    ($span:expr, $($t:tt)*) => {
+        compile_error_str(&format!($($t)*), $span)
+    };
+}
+pub(crate) use compile_err_at;

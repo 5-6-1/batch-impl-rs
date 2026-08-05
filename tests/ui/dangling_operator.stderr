@@ -1,7 +1,5 @@
 error: batch-impl: missing operand after `-` (e.g. `T-U`)
- --> tests/ui/dangling_operator.rs:4:1
+ --> tests/ui/dangling_operator.rs:4:29
   |
 4 | #[batch_impl(usize, f32 Vec^-)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                             ^

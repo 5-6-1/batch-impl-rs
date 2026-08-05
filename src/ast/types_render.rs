@@ -63,25 +63,25 @@ fn render_optional(
 
 impl ToTokens for Ty {
     fn to_tokens(&self, out: &mut TokenStream) {
-        out.extend(match self {
-            Ty::Primitive(p) => p.0.clone(),
-            Ty::Generic(g) => params_to_tokens(&g.0.to_token_stream(), &g.1),
-            Ty::Trait(t) => params_to_tokens(&t.0, &t.1),
-            Ty::Array(a) => {
+        out.extend(match &self.kind {
+            TyKind::Primitive(p) => p.0.clone(),
+            TyKind::Generic(g) => params_to_tokens(&g.0.to_token_stream(), &g.1),
+            TyKind::Trait(t) => params_to_tokens(&t.0, &t.1),
+            TyKind::Array(a) => {
                 let elems =
                     a.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
                 quote!([#(#elems),*])
             }
-            Ty::Tuple(t) => {
+            TyKind::Tuple(t) => {
                 let elems =
                     t.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
                 quote!((#(#elems,)*))
             }
-            Ty::Group(g) => {
+            TyKind::Group(g) => {
                 let inner = g.0.to_token_stream();
                 quote!((#inner))
             }
-            Ty::PrimitiveArray(pa) => match (&pa.0, &pa.1) {
+            TyKind::PrimitiveArray(pa) => match (&pa.0, &pa.1) {
                 (Some(elem), None) => {
                     let inner = elem.to_token_stream();
                     quote!([#inner])
@@ -93,10 +93,10 @@ impl ToTokens for Ty {
                 // empty base `[]` is not a valid type; render defensively
                 (None, _) => quote!([]),
             },
-            Ty::WithPrefix(wp) => {
+            TyKind::WithPrefix(wp) => {
                 render_optional(wp.1.as_deref(), prefix_token(wp.0), false)
             }
-            Ty::Fn(f) => {
+            TyKind::Fn(f) => {
                 let u = f.2.then_some(quote!(unsafe));
                 match &f.0 {
                     Some(params) => {
@@ -115,16 +115,16 @@ impl ToTokens for Ty {
                     None => quote!(#u fn),
                 }
             }
-            Ty::TypeParam(tp) => params_to_tokens_no_base(tp),
-            Ty::WithAttr(w) => {
+            TyKind::TypeParam(tp) => params_to_tokens_no_base(tp),
+            TyKind::WithAttr(w) => {
                 let stream = &w.0.0;
                 render_optional(w.1.as_deref(), quote!(#[#stream]), false)
             }
-            Ty::Num(n) => {
+            TyKind::Num(n) => {
                 let n = n.0;
                 quote!(#n)
             }
-            Ty::Range(r) => {
+            TyKind::Range(r) => {
                 let start = r.start;
                 let end = r.end;
                 if r.inclusive {
@@ -133,25 +133,25 @@ impl ToTokens for Ty {
                     quote!(#start .. #end)
                 }
             }
-            Ty::WithTrait(wt) => {
+            TyKind::WithTrait(wt) => {
                 let trait_tokens = params_to_tokens(&wt.0.0, &wt.0.1);
                 let inner = wt.1.to_token_stream();
                 quote!(#trait_tokens #inner)
             }
-            Ty::WithType(wt) => {
+            TyKind::WithType(wt) => {
                 let tp_tokens = params_to_tokens_no_base(&wt.0);
                 let inner = wt.1.to_token_stream();
                 quote!(#tp_tokens #inner)
             }
-            Ty::WithCode(wc) => {
+            TyKind::WithCode(wc) => {
                 let stream = &wc.1.0;
                 render_optional(wc.0.as_deref(), quote!({#stream}), true)
             }
-            Ty::WithWhere(ww) => {
+            TyKind::WithWhere(ww) => {
                 let stream = &ww.1.0;
                 render_optional(ww.0.as_deref(), quote!(where #stream), true)
             }
-            Ty::Error(e) => e.0.clone(),
+            TyKind::Error(e) => e.0.clone(),
         })
     }
 }
