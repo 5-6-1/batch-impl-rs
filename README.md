@@ -60,7 +60,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.6.3"
+batch-impl = "0.6.4"
 ```
 
 Requires Rust 2024 edition or newer.
