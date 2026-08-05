@@ -1546,3 +1546,45 @@ fn blanket_receiver_filter() {
     assert_eq!(RecvB::by_ref(&b), 3); // delegated
     assert_eq!(RecvB::by_val(b), 0); // trait default (not delegated)
 }
+
+// ============================================================
+// Reviewer additions: typed-receiver filter + marker-minus-marker
+// ============================================================
+
+// `@all_value_methods` includes typed receivers (`self: Box<Self>`,
+// `syn::ReceiverKind::Typed`); `@all_static_methods` = no receiver.
+#[batch_impl(u8 #fill(@all_value_methods){4} #fill(@all_static_methods){5})]
+trait TypedRecv2 {
+    fn plain(self) -> u8;
+    fn boxed(self: Box<Self>) -> u8;
+    fn by_ref(&self) -> u8 {
+        7
+    }
+    fn make() -> u8;
+}
+
+// Marker-minus-marker: `@all_methods - @all_value_methods` = ref + static.
+// (minus takes a resolved `[...]` list; `-@all_value_methods` expands to it)
+#[batch_impl(u16 #fill(@all_methods, -@all_value_methods){6})]
+trait MarkerMinus3 {
+    fn by_ref(&self) -> u16;
+    fn by_val(self) -> u16
+    where
+        Self: Sized,
+    {
+        0
+    }
+    fn make() -> u16;
+}
+
+#[test]
+fn receiver_filters_review() {
+    assert_eq!(TypedRecv2::plain(3u8), 4);
+    assert_eq!(TypedRecv2::boxed(Box::new(3u8)), 4);
+    assert_eq!(TypedRecv2::by_ref(&3u8), 7); // excluded -> default
+    assert_eq!(<u8 as TypedRecv2>::make(), 5);
+
+    assert_eq!(MarkerMinus3::by_ref(&1u16), 6);
+    assert_eq!(MarkerMinus3::by_val(1u16), 0); // excluded -> default
+    assert_eq!(<u16 as MarkerMinus3>::make(), 6);
+}

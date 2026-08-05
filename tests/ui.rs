@@ -66,9 +66,10 @@ fn ui() {
     t.compile_fail("tests/ui/const_cycle.rs");
     t.compile_fail("tests/ui/const_forward.rs");
 
-    // #blanket: non-Deref wrappers / illegal `:N`
+    // #blanket: non-Deref wrappers / illegal `:N` / static methods cannot delegate
     t.compile_fail("tests/ui/blanket_ptr.rs");
     t.compile_fail("tests/ui/blanket_bad_depth.rs");
+    t.compile_fail("tests/ui/blanket_static.rs");
 
     // one pass path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");

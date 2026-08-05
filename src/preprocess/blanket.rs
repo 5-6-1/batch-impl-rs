@@ -158,6 +158,20 @@ pub(crate) fn expand_blanket(
             match item {
                 // Method: deref delegation
                 syn::TraitItem::Fn(f) => {
+                    // Static methods (no receiver) cannot be blanket-delegated:
+                    // the delegation body would reference `self`, which does not
+                    // exist for an associated function (E0424). `@all_static_methods`
+                    // is for `#fill`/`#name` — implement static methods explicitly.
+                    if f.sig.receiver().is_none() {
+                        return Err(compile_err_at!(
+                            f.sig.ident.span(),
+                            "batch-impl: #blanket cannot delegate associated function \
+                             `{}::{}` (no receiver — static methods have no `self`); \
+                             implement it with #fill(@all_static_methods) instead",
+                            trait_def.ident,
+                            name
+                        ));
+                    }
                     let sig = f.sig.clone();
                     let call_args = collect_call_args(&sig).map_err(|pat| {
                         compile_err!(

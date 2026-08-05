@@ -54,6 +54,16 @@
 - Docs (zh-CN): tutorial constant table + architecture `@all` description and
   directive table updated; EN mirror pending at release.
 
+### #blanket static-method guard (F1)
+
+- Reported by reviewer: #blanket(@all_static_methods) generated (**self).make() —
+  E0424 (no self for associated functions). Pre-existing hole in blanket (bodies
+  always referenced self), made reachable by the L1 static filter.
+- Fix: xpand_blanket checks .sig.receiver().is_none() per selected method and
+  errors with a pointer to #fill(@all_static_methods); ui fixture lanket_static
+  locks the wording. Verified: @all_methods (which also includes static methods) is
+  covered by the same guard — any receiver-less method selected by #blanket errors.
+
 ### English-only pass (comments, error messages, docs)
 
 - **Scope**: every Chinese comment (`//`, `///`, `//!`) in `src/` (29 files, ~356 comment sites) and
