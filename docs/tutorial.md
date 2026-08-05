@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.6.1** (2026-08-05) — `@` is the only macro-meta token, the `@all` family does scope selection, blanket wrapper constraints, and `<>` keeps names only.
+**v0.6.2 (in development)** — on top of 0.6.1, adds: filtering by receiver kind (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, and span diagnostics; error messages are fully in English.
 
 A progressively-learned DSL: start from a single impl line and work up to advanced matrix composition. All examples are compilable code; the product of every step is ordinary Rust — the impls the macro generates are token-for-token equivalent to handwritten ones.
 
@@ -319,6 +319,38 @@ trait KeepDefault {
 }
 ```
 
+**Filtering by receiver kind** (new in 0.6.2): trait methods are split into three kinds by receiver shape —
+`&self` / `&mut self` (references), `self` (by value, including typed receivers such as `self: Box<Self>`),
+and no receiver (associated functions / static methods):
+
+| Marker | Selected scope |
+|--------|----------------|
+| `@all_ref_methods` | `&self` / `&mut self` methods |
+| `@all_value_methods` | `self` (incl. typed receivers) methods |
+| `@all_static_methods` | associated functions (no receiver) |
+
+A typical use case is blanket: by-value delegation semantics depend on the wrapper's Deref/move capability, which
+cannot be told apart at expansion time — use `@all_ref_methods` to delegate only reference methods, and by-value
+methods keep the trait's default implementation:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(u8 { fn by_ref(&self) -> u8 { *self } })]
+#[batch_impl(#blanket(@all_ref_methods){Box})]
+trait RecvB {
+    fn by_ref(&self) -> u8;
+    fn by_val(self) -> u8 where Self: Sized { 0 }
+}
+// → impl<T> RecvB for Box<T> where T: RecvB {
+//       fn by_ref(&self) -> u8 { (**self).by_ref() }   // delegated
+//       // by_val is not generated → Box<T> uses the trait's default impl
+//   }
+// note: the `self` receiver in a default impl requires `where Self: Sized`
+```
+
+The three markers work in `#fill` / `#delegate` / `#blanket` and `-` exclusions alike
+(e.g. `#fill(@all_methods, -@all_value_methods)` = only reference + static methods).
+
 ### List subtraction `-name`
 
 In the arguments, a `-` prefix marks an exclusion (the keep-list minus the exclude-list; exclusions win).
@@ -363,6 +395,10 @@ trait MyLen { fn d_len(&self) -> usize; }
 trait ToI32 { fn to_i32(&self) -> i32; }
 // → impl<T: ToI32> ToI32 for &T { fn to_i32(&self) -> i32 { (**self).to_i32() } }
 ```
+
+> **Delegation limits**: `#delegate` only supports **methods** (const / type items error); its arguments support only
+> `self` and plain identifiers (pattern parameters such as `(a, b)` cannot be forwarded and error). The remaining limits
+> are the same as blanket delegation — `*const`/`*mut`, `self`, and empty lists all raise `compile_error!`.
 
 ### Combining directives with the DSL
 
@@ -488,6 +524,31 @@ trait Foo<X: Clone> {
 Constraints: `*const`/`*mut` (safe code cannot dereference raw pointers to delegate), `self` (meaningless), and empty elements / illegal `:N` all error — write `#delegate` by hand instead. by-value receiver methods
 (`fn consume(self)`) have delegation semantics that depend on the wrapper's Deref/move capability, which cannot be told apart at macro expansion time — everything is allowed through and rustc has the final say.
 
+**Static-method delegation** (new in 0.6.2): methods without a receiver (associated functions in
+`@all_static_methods` / `@all_methods`) are forwarded through the blanket generic `t` — the delegating body is
+`t::make(...)` instead of a deref chain (static methods have no `self` to dereference). Direct calls, nested
+wrappers (`Box<Box<u8>>`), and argument forwarding all reach the underlying impl through the `t: Trait` bound —
+the same forwarding semantics as the `<t as Trait>::Item` projection for assoc items:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(#blanket(@all_static_methods){Box})]
+trait StaticT {
+    fn make() -> u8;
+    fn pair(a: u8, b: u8) -> u16;
+}
+impl StaticT for u8 {
+    fn make() -> u8 { 7 }
+    fn pair(a: u8, b: u8) -> u16 { (a as u16) * 10 + b as u16 }
+}
+// → impl<T> StaticT for Box<T> where T: StaticT {
+//       fn make() -> u8 { T::make() }
+//       fn pair(a: u8, b: u8) -> u16 { T::pair(a, b) }
+//   }
+// calls: <Box<u8> as StaticT>::make() → T::make() → u8::make() → 7
+//        <Box<Box<u8>> as StaticT>::make() → recursive delegation (Box<u8>: StaticT bound)
+```
+
 ## 8. where Clauses
 
 ### The `where{...}` suffix
@@ -592,6 +653,9 @@ trait ConstPtrChain {}
 #[batch_impl(#[allow(dead_code)]^usize, isize)]
 trait AttrSimple {}
 ```
+
+A prefix acting on a **whole list** is automatically distributed to each item (`#[attr] [u8, u16]` and
+`& [u8, u16]` both expand to one impl per item, each carrying the prefix/modifier).
 
 ### Array/slice builders
 
@@ -730,11 +794,12 @@ constants (`batch_trait!` is a function-like macro that can't get the definition
 
 | Marker | Expands to | Use case |
 |--------|------------|----------|
-| `@trait` | the trait's full path (`batch_impl` = local name, `batch_impl_only` = external path); in `batch_trait!` it is **section-level**: expands to that section's trait path | blanket wrapper where predicates; `batch_trait!` packing "generic declarations + trait name" across sections |
+| `@trait` | the trait's full path (`batch_impl` = local name, `batch_impl_only` = external path); in `batch_trait!` it is **section-level**: expands to that section's trait path | blanket wrapper where predicates; `batch_trait!` packing "generic declarations + trait name" across sections; the **trait-name part of a top-level spec** (`<T> @trait<T> Vec<T>`) |
 | `@all` / `@all_methods` / `@all_constants` / `@all_types` | `[item names, ...]` (Bracket group) | directive scope selection — `#fill(@all)` is equivalent to the old `#fill(#all)` |
 | `@all_required*` / `@all_default*` | Bracket groups filtered by default-implementation state | fill only the required / override only the defaulted |
+| `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | Bracket groups filtered by receiver kind (`&self`/`&mut self` / `self` / associated functions) | delegate only reference methods (bypassing the uncertain by-value delegation semantics); `#blanket(@all_ref_methods){Box}` |
 | `@Cow` | `Cow<'_>` + intrinsic constraint predicates | blanket wrapping (deref target = `T::Owned`) |
-| `@0` (positional reference) | the target generic name (fresh T) | **only inside blanket wrapper where predicates** |
+| `@N` (positional reference) | the name of the Nth generic inside where predicates | in blanket wrapper predicates `@0` = the target generic (fresh T); in tuple generation `()^N`, `@k` = the kth fresh generic; with user generics, `@k` = the kth impl generic |
 
 After the `@all` family expands into Bracket groups, normal directive-argument parsing applies: **`#` is no longer a scope marker** —
 `#` now only appears in the single form of a directive name (`#fill`/`#delegate`/`#blanket`/open extensions), and scope
@@ -742,6 +807,25 @@ selection is uniformly owned by the macro-meta layer. Subtraction is unaffected:
 
 **Directive arguments support `[a, b]` lists**: `#fill([m1, m2]){...}`; `-` exclusions can also be written
 `-[a, b]` (the `@all` expansion already has this shape, and hand-writing it is equivalent).
+
+**`@N` positional references in where predicates** — the generic names the macro generates are unknown to the user
+(fresh names); constrain them by position:
+
+```rust
+# use batch_impl::batch_impl;
+// tuple-generated fresh generics: @0 = the 0th, @1 = the 1st
+#[batch_impl(()^2 where{@0: Clone, @1: Copy} { fn tmk() -> u32 { 2 } })]
+trait TupleWhereAt { fn tmk() -> u32; }
+// → impl<A: Clone, B: Copy> TupleWhereAt for (A, B) { fn tmk() -> u32 { 2 } }
+
+// user generics: @0 = the 0th impl generic
+#[batch_impl(<T> AtWhere<T> Vec<T> where{@0: Default} { fn an(&self) -> usize { self.len() } })]
+trait AtWhere<T: Clone> { fn an(&self) -> usize; }
+// → impl<T: Clone + Default> AtWhere<T> for Vec<T> { ... }
+```
+
+(In blanket wrapper predicates `@0` = the target generic, fresh T — see §7 `#blanket`; `@trait` can also appear
+in ordinary where predicates, e.g. `where{@0: @trait<T>}`.)
 
 ## 12. Three Entry Points
 
@@ -805,12 +889,25 @@ batch_trait!(
 
 ## 13. Error Messages
 
-All DSL syntax errors are reported through `compile_error!()` with a message pointing at the source location, and never panic:
+All DSL syntax errors are reported through `compile_error!()` with **English messages** (since 0.6.2), pointing as
+precisely as possible at the offending token in the source (span diagnostics; tokens inside groups and the `Err`
+return path show the macro invocation line), and never panic:
 
-| Bad input | Error message |
-|-----------|---------------|
+| Bad input | Error message (excerpt) |
+|-----------|--------------------------|
 | `batch_trait!(;)` | `batch_trait! expects a trait name` |
 | `batch_trait!(A)` | `batch_trait! expects ':' to separate the trait name and impl-specs` |
 | `batch_trait!(A: B::)` | `batch_trait! expects an ident as the trait name` |
+| `A^` (missing right operand) | `batch-impl: missing operand after '^' (e.g. 'T^U')` — points at the `^` itself |
+| `A,,B` | `batch-impl: missing operand between consecutive commas ',,`'` |
+| `3..2` (empty range) | `batch-impl: range '3..2' is empty (start not below end); no impls will be generated` |
+| `^2000` (over the limit) | `batch-impl: tuple '^2000' expands to 2000 items (limit 1024); likely exponential/range/Cartesian typo` |
+| nesting depth over 128 | `batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket)` |
+| `@unknown` | `batch-impl: unknown @ constant '@unknown'; built-ins: '@uint' ...` |
+| `@u32..u8` (endpoints reversed) | `batch-impl: range start is greater than end: 'u32..u8'` |
+| `@a=@a` (circular reference) | `batch-impl: constant '@a' references unknown '@a' (undefined or defined later; ...)` |
+| `#fill()` (empty arguments) | `batch-impl: the directive's argument list cannot be empty` |
+| missing target after `-` | `batch-impl: directive arguments cannot be empty` |
 | bare `where` without a code block | `batch-impl: \`where\` predicates are missing a code block {...}` |
-| a where predicate referring to an undeclared parameter | `batch-impl: inherited where predicate ... references parameter ..., but the impl declares no such name; declare ... or hand-write the where clause` |
+| inherited predicate referring to an undeclared parameter | `batch-impl: trait argument 'X' maps to parameter 'T' (bound 'IntoIterator'); automatic inheritance requires the same name; rename to 'T' or write the bound manually` |
+| `#blanket` illegal wrapper | `batch-impl: #blanket ...` (`*const`/`*mut`, `self`, empty elements, illegal `:N`, and non-forwardable pattern parameters all error) |

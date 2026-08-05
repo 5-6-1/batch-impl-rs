@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.6.1** (2026-08-05) — `@` as the single macro-meta token + blanket constraint merging + trait-aware constants (`@trait`/`@all` family/`@Cow`/`@0`).
+**v0.6.2** (2026-08-05) — receiver-kind filters (`@all_ref_methods` etc.) + `#blanket` static-method delegation + span-based diagnostics; error messages fully in English.
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -94,10 +94,10 @@ trait Tagged { fn name(&self) -> &str; }
 | Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | Generic automation |
 | Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | Associated types |
 | Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | Directive system |
-| Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates) | Directive system |
+| Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | Directive system |
 | Open extension                                   | Unknown `#name(args){body}` is handed to your macro with the same name | Directive system |
 | `@` constants                                    | Built-in families `@uint`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` customization (lazy expansion, chained references) | Constant system |
-| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family) and positional references (`@0`) belong to the macro-meta layer | Constant system |
+| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`) belong to the macro-meta layer | Constant system |
 | `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | where clauses |
 | Tuple generation                                 | `()^3`, `(T,)^N`, Cartesian product, ranges  | Tuple generation |
 | fn types / unsafe / pointers / attributes        | Full support for type-level modifiers        | Modifiers |

@@ -1,6 +1,6 @@
 # batch-impl Internal Architecture
 
-**v0.6.1** (2026-08-05) — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape.
+**v0.6.2** (in development) — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
@@ -16,7 +16,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST reference collection (where-predicate pass-through slots)
   ├── util/                 shared utilities (mod.rs aggregates re-exports; the reference side writes crate::util::X)
   │   ├── scan.rs           scanning and cursor: Cursor<'a> + scan_stop (angle brackets already paired; only the -> guard remains)
-  │   └── diagnostic.rs     unified compile_error_str(msg) / compile_err! for compile-time diagnostics
+  │   └── diagnostic.rs     unified compile_error_str(msg, span) / compile_err! / compile_err_at! for compile-time diagnostics (ident-span scheme: only the compile_error keyword gets the target span)
   ├── parse/                parsing layer
   │   ├── mod.rs            DSL parser: precedence climbing (Op::Semi/Comma/Dash/Caret/Prim)
   │   ├── parse_atom.rs     atom-level parsing: attributes / fn / prefixes / ranges / groups / lists
@@ -28,12 +28,12 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── helpers.rs        preprocessing helpers: build_from_item / get_trait_item / parse_names_from_tokens (list subtraction `-`)
   │   ├── where_process.rs  bare-where rewrite: `where predicates {body}` → legacy `where{predicates}`
   │   ├── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
-  │   └── blanket.rs        `#blanket` blanket delegation (wrapper elements of any type + :N depth)
+  │   └── blanket.rs        `#blanket` blanket delegation (wrapper elements of any type + :N depth; instance methods forward via deref, static methods via a generic `t`)
   ├── ast/                  AST layer
-  │   ├── mod.rs            the Ty enum (18 variants, incl. Error) + Op precedence definitions
+  │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 18 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
   │   └── types_render.rs   AST rendering: ToTokens impl for Ty + the params_to_tokens family
   ├── apply/                application layer
-  │   ├── mod.rs            Apply trait + the core apply() two-stage dispatch (right-operand "structure" first)
+  │   ├── mod.rs            Apply trait (apply_help takes a span parameter) + Ty::apply takes the span at a single point and delegates to TyKind dispatch (right-operand "structure" first)
   │   └── apply_tuple.rs    tuple and container operators + tuple expansion (^N / Cartesian product / ranges / fresh generics)
   ├── codegen/              code generation
   │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl (incl. where-predicate attachment and reference checks)
@@ -78,7 +78,7 @@ The DSL consists of two (future three) **mutually non-penetrating syntax domains
 
 - **Same token, separate domains, distinct meanings**: `-` is an apply link in the type domain (`HashMap-K-V` = `HashMap<K, V>`) and an exclusion marker in the directive domain (`#fill(@all,-foo)`) — the two domains never enter each other's parsing, so the semantics never conflict;
 - **Domain boundaries are module boundaries**: type-domain parsing (`parse_item` precedence climbing) never recurses into directive arguments; directive preprocessing (`expand_tokens`) only expands `#` directives and does not interpret DSL operators; `@` constants (`preprocess/consts.rs`) only do lexical substitution and enter no domain;
-- **Uniform pass-through guards**: the contents of `ident![...]` macro bodies and `#[...]` attributes are arbitrary Rust; the three recursive entries (`angle_collect` / `expand_tokens` / `where_process`) never enter them, and the decision converges in `scan::bracket_is_passthrough` (in 0.5.7 a missing guard caused `#name` directives inside `#[...]` to be wrongly expanded).
+- **Uniform pass-through guards**: the contents of `ident![...]` macro bodies and `#[...]` attributes are arbitrary Rust; the four recursive entries (`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`) never enter them, and the decision converges in `scan::bracket_is_passthrough` (in 0.5.7 a missing guard caused `#name` directives inside `#[...]` to be wrongly expanded).
 
 ### Attachment Semantics
 
@@ -93,7 +93,7 @@ New syntax may only **extend existing mechanisms within existing domains** (e.g.
 - **`#` now has only one format: a directive name**: all `#all` family range markers have been migrated to the macro-meta layer (the `@all` family) — selection (which items to pick) is a macro-meta-layer operation, while the action (fill body / delegate / blanket) is the directive — `#fill(@all)` / `#fill(@all, -[a,b])`;
 - The `@all` family expands into **Bracket groups** (`[a,b,c]`, unified in shape with `@uint`) and then goes through directive-argument parsing — directive arguments therefore naturally support hand-written `[a, b]` lists and `-[a, b]` exclusions;
 - **Trait-aware constants**: `@trait` (batch_impl = local name, batch_impl_only = external path; **batch_trait! is segment-level** — after segmentation, each segment is replaced with that segment's trait path, supporting cross-segment packing reuse such as `@type_t=<T>@trait<T>`; try_expand_at returns None to keep things as-is, guarding against infinite recursion in lazy expansion), the `@all` family (exclusive to batch_impl/batch_impl_only; batch_trait! errors), `@Cow` (exclusive to batch_impl/batch_impl_only):
-  - The `@all` family → a Bracket group selecting items according to the trait definition (with required/default filtering);
+  - The `@all` family → a Bracket group selecting items according to the trait definition (with required/default and receiver filtering: `@all_ref_methods`/`@all_value_methods`/`@all_static_methods`);
   - `@Cow` → `Cow<'_>` plus inherent constraint predicates (a packing whose deref target = `T::Owned`, in a different class from the removed bare type-name constants — a constant carries reuse value only when it carries constraints);
 - **`@0` positional references**: generic across where predicates (at codegen render time, `@N` → the impl's N-th generic and `@trait` → the trait name — usable in the tuple `()^2 where{@0: Clone}` and in ordinary specs); in a blanket wrapper where clause, `@0` specifically refers to the target generic (resolve_target_predicates pre-replaces it with a fresh name, before codegen, so the two places never conflict); expand_consts does not enter Brace groups (where groups pass through), so `@N` is replaced exactly at its consumption point;
 - **`<>` keeps only names** (the constraint container is unified to where): a generic-declaration TypeParam keeps only its ident; const/lifetime stay as-is; all constraints (trait-parameter inline bounds + `T: Trait` + trait where + wrapper predicates) are juxtaposed into where — merging is zero-analysis token concatenation (required ∪ default = all likewise). The blanket's `T: Trait` therefore naturally sits alongside wrapper predicates; trait-parameter bounds are handled by codegen's inheritance logic (not transferred redundantly).
@@ -105,9 +105,9 @@ All built-in directives are instances of the same shape — **directive name + s
 | Directive | Scope (what it acts on) | Content (how it processes) |
 |---|---|---|
 | `#name{body}` | A single item (picked by name) | That item's implementation body |
-| `#fill(scope){body}` | An item set (`@all`/`@all_methods`/`@all_constants`/`@all_types`/`@all_required*`/`@all_default*`/a name list/`-name` exclusions) | A unified implementation body |
+| `#fill(scope){body}` | An item set (`@all`/`@all_methods`/`@all_constants`/`@all_types`/`@all_required*`/`@all_default*`/`@all_ref_methods`/`@all_value_methods`/`@all_static_methods`/a name list/`-name` exclusions) | A unified implementation body |
 | `#delegate(scope){target}` | A method set (`@all_methods`, etc.) | The delegation-target expression |
-| `#blanket(scope){wrapper list}` | The impl level (the whole trait × wrapper-type matrix) | Blanket delegation + wrapping depth |
+| `#blanket(scope){wrapper list}` | The impl level (the whole trait × wrapper-type matrix) | Blanket delegation + wrapping depth (instance methods forward via deref, static methods via a generic `t`) |
 
 - The **scope** axis is covered: single item → item set → impl level (increasing granularity);
 - The **content** axis is covered: fill body → delegate → blanket (increasing processing power);
@@ -120,6 +120,10 @@ All DSL syntax errors emit friendly compile errors via `compile_error!()`, and t
 
 **Nesting-depth guard** (0.6.1): nested groups (`[[[...]]]`) and nested angle brackets (`Vec<Vec<...>>`) deeper than 128 levels report "nesting depth exceeds 128 levels" instead of a stack overflow (a promise restored from v0.1; `angle_collect` counts while pairing, `MAX_NEST_DEPTH = 128`).
 
+**Span diagnostics** (0.6.2): every `Ty` node carries its source span (`struct Ty { span, kind }`); `Ty::apply` takes the span at a single point and carries it through the combinator output — errors inside `apply` point at the left-operand position. `compile_error_str(msg, span)` / `compile_err_at!(span, ...)` accept an explicit span.
+**ident-span scheme**: `compile_error!` stamps only the keyword identifier with the target span and keeps everything else at the call site — when all tokens carry spans, rustc treats the error as user code at the item position ("macros that expand to items must be delimited...").
+**Platform limitation** (rustc behavior, unfixable on the macro side): attribute-macro input has precise top-level tokens, tokens inside groups degrade to the call site, and an `Err` return reports the error at the macro-invocation line — precise spans appear only on the `Ty::Error` path of Ok output (parse/apply).
+
 - **DSL parsing layer** (parse/apply/codegen): the `Ty::Error` variant passes through the AST chain (a failing chained combination needs a signal value), finally emitted as `compile_error!` via ToTokens;
 - **Entry layer** (preprocess/expand): `Result<_, TokenStream>` propagates via `?`, with the message uniformly constructed by `util/diagnostic.rs::compile_error_str`.
 
@@ -131,9 +135,9 @@ Four layers:
 |-----------|------|---------|
 | `examples/` | `quickstart.rs` | Runnable DSL main-feature demo (`cargo run --example quickstart`), 14 sections covering basic → complex scenarios |
 | `src/` | `fuzz.rs` | proptest property tests: random token sequences fed to `where_process` / `parse_item`, verifying "never panics on user input" (`cargo test --lib`) |
-| `tests/` | `dsl.rs` | 34 `#[test]`s covering semantic regression of core features (including where-clause inheritance, external path prefixes, macro-invocation boundaries, `unsafe fn` types, list subtraction `-`, `A<>` and same-name inheritance) |
-| `tests/` | `regression.rs` | 23 `#[test]`s covering corner cases dsl.rs doesn't touch: nested `>>`, path types, const generics, lifetimes, dyn + Send, path prefixes, array/slice builders, `batch_impl` vs `batch_trait!` consistency |
-| `tests/` | `ui.rs` | `trybuild` UI tests: 23 `compile_fail` fixtures locking down diagnostic wording + 1 `pass` fixture |
+| `tests/` | `dsl.rs` | 50 `#[test]`s covering semantic regression of core features (including where-clause inheritance, external path prefixes, macro-invocation boundaries, `unsafe fn` types, list subtraction `-`, `A<>` and same-name inheritance, `@all` status/receiver filtering, blanket static delegation) |
+| `tests/` | `regression.rs` | 26 `#[test]`s covering corner cases dsl.rs doesn't touch: nested `>>`, path types, const generics, lifetimes, dyn + Send, path prefixes, array/slice builders, `batch_impl` vs `batch_trait!` consistency |
+| `tests/` | `ui.rs` | `trybuild` UI tests: 31 `compile_fail` fixtures locking down diagnostic wording + 1 `pass` fixture |
 
 Running:
 

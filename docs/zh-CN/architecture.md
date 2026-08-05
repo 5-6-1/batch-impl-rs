@@ -1,6 +1,6 @@
 # batch-impl 内部架构
 
-**v0.6.1**（2026-08-05）——预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态。
+**v0.6.2（开发中）**——预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托。
 
 面向贡献者：模块组织、解析流程、错误机制、测试矩阵。
 
@@ -16,7 +16,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
   ├── util/                 共享工具（mod.rs 聚合 re-export，引用侧写 crate::util::X）
   │   ├── scan.rs           扫描与游标：Cursor<'a> + scan_stop（尖括号已配对，仅剩 -> 守卫）
-  │   └── diagnostic.rs     统一 compile_error_str(msg) / compile_err! 用于编译期诊断
+  │   └── diagnostic.rs     统一 compile_error_str(msg, span) / compile_err! / compile_err_at! 用于编译期诊断（ident-span 方案：只盖 compile_error 关键字）
   ├── parse/                解析层
   │   ├── mod.rs            DSL 解析器：优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
   │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
@@ -28,12 +28,12 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── helpers.rs        预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
   │   ├── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
-  │   └── blanket.rs        `#blanket` 覆盖式委托（包装元素任意类型 + :N 深度）
+  │   └── blanket.rs        `#blanket` 覆盖式委托（包装元素任意类型 + :N 深度；实例方法经 deref、静态方法经泛型 `t` 转发）
   ├── ast/                  AST 层
-  │   ├── mod.rs            Ty 枚举（18 个变体，含 Error）+ Op 优先级定义
+  │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 18 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
-  │   ├── mod.rs            Apply trait + 核心 apply() 两阶段分发（右操作数"结构"优先）
+  │   ├── mod.rs            Apply trait（apply_help 带 span 参数）+ Ty::apply 单点取 span 委托 TyKind 分发（右操作数"结构"优先）
   │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
   ├── codegen/              代码生成
   │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
@@ -154,7 +154,7 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 | `#name{body}` | 单个 item（按名取） | 该 item 的实现体 |
 | `#fill(范围){body}` | item 集合（`@all`/`@all_methods`/`@all_constants`/`@all_types`/`@all_required*`/`@all_default*`/`@all_ref_methods`/`@all_value_methods`/`@all_static_methods`/名字列表/`-name` 排除） | 统一实现体 |
 | `#delegate(范围){target}` | 方法集合（`@all_methods` 等） | 委托目标表达式 |
-| `#blanket(范围){包装列表}` | impl 层（整个 trait × 包装类型矩阵） | 覆盖式委托 + 包装深度 |
+| `#blanket(范围){包装列表}` | impl 层（整个 trait × 包装类型矩阵） | 覆盖式委托 + 包装深度（实例方法经 deref、静态方法经泛型 `t` 转发） |
 
 - **范围**轴已覆盖：单 item → item 集合 → impl 层（粒度递增）；
 - **内容**轴已覆盖：填体 → 委托 → 覆盖（处理方式递增）；
@@ -174,6 +174,16 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 超过 128 层报「嵌套深度超过 128 层」而非栈溢出（v0.1 承诺恢复；`angle_collect`
 在配对时计数，`MAX_NEST_DEPTH = 128`）。
 
+**span 诊断**（0.6.2）：每个 `Ty` 节点携带源 span（`struct Ty { span, kind }`），
+`Ty::apply` 单点取 span 并在组合子输出中贯穿——`apply` 内错误指向左操作数位置。
+`compile_error_str(msg, span)` / `compile_err_at!(span, ...)` 接显式 span。
+**ident-span 方案**：`compile_error!` 只给关键字标识符盖目标 span、其余保持
+call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用户代码
+（"macros that expand to items must be delimited..."）。
+**平台限制**（rustc 行为，宏侧不可修）：属性宏输入顶层 token 精确、组内 token
+退化 call-site、`Err` 返回错误显示宏调用行——精确 span 只出现在 Ok 输出的
+`Ty::Error` 路径（parse/apply）。
+
 - **DSL 解析层**（parse/apply/codegen）：`Ty::Error` 变体在 AST 链中透传
   （链式组合中途失败需要信号值），最终经 ToTokens 输出 `compile_error!`；
 - **入口层**（preprocess/expand）：`Result<_, TokenStream>` 经 `?` 传播，
@@ -187,9 +197,9 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 |-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                                                         |
 | `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                                                          |
-| `tests/`    | `dsl.rs`        | 34 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承）                                     |
-| `tests/`    | `regression.rs` | 23 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：23 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture                                                                                          |
+| `tests/`    | `dsl.rs`        | 50 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承、@all 状态/receiver 过滤、blanket 静态委托） |
+| `tests/`    | `regression.rs` | 26 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：31 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
 
 运行：
 

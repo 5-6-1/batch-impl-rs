@@ -5,6 +5,58 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.2 (2026-08-05)
+
+### Span-based diagnostics
+
+- Every `Ty` node now carries its source `Span` (`enum Ty` → `struct Ty { span, kind: TyKind }`);
+  `Ty::apply` takes the node's own span and threads it through combinator output — errors raised inside
+  `apply` point at the left operand's position;
+- `compile_error_str` / `compile_err_at!` accept an explicit span; errors from parse, constants, directives,
+  blanket, and apply all attach to the offending token's span (`^` missing an operand now points at `^`
+  itself rather than the whole macro invocation);
+- Platform limitation (rustc behavior): top-level tokens of attribute-macro input carry precise spans, but
+  tokens inside groups degrade to the call-site span, and errors returned as `Err` always display on the
+  macro invocation line — what actually shows precise locations are the parse/apply errors on the
+  `Ty::Error` (Ok output) path;
+- `compile_error!` only stamps the target span onto the keyword identifier, keeping everything else at the
+  call site — if every token carried a span, rustc would treat the error as user code at the item position
+  ("macros that expand to items must be delimited...").
+
+### `#blanket` static method delegation
+
+- `#blanket` now forwards receiverless methods (static methods / `@all_static_methods` /
+  `@all_methods`) through the blanket generic `t` — `fn make() -> u8 { t::make() }`,
+  instead of the deref-chain delegation body `(**self).make()` (static methods have no `self`; E0424);
+- Direct calls, nested wrappers (`Box<Box<u8>>`), and argument forwarding all reach the underlying
+  impl through the `t: Trait` bound — the same forwarding semantics as associated-item projection;
+- Philosophical unification: instance methods forward via deref, static methods via the bound — both are
+  forwarding, no special cases.
+
+### `@all` filtering by receiver kind
+
+- New `@all` family markers filter trait methods by receiver kind:
+  `@all_ref_methods` (`&self` / `&mut self`), `@all_value_methods`
+  (`self`, including typed receivers), `@all_static_methods` (associated functions);
+- Typical use: `#blanket(@all_ref_methods){Box}` delegates only reference-receiver methods,
+  sidestepping the semantic ambiguity of by-value delegation for wrapper types (by-value methods
+  fall back to the trait's default implementations);
+- Like the rest of the `@all` family, shared by `#fill` / `#delegate` / `#blanket` and the `-`
+  exclusion; `batch_trait!` errors on them (they need a trait definition).
+
+### Comments, error messages, and docs fully anglicized
+
+- **Comments and error messages are now all in English** (source, tests, ui fixtures) — a wider audience;
+  DSL markers in messages (`` `@uint` ``、`` `#fill` ``、`` `@0` ``) stay unchanged;
+- **Documentation language policy established**: during development, the Chinese docs (`docs/zh-CN/`)
+  are the primary record of changes; before publishing, they are translated into English and placed in
+  the English docs (`README.md`, `CHANGELOG.md`, `docs/tutorial.md`, `docs/architecture.md`,
+  `docs/dev-changelog.md`); 0.6.2 has completed the initial English translation, and the Chinese docs
+  continue to evolve as the development-side primary docs;
+- Code examples in the docs are unchanged (doubling as doctests — all 46 pass);
+- Fixed the broken fence of a mid-level `@trait` example in the tutorial (`` `ust `` → `` ```rust ``),
+  incidentally bringing it under doctest coverage.
+
 ## 0.6.1 (2026-08-05)
 
 ### New Features: `@all_required*` / `@all_default*` scope markers

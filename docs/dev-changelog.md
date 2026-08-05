@@ -5,6 +5,40 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.2 (2026-08-05)
+
+### Span-based diagnostics (L3)
+
+- **Structural rework**: `enum Ty` → `struct Ty { span: Span, kind: TyKind }` (variant-level spans were rejected — "the span goes on the Ty layer, not on TyNum"); `TyKind` carries the right-operand dispatch in ordinary methods (`TyKind::apply` / `TyKind::apply_help`), and `trait Apply` keeps only `apply_help(self, o, span)` (bound as `Clone + Into<Ty>` — TyKind cannot satisfy `Into<Ty>`, hence ordinary methods instead of a trait); `Ty::apply` takes the span and then delegates — the single entry point through which spans flow;
+- **Recursion fix**: during the migration, `TyGroup::apply_help` was changed to "wrap back into a Group and apply", causing infinite recursion when `o` is an ordinary type (fuzz `parse_no_panic` / `full_pipeline_no_panic` stack overflow); changed back to `self.0.apply(o)` (the transparency of groups). The fuzzer caught it — the value of the no-panic promise;
+- **Diagnostic layer**: `compile_error_str(msg, span)`; the ident-span approach — `Ident::new("compile_error", span)` + `quote!` (parentheses/string/semicolon stay at the call site), because `quote_spanned!(span => compile_error!(...))` makes rustc treat the error as user code in item position ("macros that expand to items must be delimited with braces..."); new `compile_err_at!(span, ...)` macro;
+- **Wiring**: parse (cursor/op spans — a missing operand for `^` now points at the `^`), consts (`@` reference spans), blanket wrapping, where_process, entry, lib, codegen; apply errors use `err_ty_at` (the span parameter already flows through `apply_help`);
+- **Platform limitation (recorded)**: attribute-macro input spans — top-level tokens exact, tokens inside groups degrade to the call site, and errors returned via `Err` display on the macro-invocation line. Exact spans only appear on the `Ty::Error` path of Ok output (parse/apply). This is rustc behavior and cannot be fixed on the macro side;
+- ui snapshots regenerated via TRYBUILD=overwrite (the span changes moved error locations).
+
+### `@all` filtering by receiver kind (L1)
+
+- `ReceiverFilter` enum (Ref / Value / Static) + the `AllMarkerSpec` type alias live in `helpers.rs`; the `resolve_all_marker` table gained `all_ref_methods` / `all_value_methods` / `all_static_methods`, and `get_trait_item_names` gained a receiver-filter dimension;
+- syn 3 receiver API: `f.sig.receiver()` returns `Option<&Receiver>`, whose `kind: ReceiverKind` is `Value` / `Reference(..)` / `Typed(..)` (the syn-2-style `receiver.reference` field no longer exists — caught by E0609, switched to matching `ReceiverKind`);
+- Motivation: blanket's by-value delegation semantics are ambiguous (Deref/move capability cannot be determined at expansion time); `#blanket(@all_ref_methods)` lets users delegate only `&self`/`&mut self` methods, with by-value methods keeping the trait's default implementations;
+- Tests: `receiver_kind_filters` (ref/mut/val/static each correctly marked and selected) + `blanket_receiver_filter` (a Box blanket delegates `by_ref`; `by_val` falls back to the default — note the default implementation needs `where Self: Sized`, because the `self` receiver in a default method requires it, E0277);
+- Docs (zh-CN): the tutorial constant table + architecture's `@all` description and directive table updated; the English mirror is updated at publish time.
+
+### `#blanket` static-method delegation (F1, refactor)
+
+- Reviewer report: `#blanket(@all_static_methods)` generated `(**self).make()` — E0424 (associated functions have no `self`). A pre-existing blanket hole (the delegated body always references self), exposed by the L1 static filter;
+- First-version fix: a guard + an error pointing at `#fill(@all_static_methods)` (reviewer's option A);
+- After design review, refactored: delegation is strictly better — static methods have no deref-able receiver, but the blanket impl carries `t: Trait`, and `t::make(...)` is fully isomorphic to the `<t as Trait>::Item` projection. `expand_blanket` now selects the delegated body by receiver: `(#self_ty).#name(...)` (has a receiver) vs `#t::#name(...)` (no receiver). The dsl test `blanket_static_delegation` locks in three shapes: direct, chained (`Box<Box<u8>>`), and argument forwarding; the temporary ui error fixture was deleted. Consistent with blanket philosophy: instance methods forward through deref, static methods forward through bounds — both are forwarding, no special-casing.
+
+### Full English-only transition (comments, error messages, docs)
+
+- **Scope**: all Chinese comments in `src/` (`//`, `///`, `//!`, 29 files ~356 spots) and `tests/` (28 .rs + 31 .stderr) translated to English; all 59 `compile_err!` / `compile_error_str!` messages translated; DSL tokens inside the messages kept verbatim;
+- **Process**: 5 parallel sub-agents grouped by module (preprocess / parse+apply / ast+codegen / entry+util+analyze+testing+lib / tests), each with the hard rule "never change code logic"; ui `.stderr` snapshots regenerated via `TRYBUILD=overwrite` (56 files) — the authoritative message text is the actual output; snapshots were rewritten from real output;
+- **Post-translation cleanup**: nested lists introduced by the sub-agents triggered clippy `doc list item without indentation` warnings; doc comments were flattened into prose to fix them;
+- **Docs**: Chinese docs moved into `docs/zh-CN/` (frozen archive), English versions written in place (README / CHANGELOG — all 19 version entries translated / tutorial — 816 lines, 40 rust blocks kept verbatim / architecture / dev-changelog); a second scan translated the Chinese comments **inside** doc code blocks (only the `//` comments of rust blocks; code tokens untouched);
+- **Broken-fence fix**: the tutorial's segment-level `@trait` example had a broken fence (`` `ust `` — backtick + CR + `ust`), fixed to ```rust and then compiled as a doctest; the block content matches the passing segment-level test in `tests/dsl.rs`, safe;
+- **Verification**: fmt clean, clippy zero warnings, `cargo test --all-targets` all green (lib 10 / dsl 46 / regression 26 / all ui fixtures), doctests 46 (was 45, +1 fixed block), zero Chinese residue in `src/`, `tests/`, and all English docs.
+
 ## 0.6.1 (2026-08-05)
 
 ### Recursion depth guard restored (regression fix for the 0.1 promise)
