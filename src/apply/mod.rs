@@ -47,18 +47,106 @@ pub(crate) fn check_expand_limit(what: &str, len: usize) -> Option<Ty> {
 
 /// Binary operation on type expressions: in `A^B` / `A-B`, `A.apply(B)` combines into a `Ty`.
 ///
-/// Needs `Clone` (default Array dispatch / Range expansion reuse left operand `self`) and
-/// `Into<Ty> + Into<Box<Ty>> + Into<Option<Box<Ty>>>` (to put the left operand back into a type /
-/// target type — used for bare code blocks and bare where as the right operand, and when variants
-/// like `TyPrimitive` convert `self` into a generic base).
-/// Binary operation on type expressions: in `A^B` / `A-B`, `A.apply(B)` combines into a `Ty`.
+/// `apply` is the **right-operand structural dispatch** with a default
+/// implementation: Array/Group/WithCode/WithWhere/WithType/Range/Error are
+/// handled generically (Array distribution / Group transparency / pass-through
+/// application / generic hoisting / Range expansion / error passthrough);
+/// anything else falls through to [`Apply::apply_help`] — so `apply_help`'s
+/// right operand is **always a plain type**.
 ///
-/// Needs `Clone` (default Array dispatch / Range expansion reuse left operand).
-/// The span of the left operand is threaded through every method (`apply` /
-/// `apply_help`) so combinator output keeps the left operand's source position.
-pub(crate) trait Apply: Clone + Into<Ty> {
+/// Needs `Clone` (default Array dispatch / Range expansion reuse the left
+/// operand). The span of the left operand is threaded through both methods so
+/// combinator output keeps the left operand's source position; `o.span`
+/// survives only for the fallthrough (the plain right operand keeps its own
+/// position).
+pub(crate) trait Apply: Clone + Into<TyKind> {
+    /// Whether this left operand is itself a generic declaration (TyTypeParam).
+    /// Default false; TyKind overrides by matching its TypeParam variant.
+    /// Used to keep declaration order (<'a> <T> X) instead of hoisting when a
+    /// declaration is applied to another declaration.
+    fn is_type_param(&self) -> bool {
+        false
+    }
+
+    fn apply(self, o: Ty, span: Span) -> Ty {
+        match o.kind {
+            // Array dispatch: apply the left operand to each element of the right array.
+            // Array-array chains (`[A,B]^[C,D]^[E,F]`) check the limit by **leaf count** —
+            // each intermediate array is small, but leaf count grows exponentially along the `^` chain.
+            TyKind::Array(arr) => {
+                let result: Vec<Ty> =
+                    arr.0.into_iter().map(|e| self.clone().apply(e, span)).collect();
+                if let Some(e) = check_expand_limit(
+                    "list chain expansion",
+                    result.iter().map(count_leaves).sum(),
+                ) {
+                    return e;
+                }
+                Ty::new(span, TyKind::Array(TyArray(result)))
+            }
+            TyKind::Group(g) => self.apply(*g.0, span),
+            TyKind::WithCode(wc) => match wc.0 {
+                Some(inner) => Ty::new(
+                    span,
+                    TyKind::WithCode(TyWithCode(
+                        Ty::new(span, self.clone().into()).apply(*inner).into(),
+                        wc.1,
+                    )),
+                ),
+                None => Ty::new(
+                    span,
+                    TyKind::WithCode(TyWithCode(
+                        Some(Box::new(Ty::new(span, self.into()))),
+                        wc.1,
+                    )),
+                ),
+            },
+            TyKind::WithWhere(ww) => match ww.0 {
+                Some(inner) => Ty::new(
+                    span,
+                    TyKind::WithWhere(TyWithWhere(
+                        Ty::new(span, self.clone().into()).apply(*inner).into(),
+                        ww.1,
+                    )),
+                ),
+                None => Ty::new(
+                    span,
+                    TyKind::WithWhere(TyWithWhere(
+                        Some(Box::new(Ty::new(span, self.into()))),
+                        ww.1,
+                    )),
+                ),
+            },
+            // When the right operand is `WithType` (e.g. the fresh generic tuple of `()^N`),
+            // hoist the generic declaration outward: `T^<A>X` => `<A>(T^X)`,
+            // so the type does not leak a generic declaration as `T<<A>X>`.
+            // But when self is itself a generic declaration (`<'a>^<T>X` — the
+            // `<'a> <T> X` consecutive-declaration form), hoisting would reorder
+            // lifetimes after type params; keep declaration order via
+            // `WithType(self, o)` so `<'a, T>` stays lifetimes-first.
+            TyKind::WithType(wt) if self.is_type_param() => {
+                self.apply_help(Ty::new(o.span, TyKind::WithType(wt)), span)
+            }
+            TyKind::WithType(wt) => Ty::new(
+                span,
+                TyKind::WithType(TyWithType(
+                    wt.0,
+                    Ty::new(span, self.clone().into()).apply(*wt.1).into(),
+                )),
+            ),
+            TyKind::Error(e) => Ty::new(span, TyKind::Error(e)),
+            TyKind::Range(TyRange { start, end, inclusive }) => {
+                map_range(start, end, inclusive, span, |n| {
+                    Ty::new(span, self.clone().into())
+                        .apply(Ty::new(span, TyKind::Num(TyNum(n))))
+                })
+            }
+            other => self.apply_help(Ty::new(o.span, other), span),
+        }
+    }
+
     /// Left-operand "semantics": each variant implements its own combination rule.
-    /// Called by [`TyKind::apply`] only after right-operand structural dispatch —
+    /// Called by [`Apply::apply`] only after right-operand structural dispatch —
     /// so `o` is **always a plain type** (not an Array/Group/With*/Range/Error context).
     /// `span` is the left operand's span; combinator output is built via
     /// [`Ty::new`]`(span, ...)` so it keeps the left operand's source position.
@@ -75,93 +163,13 @@ impl Ty {
     }
 }
 
-impl TyKind {
-    /// Right-operand structural dispatch (Array / Group / WithCode / WithWhere /
-    /// WithType / Range / Error are handled here; anything else falls through to
-    /// [`TyKind::apply_help`]). `span` is the left operand's span, applied to
-    /// every constructed node.
-    pub(crate) fn apply(self, o: Ty, span: Span) -> Ty {
-        match o.kind {
-            // Array dispatch: apply the left operand to each element of the right array.
-            // Array-array chains (`[A,B]^[C,D]^[E,F]`) check the limit by **leaf count** —
-            // each intermediate array is small, but leaf count grows exponentially along the `^` chain.
-            TyKind::Array(arr) => {
-                let result: Vec<Ty> = arr
-                    .0
-                    .into_iter()
-                    .map(|e| Ty::new(span, self.clone()).apply(e))
-                    .collect();
-                if let Some(e) = check_expand_limit(
-                    "parallel-list chain expansion",
-                    result.iter().map(count_leaves).sum(),
-                ) {
-                    return e;
-                }
-                Ty::new(span, TyKind::Array(TyArray(result)))
-            }
-            TyKind::Group(g) => Ty::new(span, self).apply(*g.0),
-            TyKind::WithCode(wc) => match wc.0 {
-                Some(inner) => Ty::new(
-                    span,
-                    TyKind::WithCode(TyWithCode(
-                        Ty::new(span, self.clone()).apply(*inner).into(),
-                        wc.1,
-                    )),
-                ),
-                None => Ty::new(
-                    span,
-                    TyKind::WithCode(TyWithCode(
-                        Some(Box::new(Ty::new(span, self))),
-                        wc.1,
-                    )),
-                ),
-            },
-            TyKind::WithWhere(ww) => match ww.0 {
-                Some(inner) => Ty::new(
-                    span,
-                    TyKind::WithWhere(TyWithWhere(
-                        Ty::new(span, self.clone()).apply(*inner).into(),
-                        ww.1,
-                    )),
-                ),
-                None => Ty::new(
-                    span,
-                    TyKind::WithWhere(TyWithWhere(
-                        Some(Box::new(Ty::new(span, self))),
-                        ww.1,
-                    )),
-                ),
-            },
-            // When the right operand is `WithType` (e.g. the fresh generic tuple of `()^N`),
-            // hoist the generic declaration outward: `T^<A>X` => `<A>(T^X)`,
-            // so the type does not leak a generic declaration as `T<<A>X>`.
-            // But when self is itself a generic declaration (`<'a>^<T>X` — the
-            // `<'a> <T> X` consecutive-declaration form), hoisting would reorder
-            // lifetimes after type params (E0xxx); keep declaration order via
-            // `WithType(self, o)` so `<'a, T>` stays lifetimes-first.
-            TyKind::WithType(wt) if matches!(self, TyKind::TypeParam(_)) => {
-                self.apply_help(Ty::new(o.span, TyKind::WithType(wt)), span)
-            }
-            TyKind::WithType(wt) => Ty::new(
-                span,
-                TyKind::WithType(TyWithType(
-                    wt.0,
-                    Ty::new(span, self.clone()).apply(*wt.1).into(),
-                )),
-            ),
-            TyKind::Error(e) => Ty::new(span, TyKind::Error(e)),
-            TyKind::Range(TyRange { start, end, inclusive }) => {
-                map_range(start, end, inclusive, span, |n| {
-                    Ty::new(span, self.clone())
-                        .apply(Ty::new(span, TyKind::Num(TyNum(n))))
-                })
-            }
-            other => self.apply_help(Ty::new(o.span, other), span),
-        }
+impl Apply for TyKind {
+    fn is_type_param(&self) -> bool {
+        matches!(self, TyKind::TypeParam(_))
     }
 
-    /// Forwards to the concrete subtype's [`Apply::apply_help`] (each variant
-    /// implements its own combination rule).
+    /// Forwards to the concrete subtype's combination rule (each variant
+    /// implements its own `apply_help`).
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         match self {
             TyKind::WithPrefix(wp) => wp.apply_help(o, span),
@@ -186,12 +194,12 @@ impl TyKind {
     }
 }
 
-impl Apply for TyWithPrefix {
+impl TyWithPrefix {
     /// `&^T` => `&T`; `*const^T` => `*const T`; `self^T` => `T`; `unsafe^T` => `unsafe T`
     /// (unsafe impl marker)
     ///
     /// `&T^U` => `&(T^U)`, `unsafe T^U` => `unsafe (T^U)`: modifiers pass through to the inner type.
-    fn apply_help(self, o: Ty, span: Span) -> Ty {
+    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         match self.0 {
             // &^T=>&T / unsafe^T=>unsafe T
             TyPrefix::Ref
@@ -211,9 +219,9 @@ impl Apply for TyWithPrefix {
     }
 }
 
-impl Apply for TyPrimitive {
+impl TyPrimitive {
     /// `T^U` => `T<U>`; `T^<A,B>` => `T<A,B>`
-    fn apply_help(self, o: Ty, span: Span) -> Ty {
+    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         let o_span = o.span;
         match o.kind {
             TyKind::TypeParam(tp) => {
@@ -230,9 +238,9 @@ impl Apply for TyPrimitive {
     }
 }
 
-impl Apply for TyGeneric {
+impl TyGeneric {
     /// `T<A>^B` => `T<A,B>`; `T<A>^<B,C>` => `T<A,B,C>`
-    fn apply_help(self, o: Ty, span: Span) -> Ty {
+    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         let mut tp = self.1;
         let o_span = o.span;
         match o.kind {
@@ -243,9 +251,9 @@ impl Apply for TyGeneric {
     }
 }
 
-impl Apply for TyTrait {
+impl TyTrait {
     /// `Trait<T>^U` => `WithTrait(Trait<T>, U)` (trait generics applied to the target type)
-    fn apply_help(self, o: Ty, span: Span) -> Ty {
+    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         let o_span = o.span;
         match o.kind {
             TyKind::TypeParam(rhs) => {
@@ -261,10 +269,10 @@ impl Apply for TyTrait {
     }
 }
 
-impl Apply for TyArray {
+impl TyArray {
     /// `[A,B]^C` => `[A^C, B^C]` (right operand is plain; the Cartesian product of `[A,B]^[C,D]`
     /// is dispatched layer-wise by the default `apply` Array branch and flattened via `expand`)
-    fn apply_help(self, o: Ty, span: Span) -> Ty {
+    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         let result = self.0.into_iter().map(|e| e.apply(o.clone())).collect();
         Ty::new(span, TyKind::Array(TyArray(result)))
     }
