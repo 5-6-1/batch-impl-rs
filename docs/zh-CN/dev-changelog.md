@@ -4,6 +4,38 @@
 
 ## 0.6.4 (2026-08-05)
 
+### `@trait` 提前展开（常量阶段/段级），`@N` 成为唯一 codegen 记号
+
+- 用户指出：`@trait` 不该留到 codegen（只有 `@N` 需要 impl 泛型列表）。
+  结构性原因：`where{...}` 是 Brace 组，`expand_consts` 不进入（body 的 `@`
+  是 pattern 语法）——where 谓词里的 `@trait`/`@N` 都残留到
+  `resolve_where_at`；
+- 三处修复：
+  - `expand_consts` 识别 `where` Ident + Brace 组（DSL 结构非 body）→ 进入
+    展开 `@trait`（batch_impl 用 trait 路径）；`@N`（`@` + Literal）在
+    `try_expand_at` 返回 None 保留（不再误报"must be followed by a name"）；
+  - `replace_segment_trait`（batch_trait! 段级）递归进组——where 谓词里的
+    `@trait` 也能段级替换；
+  - `resolve_where_at` 删 `@trait` 分支（trait_name 参数移除）——只剩 `@N`；
+- 验证：batch_impl `where{T: @trait<T>}`、batch_trait! 段级 where 组内
+  `@trait`（探针）都提前展开；纯 fresh `where{@0: Clone}` 回归全绿。
+
+### Apply trait 恢复：`apply` 右分发默认实现（span 兼容）
+
+- span 改造时 `trait Apply` 只剩 `apply_help`（右分发被挪到 `TyKind::apply`
+  普通方法）——trait 名与主方法名不一致；恢复之前设计：
+  - `trait Apply: Clone + Into<TyKind>`——`apply(self, o, span)` 默认实现
+    （右操作数结构分发，从 `TyKind::apply` 平移）+ `apply_help` 抽象钩子；
+  - `impl Apply for TyKind`（覆写 `is_type_param` + 转发子类型）；
+    子类型 `apply_help` 改普通方法（`impl X`，`pub(crate)`）——不再实现
+    trait（默认 apply 的 `Ty::new(span, self)` 需要 Self: Into<TyKind>，
+    子类型不满足——编译期验证）；
+  - `is_type_param()` 默认方法（TyKind 覆写）替代 `matches!(self, ...)`——
+    泛型 Self 无法 match TyKind 变体（E0308 抓出）；
+- span 贯穿不变：`Ty::apply` 取 span → `kind.apply(o, span)`（trait 默认，
+  每个构造 `Ty::new(span, ...)` 用左操作数 span，`o.span` 仅 fallthrough）；
+- 测试全绿（分离声明顺序、数组/范围/泛型外提均回归）。
+
 ### `@N` 语义修正（用户设计评审）
 
 - 用户初衷：`@N` 应是 `_Param_N_BatchGen_` 的直接映射（宏元层常量）——但 fresh

@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.6.3** — on top of 0.6.1, 0.6.2 adds: filtering by receiver kind (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, and span diagnostics; error messages are fully in English. 0.6.3 is a doc fix.
+**v0.6.4** — 0.6.2/0.6.3 are released: 0.6.2 added filtering by receiver kind (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, and span diagnostics; error messages are fully in English. 0.6.3 was a doc fix. 0.6.4 renames the built-in numeric families to `@u*` / `@i*` / `@f*`, adds generic-parameter families (`@all_type_params` / `@all_const_params` / `@all_lifetimes`), makes `@N` index fresh generics only, and resolves `@trait` earlier.
 
 A progressively-learned DSL: start from a single impl line and work up to advanced matrix composition. All examples are compilable code; the product of every step is ordinary Rust — the impls the macro generates are token-for-token equivalent to handwritten ones.
 
@@ -735,10 +735,10 @@ Common type matrices don't have to be written by hand: `@` constants expand to l
 
 | Constant | Expands to |
 |----------|------------|
-| `@uint` | `[u8, u16, u32, u64, u128, usize]` |
-| `@int` | `[i8, i16, i32, i64, i128, isize]` |
-| `@float` | `[f32, f64]` |
-| `@num` | `@uint + @int + @float` (14) |
+| `@u*` | `[u8, u16, u32, u64, u128, usize]` (unsigned family wildcard) |
+| `@i*` | `[i8, i16, i32, i64, i128, isize]` (signed family wildcard) |
+| `@f*` | `[f32, f64]` (float family wildcard) |
+| `@num` | `@u* + @i* + @f*` (14) |
 | `@scalar` | `@num + [bool, char]` (16) |
 | `@u8..u128` | `[u8, u16, u32, u64, u128]` (**endpoints inclusive**; `@i8..i128` / `@f32..f64` work the same) |
 
@@ -798,8 +798,13 @@ constants (`batch_trait!` is a function-like macro that can't get the definition
 | `@all` / `@all_methods` / `@all_constants` / `@all_types` | `[item names, ...]` (Bracket group) | directive scope selection — `#fill(@all)` is equivalent to the old `#fill(#all)` |
 | `@all_required*` / `@all_default*` | Bracket groups filtered by default-implementation state | fill only the required / override only the defaulted |
 | `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | Bracket groups filtered by receiver kind (`&self`/`&mut self` / `self` / associated functions) | delegate only reference methods (bypassing the uncertain by-value delegation semantics); `#blanket(@all_ref_methods){Box}` |
+| `@all_type_params` / `@all_const_params` / `@all_lifetimes` | generic-parameter families: expand to a **flat `<...>` generic declaration** (type parameters as bare names, const parameters in full `const N: usize` form, lifetimes verbatim) | generic declarations copied verbatim from the trait's parameters (bounds via same-named inheritance); `#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T)]` — consecutive declarations keep lifetimes first |
 | `@Cow` | `Cow<'_>` + intrinsic constraint predicates | blanket wrapping (deref target = `T::Owned`) |
-| `@N` (positional reference) | the name of the Nth generic inside where predicates | in blanket wrapper predicates `@0` = the target generic (fresh T); in tuple generation `()^N`, `@k` = the kth fresh generic; with user generics, `@k` = the kth impl generic |
+| `@N` (positional reference) | the name of the **Nth fresh generic** (of the form `_Param_{N}_BatchGen_`) inside where predicates | in blanket wrapper predicates `@0` = the target generic (the only fresh); in tuple generation `()^N`, `@k` = the kth fresh generic; **user generics are written by name** (they don't participate in `@N` indexing) |
+
+> `@N` is the only marker resolved at the **codegen stage** (it needs the final impl generic list);
+> `@trait` has been moved earlier: `batch_impl` expands it at the constant stage (the trait path is known),
+> and `batch_trait!` replaces it per section (recursively entering where groups).
 
 After the `@all` family expands into Bracket groups, normal directive-argument parsing applies: **`#` is no longer a scope marker** —
 `#` now only appears in the single form of a directive name (`#fill`/`#delegate`/`#blanket`/open extensions), and scope
@@ -818,7 +823,7 @@ selection is uniformly owned by the macro-meta layer. Subtraction is unaffected:
 trait TupleWhereAt { fn tmk() -> u32; }
 // → impl<A: Clone, B: Copy> TupleWhereAt for (A, B) { fn tmk() -> u32 { 2 } }
 
-// user generics: @0 = the 0th impl generic
+// user generics: write their names directly (@N only indexes macro-generated fresh generics)
 #[batch_impl(<T> AtWhere<T> Vec<T> where{T: Default} { fn an(&self) -> usize { self.len() } })]
 trait AtWhere<T: Clone> { fn an(&self) -> usize; }
 // → impl<T: Clone + Default> AtWhere<T> for Vec<T> { ... }
@@ -826,6 +831,21 @@ trait AtWhere<T: Clone> { fn an(&self) -> usize; }
 
 (In blanket wrapper predicates `@0` = the target generic, fresh T — see §7 `#blanket`; `@trait` can also appear
 in ordinary where predicates, e.g. `where{@0: @trait<T>}`.)
+
+**Generic-parameter families** (0.6.4): the generic declaration is copied verbatim from the trait's parameters (type parameters as bare names, const parameters as full declarations, lifetimes verbatim) — bounds are filled in automatically by same-named inheritance:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(@all_type_params GenT<T> Vec<T> { fn head(&self) -> T { self[0].clone() } })]
+trait GenT<T: Clone> { fn head(&self) -> T; }
+// → impl<T: Clone> GenT<T> for Vec<T> { fn head(&self) -> T { self[0].clone() } }
+
+#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T { fn get(&self) -> &'a T { *self } })]
+trait Borrowed<'a, T: Clone> { fn get(&self) -> &'a T; }
+// → impl<'a, T: Clone> Borrowed<'a, T> for &'a T { ... } (consecutive declarations keep lifetimes first)
+```
+
+> **Relation to `A<>`**: the `A<>` expansion (§5) **simultaneously** includes the parameter declarations (with bounds) and the arguments — it is itself "fully automatic" (`#[batch_impl(Foo<> Vec<T>)]` is one line copying declarations + arguments + bounds verbatim). `@all_type_params` is the granularity that **automates only the declaration** (use it when the arguments need to be custom). **Don't stack them**: `@all_type_params Foo<>` would make the two declaration sources duplicate (rustc E0403) — pick one.
 
 ## 12. Three Entry Points
 

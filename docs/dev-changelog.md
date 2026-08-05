@@ -5,6 +5,68 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.4 (2026-08-05)
+
+### `@trait` expands early (constant stage / segment level); `@N` becomes the only codegen marker
+
+- User's call: `@trait` should not wait for codegen (only `@N` needs the impl
+  generic list). Structural reason: `where{...}` is a Brace group that
+  `expand_consts` never entered (bodies use `@` as pattern syntax) — both
+  `@trait` and `@N` in where predicates leaked to `resolve_where_at`;
+- Three fixes:
+  - `expand_consts` recognizes `where` Ident + Brace group (a DSL structure,
+    not a body) and enters it to expand `@trait` (batch_impl knows the trait
+    path); `@N` (`@` + Literal) returns `None` in `try_expand_at` and stays
+    untouched for codegen (no more false "must be followed by a name");
+  - `replace_segment_trait` (batch_trait! segment-level) recurses into
+    groups — `@trait` inside where predicates is replaced per segment too;
+  - `resolve_where_at` drops its `@trait` branch (trait_name param removed) —
+    only `@N` remains;
+- Verified: batch_impl `where{T: @trait<T>}` and batch_trait! segment-level
+  where `@trait` both expand early (probes); pure-fresh `where{@0: Clone}`
+  regression green.
+
+### `Apply` trait restored: `apply` as default right-dispatch (span-compatible)
+
+- The span rework had reduced `trait Apply` to only `apply_help` (right
+  dispatch lived on `TyKind::apply`), leaving the trait name inconsistent with
+  its method; the pre-span design is restored:
+  - `trait Apply: Clone + Into<TyKind>` — default `apply(self, o, span)`
+    (right-operand structural dispatch, moved from `TyKind::apply`) plus the
+    abstract `apply_help` hook;
+  - `impl Apply for TyKind` overrides `is_type_param()` and forwards
+    `apply_help` to subtypes; subtypes became plain impls
+    (`pub(crate) fn apply_help`) — they cannot implement `Apply` because the
+    default `apply` builds `Ty::new(span, self)` which needs
+    `Self: Into<TyKind>` (compile-time verified);
+  - `is_type_param()` default method (overridden by TyKind) replaces
+    `matches!(self, ...)` — a generic `Self` cannot match a `TyKind` variant
+    (E0308 caught it);
+- Span threading unchanged: `Ty::apply` → `kind.apply(o, span)` (trait
+  default), every constructed node uses the left operand's span, `o.span`
+  only on the fallthrough;
+- All tests green (separated-declaration order, array/range/generic hoisting
+  all regressed clean).
+
+### `@N` semantic fix (user design review)
+
+- The user's original intent: `@N` should be a direct mapping to `_Param_N_BatchGen_` (a macro-meta-layer constant) — but the fresh number is a global counter and is unrelated to the position in the final impl generics (misaligned when multiple fresh sources / user generics are interleaved), so a direct mapping is unreliable;
+- Decision: `@N` = the **N-th fresh generic** inside a where predicate (of the `_Param_{N}_BatchGen_` form). `resolve_where_at` filters the impl generics list down to fresh forms and picks by position — user generics are written by name directly; the blanket-wrapping predicate `@0` (= the only fresh T) unifies naturally with the new rule and is no longer a special case;
+- Breaking change: the B1 test `where{@0: @trait<T>}` → `where{T: @trait<T>}`; the tutorial's AtWhere example likewise; the out-of-bounds error message updated;
+- Tests: `()^2 where{@0: Clone, @1: Copy}` and `()^3 where{@2: Clone}` (pure fresh) unchanged, all green.
+
+### Generic parameter families + separated-declaration order fix
+
+- New `@all_type_params` / `@all_const_params` / `@all_lifetimes`: `GenericFilter` enum + `resolve_generic_marker` + `get_trait_generic_decl` (in helpers.rs), expanding to a **flat** `<...>` declaration (angle_collect pairs them uniformly); type parameters by name only (bounds go through same-name inheritance), consts complete (a bare name is E0747), lifetimes verbatim; try_expand_at dispatches after the @all branch (batch_impl-only; batch_trait! errors); errors when no parameter of that kind exists;
+- **Real bug fixed along the way**: `TyKind::apply`'s WithType hoist branch (`T^<A>X` → `<A>(T^X)`) wrongly hoisted the inner parameters to the outer level for "declaration applied to declaration" (`<'a> <T> X` consecutive declarations) → generated `<T, 'a>` (lifetime must be prior). Fix: when self is `TyKind::TypeParam`, go through `apply_help` to keep the declaration order (`<'a, T>` lifetimes first). Hand-written `<'a> <T>` also blew up before — the test `generic_param_families` locks in the combined shape;
+- Tests: dsl 51 (type/lifetime/const three families + combination + bound inheritance); ui `generic_family_batch_trait` (batch_trait! errors).
+
+### Constant name-family rename (user's call)
+
+- Proposal: `@i*`/`@u*`/`@f*` replace `@uint`/`@int`/`@float` (family symbols unified — the original `uint`'s `u` was inconsistent with the range family `u8`'s `u`); the `@u8..64` width-abbreviation proposal was rejected (little benefit, and it introduced a hidden "family inherits from the left endpoint" rule);
+- Implementation: `"u*"`/`"i*"`/`"f*"` wildcards in `builtin_named` (try_expand_at detects `tokens[2]` being `*`, lookup = `name*`, consumed 3); `check_value_refs` recognizes the wildcards in sync (an `@uints=@u*` reference inside a value was falsely reported as "unknown @u" — after the fix the lazy-expansion chain is complete). The builtins list in error messages and the missing-name-after-`@` example updated; the ui `const_unknown` snapshot regenerated;
+- Tests: dsl `@uints=@u*` (wildcard reference inside a batch_trait value) and `[Box, Rc]^@u*` (wildcard inside a macro-variable None group) all updated and passing; a direct `@u*` probe verifies that usize is included.
+
 ## 0.6.3 (2026-08-05)
 
 ### Doc fix

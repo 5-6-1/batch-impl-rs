@@ -5,6 +5,77 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.4 (2026-08-05)
+
+### `@` constant name families renamed: `@uint`/`@int`/`@float` → `@u*`/`@i*`/`@f*`
+
+- Name-family notation unified with the range families: `u`/`i`/`f` = family, `*` = wildcard full set —
+  `@u*` and `@u8..u128` speak of the same family (the old `uint` vs `u` notation mismatch was a conceptual crack);
+- Semantics unchanged: `@u*` = `[u8, u16, u32, u64, u128, usize]` (including `usize`),
+  `@i*` = `[i8..isize]`, `@f*` = `[f32, f64]`; `@num`/`@scalar` unchanged
+  (`@num` = `@u* + @i* + @f*`);
+- **Breaking change**: `@uint`/`@int`/`@float` removed (error messages point to the new names);
+- Implementation: the `builtin_named` table gains `u*`/`i*`/`f*` wildcards (Ident + `*`, consuming 3 tokens);
+  `check_value_refs` recognizes the wildcards too (for `@u*` references inside values); ui snapshots regenerated.
+
+### Generic parameter families: `@all_type_params` / `@all_const_params` / `@all_lifetimes`
+
+- Generic declarations copy the trait's formal parameters verbatim: type parameters as bare names
+  (`@all_type_params` → `<T, U>`), const as full declarations (`@all_const_params` → `<const N: usize>`),
+  lifetimes as-is (`@all_lifetimes` → `<'a>`); bounds are filled in automatically by the existing same-name
+  inheritance;
+- Usage: `#[batch_impl(@all_type_params GenT<T> Vec<T>)]` — the declaration stays in sync with the trait,
+  so changing the trait's parameters no longer requires changing the macro;
+- Combinations (e.g. `@all_lifetimes @all_type_params`) keep lifetimes first — incidentally fixing a DSL ordering
+  bug for separate generic declarations (`<'a> <T> X` used to generate `<T, 'a>`);
+- Exclusive to batch_impl/batch_impl_only (they need a trait_def); errors when the trait has no such parameters.
+
+### `@N` positional reference semantics corrected: indexes only fresh generics
+
+- `@N` now refers to the **N-th macro-generated fresh generic** in the where predicate
+  (of the form `_Param_{N}_BatchGen_`) — user generics (`<T>`, etc.) **do not participate in `@N` indexing**;
+  reference them by name directly (`where{T: Default}`);
+- Naturally unified with the `@0` in blanket wrapper predicates (= the target generic, fresh `T`): a blanket has
+  exactly one fresh, so `@0` is precisely "the 0-th fresh" — no longer a special-case rule;
+- Breaking point: `<T> ... where{@0: Default}` used to refer to the user generic `T` — write `where{T: Default}`
+  instead (more natural); the out-of-bounds error is updated ("impl has N fresh generics");
+- User's original intent: `@N` was meant as a direct mapping of `_Param_N_BatchGen_` — but fresh numbering is a
+  global counter independent of final position (misaligned when multiple fresh sources / user generics are
+  interleaved), so "the N-th fresh" hardens it: positions are countable and independent of numbering, keeping
+  the user-generic scenario pure.
+
+### `@trait` expanded early (const stage / segment level); `@N` becomes the only codegen marker
+
+- Problem: `where{...}` is a Brace group, and `expand_consts` did not enter it (the `@` in a body is
+  pattern syntax) — so `@trait`/`@N` in where predicates both remained until codegen's
+  `resolve_where_at`; the user pointed out that `@trait` should not survive to codegen (only `@N` needs
+  the impl generic list);
+- Three fixes:
+  - `expand_consts` recognizes the `where` Ident + Brace group (a DSL construct, not a body) → enters it
+    to expand `@trait` (using the trait path in batch_impl); `@N` (`@` + Literal) is preserved when
+    `try_expand_at` returns None (no longer spuriously reports "must be followed by a name");
+  - `replace_segment_trait` (segment-level, in `batch_trait!`) recurses into groups — `@trait` inside
+    `where{...}` predicates can be replaced at segment level too;
+  - `resolve_where_at` drops the `@trait` branch — it now handles only `@N` (the signature loses the
+    `trait_name` parameter), making "`@N` is the only marker resolved at codegen" architecturally true;
+- Verification: batch_impl `where{T: @trait<T>}` (B1) and a segment-level `@trait` inside a `batch_trait!`
+  where group (probe) both expand early; the pure-fresh scenario `where{@0: Clone}` regresses cleanly.
+
+### `Apply` trait restored: `apply` right-dispatch default implementation (span-compatible)
+
+- During the span rework, `trait Apply` was left with only `apply_help` (right-dispatch moved to a plain
+  `TyKind::apply` method) — the trait name and the main method name no longer matched; the previous design is restored:
+  - `trait Apply: Clone + Into<TyKind>` — a default implementation of `apply(self, o, span)`
+    (structural dispatch on the right operand, moved over from `TyKind::apply`) plus the abstract `apply_help` hook;
+  - `impl Apply for TyKind` (overrides `is_type_param` + forwards to subtypes);
+    subtypes' `apply_help` reverts to a plain method (`impl X`, `pub(crate)`) — no longer implementing the
+    trait (the default `apply`'s `Ty::new(span, self)` needs `Self: Into<TyKind>`, which subtypes do not satisfy);
+  - `is_type_param()` default method (overridden by `TyKind`) replaces `matches!(self, ...)`
+    — a generic `Self` cannot match `TyKind` variants;
+- Span threading unchanged: `Ty::apply` takes the span → `kind.apply(o, span)` (trait default,
+  every construction `Ty::new(span, ...)` uses the left operand's span, `o.span` only for fallthrough);
+- Tests all green (separated declaration order, array/range/generic hoisting all regress cleanly).
+
 ## 0.6.3 (2026-08-05)
 
 ### Doc fix

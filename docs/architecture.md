@@ -1,6 +1,6 @@
 # batch-impl Internal Architecture
 
-**v0.6.3** — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation (0.6.2); 0.6.3 is a doc fix.
+**v0.6.4** — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation (0.6.2); 0.6.3 was a doc fix; 0.6.4 brings the `@u*` rename, generic-param families, fresh-only `@N`, earlier `@trait` expansion, and the restored `Apply` trait.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
@@ -23,9 +23,9 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   └── generic.rs        generic parsing: parse_generic / parse_angle_bracket_contents (angle-bracket groups are delimiter![<>])
   ├── preprocess/           preprocessing layer (token rewriter, one pass per file; mod.rs aggregates re-exports)
   │   ├── mod.rs            the delimiter! delimiter-spelling macro + directive preprocessing: #name directive expansion (built-in + open extension)
-  │   ├── consts.rs         the `@` constant system: built-in type families (@uint/@scalar/@u8..u128) + batch_trait! custom definition sections
+  │   ├── consts.rs         the `@` constant system: built-in type families (@u*/@i*/@f* name families + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 ranges) + batch_trait! custom definition sections
   │   ├── empty_generics.rs `A<>` verbatim-copy expansion (parameter rendering uses the merged bound)
-  │   ├── helpers.rs        preprocessing helpers: build_from_item / get_trait_item / parse_names_from_tokens (list subtraction `-`)
+  │   ├── helpers.rs        preprocessing helpers: build_from_item / get_trait_item / parse_names_from_tokens (list subtraction `-`) / GenericFilter (generic-param families @all_type_params/@all_const_params/@all_lifetimes)
   │   ├── where_process.rs  bare-where rewrite: `where predicates {body}` → legacy `where{predicates}`
   │   ├── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
   │   └── blanket.rs        `#blanket` blanket delegation (wrapper elements of any type + :N depth; instance methods forward via deref, static methods via a generic `t`)
@@ -33,7 +33,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 18 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
   │   └── types_render.rs   AST rendering: ToTokens impl for Ty + the params_to_tokens family
   ├── apply/                application layer
-  │   ├── mod.rs            Apply trait (apply_help takes a span parameter) + Ty::apply takes the span at a single point and delegates to TyKind dispatch (right-operand "structure" first)
+  │   ├── mod.rs            Apply trait: the default `apply` does right-operand structural dispatch (Array/Group/WithCode/WithWhere/WithType/Range/Error handled generically; anything else falls through to `apply_help`) + impl Apply for TyKind forwards `apply_help` per variant; Ty::apply takes the span at a single point
   │   └── apply_tuple.rs    tuple and container operators + tuple expansion (^N / Cartesian product / ranges / fresh generics)
   ├── codegen/              code generation
   │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl (incl. where-predicate attachment and reference checks)
@@ -72,7 +72,7 @@ The DSL consists of two (future three) **mutually non-penetrating syntax domains
 |----|------|------|----------|
 | **Type domain** (spec expressions) | `^`/`-` (the two associativities of the same apply: right-nesting / left-accumulation), `[...]` lists, `(...)` tuples, `<...>` generics, `where{...}` suffix, attached `{body}` | Describes a type matrix; each cell generates one impl | `parse/` + `apply/` + `codegen/` |
 | **Directive domain** (`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){wrapper}` / open extension) | `,`-separated argument lists, `-name` exclusions, `@all` family markers | Copies signatures from the trait definition / fills bodies in bulk / delegates calls / blanket delegation | `preprocess/` (`parse_names_from_tokens` parses independently; DSL parsing never enters) |
-| **Macro-meta layer** (`@` constants) | `@uint`/`@scalar` name families, `@u8..u128` range families, `batch_trait!` leading `@name=value;` custom sections | Names and reuses type-matrix entries; after lexical substitution into lists they follow the original pipeline, participating in no in-domain parsing | `consts.rs` (after angle_collect, before directive preprocessing) |
+| **Macro-meta layer** (`@` constants) | `@u*`/`@i*`/`@f*` name families, `@scalar`/`@num`, `@u8..u128`/`@i8..i128`/`@f32..f64` range families, `batch_trait!` leading `@name=value;` custom sections | Names and reuses type-matrix entries; after lexical substitution into lists they follow the original pipeline, participating in no in-domain parsing | `consts.rs` (after angle_collect, before directive preprocessing) |
 
 ### Isolation Rules
 
@@ -91,11 +91,12 @@ New syntax may only **extend existing mechanisms within existing domains** (e.g.
 ### Completing the Macro-Meta Layer: `@` Is the Only Macro-Meta Token
 
 - **`#` now has only one format: a directive name**: all `#all` family range markers have been migrated to the macro-meta layer (the `@all` family) — selection (which items to pick) is a macro-meta-layer operation, while the action (fill body / delegate / blanket) is the directive — `#fill(@all)` / `#fill(@all, -[a,b])`;
-- The `@all` family expands into **Bracket groups** (`[a,b,c]`, unified in shape with `@uint`) and then goes through directive-argument parsing — directive arguments therefore naturally support hand-written `[a, b]` lists and `-[a, b]` exclusions;
+- The `@all` family expands into **Bracket groups** (`[a,b,c]`, unified in shape with the `@u*` list forms) and then goes through directive-argument parsing — directive arguments therefore naturally support hand-written `[a, b]` lists and `-[a, b]` exclusions;
 - **Trait-aware constants**: `@trait` (batch_impl = local name, batch_impl_only = external path; **batch_trait! is segment-level** — after segmentation, each segment is replaced with that segment's trait path, supporting cross-segment packing reuse such as `@type_t=<T>@trait<T>`; try_expand_at returns None to keep things as-is, guarding against infinite recursion in lazy expansion), the `@all` family (exclusive to batch_impl/batch_impl_only; batch_trait! errors), `@Cow` (exclusive to batch_impl/batch_impl_only):
   - The `@all` family → a Bracket group selecting items according to the trait definition (with required/default and receiver filtering: `@all_ref_methods`/`@all_value_methods`/`@all_static_methods`);
+  - **Generic-param families** (`@all_type_params`/`@all_const_params`/`@all_lifetimes`, exclusive to batch_impl/batch_impl_only; batch_trait! errors) → a flat `<...>` generic declaration copied from the trait's own generic parameters (type params by name, const params as the full `const N: usize` declaration — a bare name is E0747 — lifetimes as-is); paired by angle_collect afterwards, bounds via codegen's same-name inheritance;
   - `@Cow` → `Cow<'_>` plus inherent constraint predicates (a packing whose deref target = `T::Owned`, in a different class from the removed bare type-name constants — a constant carries reuse value only when it carries constraints);
-- **`@0` positional references**: generic across where predicates (at codegen render time, `@N` → the impl's N-th generic and `@trait` → the trait name — usable in the tuple `()^2 where{@0: Clone}` and in ordinary specs); in a blanket wrapper where clause, `@0` specifically refers to the target generic (resolve_target_predicates pre-replaces it with a fresh name, before codegen, so the two places never conflict); expand_consts does not enter Brace groups (where groups pass through), so `@N` is replaced exactly at its consumption point;
+- **`@0` positional references**: in where predicates, `@N` indexes the N-th **fresh** generic (impl generics whose names match the `_Param_{n}_BatchGen_` form; user-written params are addressed by their own names — `@N` exists exactly because fresh names are unknowable — usable in the tuple `()^2 where{@0: Clone}` and in ordinary specs); `@trait` is resolved **earlier** — at the constant stage for batch_impl/batch_impl_only, via segment-level replacement for batch_trait! — so `resolve_where_at` handles only `@N`; in a blanket wrapper where clause, `@0` specifically refers to the target generic (resolve_target_predicates pre-replaces it with a fresh name, before codegen, so the two places never conflict); expand_consts now enters `where{...}` Brace groups to expand `@trait` but leaves `@N` untouched for codegen;
 - **`<>` keeps only names** (the constraint container is unified to where): a generic-declaration TypeParam keeps only its ident; const/lifetime stay as-is; all constraints (trait-parameter inline bounds + `T: Trait` + trait where + wrapper predicates) are juxtaposed into where — merging is zero-analysis token concatenation (required ∪ default = all likewise). The blanket's `T: Trait` therefore naturally sits alongside wrapper predicates; trait-parameter bounds are handled by codegen's inheritance logic (not transferred redundantly).
 
 ### Unified Directive Shape: `#directive(scope){content}`

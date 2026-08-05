@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.6.3** (2026-08-05) — 0.6.2: receiver-kind filters (`@all_ref_methods` etc.) + `#blanket` static-method delegation + span-based diagnostics; error messages fully in English. 0.6.3: doc fix.
+**v0.6.4** (2026-08-05) — 0.6.2/0.6.3 released (receiver filters, static delegation, span diagnostics, doc fix); 0.6.4: `@u*`/`@i*`/`@f*` name-family rename, generic-parameter families (`@all_type_params` etc.), `@N` indexes only fresh generics, `@trait` expands earlier.
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -103,7 +103,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | Directive system |
 | Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | Directive system |
 | Open extension                                   | Unknown `#name(args){body}` is handed to your macro with the same name | Directive system |
-| `@` constants                                    | Built-in families `@uint`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` customization (lazy expansion, chained references) | Constant system |
+| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` customization (lazy expansion, chained references) | Constant system |
 | Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`) belong to the macro-meta layer | Constant system |
 | `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | where clauses |
 | Tuple generation                                 | `()^3`, `(T,)^N`, Cartesian product, ranges  | Tuple generation |
