@@ -170,7 +170,8 @@ fn replace_segment_trait(
             let inner: Vec<_> = g.stream().into_iter().collect();
             let inner = replace_segment_trait(inner, trait_full_path)?;
             out.push(
-                proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect()).into(),
+                proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect())
+                    .into(),
             );
             i += 1;
         } else {

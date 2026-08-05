@@ -435,8 +435,7 @@ pub(crate) fn expand_consts(
                     && g.delimiter() == delimiter![{}]
                 {
                     let inner: Vec<_> = g.stream().into_iter().collect();
-                    let expanded =
-                        expand_consts(&inner, ctx)?.into_iter().collect();
+                    let expanded = expand_consts(&inner, ctx)?.into_iter().collect();
                     result.push(tokens[i].clone());
                     result.push(Group::new(delimiter![{}], expanded).into());
                     i += 2;
