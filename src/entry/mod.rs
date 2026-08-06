@@ -23,6 +23,7 @@ use crate::preprocess::{
     where_process,
 };
 use crate::util::{Cursor, compile_error_str};
+use path_prefix::try_parse_path_prefix;
 
 use crate::entry::driver::parse_batch_trait_entry;
 
@@ -69,41 +70,38 @@ pub(crate) fn expand_attr_macro(
     // prefix (it emits the local trait definition, so a path prefix is meaningless).
     // This runs before `@` expansion: `@trait` needs trait_full_path (batch_impl_only
     // expands to the external path, batch_impl to the local name).
-    let (trait_full_path, trait_last_ident, rest_tokens) = if !include_trait {
-        match crate::entry::path_prefix::try_parse_path_prefix(&attr_vec) {
-            Some((path, last_ident, rest)) => {
-                // The path prefix's last ident must match the local dummy trait name,
-                // otherwise `Trait<T>` matching in the subsequent DSL would fail.
-                match last_ident {
-                    Some(id) if id == trait_name => {
-                        let path_ts = path.into_iter().collect();
-                        // Borrow the local trait_name here as the matching ident
-                        // (already verified to share the name with the path's last segment).
-                        (path_ts, trait_name.clone(), rest)
-                    }
-                    Some(id) => {
-                        let msg = format!(
-                            "batch-impl: path prefix `#...{}` \
+    let prefix = (!include_trait).then(|| try_parse_path_prefix(&attr_vec)).flatten();
+    let (trait_full_path, trait_last_ident, rest_tokens) = match prefix {
+        Some((path, last_ident, rest)) => {
+            // The path prefix's last ident must match the local dummy trait name,
+            // otherwise `Trait<T>` matching in the subsequent DSL would fail.
+            match last_ident {
+                Some(id) if id == trait_name => {
+                    let path_ts = path.into_iter().collect();
+                    // Borrow the local trait_name here as the matching ident
+                    // (already verified to share the name with the path's last segment).
+                    (path_ts, trait_name.clone(), rest)
+                }
+                Some(id) => {
+                    let msg = format!(
+                        "batch-impl: path prefix `#...{}` \
                                  has a trailing ident that differs from the trait \
                                  name `{}`; the two must be identical",
-                            id, trait_name,
-                        );
-                        return Err(compile_error_str(&msg, id.span()));
-                    }
-                    None => {
-                        let msg = "batch-impl: expected at least one ident after the \
-                                 path prefix `#` as the trait path";
-                        return Err(compile_error_str(
-                            msg,
-                            proc_macro2::Span::call_site(),
-                        ));
-                    }
+                        id, trait_name,
+                    );
+                    return Err(compile_error_str(&msg, id.span()));
+                }
+                None => {
+                    let msg = "batch-impl: expected at least one ident after the \
+                             path prefix `#` as the trait path";
+                    return Err(compile_error_str(
+                        msg,
+                        proc_macro2::Span::call_site(),
+                    ));
                 }
             }
-            None => (quote![#trait_name], trait_name.clone(), attr_vec.clone()),
         }
-    } else {
-        (quote![#trait_name], trait_name.clone(), attr_vec.clone())
+        None => (quote![#trait_name], trait_name.clone(), attr_vec.clone()),
     };
 
     // Outermost macro-meta layer: `@` constant expansion (pure lexical substitution)
@@ -121,14 +119,10 @@ pub(crate) fn expand_attr_macro(
     // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)
     let rest_tokens = angle_collect(&rest_tokens)?;
 
-    let expanded = expand_tokens(
-        &mut Cursor::new(&rest_tokens),
-        &trait_item,
-        &trait_full_path,
-    )?;
+    let expanded = expand_tokens(&rest_tokens, &trait_item, &trait_full_path)?;
     // New bare `where predicate {body}` syntax → uniformly rewritten to legacy `where{predicate}`
     // (before `A<>` expansion: `Foo<>` inside predicates must pass through, not be expanded)
-    let expanded = where_process(&mut Cursor::new(&expanded))?;
+    let expanded = where_process(&expanded)?;
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = crate::analyze::extract_trait_bounds(&trait_item);
     // `A<>`: copy the trait generics (args and bounds all come from the trait definition,
@@ -198,7 +192,7 @@ pub(crate) fn expand_batch_trait(
         crate::preprocess::ConstCtx::Trait { user_table: &user_consts },
     )?;
     let tokens = angle_collect(&tokens)?;
-    let tokens = where_process(&mut Cursor::new(&tokens))?;
+    let tokens = where_process(&tokens)?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
     loop {
@@ -239,10 +233,7 @@ pub(crate) fn expand_batch_trait(
         if trait_path.is_empty() {
             return Err(compile_error_str(
                 "batch_trait! expects a trait name",
-                cursor
-                    .peek()
-                    .map(|t| t.span())
-                    .unwrap_or_else(proc_macro2::Span::call_site),
+                cursor.span(),
             ));
         }
         // Full trait path: just collect the token stream of trait_path as-is
@@ -262,18 +253,14 @@ pub(crate) fn expand_batch_trait(
                         "batch_trait! expects an ident as the trait name",
                         trait_path
                             .first()
-                            .map(|t| t.span())
-                            .unwrap_or_else(proc_macro2::Span::call_site),
+                            .map_or_else(proc_macro2::Span::call_site, |t| t.span()),
                     ));
                 }
             };
         if !cursor.is_punct(':') {
             return Err(compile_error_str(
                 "batch_trait! expects ':' to separate the trait name and impl-specs",
-                cursor
-                    .peek()
-                    .map(|t| t.span())
-                    .unwrap_or_else(proc_macro2::Span::call_site),
+                cursor.span(),
             ));
         }
         cursor.bump();

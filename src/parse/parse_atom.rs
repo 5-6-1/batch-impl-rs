@@ -56,11 +56,7 @@ pub(crate) fn parse_function(
         }
         _ => None,
     };
-    Ty::new(
-        fn_span,
-        TyKind::Fn(TyFn(parameters.into(), return_type, false)),
-    )
-    .into()
+    Ty::new(fn_span, TyFn(parameters.into(), return_type, false).into()).into()
 }
 
 /// Prefix modifier parsing: `&`/`&mut`/`*const`/`*mut`/`self`/`unsafe`
@@ -125,11 +121,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     };
     Ty::new(
         span,
-        TyKind::Range(TyRange {
-            start,
-            end: end.to_string().parse().ok()?,
-            inclusive,
-        }),
+        TyRange { start, end: end.to_string().parse().ok()?, inclusive }.into(),
     )
     .into()
 }
@@ -143,41 +135,27 @@ pub(crate) fn parse_group(
     match group.delimiter() {
         delimiter![()] => {
             if contents.is_empty() || contains_punct(&contents, ',') {
-                Ty::new(
-                    group.span(),
-                    TyKind::Tuple(TyTuple(parse_list(
-                        &contents,
-                        Op::Comma,
-                        trait_name,
-                    ))),
-                )
+                TyTuple(parse_list(&contents, Op::Comma, trait_name))
+                    .to_ty()
+                    .with_span(group.span())
             } else {
-                Ty::new(
-                    group.span(),
-                    TyKind::Group(TyGroup(Box::new(
-                        parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)
-                            .unwrap_or_else(empty),
-                    ))),
-                )
+                TyGroup(Box::new(
+                    parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)
+                        .unwrap_or_else(empty),
+                ))
+                .to_ty()
+                .with_span(group.span())
             }
         }
         delimiter![[]] => {
             // With a comma it is a list; otherwise `;` (Op::Semi) distinguishes arrays from slices.
             // Empty `[]` is the array/slice builder base `(None, None)`.
             if contains_punct(&contents, ',') {
-                Ty::new(
-                    group.span(),
-                    TyKind::Array(TyArray(parse_list(
-                        &contents,
-                        Op::Comma,
-                        trait_name,
-                    ))),
-                )
+                TyArray(parse_list(&contents, Op::Comma, trait_name))
+                    .to_ty()
+                    .with_span(group.span())
             } else if contents.is_empty() {
-                Ty::new(
-                    group.span(),
-                    TyKind::PrimitiveArray(TyPrimitiveArray(None, None)),
-                )
+                Ty::new(group.span(), TyPrimitiveArray(None, None).into())
             } else {
                 let mut cursor = Cursor::new(&contents);
                 let element = parse_item(&mut cursor, Op::Semi, trait_name)
@@ -186,27 +164,19 @@ pub(crate) fn parse_group(
                     cursor.bump();
                     let length: TokenStream =
                         cursor.take_rest().iter().cloned().collect();
-                    Ty::new(
-                        group.span(),
-                        TyKind::PrimitiveArray(TyPrimitiveArray(
-                            element.into(),
-                            length.into(),
-                        )),
-                    )
+                    TyPrimitiveArray(element.into(), length.into())
+                        .to_ty()
+                        .with_span(group.span())
                 } else {
-                    Ty::new(
-                        group.span(),
-                        TyKind::PrimitiveArray(TyPrimitiveArray(
-                            element.into(),
-                            None,
-                        )),
-                    )
+                    TyPrimitiveArray(element.into(), None)
+                        .to_ty()
+                        .with_span(group.span())
                 }
             }
         }
         delimiter![{}] => Ty::new(
             group.span(),
-            TyKind::WithCode(TyWithCode(None, TyCodeBlock(group.stream()))),
+            TyWithCode(None, TyCodeBlock(group.stream())).into(),
         ),
         _ => empty(),
     }

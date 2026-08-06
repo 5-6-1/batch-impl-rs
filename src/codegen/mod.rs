@@ -14,6 +14,7 @@ use crate::ast::*;
 use crate::util::{compile_err, compile_error_str};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
+use std::collections::HashSet;
 
 /// Generates one impl block (for a single flattened leaf `Ty`).
 ///
@@ -63,7 +64,7 @@ pub(crate) fn generate_impl(
             bare.parse().unwrap()
         })
         .collect();
-    let impl_names: std::collections::HashSet<String> =
+    let impl_names: HashSet<String> =
         impl_name_streams.iter().map(|n| n.to_string()).collect();
     for (name, bound) in &mut parts.impl_generics {
         if bound.is_some() {
@@ -103,7 +104,7 @@ pub(crate) fn generate_impl(
         }
         *bound = Some(Ty::new(
             proc_macro2::Span::call_site(),
-            TyKind::Primitive(TyPrimitive(b.clone())),
+            TyPrimitive(b.clone()).into(),
         ));
     }
     // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
@@ -120,8 +121,8 @@ pub(crate) fn generate_impl(
         }
         parts.where_clauses.push(pred.clone());
     }
-    // where-predicate macro-meta replacement (`@N` → impl generic N, `@trait` → trait name)
-    let mut where_resolved: Vec<TokenStream> = vec![];
+    // where-predicate macro-meta replacement (`@N` → impl generic N)
+    let mut where_resolved = vec![];
     for pred in &parts.where_clauses {
         match resolve_where_at(pred, &impl_name_streams) {
             Ok(p) => where_resolved.push(p),
@@ -214,13 +215,13 @@ fn resolve_where_at(
         {
             match tokens.get(i + 1) {
                 Some(TokenTree::Literal(lit)) => {
-                    let idx: usize = lit.to_string().parse().map_err(|_| {
+                    let idx = lit.to_string().parse::<usize>().map_err(|_| {
                         compile_error_str(
                             "batch-impl: `@` in a where predicate must be followed by a position digit (e.g. `@0`)",
                             tokens[i].span(),
                         )
                     })?;
-                    let Some(name) = fresh_names.get(idx) else {
+                    let Some(&name) = fresh_names.get(idx) else {
                         return Err(compile_err!(
                             "batch-impl: `@{}` out of range in a where predicate \
                              (impl has {} fresh generics, indexed from 0; \
@@ -229,7 +230,7 @@ fn resolve_where_at(
                             fresh_names.len()
                         ));
                     };
-                    out.extend((*name).clone());
+                    out.extend(name.clone());
                     i += 2;
                 }
                 _ => {
@@ -284,7 +285,7 @@ mod tests {
                         quote!(const N),
                         Some(Ty::new(
                             proc_macro2::Span::call_site(),
-                            TyKind::Primitive(TyPrimitive(quote!(usize))),
+                            TyPrimitive(quote!(usize)).into(),
                         )),
                     ),
                 ],

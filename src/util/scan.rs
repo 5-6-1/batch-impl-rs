@@ -29,22 +29,17 @@ impl<'a> Cursor<'a> {
         self.pos >= self.tokens.len()
     }
 
+    /// Span at the current position (call_site when at end).
+    pub(crate) fn span(&self) -> proc_macro2::Span {
+        self.peek().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site)
+    }
+
     pub(crate) fn peek(&self) -> Option<&'a TokenTree> {
         self.tokens.get(self.pos)
     }
 
-    pub(crate) fn peek_at(&self, offset: usize) -> Option<&'a TokenTree> {
-        self.tokens.get(self.pos + offset)
-    }
-
     pub(crate) fn is_punct(&self, ch: char) -> bool {
-        matches!(self.tokens.get(self.pos), Some(t) if is_punct(t, ch))
-    }
-
-    /// Whether the Bracket group at the current position passes through (the previous token
-    /// is `!` or `#`); synonymous with [`bracket_is_passthrough`], for cursor-style traversal.
-    pub(crate) fn prev_bracket_passthrough(&self) -> bool {
-        bracket_is_passthrough(self.tokens, self.pos)
+        is_punct_at(self.tokens, self.pos, ch)
     }
 
     /// Whether the `:` at the current position is a standalone single colon (not part of `::`)
@@ -89,11 +84,10 @@ impl<'a> Cursor<'a> {
 /// Angle brackets were paired into opaque groups by `angle_collect`, so `<>` depth is not
 /// tracked here; the only guard kept is the `->` arrow: `-` is not a Dash stop token when
 /// followed by `>`.
-pub(crate) fn scan_with(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
+pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     for (index, token) in tokens.iter().enumerate() {
         if matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char())) {
-            let is_arrow_dash = matches!(token, TokenTree::Punct(p)
-                if p.as_char() == '-' && p.spacing() == Spacing::Joint)
+            let is_arrow_dash = is_joint_punct_at(tokens, index, '-')
                 && matches!(tokens.get(index + 1), Some(next) if is_punct(next, '>'));
             if !is_arrow_dash {
                 return index.into();
@@ -103,14 +97,23 @@ pub(crate) fn scan_with(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     None
 }
 
-/// Return the index of the first depth-0 token in the stop set.
-pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
-    scan_with(tokens, stop)
-}
-
 /// Check whether a single token is the given punctuation
 pub(crate) fn is_punct(token: &TokenTree, punctuation: char) -> bool {
     matches!(token, TokenTree::Punct(p) if p.as_char() == punctuation)
+}
+
+/// Whether `tokens[index]` is the given punctuation (bounds-safe).
+pub(crate) fn is_punct_at(tokens: &[TokenTree], index: usize, ch: char) -> bool {
+    tokens.get(index).is_some_and(|t| is_punct(t, ch))
+}
+
+/// Whether the token is the given punctuation with `Joint` spacing (e.g. the
+/// first `.` of `..`, the `-` of `->`, the first `:` of `::`).
+pub(crate) fn is_joint_punct_at(
+    tokens: &[TokenTree], index: usize, ch: char,
+) -> bool {
+    matches!(tokens.get(index), Some(TokenTree::Punct(p))
+        if p.as_char() == ch && p.spacing() == Spacing::Joint)
 }
 
 /// Whether a Bracket group (`[...]`) "passes through": when the previous token is `!`

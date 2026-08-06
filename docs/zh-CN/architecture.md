@@ -1,6 +1,6 @@
 # batch-impl 内部架构
 
-**v0.6.3（开发中）**——0.6.2 已发布：预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托。0.6.3 为文档修正。
+**v0.6.5**——0.6.2/0.6.3/0.6.4 已发布：预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托、`@N` 唯一 codegen 记号；0.6.5：blanket `@N` 统一、`#cmd[args]` 方括号参数。
 
 面向贡献者：模块组织、解析流程、错误机制、测试矩阵。
 
@@ -136,9 +136,9 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
     打包，与砍掉的裸类型名常量不同类——携带约束才有复用价值）；
 - **`@0` 位置引用**：where 谓词通用（codegen 渲染时 `@N` → impl 泛型第 N 位、
   `@trait` → trait 名——元组 `()^2 where{@0: Clone}` 与普通 spec 可用）；
-  blanket 包装 where 中 `@0` 特指目标泛型（resolve_target_predicates 预替换为
-  fresh 名，先于 codegen，两处不冲突）；expand_consts 不进入 Brace 组
-  （where 组透传），`@N` 恰好在消费点替换；
+  blanket 包装 where 中 `@0` 特指目标泛型（fresh 名——**同样由 codegen 统一
+  解析**：blanket 的 fresh 是唯一 fresh，`@0` 索引到它；预处理只替换 `@trait`）；
+  expand_consts 不进入 Brace 组（where 组透传），`@N` 恰好在消费点替换；
 - **`<>` 只留名字**（blanket 生成的 spec 泛型只取 ident，const/lifetime
   原样）：`T: Trait` 与包装谓词并列进 where——合并 = 零分析 token 拼接
   （required ∪ default = all 同理）。blanket 的 `T: Trait` 因此与包装谓词
@@ -161,7 +161,7 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 - 参数域统一由 `parse_names_from_tokens` 解析（`,` 分隔、`@all` 系标记、
   `-name` 排除），DSL 解析不进入；
 - **新指令 = 在形态空间内选新的（范围，内容）组合**——现有四指令已把
-  两个轴的高频组合占满；新组合须满足"用户自实现成本高"（固定模板不值钱）
+  两个轴的高频组合占满；新组合须满足"作者自实现成本高"（固定模板不值钱）
   才会被采纳（`#deref` 因此被拒：`#delegate(@all_methods){self.0}` +
   `#Target{Inner}` 组合已覆盖且零新语法）。
 
@@ -196,7 +196,7 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | 目录        | 文件            | 用途                                                                                                                                                                         |
 |-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                                                         |
-| `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因用户输入 panic"（`cargo test --lib`）                                                          |
+| `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因作者输入 panic"（`cargo test --lib`）                                                          |
 | `tests/`    | `dsl.rs`        | 50 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承、@all 状态/receiver 过滤、blanket 静态委托） |
 | `tests/`    | `regression.rs` | 26 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
 | `tests/`    | `ui.rs`         | `trybuild` UI 测试：31 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
@@ -214,7 +214,7 @@ TRYBUILD=overwrite cargo test --test ui
 
 ## 发布流程
 
-1. `CHANGELOG.md`（用户视角）与 `docs/dev-changelog.md`（开发者视角）各记
+1. `CHANGELOG.md`（作者视角）与 `docs/dev-changelog.md`（开发者视角）各记
    一条
 2. `cargo package` 验证打包（docs/ 目录随 git 跟踪自动入包）
 3. `cargo publish`

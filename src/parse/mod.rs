@@ -72,33 +72,22 @@ fn parse_binary_chain(
         Some(op) => vec![op],
         None if cursor.at_end() => return None,
         None => {
-            let sp = cursor
-                .peek()
-                .map(|t| t.span())
-                .unwrap_or_else(proc_macro2::Span::call_site);
             return err_ty_at(
                 &format!("batch-impl: missing operand before `{}`{}", op_punct, hint),
-                sp,
+                cursor_span(cursor),
             )
             .into();
         }
     };
     if is_empty_operand(&items[0]) {
-        let sp = cursor
-            .peek()
-            .map(|t| t.span())
-            .unwrap_or_else(proc_macro2::Span::call_site);
         return err_ty_at(
             &format!("batch-impl: missing operand before `{}`{}", op_punct, hint),
-            sp,
+            cursor_span(cursor),
         )
         .into();
     }
     while cursor.is_punct(op_punct) {
-        let op_span = cursor
-            .peek()
-            .map(|t| t.span())
-            .unwrap_or_else(proc_macro2::Span::call_site);
+        let op_span = cursor_span(cursor);
         cursor.bump();
         let Some(op) = parse_operand(cursor, level, trait_name) else {
             return err_ty_at(
@@ -121,6 +110,11 @@ fn parse_binary_chain(
     } else {
         items.into_iter().reduce(|acc, x| acc.apply(x))
     }
+}
+
+/// Span at the cursor's current position (call_site when at end).
+fn cursor_span(cursor: &Cursor) -> proc_macro2::Span {
+    cursor.peek().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site)
 }
 
 /// Whether an operand is empty (when `^`/`-` is immediately followed by a depth-0 stop char,
@@ -231,23 +225,24 @@ fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
     }
 }
 
+/// Wrapper kind (`WithAttr`/`WithPrefix` half-applied, inner `None`): empty
+/// rest keeps the half-applied node, otherwise apply to the parsed remainder.
+fn attach_wrapper(
+    kind: TyKind, rest: &[TokenTree], trait_name: Option<&Ident>,
+) -> Ty {
+    let base = Ty::new(proc_macro2::Span::call_site(), kind);
+    if rest.is_empty() { base } else { base.apply(parse_primitive(rest, trait_name)) }
+}
+
 /// Parse one "atom" expression: attribute → function → prefix → range → number → group →
 /// generic → type params → primitive fallback
 fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
-        let inner = if rest.is_empty() {
-            Ty::new(
-                proc_macro2::Span::call_site(),
-                TyKind::WithAttr(TyWithAttr(TyAttr(attr), None)),
-            )
-        } else {
-            Ty::new(
-                proc_macro2::Span::call_site(),
-                TyKind::WithAttr(TyWithAttr(TyAttr(attr), None)),
-            )
-            .apply(parse_primitive(rest, trait_name))
-        };
-        return inner;
+        return attach_wrapper(
+            TyWithAttr(TyAttr(attr), None).into(),
+            rest,
+            trait_name,
+        );
     }
 
     if let Some(function) = parse_function(tokens, trait_name) {
@@ -284,18 +279,8 @@ fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
 or act as a bare impl marker (e.g. `unsafe^T`)",
             );
         }
-        let inner = if rest.is_empty() {
-            Ty::new(
-                proc_macro2::Span::call_site(),
-                TyKind::WithPrefix(TyWithPrefix(prefix, None)),
-            )
-        } else {
-            Ty::new(
-                proc_macro2::Span::call_site(),
-                TyKind::WithPrefix(TyWithPrefix(prefix, None)),
-            )
-            .apply(parse_primitive(rest, trait_name))
-        };
+        let inner =
+            attach_wrapper(TyWithPrefix(prefix, None).into(), rest, trait_name);
         return inner;
     }
 

@@ -2,3 +2,5 @@
 **/*.rs.bk
 Cargo.lock
 .idea/
+# One-off maintenance scripts (terminology fixes etc.) — not part of the crate
+/tools/

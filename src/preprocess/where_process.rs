@@ -18,21 +18,21 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::compile_error_str;
-use crate::util::{Cursor, bracket_is_passthrough};
+use crate::util::{bracket_is_passthrough, is_punct};
 
 pub(crate) fn where_process(
-    cursor: &mut Cursor,
+    tokens: &[TokenTree],
 ) -> Result<Vec<TokenTree>, TokenStream> {
-    let tokens = cursor.take_rest();
     let mut result = vec![];
     let mut i = 0;
     while i < tokens.len() {
         // Bare `where`: a directly following {group} is the legacy
-        // `where{...}`, skipped as-is; otherwise rewrite into where{predicates}
+        // `where{...}`, skipped as-is; otherwise rewrite into where{predicates}.
+        // (`where` is a Rust keyword — an Ident `where` can only be the DSL
+        // form, so a missing body always errors here, not at the parse layer.)
         if let TokenTree::Ident(ident) = &tokens[i]
             && ident == "where"
-            && i + 1 < tokens.len()
-            && !matches!(&tokens[i+1],TokenTree::Group(g)
+            && !matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
                 if g.delimiter() == delimiter![{}])
         {
             let Some((where_body, rest_index)) = scan_body_boundary(&tokens[i + 1..])
@@ -52,7 +52,7 @@ pub(crate) fn where_process(
             && !bracket_is_passthrough(tokens, i)
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
-            let vt = where_process(&mut Cursor::new(&v))?;
+            let vt = where_process(&v)?;
             result.push(Group::new(delimiter![[]], vt.into_iter().collect()).into());
             i += 1
         } else {
@@ -66,28 +66,26 @@ pub(crate) fn where_process(
 /// `ident!{...}` macro bodies) or an ident `where`.
 fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
     let mut j = 0;
-    let mut result = vec![];
+    let mut result: Vec<TokenTree> = vec![];
     while j < tokens.len() {
         match &tokens[j] {
             TokenTree::Group(g)
                 if g.delimiter() == delimiter![{}] && !is_macro_body(tokens, j) =>
             {
                 return (
-                    Group::new(delimiter![{}], result.into_iter().cloned().collect())
-                        .into(),
+                    Group::new(delimiter![{}], result.into_iter().collect()).into(),
                     j,
                 )
                     .into();
             }
             TokenTree::Ident(w) if w == "where" => {
                 return (
-                    Group::new(delimiter![{}], result.into_iter().cloned().collect())
-                        .into(),
+                    Group::new(delimiter![{}], result.into_iter().collect()).into(),
                     j,
                 )
                     .into();
             }
-            _ => result.push(&tokens[j]),
+            _ => result.push(tokens[j].clone()),
         }
         j += 1;
     }
@@ -96,6 +94,6 @@ fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
 
 fn is_macro_body(tokens: &[TokenTree], index: usize) -> bool {
     index >= 2
-        && matches!(&tokens[index - 1], TokenTree::Punct(p) if p.as_char() == '!')
+        && is_punct(&tokens[index - 1], '!')
         && matches!(&tokens[index - 2], TokenTree::Ident(_))
 }

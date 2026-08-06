@@ -5,6 +5,36 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.5 (2026-08-06)
+
+### Directive arguments accept bracket form: `#cmd[args]{body}`
+
+- Directive arguments accept `(args)` or `[args]` interchangeably (e.g.
+  `#fill[@all_methods]{0}`) — square brackets are clearer when the arguments
+  themselves contain parentheses; error messages and the tutorial document both.
+
+### Fix: macro-call passthrough hole
+
+- `ident!(...)` / `foo!()` `()` argument groups were previously recursed
+  unconditionally — inner `@` constants got substituted and `<` got wrongly
+  paired as angle groups; only `[]` groups had the `!`/`#` passthrough guard.
+  Now `()` groups share the guard (macro calls pass through untouched;
+  `#name(...)` directive args and DSL tuples still recurse).
+
+### Behavior tightening: bare range-endpoint references error at the definition
+
+- `@a=@u8` (an endpoint without `..`) previously passed `check_value_refs` and
+  only failed at the use site; now rejected at the definition
+  (ui fixture `const_bare_endpoint` locks it).
+
+### blanket `@0` / `@N` resolved by codegen
+
+- Blanket wrapper-where `@0`/`@N` are kept as-is into the spec and resolved by
+  `resolve_where_at` like any user where predicate (the blanket's fresh generic
+  is the only fresh, so `@0` indexes it); preprocessing replaces only `@trait`.
+  Behavior-equivalent, architecture-unifying — "@N is the only codegen marker"
+  now holds for blanket wrapper where too.
+
 ## 0.6.4 (2026-08-05)
 
 ### `@` constant name families renamed: `@uint`/`@int`/`@float` → `@u*`/`@i*`/`@f*`
@@ -39,8 +69,8 @@
   exactly one fresh, so `@0` is precisely "the 0-th fresh" — no longer a special-case rule;
 - Breaking point: `<T> ... where{@0: Default}` used to refer to the user generic `T` — write `where{T: Default}`
   instead (more natural); the out-of-bounds error is updated ("impl has N fresh generics");
-- User's original intent: `@N` was meant as a direct mapping of `_Param_N_BatchGen_` — but fresh numbering is a
-  global counter independent of final position (misaligned when multiple fresh sources / user generics are
+- Author's original intent: `@N` was meant as a direct mapping of `_Param_N_BatchGen_` — but fresh numbering is a
+  global counter independent of final position (misaligned when multiple fresh sources / author generics are
   interleaved), so "the N-th fresh" hardens it: positions are countable and independent of numbering, keeping
   the user-generic scenario pure.
 
@@ -48,7 +78,7 @@
 
 - Problem: `where{...}` is a Brace group, and `expand_consts` did not enter it (the `@` in a body is
   pattern syntax) — so `@trait`/`@N` in where predicates both remained until codegen's
-  `resolve_where_at`; the user pointed out that `@trait` should not survive to codegen (only `@N` needs
+  `resolve_where_at`; the author pointed out that `@trait` should not survive to codegen (only `@N` needs
   the impl generic list);
 - Three fixes:
   - `expand_consts` recognizes the `where` Ident + Brace group (a DSL construct, not a body) → enters it
@@ -222,7 +252,7 @@ wrappers (`impl<T: Trait> Trait for Box<T>` and so on).
 - **Assoc type / const delegation**: when `#all` includes const/type items, projections are generated
   (`type Item = <T as Foo<X>>::Item;` / `const N: Ty = <T as Foo<X>>::N;`) —
   traits with required associated types can also be blanket-covered;
-- `*const`/`*mut`, `self`, empty elements, and invalid `:N` error out, steering users to hand-written `#delegate`;
+- `*const`/`*mut`, `self`, empty elements, and invalid `:N` error out, steering authors to hand-written `#delegate`;
   delegation of by-value receiver methods depends on the wrapper's Deref/move capability, so everything is
   still allowed with rustc as the backstop (documented as a caveat).
 
@@ -235,7 +265,7 @@ wrappers (`impl<T: Trait> Trait for Box<T>` and so on).
 
 - README trimmed to a promotional version (why use it, mental model, quick start, feature overview);
   the full tutorial moved to `docs/tutorial.md`, developer docs to `docs/architecture.md`
-- CHANGELOG split into this file (user perspective) and `docs/dev-changelog.md` (developer perspective)
+- CHANGELOG split into this file (author perspective) and `docs/dev-changelog.md` (developer perspective)
 - Tutorial gained `@` constant and `#blanket` sections; architecture docs gained "syntax domain isolation" and
   "attachment semantics" sections
 

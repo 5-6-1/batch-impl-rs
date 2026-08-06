@@ -74,7 +74,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 parts
             }
             // bare code block has no target type; defensive fallback
-            None => ImplParts::leaf(Ty::new(span, TyKind::WithCode(wc))),
+            None => ImplParts::leaf(wc.to_ty().with_span(span)),
         },
         TyKind::WithWhere(ww) => match ww.0 {
             Some(inner) => {
@@ -82,7 +82,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 parts.where_clauses.push(ww.1.0);
                 parts
             }
-            None => ImplParts::leaf(Ty::new(span, TyKind::WithWhere(ww))),
+            None => ImplParts::leaf(ww.to_ty().with_span(span)),
         },
         TyKind::WithAttr(wa) => match wa.1 {
             Some(inner) => {
@@ -91,7 +91,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 parts.attrs.push(quote!(#[#stream]));
                 parts
             }
-            None => ImplParts::leaf(Ty::new(span, TyKind::WithAttr(wa))),
+            None => ImplParts::leaf(wa.to_ty().with_span(span)),
         },
         TyKind::WithPrefix(wp) => match wp.1 {
             Some(inner) => {
@@ -103,14 +103,11 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                     _ => {
                         let old_target = std::mem::replace(
                             &mut parts.target_type,
-                            Ty::new(
-                                span,
-                                TyKind::WithPrefix(TyWithPrefix(wp.0, None)),
-                            ),
+                            TyWithPrefix(wp.0, None).to_ty().with_span(span),
                         );
                         parts.target_type = Ty::new(
                             span,
-                            TyKind::WithPrefix(TyWithPrefix(wp.0, old_target.into())),
+                            TyWithPrefix(wp.0, old_target.into()).into(),
                         );
                     }
                 }
@@ -133,84 +130,16 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
 pub(crate) fn hoist_type_params(
     ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>,
 ) -> Ty {
-    let Ty { span, kind } = ty;
-    match kind {
+    match ty.kind {
+        // Generic-declaration wrapper: hoist the declaration outward (params
+        // are added to `out`, not to the rebuilt node).
         TyKind::WithType(wt) => {
             out.extend(wt.0.params);
             hoist_type_params(*wt.1, out)
         }
-        TyKind::Array(a) => Ty::new(
-            span,
-            TyKind::Array(TyArray(
-                a.0.into_iter().map(|e| hoist_type_params(e, out)).collect(),
-            )),
-        ),
-        TyKind::Tuple(t) => Ty::new(
-            span,
-            TyKind::Tuple(TyTuple(
-                t.0.into_iter().map(|e| hoist_type_params(e, out)).collect(),
-            )),
-        ),
-        TyKind::Group(g) => Ty::new(
-            span,
-            TyKind::Group(TyGroup(hoist_type_params(*g.0, out).into())),
-        ),
-        TyKind::PrimitiveArray(pa) => Ty::new(
-            span,
-            TyKind::PrimitiveArray(TyPrimitiveArray(
-                pa.0.map(|e| hoist_type_params(*e, out).into()),
-                pa.1,
-            )),
-        ),
-        TyKind::Generic(g) => {
-            let base = hoist_type_params(*g.0, out);
-            Ty::new(span, TyKind::Generic(TyGeneric(base.into(), g.1)))
+        // All other variants: recurse into children uniformly.
+        other => {
+            Ty::new(ty.span, other).map_children(&mut |c| hoist_type_params(c, out))
         }
-        TyKind::WithPrefix(wp) => Ty::new(
-            span,
-            TyKind::WithPrefix(TyWithPrefix(
-                wp.0,
-                wp.1.map(|e| hoist_type_params(*e, out).into()),
-            )),
-        ),
-        TyKind::WithTrait(wt) => Ty::new(
-            span,
-            TyKind::WithTrait(TyWithTrait(
-                wt.0,
-                hoist_type_params(*wt.1, out).into(),
-            )),
-        ),
-        TyKind::WithCode(wc) => Ty::new(
-            span,
-            TyKind::WithCode(TyWithCode(
-                wc.0.map(|e| hoist_type_params(*e, out).into()),
-                wc.1,
-            )),
-        ),
-        TyKind::WithWhere(ww) => Ty::new(
-            span,
-            TyKind::WithWhere(TyWithWhere(
-                ww.0.map(|e| hoist_type_params(*e, out).into()),
-                ww.1,
-            )),
-        ),
-        TyKind::WithAttr(wa) => Ty::new(
-            span,
-            TyKind::WithAttr(TyWithAttr(
-                wa.0,
-                wa.1.map(|e| hoist_type_params(*e, out).into()),
-            )),
-        ),
-        TyKind::Fn(f) => Ty::new(
-            span,
-            TyKind::Fn(TyFn(
-                f.0.map(|params| {
-                    params.into_iter().map(|p| hoist_type_params(p, out)).collect()
-                }),
-                f.1.map(|r| hoist_type_params(*r, out).into()),
-                f.2,
-            )),
-        ),
-        other => Ty::new(span, other),
     }
 }

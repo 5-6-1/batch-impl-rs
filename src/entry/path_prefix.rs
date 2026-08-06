@@ -1,5 +1,7 @@
 use proc_macro2::{Ident, Spacing, TokenTree};
 
+use crate::util::is_punct;
+
 /// Detect a `# Path :` path prefix at the start of attr.
 ///
 /// Rule: when it starts with `#` + `Ident` + (`::` `Ident`)+ + `:`, return
@@ -18,7 +20,7 @@ pub(crate) fn try_parse_path_prefix(
     if tokens.len() < 5 {
         return None;
     }
-    if !matches!(&tokens[0], TokenTree::Punct(p) if p.as_char() == '#') {
+    if !is_punct(&tokens[0], '#') {
         return None;
     }
     if !matches!(&tokens[1], TokenTree::Ident(_)) {
@@ -48,7 +50,7 @@ pub(crate) fn try_parse_path_prefix(
                     _ if saw_double_colon => {
                         let path = tokens[1..i].to_vec();
                         let rest = tokens[i + 1..].to_vec();
-                        return Some((path, last_ident, rest));
+                        return (path, last_ident, rest).into();
                     }
                     // Otherwise falls through to the `_ => return None` below
                     _ => return None,

@@ -65,6 +65,9 @@ fn ui() {
     t.compile_fail("tests/ui/const_range_bad.rs");
     t.compile_fail("tests/ui/const_cycle.rs");
     t.compile_fail("tests/ui/const_forward.rs");
+    // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
+    // at the definition by `check_value_refs`
+    t.compile_fail("tests/ui/const_bare_endpoint.rs");
 
     // #blanket: non-Deref wrappers / illegal `:N`
     t.compile_fail("tests/ui/blanket_ptr.rs");

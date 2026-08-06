@@ -31,8 +31,8 @@ fn parse_name_tokens(
     if tokens.is_empty() {
         return Err(compile_err!("batch-impl: {} cannot be empty", what));
     }
-    let mut keep: Vec<Ident> = vec![];
-    let mut exclude: Vec<Ident> = vec![];
+    let mut keep = vec![];
+    let mut exclude = vec![];
     let mut prev_was_comma = true; // Start is treated as "just passed a comma", to catch a leading comma
     let mut i = 0;
     while i < tokens.len() {
@@ -47,7 +47,7 @@ fn parse_name_tokens(
             // hand-write `[a,b]` or `-[a,b]` exclusions; an empty group
             // errors "cannot be empty" via recursion)
             TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
-                let inner: Vec<_> = g.stream().into_iter().collect();
+                let inner = g.stream().into_iter().collect::<Vec<_>>();
                 keep.extend(parse_name_tokens(&inner, trait_def, what)?);
                 prev_was_comma = false;
                 i += 1;
@@ -92,8 +92,10 @@ fn parse_name_tokens(
             what
         ));
     }
-    let names: Vec<Ident> =
-        keep.into_iter().filter(|id| !exclude.iter().any(|e| e == id)).collect();
+    let names = keep
+        .into_iter()
+        .filter(|id| !exclude.iter().any(|e| e == id))
+        .collect::<Vec<_>>();
     if names.is_empty() {
         return Err(compile_err!("batch-impl: {} cannot be empty", what));
     }
@@ -110,7 +112,7 @@ fn parse_minus_target(
             Ok((vec![Ident::new(&id.to_string(), id.span())], 1))
         }
         Some(TokenTree::Group(g)) if g.delimiter() == delimiter![[]] => {
-            let inner: Vec<_> = g.stream().into_iter().collect();
+            let inner = g.stream().into_iter().collect::<Vec<_>>();
             let ids = parse_name_tokens(&inner, trait_def, what)?;
             Ok((ids, 1))
         }
@@ -144,26 +146,26 @@ pub(crate) type AllMarkerSpec =
 /// domain (`@all`) and the macro-meta layer (`@all`) share the same table.
 pub(crate) fn resolve_all_marker(name: &str) -> Option<AllMarkerSpec> {
     match name {
-        "all" => Some(((true, true, true), None, None)),
-        "all_methods" => Some(((true, false, false), None, None)),
-        "all_constants" => Some(((false, true, false), None, None)),
-        "all_types" => Some(((false, false, true), None, None)),
-        "all_default" => Some(((true, true, true), Some(true), None)),
-        "all_default_methods" => Some(((true, false, false), Some(true), None)),
-        "all_default_constants" => Some(((false, true, false), Some(true), None)),
-        "all_default_types" => Some(((false, false, true), Some(true), None)),
-        "all_required" => Some(((true, true, true), Some(false), None)),
-        "all_required_methods" => Some(((true, false, false), Some(false), None)),
-        "all_required_constants" => Some(((false, true, false), Some(false), None)),
-        "all_required_types" => Some(((false, false, true), Some(false), None)),
+        "all" => ((true, true, true), None, None).into(),
+        "all_methods" => ((true, false, false), None, None).into(),
+        "all_constants" => ((false, true, false), None, None).into(),
+        "all_types" => ((false, false, true), None, None).into(),
+        "all_default" => ((true, true, true), true.into(), None).into(),
+        "all_default_methods" => ((true, false, false), true.into(), None).into(),
+        "all_default_constants" => ((false, true, false), true.into(), None).into(),
+        "all_default_types" => ((false, false, true), true.into(), None).into(),
+        "all_required" => ((true, true, true), false.into(), None).into(),
+        "all_required_methods" => ((true, false, false), false.into(), None).into(),
+        "all_required_constants" => ((false, true, false), false.into(), None).into(),
+        "all_required_types" => ((false, false, true), false.into(), None).into(),
         "all_ref_methods" => {
-            Some(((true, false, false), None, Some(ReceiverFilter::Ref)))
+            ((true, false, false), None, ReceiverFilter::Ref.into()).into()
         }
         "all_value_methods" => {
-            Some(((true, false, false), None, Some(ReceiverFilter::Value)))
+            ((true, false, false), None, ReceiverFilter::Value.into()).into()
         }
         "all_static_methods" => {
-            Some(((true, false, false), None, Some(ReceiverFilter::Static)))
+            ((true, false, false), None, ReceiverFilter::Static.into()).into()
         }
         _ => None,
     }
@@ -183,9 +185,9 @@ pub(crate) enum GenericFilter {
 
 pub(crate) fn resolve_generic_marker(name: &str) -> Option<GenericFilter> {
     match name {
-        "all_type_params" => Some(GenericFilter::Type),
-        "all_const_params" => Some(GenericFilter::Const),
-        "all_lifetimes" => Some(GenericFilter::Lifetime),
+        "all_type_params" => GenericFilter::Type.into(),
+        "all_const_params" => GenericFilter::Const.into(),
+        "all_lifetimes" => GenericFilter::Lifetime.into(),
         _ => None,
     }
 }
@@ -194,29 +196,29 @@ pub(crate) fn resolve_generic_marker(name: &str) -> Option<GenericFilter> {
 /// when the trait has no parameters of that kind.
 pub(crate) fn get_trait_generic_decl(
     trait_def: &ItemTrait, f: GenericFilter,
-) -> Option<proc_macro2::TokenStream> {
-    use proc_macro2::TokenStream;
-    use quote::quote;
-    let names: Vec<TokenStream> = trait_def
+) -> Option<TokenStream> {
+    let names = trait_def
         .generics
         .params
         .iter()
         .filter_map(|p| match (p, f) {
             (syn::GenericParam::Type(tp), GenericFilter::Type) => {
                 let id = tp.ident.clone();
-                Some(quote!(#id))
+                quote!(#id).into()
             }
-            (syn::GenericParam::Const(cp), GenericFilter::Const) => Some(quote!(#cp)),
+            (syn::GenericParam::Const(cp), GenericFilter::Const) => {
+                quote!(#cp).into()
+            }
             (syn::GenericParam::Lifetime(ld), GenericFilter::Lifetime) => {
-                Some(quote!(#ld))
+                quote!(#ld).into()
             }
             _ => None,
         })
-        .collect();
+        .collect::<Vec<_>>();
     if names.is_empty() {
         return None;
     }
-    Some(quote!(< #(#names),* >))
+    quote::quote!(< #(#names),* >).into()
 }
 
 /// Collects trait item names. `include_*` controls the kinds; `default`

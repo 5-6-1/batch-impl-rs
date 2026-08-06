@@ -1,6 +1,6 @@
 # batch-impl Internal Architecture
 
-**v0.6.4** — preprocessing order `@ <> # where`, completed macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation (0.6.2); 0.6.3 was a doc fix; 0.6.4 brings the `@u*` rename, generic-param families, fresh-only `@N`, earlier `@trait` expansion, and the restored `Apply` trait.
+**v0.6.5** — 0.6.2/0.6.3/0.6.4 released: preprocessing order `@ <> # where`, complete macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation, `@u*` rename, generic-param families, fresh-only `@N`, `@trait` expansion; 0.6.5: `@N` the only codegen marker (blanket unified), `#cmd[args]` bracket args.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
@@ -61,7 +61,7 @@ generate_impl**
 ### Key Design Decisions
 
 - **Angle-bracket groups**: proc-macro2 only groups `()`/`[]`/`{}`; `<>` is flat Punct. `angle_collect` pairs `<...>` into `delimiter![<>]` groups in a single pass at the entry (the `>` of `->` arrows does not participate), so downstream parsing no longer tracks `<>` depth; on the output side `render_angles` restores the flat `<...>`. `angle_collect` is **destructive** (re-collecting an already-paired group would flatten it as a real None group), so it runs only once.
-- **The delimiter! macro**: `Delimiter::None` has two meanings in this crate — `delimiter![<>]` (the carrier of angle-bracket groups) and `delimiter![none]` (a real transparent group, the product of macro-variable expansion). They expand to the same value and cannot serve as two arms in a single match. A proc-macro crate cannot use `#[macro_export]`, so the macro lives at the top of `preprocess` and is imported into the crate root via `#[macro_use]` (textual scope requires it to be declared before all its users).
+- **The delimiter! macro**: `Delimiter::None` has two meanings in this crate — `delimiter![<>]` (the carrier of angle-bracket groups) and `delimiter![none]` (a real transparent group, the product of macro-variable expansion). They expand to the same value and cannot serve as two arms in a single match. A proc-macro crate cannot use `#[macro_export]`, so the macro lives at the top of `preprocess` and is imported into the crate root via `#[macro_use]` (textual scope requires it to be declared before all its authors).
 - **where-predicate inheritance**: **single-type-parameter predicates** (`T: Clone`) in a trait-level where clause are merged into `TraitParam.bound` (inline + where splicing), while **all remaining predicates pass through verbatim** to the impl's where clause. Reference collection happens on the **syn AST** (`syn::visit`): single-segment paths and generic arguments are the parameter reference positions; path segments after `::` (associated type names), associated-type binding names, and HRTB binders (`for<'a>`) are naturally excluded; const generic arguments / array lengths are collected via `visit_expr`. In `impl_names`, `const N` is normalized to `N` to match the reference check.
 
 ## Syntax-Domain Isolation
@@ -96,7 +96,7 @@ New syntax may only **extend existing mechanisms within existing domains** (e.g.
   - The `@all` family → a Bracket group selecting items according to the trait definition (with required/default and receiver filtering: `@all_ref_methods`/`@all_value_methods`/`@all_static_methods`);
   - **Generic-param families** (`@all_type_params`/`@all_const_params`/`@all_lifetimes`, exclusive to batch_impl/batch_impl_only; batch_trait! errors) → a flat `<...>` generic declaration copied from the trait's own generic parameters (type params by name, const params as the full `const N: usize` declaration — a bare name is E0747 — lifetimes as-is); paired by angle_collect afterwards, bounds via codegen's same-name inheritance;
   - `@Cow` → `Cow<'_>` plus inherent constraint predicates (a packing whose deref target = `T::Owned`, in a different class from the removed bare type-name constants — a constant carries reuse value only when it carries constraints);
-- **`@0` positional references**: in where predicates, `@N` indexes the N-th **fresh** generic (impl generics whose names match the `_Param_{n}_BatchGen_` form; user-written params are addressed by their own names — `@N` exists exactly because fresh names are unknowable — usable in the tuple `()^2 where{@0: Clone}` and in ordinary specs); `@trait` is resolved **earlier** — at the constant stage for batch_impl/batch_impl_only, via segment-level replacement for batch_trait! — so `resolve_where_at` handles only `@N`; in a blanket wrapper where clause, `@0` specifically refers to the target generic (resolve_target_predicates pre-replaces it with a fresh name, before codegen, so the two places never conflict); expand_consts now enters `where{...}` Brace groups to expand `@trait` but leaves `@N` untouched for codegen;
+- **`@0` positional references**: in where predicates, `@N` indexes the N-th **fresh** generic (impl generics whose names match the `_Param_{n}_BatchGen_` form; user-written params are addressed by their own names — `@N` exists exactly because fresh names are unknowable — usable in the tuple `()^2 where{@0: Clone}` and in ordinary specs); `@trait` is resolved **earlier** — at the constant stage for batch_impl/batch_impl_only, via segment-level replacement for batch_trait! — so `resolve_where_at` handles only `@N`; in a blanket wrapper where clause, `@0` specifically refers to the target generic — **also resolved by codegen's `resolve_where_at`** (the blanket's fresh generic is the only fresh, so `@0` indexes it; preprocessing replaces only `@trait`); expand_consts now enters `where{...}` Brace groups to expand `@trait` but leaves `@N` untouched for codegen;
 - **`<>` keeps only names** (the constraint container is unified to where): a generic-declaration TypeParam keeps only its ident; const/lifetime stay as-is; all constraints (trait-parameter inline bounds + `T: Trait` + trait where + wrapper predicates) are juxtaposed into where — merging is zero-analysis token concatenation (required ∪ default = all likewise). The blanket's `T: Trait` therefore naturally sits alongside wrapper predicates; trait-parameter bounds are handled by codegen's inheritance logic (not transferred redundantly).
 
 ### Unified Directive Shape: `#directive(scope){content}`
@@ -113,7 +113,7 @@ All built-in directives are instances of the same shape — **directive name + s
 - The **scope** axis is covered: single item → item set → impl level (increasing granularity);
 - The **content** axis is covered: fill body → delegate → blanket (increasing processing power);
 - The argument domain is uniformly parsed by `parse_names_from_tokens` (`,`-separated, `@all` family markers, `-name` exclusions); DSL parsing never enters;
-- **A new directive = picking a new (scope, content) combination within the shape space** — the existing four directives already occupy all high-frequency combinations on the two axes; a new combination is adopted only when it satisfies "high cost for the user to implement by hand" (fixed templates are worthless) (`#deref` was therefore rejected: the `#delegate(@all_methods){self.0}` + `#Target{Inner}` combination already covers it with zero new syntax).
+- **A new directive = picking a new (scope, content) combination within the shape space** — the existing four directives already occupy all high-frequency combinations on the two axes; a new combination is adopted only when it satisfies "high cost for the author to implement by hand" (fixed templates are worthless) (`#deref` was therefore rejected: the `#delegate(@all_methods){self.0}` + `#Target{Inner}` combination already covers it with zero new syntax).
 
 ## Error Handling
 
@@ -153,7 +153,7 @@ TRYBUILD=overwrite cargo test --test ui
 
 ## Release Process
 
-1. Add an entry to `CHANGELOG.md` (user perspective) and `docs/dev-changelog.md` (developer perspective) each
+1. Add an entry to `CHANGELOG.md` (author perspective) and `docs/dev-changelog.md` (developer perspective) each
 2. `cargo package` to verify packaging (the docs/ directory is tracked by git and included automatically)
 3. `cargo publish`
 4. `git tag vX.Y.Z && git push origin vX.Y.Z`

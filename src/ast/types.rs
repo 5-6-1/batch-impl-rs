@@ -137,6 +137,13 @@ impl Ty {
     pub(crate) fn new(span: Span, kind: TyKind) -> Self {
         Ty { span, kind }
     }
+
+    /// Chainable constructor: builds a node from a subtype's `into()` and
+    /// overrides its span (`TyArray(x).into().with_span(span)`).
+    pub(crate) fn with_span(mut self, span: Span) -> Self {
+        self.span = span;
+        self
+    }
 }
 
 /// The type expression AST produced by DSL parsing.
@@ -171,175 +178,6 @@ pub(crate) enum TyKind {
     Num(TyNum),
     Range(TyRange),
     Error(TyError),
-}
-/// Result of [`Ty::expand`]: `Leaf` = non-expandable leaf; `Many` = expands into multiple nodes.
-pub(crate) enum Expand {
-    Leaf(Ty),
-    Many(Vec<Ty>),
-}
-
-/// Shared "recurse inner and rewrap" logic for wrapper variants: `make` rebuilds
-/// the wrapper from the inner; when `inner` is `None` (bare wrapper), `make(None)`
-/// returns it as-is (a leaf). Reused by the WithCode/WithWhere/WithAttr/WithPrefix arms.
-fn expand_wrapped<F>(make: F, inner: Option<Box<Ty>>) -> Expand
-where
-    F: Fn(Option<Box<Ty>>) -> Ty,
-{
-    match inner {
-        Some(i) => match i.expand() {
-            Expand::Many(v) => {
-                Expand::Many(v.into_iter().map(|e| make(Some(e.into()))).collect())
-            }
-            Expand::Leaf(l) => Expand::Leaf(make(Some(l.into()))),
-        },
-        None => Expand::Leaf(make(None)),
-    }
-}
-
-/// Like [`expand_wrapped`], but the inner always exists (`WithType`/`WithTrait`
-/// boxes are non-`Option`).
-fn expand_rebuild<F>(make: F, inner: Ty) -> Expand
-where
-    F: Fn(Box<Ty>) -> Ty,
-{
-    match inner.expand() {
-        Expand::Many(v) => {
-            Expand::Many(v.into_iter().map(|e| make(e.into())).collect())
-        }
-        Expand::Leaf(l) => Expand::Leaf(make(l.into())),
-    }
-}
-
-impl Ty {
-    /// Expands parallel-list nodes: `Array` unwraps directly, wrappers (With*) recurse.
-    ///
-    /// [`Expand::Leaf`] = non-expandable leaf returned as-is (collected as one impl);
-    /// [`Expand::Many`] = expands into multiple nodes. Wrappers pass arrays through
-    /// transparently: `<T>[A,B]` becomes `<T>A, <T>B` (generic declarations are not
-    /// repeated into a single impl); WithAttr/WithPrefix passthrough is defensive
-    /// (array dispatch already happens in apply; uniform passthrough prevents regressions).
-    pub(crate) fn expand(self) -> Expand {
-        let Ty { span, kind } = self;
-        match kind {
-            TyKind::Array(ty) => Expand::Many(ty.0),
-            TyKind::WithCode(wc) => {
-                let TyWithCode(inner, payload) = wc;
-                expand_wrapped(
-                    move |i| {
-                        Ty::new(
-                            span,
-                            TyKind::WithCode(TyWithCode(i, payload.clone())),
-                        )
-                    },
-                    inner,
-                )
-            }
-            TyKind::WithWhere(ww) => {
-                let TyWithWhere(inner, payload) = ww;
-                expand_wrapped(
-                    move |i| {
-                        Ty::new(
-                            span,
-                            TyKind::WithWhere(TyWithWhere(i, payload.clone())),
-                        )
-                    },
-                    inner,
-                )
-            }
-            TyKind::WithType(wt) => {
-                let TyWithType(params, inner) = wt;
-                expand_rebuild(
-                    move |e| {
-                        Ty::new(span, TyKind::WithType(TyWithType(params.clone(), e)))
-                    },
-                    *inner,
-                )
-            }
-            TyKind::WithTrait(wt) => {
-                let TyWithTrait(t, inner) = wt;
-                expand_rebuild(
-                    move |e| {
-                        Ty::new(span, TyKind::WithTrait(TyWithTrait(t.clone(), e)))
-                    },
-                    *inner,
-                )
-            }
-            TyKind::WithAttr(wa) => {
-                let TyWithAttr(attr, inner) = wa;
-                expand_wrapped(
-                    move |i| {
-                        Ty::new(span, TyKind::WithAttr(TyWithAttr(attr.clone(), i)))
-                    },
-                    inner,
-                )
-            }
-            TyKind::WithPrefix(wp) => {
-                let TyWithPrefix(prefix, inner) = wp;
-                expand_wrapped(
-                    move |i| {
-                        Ty::new(span, TyKind::WithPrefix(TyWithPrefix(prefix, i)))
-                    },
-                    inner,
-                )
-            }
-            TyKind::Group(g) => (*g.0).expand(),
-            other => Expand::Leaf(Ty::new(span, other)),
-        }
-    }
-}
-
-macro_rules! impl_from_for_ty {
-    ($($struct:ident => $variant:ident),* $(,)?) => {
-        $(
-            impl From<$struct> for Ty {
-                fn from(value: $struct) -> Self {
-                    Ty::new(Span::call_site(), TyKind::$variant(value))
-                }
-            }
-            impl From<$struct> for Box<Ty> {
-                fn from(value: $struct) -> Self {
-                    Box::new(value.into())
-                }
-            }
-            impl From<$struct> for Option<Ty> {
-                fn from(value: $struct) -> Self {
-                    Some(value.into())
-                }
-            }
-            impl From<$struct> for Option<Box<Ty>> {
-                fn from(value: $struct) -> Self {
-                    Some(value.into())
-                }
-            }
-        )*
-    };
-}
-
-impl From<Ty> for Option<Box<Ty>> {
-    fn from(ty: Ty) -> Self {
-        Some(ty.into())
-    }
-}
-
-impl_from_for_ty! {
-    TyArray => Array,
-    TyTuple => Tuple,
-    TyGroup => Group,
-    TyPrimitiveArray => PrimitiveArray,
-    TyPrimitive => Primitive,
-    TyGeneric => Generic,
-    TyTrait => Trait,
-    TyTypeParam => TypeParam,
-    TyFn => Fn,
-    TyWithPrefix => WithPrefix,
-    TyWithAttr => WithAttr,
-    TyWithTrait => WithTrait,
-    TyWithType => WithType,
-    TyWithCode => WithCode,
-    TyWithWhere => WithWhere,
-    TyNum => Num,
-    TyRange => Range,
-    TyError => Error,
 }
 
 /// Operator precedence levels (low→high: `;` < `,` < `-` < `^`; `Prim` = atomic, no operator).

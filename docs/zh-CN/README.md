@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.6.3（开发中）**——0.6.2 已发布：receiver 过滤（`@all_ref_methods` 等）+ `#blanket` 静态方法委托 + span 诊断；错误消息全英文。0.6.3 为文档修正。
+**v0.6.5**——0.6.2/0.6.3/0.6.4 已发布：receiver 过滤（`@all_ref_methods` 等）+ `#blanket` 静态方法委托 + span 诊断、`@u*`/`@i*`/`@f*` 改名、泛型参数族、`@N` 只索引 fresh 泛型；0.6.5：`#cmd[args]{body}` 方括号参数、宏调用 passthrough 修复、裸范围端点定义处报错、blanket `@N` 统一 codegen 解析。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
@@ -67,7 +67,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.6.4"
+batch-impl = "0.6.5"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -110,6 +110,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | 覆盖式委托 `#blanket`                | 包装矩阵一行生成委托 impl（任意包装 + `:N`、泛型 trait、assoc 投影、包装 where 谓词、静态方法经 `t` 转发） | 指令系统    |
 | 开放扩展                             | 不认识的 `#name(args){body}` 交给你的同名宏 | 指令系统    |
 | `@` 常量                             | 内置族 `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` 系/`@Cow` + batch_trait! 自定义（懒展开、链式引用） | 常量系统    |
+| 泛型参数族                           | `@all_type_params` / `@all_const_params` / `@all_lifetimes`——泛型声明照抄 trait 形参（bound 走同名继承） | 常量系统    |
 | 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`）归宏元层 | 常量系统    |
 | `where{...}`                         | 约束容器统一（`<>` 只留名字），blanket 约束并列合并 | where 子句  |
 | 元组生成                             | `()^3`、`(T,)^N`、笛卡尔积、范围            | 元组生成    |

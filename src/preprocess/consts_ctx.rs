@@ -38,7 +38,7 @@ impl<'a> ConstCtx<'a> {
     /// not support custom definitions).
     pub(crate) fn user_table(&self) -> Option<&'a UserConsts> {
         match self {
-            ConstCtx::Trait { user_table } => Some(user_table),
+            &ConstCtx::Trait { user_table } => user_table.into(),
             ConstCtx::Attribute { .. } => None,
         }
     }
@@ -47,7 +47,7 @@ impl<'a> ConstCtx<'a> {
     /// `batch_trait!` is a function-like macro and cannot get it).
     pub(crate) fn trait_def(&self) -> Option<&'a syn::ItemTrait> {
         match self {
-            ConstCtx::Attribute { trait_def, .. } => Some(trait_def),
+            &ConstCtx::Attribute { trait_def, .. } => trait_def.into(),
             ConstCtx::Trait { .. } => None,
         }
     }
@@ -56,7 +56,7 @@ impl<'a> ConstCtx<'a> {
     /// external path).
     pub(crate) fn trait_full_path(&self) -> Option<&'a TokenStream> {
         match self {
-            ConstCtx::Attribute { trait_full_path, .. } => Some(trait_full_path),
+            &ConstCtx::Attribute { trait_full_path, .. } => trait_full_path.into(),
             ConstCtx::Trait { .. } => None,
         }
     }

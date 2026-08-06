@@ -1,4 +1,4 @@
-error: `#m` must be followed by `(args)` + `{body}` or directly `{body}`
+error: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)
  --> tests/ui/directive_bad_follow.rs:8:1
   |
 8 | #[batch_impl(usize #m[not_a_group_or_parens])]

@@ -13,10 +13,9 @@ use syn::ItemTrait;
 use crate::ast::fresh_param;
 use crate::preprocess::{
     angle_collect, build_from_item, collect_call_args, get_trait_item,
-    parse_names_from_tokens,
+    parse_blanket_wrappers, parse_names_from_tokens,
 };
-use crate::util::is_single_colon;
-use crate::util::{compile_err, compile_err_at, compile_error_str};
+use crate::util::{compile_err, compile_error_str};
 
 /// `#blanket(@all){&,Box,Rc}` — blanket delegation: emits one complete spec
 /// per wrapper type.
@@ -73,12 +72,7 @@ pub(crate) fn expand_blanket(
     // T's bound: `Trait<X>` (with args) or bare `Trait`.
     // Args must be grouped into an angle group (same as trait_part) — once
     // grouped, parsing is correct without relying on idempotence.
-    let t_bound = if param_names.is_empty() {
-        quote!(#trait_full_path)
-    } else {
-        let args_group = Group::new(delimiter![<>], quote!(#(#param_names),*));
-        quote!(#trait_full_path #args_group)
-    };
+    let t_bound = trait_with_args(trait_full_path, &param_names);
     // blanket runs after angle_collect and its output is no longer paired,
     // so groups must be built manually. The bound uses trait_full_path (with
     // `#[batch_impl_only(#ext::Trait: ...)]` it is an external path; a local
@@ -116,8 +110,7 @@ pub(crate) fn expand_blanket(
     let trait_part = if param_names.is_empty() {
         quote!()
     } else {
-        let args_group = Group::new(delimiter![<>], quote!(#(#param_names),*));
-        quote!(#trait_full_path #args_group)
+        trait_with_args(trait_full_path, &param_names)
     };
     // The `T as Trait<X>` form for assoc-item projections
     let as_trait = if param_names.is_empty() {
@@ -133,7 +126,7 @@ pub(crate) fn expand_blanket(
         // Wrapper where predicates: `@0` → target generic name; merged into
         // where (zero-analysis parallel merge)
         let wrapper_preds = match &wrapper.where_preds {
-            Some(preds) => resolve_target_predicates(preds, &t, trait_full_path)?,
+            Some(preds) => resolve_target_predicates(preds, trait_full_path)?,
             None => vec![],
         };
         // Insert predicate streams as wholes (commas between predicates are
@@ -201,39 +194,47 @@ pub(crate) fn expand_blanket(
     Ok(quote!(#(#spec_streams),*).into_iter().collect())
 }
 
-/// Replaces the positional reference `@0` in wrapper where predicates with
-/// the target generic name (fresh T), and `@trait` with the full trait path
+/// `Trait<X, Y>` with grouped angle args — blanket runs after `angle_collect`
+/// and its output is no longer paired, so the group is built manually. An
+/// empty param list yields the bare path.
+fn trait_with_args(path: &TokenStream, param_names: &[TokenStream]) -> TokenStream {
+    if param_names.is_empty() {
+        quote!(#path)
+    } else {
+        let args_group = Group::new(delimiter![<>], quote!(#(#param_names),*));
+        quote!(#path #args_group)
+    }
+}
+
+/// Replaces `@trait` in wrapper where predicates with the full trait path
 /// (local name, or the `#ext::Trait:` external path for `batch_impl_only`).
-/// `@N` (N>0) out-of-range errors: blanket generates only one target generic.
-/// Other tokens after `@` error — wrapper where only accepts positional
-/// references and `@trait`.
+/// `@N` position references are **kept as-is** and resolved by codegen's
+/// `resolve_where_at` like any user where predicate (blanket's fresh generic
+/// is the only fresh, so `@0` indexes it); other tokens after `@` error.
 fn resolve_target_predicates(
-    preds: &[TokenTree], t: &TokenStream, trait_full_path: &TokenStream,
+    preds: &[TokenTree], trait_full_path: &TokenStream,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
     while i < preds.len() {
         match &preds[i] {
             TokenTree::Punct(p) if p.as_char() == '@' => match preds.get(i + 1) {
-                Some(TokenTree::Literal(lit)) if lit.to_string() == "0" => {
-                    out.extend(t.clone());
-                    i += 2;
-                }
-                Some(TokenTree::Literal(lit)) => {
-                    return Err(compile_err!(
-                        "batch-impl: #blanket wrapper where `@{}` out of range \
-                         (only `@0` refers to the target generic)",
-                        lit
-                    ));
-                }
                 Some(TokenTree::Ident(id)) if id == "trait" => {
                     out.extend(trait_full_path.clone());
+                    i += 2;
+                }
+                // `@0` / `@N`: keep as-is for codegen; other forms error
+                Some(TokenTree::Literal(lit))
+                    if lit.to_string().parse::<usize>().is_ok() =>
+                {
+                    out.push(preds[i].clone());
+                    out.push(preds[i + 1].clone());
                     i += 2;
                 }
                 _ => {
                     return Err(compile_error_str(
                         "batch-impl: in #blanket wrapper where, `@` must be \
-                         followed by a positional number (e.g. `@0`) or `@trait`",
+                         followed by a position digit (e.g. `@0`) or `@trait`",
                         preds[i].span(),
                     ));
                 }
@@ -245,157 +246,4 @@ fn resolve_target_predicates(
         }
     }
     Ok(out)
-}
-
-/// A single `#blanket` wrapper element: type expression + deref depth +
-/// optional bound predicates.
-struct BlanketWrapper {
-    /// Wrapper type expression (without the `:N` annotation), applied as-is
-    /// to the fresh generic via `^T`.
-    ty: TokenStream,
-    /// Deref depth of the delegation body (`*` count = depth + 1); `:N`
-    /// explicit annotation or default 1.
-    depth: usize,
-    /// Wrapper bound predicates (group content of the trailing `where{...}`,
-    /// `@0` unresolved). Merged into the impl where clause (parallel with
-    /// trait generic where predicates, zero-analysis merge).
-    where_preds: Option<Vec<TokenTree>>,
-}
-
-/// Parses the `#blanket` body wrapper list (`&,Box^Arc:2,Cow<'_>`,
-/// comma-separated).
-///
-/// An element = arbitrary type token stream + optional trailing `:N` depth
-/// annotation (Alone `:` + numeric literal; does not clash with the Joint `:`
-/// of path `::`). Elements may be nested/prefilled forms (`&Box`, `Box^Arc`,
-/// `Cow<'_>`). Three syntax-necessarily-wrong cases are kept as errors:
-/// `*const`/`*mut` (safe code cannot deref a raw pointer to delegate), `self`
-/// (meaningless), and empty elements / invalid `:N`.
-fn parse_blanket_wrappers(
-    tokens: &[TokenTree],
-) -> Result<Vec<BlanketWrapper>, TokenStream> {
-    let mut wrappers = vec![];
-    let mut current: Vec<TokenTree> = vec![];
-    let flush = |mut current: Vec<TokenTree>,
-                 wrappers: &mut Vec<BlanketWrapper>|
-     -> Result<(), TokenStream> {
-        if current.is_empty() {
-            return Err(compile_error_str(
-                "batch-impl: #blanket wrapper list contains an empty element \
-                 (e.g. `&,Box`); separate elements with `,`",
-                proc_macro2::Span::call_site(),
-            ));
-        }
-        // Trailing `where{...}` bound predicates (last part of the element,
-        // `@0` refers to the target generic; after `:N`)
-        let where_preds = if let Some(TokenTree::Group(g)) = current.last()
-            && g.delimiter() == delimiter![{}]
-            && let Some(TokenTree::Ident(id)) = current.get(current.len() - 2)
-            && id == "where"
-        {
-            let inner = g.stream().into_iter().collect();
-            current.truncate(current.len() - 2);
-            Some(inner)
-        } else {
-            None
-        };
-        // Trailing `:N` depth annotation (Alone `:`; rules in the doc)
-        let mut depth = 1usize;
-        let mut ty_end = current.len();
-        for i in (0..current.len()).rev() {
-            if is_single_colon(&current, i) {
-                match &current.get(i + 1) {
-                    Some(TokenTree::Literal(lit)) => {
-                        depth = lit.to_string().parse().map_err(|_| {
-                            compile_err!(
-                                "batch-impl: #blanket `:{}` has an invalid depth \
-                                 (must be a positive integer, e.g. `Box^Arc:2`)",
-                                lit
-                            )
-                        })?;
-                        if depth == 0 {
-                            return Err(compile_error_str(
-                                "batch-impl: #blanket `:0` is meaningless \
-                                 (deref depth must be ≥ 1)",
-                                lit.span(),
-                            ));
-                        }
-                        ty_end = i;
-                    }
-                    Some(other) => {
-                        return Err(compile_err_at!(
-                            other.span(),
-                            "batch-impl: after #blanket `:{}` must come a number \
-                             (e.g. `Box^Arc:2`)",
-                            other
-                        ));
-                    }
-                    None => {}
-                }
-                break;
-            }
-        }
-        let ty_tokens = &current[..ty_end];
-        match ty_tokens {
-            [] => Err(compile_error_str(
-                "batch-impl: #blanket `:N` is missing the wrapper type before it \
-                 (e.g. `Box^Arc:2`)",
-                proc_macro2::Span::call_site(),
-            )),
-            // Built-in wrapper constant: `@Cow` → `Cow<'_>` + inherent bound
-            // predicates (deref target = T::Owned, requiring
-            // `@0: ToOwned + ?Sized` and `@0::Owned: @trait`; @0/@trait are
-            // replaced at resolve time)
-            [TokenTree::Punct(at), TokenTree::Ident(name)]
-                if at.as_char() == '@' && name == "Cow" =>
-            {
-                let preds: Vec<TokenTree> =
-                    quote!(@0: ToOwned + ?Sized, @0::Owned: @trait)
-                        .into_iter()
-                        .collect();
-                // quote does not pair angle brackets — `Cow<'_>` needs a
-                // manually built <> group (blanket output no longer goes
-                // through angle_collect; a flat `<` would remain)
-                let args = Group::new(delimiter![<>], quote!('_));
-                wrappers.push(BlanketWrapper {
-                    ty: quote!(Cow #args),
-                    depth,
-                    where_preds: Some(preds),
-                });
-                Ok(())
-            }
-            [TokenTree::Punct(a), TokenTree::Ident(n)]
-                if a.as_char() == '*' && (n == "const" || n == "mut") =>
-            {
-                Err(compile_error_str(
-                    "batch-impl: #blanket does not support `*const`/`*mut` \
-                     wrappers (deref is unsafe, cannot delegate); write \
-                     #delegate by hand",
-                    ty_tokens[0].span(),
-                ))
-            }
-            [TokenTree::Ident(id)] if id == "self" => Err(compile_error_str(
-                "batch-impl: #blanket does not support `self` wrappers \
-                 (delegation is meaningless); write #delegate by hand",
-                ty_tokens[0].span(),
-            )),
-            _ => {
-                let ty = ty_tokens.iter().cloned().collect();
-                wrappers.push(BlanketWrapper { ty, depth, where_preds });
-                Ok(())
-            }
-        }
-    };
-    for tt in tokens {
-        if let TokenTree::Punct(p) = tt
-            && p.as_char() == ','
-        {
-            flush(current, &mut wrappers)?;
-            current = vec![];
-        } else {
-            current.push(tt.clone());
-        }
-    }
-    flush(current, &mut wrappers)?;
-    Ok(wrappers)
 }

@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.6.4** — 0.6.2/0.6.3 are released: 0.6.2 added filtering by receiver kind (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, and span diagnostics; error messages are fully in English. 0.6.3 was a doc fix. 0.6.4 renames the built-in numeric families to `@u*` / `@i*` / `@f*`, adds generic-parameter families (`@all_type_params` / `@all_const_params` / `@all_lifetimes`), makes `@N` index fresh generics only, and resolves `@trait` earlier.
+**v0.6.5** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen.
 
 A progressively-learned DSL: start from a single impl line and work up to advanced matrix composition. All examples are compilable code; the product of every step is ordinary Rust — the impls the macro generates are token-for-token equivalent to handwritten ones.
 
@@ -276,6 +276,11 @@ trait HasType { type Item; }
 ```
 
 ### `#fill(methods){body}` — one body for many methods
+
+> Directive arguments accept `(args)` or `[args]` — equivalent (e.g.
+> `#fill[@all_methods]{0}`); square brackets are clearer when the arguments
+> themselves contain parentheses. The no-argument `#name{body}` form works
+> with both.
 
 ```rust
 # use batch_impl::batch_impl;

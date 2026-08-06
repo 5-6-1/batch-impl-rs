@@ -129,8 +129,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                     .map(|(_, bound)| (name.clone(), bound.clone()))
                     .collect();
                 param_decls.push(TyTypeParam { params, bindings: vec![] });
-                tuple_elems
-                    .push(Ty::new(elem_span, TyKind::Primitive(TyPrimitive(name))));
+                tuple_elems.push(TyPrimitive(name).to_ty().with_span(elem_span));
             }
             _ => tuple_elems.push(Ty::new(elem_span, elem.kind)),
         }
@@ -153,12 +152,11 @@ fn fresh_params(n: usize) -> Vec<Ty> {
 impl TyTuple {
     /// `(A,B,)^C` => append C; `(A,)^N` => tuple-length expansion; `(A,)^N..M` => range expansion
     pub(crate) fn apply_help(mut self, o: Ty, span: Span) -> Ty {
-        let o_span = o.span;
         match o.kind {
             TyKind::Num(TyNum(n)) => tuple_pow(self.0, n),
             _ => {
-                self.0.push(Ty::new(o_span, o.kind));
-                Ty::new(span, TyKind::Tuple(self))
+                self.0.push(o);
+                self.to_ty().with_span(span)
             }
         }
     }
@@ -167,13 +165,12 @@ impl TyTuple {
 impl TyGroup {
     /// `(T)^N` / `(<Bound>)^N` reuse the tuple's Num logic; `(T)^other` delegates to the inner type
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
-        let o_span = o.span;
         match o.kind {
             // (T)^N / (<tr>)^N → reuse the tuple's Num logic
             TyKind::Num(TyNum(n)) => {
                 tuple_pow(vec![Ty::new(span, TyKind::Group(self))], n)
             }
-            _ => self.0.apply(Ty::new(o_span, o.kind)),
+            _ => self.0.apply(o),
         }
     }
 }
@@ -182,13 +179,12 @@ impl TyFn {
     /// `fn^(A,B)` => `fn(A,B)` (fills in params); `fn(A,B)-C` => `fn(A,B)->C` (adds return type).
     /// The `is_unsafe` field passes through (`unsafe fn^(A,B)` => `unsafe fn(A,B)`).
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
-        let o_span = o.span;
         match self {
             // A bare fn gets its params via `^`; the right side must be a tuple (a Group like
             // `fn^((i8,i16))` is unwrapped by the default apply's Group branch; here `o` is always plain)
             TyFn(None, None, is_unsafe) => match o.kind {
                 TyKind::Tuple(t) => {
-                    Ty::new(span, TyKind::Fn(TyFn(t.0.into(), None, is_unsafe)))
+                    TyFn(t.0.into(), None, is_unsafe).to_ty().with_span(span)
                 }
                 _ => err_ty_at(
                     "batch-impl: the right side of the `fn` prefix must be a tuple type, e.g. fn^(i32, u32)",
@@ -196,14 +192,9 @@ impl TyFn {
                 ),
             },
             // Has params: append the return type via `-`
-            TyFn(Some(params), None, is_unsafe) => Ty::new(
-                span,
-                TyKind::Fn(TyFn(
-                    params.into(),
-                    Ty::new(o_span, o.kind).into(),
-                    is_unsafe,
-                )),
-            ),
+            TyFn(Some(params), None, is_unsafe) => {
+                TyFn(params.into(), o.into(), is_unsafe).to_ty().with_span(span)
+            }
             TyFn(Some(_), Some(_), _) => err_ty_at(
                 "batch-impl: the `fn` type already has a return type; cannot apply again",
                 span,
@@ -220,14 +211,14 @@ impl TyFn {
 impl TyWithAttr {
     /// `#[attr]^T` => `#[attr] T` (attaches the attribute to the type)
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
-        Ty::new(span, TyKind::WithAttr(TyWithAttr(self.0, o.into())))
+        TyWithAttr(self.0, o.into()).to_ty().with_span(span)
     }
 }
 
 impl TyTypeParam {
     /// `<T>^U` => `WithType(<T>, U)` (generic parameters applied to the target type)
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
-        Ty::new(span, TyKind::WithType(TyWithType(self, o.into())))
+        TyWithType(self, o.into()).to_ty().with_span(span)
     }
 }
 impl TyNum {
@@ -263,17 +254,12 @@ impl TyPrimitiveArray {
     /// a finished array is an error.
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         match (self.0, self.1) {
-            (None, None) => Ty::new(
-                span,
-                TyKind::PrimitiveArray(TyPrimitiveArray(o.into(), None)),
-            ),
-            (Some(elem), None) => Ty::new(
-                span,
-                TyKind::PrimitiveArray(TyPrimitiveArray(
-                    elem.into(),
-                    o.to_token_stream().into(),
-                )),
-            ),
+            (None, None) => Ty::new(span, TyPrimitiveArray(o.into(), None).into()),
+            (Some(elem), None) => {
+                TyPrimitiveArray(elem.into(), o.to_token_stream().into())
+                    .to_ty()
+                    .with_span(span)
+            }
             _ => err_ty_at(
                 "batch-impl: fixed-size array `[T; N]` cannot be a left operand",
                 span,

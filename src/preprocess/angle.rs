@@ -41,10 +41,8 @@ fn angle_collect_at(
     tokens: &[TokenTree], depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
-        let sp = tokens
-            .first()
-            .map(|t| t.span())
-            .unwrap_or_else(proc_macro2::Span::call_site);
+        let sp =
+            tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
         return Err(compile_error_str(
             &format!(
                 "batch-impl: nesting depth exceeds {} levels (perhaps an accidental extra bracket)",
@@ -59,27 +57,18 @@ fn angle_collect_at(
         match &tokens[i] {
             // Real None group (macro-variable output): content is DSL tokens, flatten
             TokenTree::Group(g) if g.delimiter() == delimiter![none] => {
-                let inner: Vec<_> = g.stream().into_iter().collect();
+                let inner = g.stream().into_iter().collect::<Vec<_>>();
                 out.extend(angle_collect_at(&inner, depth + 1)?);
                 i += 1;
             }
-            // DSL tuple: recurse
-            TokenTree::Group(g) if g.delimiter() == delimiter![()] => {
-                let inner: Vec<_> = g.stream().into_iter().collect();
-                let mut new_g = Group::new(
-                    g.delimiter(),
-                    angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
-                );
-                new_g.set_span(g.span());
-                out.push(new_g.into());
-                i += 1;
-            }
+            // DSL tuple; `ident!(...)` macro bodies are **not entered** (their
+            // content may be arbitrary Rust, including comparison `<`)
             // DSL list; `ident![...]` / `#[...]` passthrough (content is arbitrary Rust)
-            TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
+            TokenTree::Group(g) if g.delimiter() != delimiter![{}] => {
                 if bracket_is_passthrough(tokens, i) {
                     out.push(tokens[i].clone());
                 } else {
-                    let inner: Vec<_> = g.stream().into_iter().collect();
+                    let inner = g.stream().into_iter().collect::<Vec<_>>();
                     let mut new_g = Group::new(
                         g.delimiter(),
                         angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
@@ -103,7 +92,7 @@ fn angle_collect_at(
                         tokens[i].span(),
                     ));
                 };
-                let inner: Vec<_> = tokens[i + 1..close].to_vec();
+                let inner = tokens[i + 1..close].to_vec();
                 out.push(
                     Group::new(
                         delimiter![<>],
@@ -139,7 +128,7 @@ fn find_angle_close(tokens: &[TokenTree], open: usize) -> Option<usize> {
             depth += 1;
         } else if is_punct(token, '>') && !is_arrow(tokens, idx) {
             if depth == 0 {
-                return Some(idx);
+                return idx.into();
             }
             depth -= 1;
         }
@@ -163,9 +152,11 @@ fn is_punct(token: &TokenTree, ch: char) -> bool {
 /// **passthrough as-is, no rebuild** (keeps spans, avoiding impact on
 /// passthrough code and diagnostic mapping).
 pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
+    let tokens = stream.into_iter().collect::<Vec<_>>();
     let mut out = TokenStream::new();
-    for tt in stream {
-        match tt {
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
             TokenTree::Group(g) if g.delimiter() == delimiter![<>] => {
                 let inner = render_angles(g.stream());
                 out.extend([TokenTree::from(proc_macro2::Punct::new(
@@ -178,8 +169,13 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
                     proc_macro2::Spacing::Alone,
                 ))]);
             }
+            // Rebuild entered groups (DSL tuples/lists). `ident!(...)` /
+            // `ident![...]` macro bodies and `#[...]` attributes pass through
+            // as-is (never entered during pairing → cannot contain angle
+            // groups; keeps their spans untouched).
             TokenTree::Group(g)
-                if matches!(g.delimiter(), delimiter![()] | delimiter![[]]) =>
+                if matches!(g.delimiter(), delimiter![()] | delimiter![[]])
+                    && !bracket_is_passthrough(&tokens, i) =>
             {
                 let inner = render_angles(g.stream());
                 // Rebuild and restore the original span (otherwise Bracket
@@ -191,8 +187,9 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
             }
             // Brace (passthrough code): keep as-is — cannot contain angle
             // groups inside
-            other => out.extend([other]),
+            other => out.extend([other.clone()]),
         }
+        i += 1;
     }
     out
 }
@@ -256,6 +253,11 @@ mod tests {
         // not error
         let ts: TS2 = FromStr::from_str("m![a < b]").unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
+        // `ident!(...)` macro bodies are not entered either (Paren groups are
+        // otherwise recursed as DSL tuples)
+        let ts: TS2 = FromStr::from_str("m!(a < b)").unwrap();
+        assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
+        assert_eq!(roundtrip("m!(a < b)"), "m ! (a < b)");
     }
 
     #[test]

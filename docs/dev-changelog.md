@@ -5,6 +5,199 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.5 (2026-08-06)
+
+### Documentation rules (author wording + no in-dev marker)
+
+- Documents call the DSL authors **"author"** and the library users **"user"**
+  (project-owner semantics: design intent / decisions / "pointed out" use author;
+  library-user semantics: "user-defined constants", "user generics",
+  "user-visible" keep user); code identifiers (user_table etc.) and source
+  error messages unchanged;
+- Version headers carry no "in development" marker (prevents missed updates).
+
+### `#cmd[args]{body}` equivalent syntax + blanket `@0` unified into codegen
+
+- `#cmd[args]{body}` (bracket arguments) confirmed and advertised:
+  equivalent to `(args)` (the `_` branch covers both); error messages
+  updated to `(args)` or `[args]`; the tutorial's directive chapter notes
+  both forms (brackets are clearer when the arguments contain parentheses);
+  the ui fixture `directive_bad_follow` snapshot regenerated;
+- **blanket's `@0` unified into codegen**: `resolve_target_predicates` drops
+  its @0 replacement branch — `@0`/`@N` are kept as-is into the spec and
+  resolved uniformly by codegen's `resolve_where_at` (a blanket's fresh
+  generic is the only fresh one, so `@0` indexes correctly); the
+  preprocessor keeps only the `@trait` replacement (only the preprocessor
+  knows the trait path); architecturally, "`@N` is the only codegen marker"
+  now holds for blanket wrapper where clauses too;
+- Verified: fmt/clippy -D warnings clean, lib 10 / dsl 51 / regression 26 /
+  ui 34 fixtures / doctest 50 all green.
+
+### Punct helpers unified + directive system cleanup (#blanket split)
+
+- In-crate punct helpers (`is_punct` pre-existing + new `is_punct_at` /
+  `is_joint_punct_at`): replace the scattered `matches!(...Punct(p)...)`
+  standalone expressions (inside consts/consts_expand/path_prefix/
+  where_process/scan), keeping the pattern itself where a match-arm guard,
+  slice destructuring, or binding is needed;
+- `#blanket` split: blanket.rs 401 → `blanket.rs` (249: doc + expand_blanket +
+  resolve_target_predicates + new trait_with_args) + new `blanket_wrappers.rs`
+  (160: BlanketWrapper + parse_blanket_wrappers) — all ≤350;
+- The t_bound/trait_part duplication in blanket.rs converges into
+  `trait_with_args` (trait path + manual angle group; blanket output is no
+  longer paired by angle_collect);
+- Verified: fmt/clippy -D warnings clean, lib 10 / dsl 51 / regression 26 /
+  ui 33 fixtures / doctest 50 all green.
+
+### Macro-call passthrough hole fixed (the `()` groups in expand_consts + angle_collect)
+
+- **The hole**: the `()` groups in `expand_consts` and `angle_collect_at`
+  recursed unconditionally — arguments of `ident!(...)` macro calls (user
+  Rust) got DSL constant substitution / `<` wrongly paired; previously only
+  `[]` groups had the `bracket_is_passthrough` guard (`ident![...]` /
+  `#[...]`), the `()` groups were missed;
+- Fix: `()` groups uniformly go through `bracket_is_passthrough` (kept
+  verbatim when the preceding token is `!`/`#`) — macro calls `foo!(...)`
+  pass through; `#name(...)` directive arguments (preceded by an Ident) and
+  DSL tuples `(A, B)` still enter;
+- `render_angles` updated in sync: index-based iteration + passthrough check
+  (macro-call groups are not rebuilt, spans preserved as-is);
+  `angle_collect_at`'s depth-error `map_or_else` simplified;
+- Probes: `echo!(@u*)` passes the macro argument `@u*` through verbatim
+  (stringify = "@u*"); angle tests add `m!(a < b)` (a Paren macro call
+  containing `<`: no error + roundtrip preserved);
+- Verified: fmt/clippy -D warnings clean, lib 10 / dsl 51 / regression 26 /
+  ui 33 fixtures / doctest 50 all green.
+
+### Constant system cleanup (consts split + stricter behavior)
+
+- Split: consts.rs 520 lines → `consts.rs` (272: module doc + builtin
+  constant table + expand_consts entry + collect_user_consts) + new
+  `consts_expand.rs` (258: try_expand_at + check_value_refs) — dependencies
+  one-way (consts → consts_expand), all ≤350;
+- `render_list` / `render_list_strings` merged into a generic
+  `render_list<S: ToString>` (supports both &str and String, one duplicate
+  less);
+- The two `tokens.first().map(...).unwrap_or_else(call_site)` spots in
+  try_expand_at converge to `tokens[0].span()` (tokens[0] is always `@`);
+- **Stricter behavior**: the known check in `check_value_refs` gains an
+  `is_range` condition — a bare range-endpoint reference `@a=@u8` (no `..`)
+  now errors **at the definition site** (previously allowed through, only
+  blowing up at the use site); locked in by the new ui fixture
+  `const_bare_endpoint`;
+- Verified: fmt/clippy -D warnings clean, lib 10 / dsl 51 / regression 26 /
+  ui 33 fixtures / doctest 50 all green.
+
+### Construction chain rework: `From<TyKind>` + `to_ty()` + `with_span` replace `TyKind::X(TyX(...))` nesting
+
+- User's call: `impl_from_for_ty!`'s `From<$struct> for Ty` was a leftover
+  misalignment from the span rework — the macro was meant to be
+  "subtype → variant" (`Ty` before the span rework = today's `TyKind`);
+- The macro's final four-piece set: `From<TyKind>` (pure structural
+  conversion; `TyArray(x).into()` replaces `TyKind::Array(TyArray(x))`),
+  `From<Ty>` (call_site flavor, the basis of `to_ty`), `to_ty()` (chain
+  entry point; the explicit return type resolves the E0282 of
+  `.into().with_span(span)` — method resolution cannot infer the `.into()`
+  target), and `From<Box<Ty>>` (for the Expand iterator); the two uncalled
+  `From` impls for Option<Ty>/Option<Box<Ty>> are deleted;
+- New `Ty::with_span(span)` (changes only the node-level span); the two
+  construction forms `Ty::new(span, x.into())` and
+  `x.to_ty().with_span(span)` coexist (each serving its own purpose);
+- ~50 call sites across the crate replaced: `TyKind::X(TyX(...))` →
+  `TyX(...).into()` (TyKind target) or `TyX(...).to_ty().with_span(span)`
+  (inside Ty::new); 3 pattern positions (match arms / if let
+  destructuring) kept;
+- net -74 lines (+171/-245); `to_ty` consuming self is deliberate (clippy
+  allow);
+- Verified: fmt/clippy -D warnings clean, lib 10 / dsl 51 / regression 26 /
+  ui 32 fixtures / doctest 50 all green.
+
+### Cursor positioning convergence (Option A: parse-only read-only cursor)
+
+- Positioning: `Cursor` = a **parse-layer-only** read-only cursor
+  (entry/parse_atom/driver/generic/fuzz); the **preprocessing layer
+  (preprocess/*) uniformly iterates with Vec + index** (rewrite semantics,
+  read-modify-write);
+- Changes: `expand_tokens` / `expand_directive` (preprocess/mod.rs) switch to
+  `tokens: &[TokenTree] + i` — `expand_directive` returns `(output, consumed)`;
+  `where_process`'s signature changes to `tokens: &[TokenTree]` (the entry no
+  longer wraps a Cursor); `Cursor::peek_at` / `prev_bracket_passthrough`
+  deleted (no callers);
+- Verified: fmt/clippy -D warnings clean, lib 10 / dsl 51 / regression 26 /
+  ui 34 fixtures / doctest 50 all green; the Cursor usage surface converges
+  to the parse layer.
+
+### where-section tidy-up (6-stage pipeline audit + 3 small fixes)
+
+- The pipeline: where_process (bare-where rewrite) → parse_primitive (peels
+  off the trailing TyWithWhere) → apply (composition) →
+  extract_impl_parts (where_clauses extraction) → trait_bounds (trait-where
+  merging) → resolve_where_at (@N resolution);
+- A `where` at the end missing a body now errors early (the `i + 1 < len`
+  short-circuit removed — `where` is a Rust keyword, so an Ident `where` can
+  only be the DSL form); `tokens[i+1]` out-of-bounds → `get`;
+  scan_body_boundary's `Vec<&TokenTree>` + cloned → collected directly;
+- Verified: all green (same as above).
+
+### parse-layer cleanup
+
+- parse/mod.rs 354 → 339: the ×3 `cursor.peek().map(...).unwrap_or_else(call_site)`
+  spots converge to `cursor_span`; the WithAttr/WithPrefix half-apply branches
+  (rest empty vs apply) converge to `attach_wrapper` (TyKind + rest +
+  trait_name);
+- parse_atom.rs: parse_range's `TyKind::Range(TyRange {...})` →
+  `TyRange {...}.into()` (unified into style);
+- Verified: all green; the parse layer is all ≤350 (339/199/128).
+
+### ast-layer split (types.rs 470 → 4 files, all ≤350)
+
+- `types.rs` 470 → **261**: subtype definitions + Ty/TyKind + Op + MAX_EXPAND +
+  count_leaves + the fresh family;
+- New `types_visit.rs` (159): the Expand enum + expand_wrapped/expand_rebuild +
+  `Ty::map_children` + `Ty::expand` (traversal unified in one place);
+- New `types_from.rs` (65): the `impl_from_for_ty!` macro (subtypes → TyKind/Ty/
+  Box<Ty> + to_ty) + the 18-variant call list;
+- types_render.rs (169) kept; ast/mod.rs aggregates the re-exports;
+- Verified: all green.
+
+### codegen-layer cleanup
+
+- generate_impl: the `let parts = parts;` shadow binding deleted (NLL already
+  covers it; a historical leftover); `Ty::new(call_site,
+  TyPrimitive(...).into())` → `TyPrimitive(...).to_ty()`; HashSet imported
+  explicitly; the stale resolve_where_at comment corrected (blanket-wrapper
+  where `@N` now goes through here too — doc sync after the @0 unification);
+- impl_parts.rs: extract_impl_parts's 4 dual constructions (the
+  WithCode/WithWhere/WithAttr None branches + the WithPrefix target wrapping)
+  unified into the to_ty chain; 1 test spot updated in sync;
+- ast/types_visit.rs: map_children's `redundant_closure` allow attribute was
+  lost in the ast split — added back (`&mut FnMut` cannot be moved into
+  `.map(f)`);
+- Verified: all green; codegen layer 311/145 lines.
+
+### entry-layer cleanup
+
+- expand_attr_macro: the path-prefix branch converges — `if !include_trait {
+  match } else { duplicated None branch }` becomes
+  `(!include_trait).then(|| try_parse_path_prefix(...)).flatten()` + a single
+  match (the None branch written only once);
+- New `Cursor::span()` (the span at the current position, call_site at end) —
+  the 3 `peek().map(...).unwrap_or_else(...)` spots in entry converge;
+  trait_path's first() spot's `map_or_else` synced; the `path_prefix::` module
+  path changed to a use;
+- Verified: all green; entry layer 286/67/68.
+
+### util-layer cleanup
+
+- `scan_with` / `scan_stop` dual-name merge: scan_with has no external authors
+  (everything goes through the scan_stop forwarder) — scan_stop's
+  implementation inlined, the forwarding layer deleted;
+- scan_stop's `->` arrow guard uses `is_joint_punct_at` (unified punct
+  helpers);
+- `Cursor::is_punct` delegates to `is_punct_at` (the duplicate matches!
+  removed);
+- Verified: all green; util layer 161/41/11.
+
 ## 0.6.4 (2026-08-05)
 
 ### `@trait` expands early (constant stage / segment level); `@N` becomes the only codegen marker
@@ -48,10 +241,10 @@
 - All tests green (separated-declaration order, array/range/generic hoisting
   all regressed clean).
 
-### `@N` semantic fix (user design review)
+### `@N` semantic fix (author design review)
 
-- The user's original intent: `@N` should be a direct mapping to `_Param_N_BatchGen_` (a macro-meta-layer constant) — but the fresh number is a global counter and is unrelated to the position in the final impl generics (misaligned when multiple fresh sources / user generics are interleaved), so a direct mapping is unreliable;
-- Decision: `@N` = the **N-th fresh generic** inside a where predicate (of the `_Param_{N}_BatchGen_` form). `resolve_where_at` filters the impl generics list down to fresh forms and picks by position — user generics are written by name directly; the blanket-wrapping predicate `@0` (= the only fresh T) unifies naturally with the new rule and is no longer a special case;
+- The author's original intent: `@N` should be a direct mapping to `_Param_N_BatchGen_` (a macro-meta-layer constant) — but the fresh number is a global counter and is unrelated to the position in the final impl generics (misaligned when multiple fresh sources / author generics are interleaved), so a direct mapping is unreliable;
+- Decision: `@N` = the **N-th fresh generic** inside a where predicate (of the `_Param_{N}_BatchGen_` form). `resolve_where_at` filters the impl generics list down to fresh forms and picks by position — author generics are written by name directly; the blanket-wrapping predicate `@0` (= the only fresh T) unifies naturally with the new rule and is no longer a special case;
 - Breaking change: the B1 test `where{@0: @trait<T>}` → `where{T: @trait<T>}`; the tutorial's AtWhere example likewise; the out-of-bounds error message updated;
 - Tests: `()^2 where{@0: Clone, @1: Copy}` and `()^3 where{@2: Clone}` (pure fresh) unchanged, all green.
 
@@ -61,7 +254,7 @@
 - **Real bug fixed along the way**: `TyKind::apply`'s WithType hoist branch (`T^<A>X` → `<A>(T^X)`) wrongly hoisted the inner parameters to the outer level for "declaration applied to declaration" (`<'a> <T> X` consecutive declarations) → generated `<T, 'a>` (lifetime must be prior). Fix: when self is `TyKind::TypeParam`, go through `apply_help` to keep the declaration order (`<'a, T>` lifetimes first). Hand-written `<'a> <T>` also blew up before — the test `generic_param_families` locks in the combined shape;
 - Tests: dsl 51 (type/lifetime/const three families + combination + bound inheritance); ui `generic_family_batch_trait` (batch_trait! errors).
 
-### Constant name-family rename (user's call)
+### Constant name-family rename (author's call)
 
 - Proposal: `@i*`/`@u*`/`@f*` replace `@uint`/`@int`/`@float` (family symbols unified — the original `uint`'s `u` was inconsistent with the range family `u8`'s `u`); the `@u8..64` width-abbreviation proposal was rejected (little benefit, and it introduced a hidden "family inherits from the left endpoint" rule);
 - Implementation: `"u*"`/`"i*"`/`"f*"` wildcards in `builtin_named` (try_expand_at detects `tokens[2]` being `*`, lookup = `name*`, consumed 3); `check_value_refs` recognizes the wildcards in sync (an `@uints=@u*` reference inside a value was falsely reported as "unknown @u" — after the fix the lazy-expansion chain is complete). The builtins list in error messages and the missing-name-after-`@` example updated; the ui `const_unknown` snapshot regenerated;
@@ -95,7 +288,7 @@
 
 - `ReceiverFilter` enum (Ref / Value / Static) + the `AllMarkerSpec` type alias live in `helpers.rs`; the `resolve_all_marker` table gained `all_ref_methods` / `all_value_methods` / `all_static_methods`, and `get_trait_item_names` gained a receiver-filter dimension;
 - syn 3 receiver API: `f.sig.receiver()` returns `Option<&Receiver>`, whose `kind: ReceiverKind` is `Value` / `Reference(..)` / `Typed(..)` (the syn-2-style `receiver.reference` field no longer exists — caught by E0609, switched to matching `ReceiverKind`);
-- Motivation: blanket's by-value delegation semantics are ambiguous (Deref/move capability cannot be determined at expansion time); `#blanket(@all_ref_methods)` lets users delegate only `&self`/`&mut self` methods, with by-value methods keeping the trait's default implementations;
+- Motivation: blanket's by-value delegation semantics are ambiguous (Deref/move capability cannot be determined at expansion time); `#blanket(@all_ref_methods)` lets authors delegate only `&self`/`&mut self` methods, with by-value methods keeping the trait's default implementations;
 - Tests: `receiver_kind_filters` (ref/mut/val/static each correctly marked and selected) + `blanket_receiver_filter` (a Box blanket delegates `by_ref`; `by_val` falls back to the default — note the default implementation needs `where Self: Sized`, because the `self` receiver in a default method requires it, E0277);
 - Docs (zh-CN): the tutorial constant table + architecture's `@all` description and directive table updated; the English mirror is updated at publish time.
 
@@ -161,7 +354,7 @@
 
 ### Macro-meta layer completed (0.6.1 main line: `@` as the sole macro-meta marker + blanket bound merging)
 
-- Background: the user pointed out "`#all` looks wrong and violates `#`'s two formats" — `#` should only be directive names; scope selection (which items to pick) is a macro-meta-layer operation, unified under `@`;
+- Background: the author pointed out "`#all` looks wrong and violates `#`'s two formats" — `#` should only be directive names; scope selection (which items to pick) is a macro-meta-layer operation, unified under `@`;
 - The `@all` family: `try_expand_at` gained a branch (`resolve_all_marker` extracted as a shared table — used by both the directive domain and the macro-meta layer), expanding to a Bracket group (`render_list_strings`); exclusive to `batch_impl` (needs trait_def), `batch_trait!` errors; the entire `#all` family was deleted (parse_marker removed, the `#` branches of parse_name_tokens/parse_minus_target removed);
 - Directive arguments now support `[a,b]` (group contents parsed recursively; empty groups error; `-` exclusion supports `-[a,b]`) — the `@all` expansion output takes exactly this shape, and hand-written equivalents are allowed;
 - Trait-aware constants (ConstCtx::Attribute carries trait_def): `@trait` expands the local trait name; `@Cow` is built in (`Cow<'_>` + an inherent bound predicate — quote doesn't pair angle brackets, so the ty must use `Group::new(delimiter![<>])` manually; different in kind from the removed bare-type-name constants: only with a bound does it have reuse value);
@@ -171,20 +364,20 @@
 
 - `@Trait` → `@trait` rename + path-ification: the built-in name family unified to all-lowercase (`@uint`/`@scalar`/…); the content changed from "local trait name" to "full trait path" — `batch_impl` = local name, `batch_impl_only` = external path (`#ext::Trait:` prefix) — so blanket wrapper wheres can write `@0::Owned: @trait` without hand-writing the path; implementation: path-prefix resolution moved **earlier**, before `@` expansion (`@trait` needs trait_full_path; ConstCtx::Attribute gained a trait_full_path field and a `trait_full_path()` accessor); blanket's resolve_target_predicates switched to trait_full_path (trait_def.ident only gives the local name, wrong in external scenarios); codegen's resolve_where_at synced to lowercase; **lesson**: PowerShell Select-String is case-insensitive, so the residual check falsely reported success (it had actually been replaced).
 
-- `batch_trait!` segment-level `@trait`: with multiple segments each having a different trait name, the `@trait` inside constant values (e.g. `@type_t=<T>@trait<T>`) is replaced per segment by the entry's segment loop with that segment's trait path (`replace_segment_trait`) — "generic declaration + trait name" is packaged for reuse across segments; implementation points: try_expand_at now returns `Option` — the Trait ctx's `@trait` returns `None` (kept as-is, no lazy-expansion recursion triggered — expanding to itself → encountering it again → a stack-overflow infinite loop, empirically STATUS_STACK_OVERFLOW); check_value_refs skips `@trait` (special marker, not a constant reference); test dsl `trait_const_segment` (lesson: the trait definition must carry generics matching the spec's `<T> Trait<T>`; `Box^[T,(T,)]` generic overlap E0119 was a user-writing issue, so the test uses `[T, Vec<T>]`).
+- `batch_trait!` segment-level `@trait`: with multiple segments each having a different trait name, the `@trait` inside constant values (e.g. `@type_t=<T>@trait<T>`) is replaced per segment by the entry's segment loop with that segment's trait path (`replace_segment_trait`) — "generic declaration + trait name" is packaged for reuse across segments; implementation points: try_expand_at now returns `Option` — the Trait ctx's `@trait` returns `None` (kept as-is, no lazy-expansion recursion triggered — expanding to itself → encountering it again → a stack-overflow infinite loop, empirically STATUS_STACK_OVERFLOW); check_value_refs skips `@trait` (special marker, not a constant reference); test dsl `trait_const_segment` (lesson: the trait definition must carry generics matching the spec's `<T> Trait<T>`; `Box^[T,(T,)]` generic overlap E0119 was a author-writing issue, so the test uses `[T, Vec<T>]`).
 
 - Tests: dsl `macro_meta_complete` (@trait/@Cow/blanket where/[a,b]/where specs), `trait_const_value_with_angles` kept; full regression green.
 
 ### Preprocessing order fix: `@ <> # where`
 
-- Background: the user proposed that the macro-meta layer (`@`) should be the outermost pass. The bug in the then-current order (`<> @ #`) was verified empirically: `batch_trait!( @inner = Vec<u8>; @outer = Vec<@inner>; ... )` — the `@inner` of `Vec<@inner>` gets paired into the angle group by angle_collect, while expand_consts deliberately does not enter `<>` groups (`delimiter![<>]` and real None groups expand to the same value and can't share an arm; recorded in comments) — the leftover `@` reports `found '@'`; the direct value `@map = HashMap<u32, String>` happened not to break only because the definition-site pairing saved it, and the nested/reference scenario exposed it;
+- Background: the author proposed that the macro-meta layer (`@`) should be the outermost pass. The bug in the then-current order (`<> @ #`) was verified empirically: `batch_trait!( @inner = Vec<u8>; @outer = Vec<@inner>; ... )` — the `@inner` of `Vec<@inner>` gets paired into the angle group by angle_collect, while expand_consts deliberately does not enter `<>` groups (`delimiter![<>]` and real None groups expand to the same value and can't share an arm; recorded in comments) — the leftover `@` reports `found '@'`; the direct value `@map = HashMap<u32, String>` happened not to break only because the definition-site pairing saved it, and the nested/reference scenario exposed it;
 - Fix: both entry points moved `collect_user_consts` + `expand_consts` before `angle_collect` — the `@` expansion output (which may contain flat `<...>`) is uniformly paired by the subsequent angle_collect; the `#` directive and bare-where rewrite keep their positions;
 - Capability matrix: batch_impl/only = built-in `@` + `<>` + `#` + where; batch_trait! = custom `@` + `<>` + where;
 - Tests: dsl `trait_const_value_with_angles` (`@map` direct value + `@outer` nested value; E0252 lesson — dsl.rs already uses HashMap; E0119 lesson — batch_trait! generates the impl itself, don't hand-write duplicates).
 
 ### New scope markers: `@all_required*` / `@all_default*`
 
-- Background: the `@all` family never distinguished the default-implementation status of trait items (`#fill(@all)` also overrode items with default implementations, and excluding them one by one with `@all + -name` was tedious); the user proposed filtering by status;
+- Background: the `@all` family never distinguished the default-implementation status of trait items (`#fill(@all)` also overrode items with default implementations, and excluding them one by one with `@all + -name` was tedious); the author proposed filtering by status;
 - Implementation: `get_trait_item_names` gained a `default: Option<bool>` filter parameter (`Some(true)` = only defaulted, `Some(false)` = only required, `None` = all), with syn fields used to judge: `TraitItem::Fn(f).default` / `Const(c).default` / `Type(t).default` (fn = default body, const = default value, type = default type);
 - `parse_marker` switched to table dispatch (kinds, default) — 12 markers inlined, the four thin wrappers `get_all_trait_methods/items/constants/types` deleted;
 - Semantic points: `@all_required*` used alone is complete (fills only the required items, defaults kept); `@all_default*` used alone misses required items → E0046, so it must be combined with the required side / hand-written items; required ∪ default = all;
@@ -247,7 +440,7 @@
 - README rewritten as a sales version (669 → 117 lines): why use it / mental model / quick start / feature overview table / links
 - Tutorial split out into `docs/tutorial.md` (the original syntax reference + combos reorganized into 13 progressive chapters; lib.rs added `#![doc = include_str!(docs/tutorial.md)]`, so the docs.rs front page = sales pitch + tutorial; all tutorial code blocks run in doctests)
 - Developer docs split out into `docs/architecture.md` (architecture diagram, key design decisions, error mechanism, test matrix, release process)
-- CHANGELOG split into a user version (CHANGELOG.md) and a developer version (this file); all historical entries from 0.1.0 to the latest migrated by category
+- CHANGELOG split into a author version (CHANGELOG.md) and a developer version (this file); all historical entries from 0.1.0 to the latest migrated by category
 - Note: rustdoc compiles code blocks without a language annotation as Rust by default (the `<impl-generics>...` skeleton needs a `text` annotation)
 
 ## 0.5.7 (2026-08-03)
@@ -257,7 +450,7 @@
 - Defined at the top of `preprocess/mod.rs` (imported into the crate root via `#[macro_use]`), it unifies the scattered `Delimiter::*` literals using source delimiter spellings, with calls uniformly delimited by `[]`
 - `Delimiter::None`'s two semantics are distinguished by two spellings: `delimiter![<>]` (the angle-group carrier) vs. `delimiter![none]` (real transparent groups); 43 occurrences converged across the crate
 - Fixed the dangling `ANGLE_BRACKET` reference in angle.rs's module docs
-- proc-macro crates forbid `#[macro_export]`, so a macro can't be defined in `angle.rs` and be crate-wide visible; it is therefore placed at the top of the parent module (textual scoping requires the declaration before all users)
+- proc-macro crates forbid `#[macro_export]`, so a macro can't be defined in `angle.rs` and be crate-wide visible; it is therefore placed at the top of the parent module (textual scoping requires the declaration before all authors)
 
 ### Bracket guard alignment
 

@@ -2,6 +2,31 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.6.5 (2026-08-06)
+
+### 指令参数方括号写法：`#cmd[args]{body}`
+
+- 指令参数支持 `(args)` 或 `[args]` 等价写法（如 `#fill[@all_methods]{0}`）——
+  方括号在参数本身含括号时更清晰；错误消息与教程同步更新。
+
+### 修复：宏调用 passthrough 洞
+
+- `ident!(...)` / `foo!()` 的 `()` 参数组此前无条件进入递归——内部 `@` 常量被
+  替换、`<` 被错误配对成角度组；此前只有 `[]` 组有 `!`/`#` passthrough 守卫。
+  现在 `()` 组共享守卫（宏调用原样透传；`#name(...)` 指令参数与 DSL 元组仍进入）。
+
+### 行为收紧：裸范围端点引用在定义处报错
+
+- `@a=@u8`（无 `..` 的端点）此前通过 `check_value_refs`、使用处才炸；现在
+  定义处直接报错（ui fixture `const_bare_endpoint` 锁定）。
+
+### blanket `@0` / `@N` 统一到 codegen 解析
+
+- blanket 包装 where 的 `@0`/`@N` 原样保留进 spec，由 `resolve_where_at` 与
+  普通 where 谓词统一解析（blanket 的 fresh 泛型是唯一 fresh，`@0` 索引到它）；
+  预处理只替换 `@trait`。行为等价、架构统一——"`@N` 是唯一 codegen 记号"对
+  blanket 包装 where 也成立。
+
 ## 0.6.4 (2026-08-05)
 
 ### Apply trait 恢复：`apply` 右分发默认实现（span 兼容）
@@ -24,7 +49,7 @@
 
 - 问题：`where{...}` 是 Brace 组，`expand_consts` 原先不进入（body 的 `@` 是
   pattern 语法）——where 谓词里的 `@trait`/`@N` 都残留到 codegen 的
-  `resolve_where_at`；用户指出 `@trait` 不该留到 codegen（只有 `@N` 需要
+  `resolve_where_at`；作者指出 `@trait` 不该留到 codegen（只有 `@N` 需要
   impl 泛型列表）；
 - 修复三处：
   - `expand_consts` 识别 `where` Ident + Brace 组（DSL 结构非 body）→ 进入展开
@@ -45,7 +70,7 @@
   fresh，`@0` 恰好是"第 0 个 fresh"，不再是特例规则；
 - 破坏点：`<T> ... where{@0: Default}` 曾指用户泛型 T——改为 `where{T: Default}`
   （更自然）；越界报错更新（"impl has N fresh generics"）；
-- 用户初衷：`@N` 本意就是 `_Param_N_BatchGen_` 的直接映射——fresh 编号是全局
+- 作者初衷：`@N` 本意就是 `_Param_N_BatchGen_` 的直接映射——fresh 编号是全局
   计数器、与最终位置无关（多 fresh 源/用户泛型混排时错位），故用"第 N 个 fresh"
   加固：位置可数、与编号无关、含用户泛型场景的纯粹性。
 
@@ -223,7 +248,7 @@
 
 - README 精简为推销版（为什么要用它、心智模型、快速开始、特性一览），
   完整教程独立到 `docs/tutorial.md`，开发者文档独立到 `docs/architecture.md`
-- CHANGELOG 拆分为本文件（用户视角）与 `docs/dev-changelog.md`（开发者视角）
+- CHANGELOG 拆分为本文件（作者视角）与 `docs/dev-changelog.md`（开发者视角）
 - 教程新增 `@` 常量与 `#blanket` 章节；架构文档新增「语法域隔离」与
   「附着语义」章节
 

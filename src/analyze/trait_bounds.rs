@@ -252,29 +252,6 @@ impl<'a> Collector<'a> {
 }
 
 impl<'ast> Visit<'ast> for Collector<'_> {
-    fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
-        // Single-segment path (`T`): the ident is the type name itself; colliding with a
-        // param name means a reference
-        if node.qself.is_none()
-            && let Some(seg) = node.path.segments.first()
-            && node.path.segments.len() == 1
-            && matches!(&seg.arguments, syn::PathArguments::None)
-            && self.type_const_names.contains(&seg.ident.to_string())
-        {
-            self.refs.push(seg.ident.to_string());
-        }
-        // Continue by default: generic args (the T in `Vec<T>`), qself (the T in
-        // `<T as Trait>::Item`)
-        visit::visit_type_path(self, node);
-    }
-
-    fn visit_lifetime(&mut self, node: &'ast syn::Lifetime) {
-        let name = format!("'{}", node.ident);
-        if !self.in_hrtb(&name) && self.lt_names.contains(&name) {
-            self.refs.push(name);
-        }
-    }
-
     fn visit_expr(&mut self, node: &'ast syn::Expr) {
         // const generic args / array lengths (the N in `[T; N]`, the N in `Foo<N>`):
         // a single-segment path expression is a const param reference position (type
@@ -289,6 +266,13 @@ impl<'ast> Visit<'ast> for Collector<'_> {
             self.refs.push(seg.ident.to_string());
         }
         visit::visit_expr(self, node);
+    }
+
+    fn visit_lifetime(&mut self, node: &'ast syn::Lifetime) {
+        let name = format!("'{}", node.ident);
+        if !self.in_hrtb(&name) && self.lt_names.contains(&name) {
+            self.refs.push(name);
+        }
     }
 
     fn visit_trait_bound(&mut self, node: &'ast syn::TraitBound) {
@@ -307,5 +291,21 @@ impl<'ast> Visit<'ast> for Collector<'_> {
         if pushed {
             self.hrtb.pop();
         }
+    }
+
+    fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
+        // Single-segment path (`T`): the ident is the type name itself; colliding with a
+        // param name means a reference
+        if node.qself.is_none()
+            && let Some(seg) = node.path.segments.first()
+            && node.path.segments.len() == 1
+            && matches!(&seg.arguments, syn::PathArguments::None)
+            && self.type_const_names.contains(&seg.ident.to_string())
+        {
+            self.refs.push(seg.ident.to_string());
+        }
+        // Continue by default: generic args (the T in `Vec<T>`), qself (the T in
+        // `<T as Trait>::Item`)
+        visit::visit_type_path(self, node);
     }
 }

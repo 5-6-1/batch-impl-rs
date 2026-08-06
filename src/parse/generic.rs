@@ -119,16 +119,10 @@ pub(crate) fn parse_angle_bracket_contents(
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
     let span =
         tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site);
-    Ty::new(
-        span,
-        TyKind::Primitive(TyPrimitive(tokens.iter().cloned().collect())),
-    )
+    Ty::new(span, TyPrimitive(tokens.iter().cloned().collect()).into())
 }
 
 /// Empty token node (fallback for unwrap_or_else)
 pub(crate) fn empty() -> Ty {
-    Ty::new(
-        proc_macro2::Span::call_site(),
-        TyKind::Primitive(TyPrimitive(quote![])),
-    )
+    Ty::new(proc_macro2::Span::call_site(), TyPrimitive(quote![]).into())
 }

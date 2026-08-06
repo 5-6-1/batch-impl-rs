@@ -48,15 +48,19 @@ macro_rules! delimiter {
 }
 
 pub(crate) mod angle;
+pub(crate) mod blanket_wrappers;
 pub(crate) mod consts;
 pub(crate) mod consts_ctx;
+pub(crate) mod consts_expand;
 pub(crate) mod empty_generics;
 pub(crate) mod helpers;
 pub(crate) mod where_process;
 
 pub(crate) use angle::*;
+pub(crate) use blanket_wrappers::*;
 pub(crate) use consts::*;
 pub(crate) use consts_ctx::*;
+pub(crate) use consts_expand::*;
 pub(crate) use empty_generics::*;
 pub(crate) use helpers::*;
 pub(crate) use where_process::*;
@@ -68,8 +72,7 @@ use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
-use crate::util::Cursor;
-use crate::util::{compile_err, compile_error_str};
+use crate::util::{bracket_is_passthrough, compile_err, compile_error_str, is_punct};
 
 // ============================================================
 // Directive preprocessing
@@ -107,90 +110,78 @@ use crate::util::{compile_err, compile_error_str};
 /// `(...)` and `{...}` are not, to avoid wandering into directive args or
 /// bodies.
 pub(crate) fn expand_tokens(
-    cursor: &mut Cursor, trait_def: &ItemTrait, trait_full_path: &TokenStream,
+    tokens: &[TokenTree], trait_def: &ItemTrait, trait_full_path: &TokenStream,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
-    while !cursor.at_end() {
-        if cursor.is_punct('#')
-            && let Some(TokenTree::Ident(name)) = cursor.peek_at(1)
+    let mut i = 0;
+    while i < tokens.len() {
+        if is_punct(&tokens[i], '#')
+            && let Some(TokenTree::Ident(name)) = tokens.get(i + 1)
         {
-            result.extend(expand_directive(
-                name,
-                cursor,
-                trait_def,
-                trait_full_path,
-            )?);
+            let (out, consumed) =
+                expand_directive(name, tokens, i, trait_def, trait_full_path)?;
+            result.extend(out);
+            i += consumed;
             continue;
         }
-        // The loop condition guarantees non-at_end; break is only defensive
-        let Some(tt) = cursor.peek() else {
-            break;
-        };
         // Only `[...]` is expanded recursively (`ident![...]` / `#[...]`
         // passthrough, aligned with the angle_collect guard)
-        if let TokenTree::Group(g) = tt
+        if let TokenTree::Group(g) = &tokens[i]
             && g.delimiter() == delimiter![[]]
-            && !cursor.prev_bracket_passthrough()
+            && !bracket_is_passthrough(tokens, i)
         {
             let inner = expand_tokens(
-                &mut Cursor::new(&g.stream().into_iter().collect::<Vec<_>>()),
+                &g.stream().into_iter().collect::<Vec<_>>(),
                 trait_def,
                 trait_full_path,
             )?;
             let new_group = Group::new(g.delimiter(), inner.into_iter().collect());
             result.push(new_group.into());
-            cursor.bump();
         } else {
-            result.push(tt.clone());
-            cursor.bump();
+            result.push(tokens[i].clone());
         }
+        i += 1;
     }
     Ok(result)
 }
 
 /// Dispatches to the expansion functions; output contract in [`expand_tokens`].
 fn expand_directive(
-    name: &Ident, cursor: &mut Cursor, trait_def: &ItemTrait,
+    name: &Ident, tokens: &[TokenTree], i: usize, trait_def: &ItemTrait,
     trait_full_path: &TokenStream,
-) -> Result<Vec<TokenTree>, TokenStream> {
-    if let Some(TokenTree::Group(args)) = cursor.peek_at(2) {
+) -> Result<(Vec<TokenTree>, usize), TokenStream> {
+    if let Some(TokenTree::Group(args)) = tokens.get(i + 2) {
         match args.delimiter() {
             delimiter![{}] => {
                 // `#name{body}` — the item name directly followed by
                 // `{body}` (works for fn / const / type)
-                cursor.bump(); // #
-                cursor.bump(); // method_name
-                cursor.bump(); // {body}
-                expand_single(name, args, trait_def).map(|tt| vec![tt])
+                expand_single(name, args, trait_def).map(|tt| (vec![tt], 3))
             }
             _ => {
                 // `#cmd(args){body}` — name + parenthesized args + {body}
-                let body_tt = cursor.peek_at(3);
-                let Some(TokenTree::Group(body)) = body_tt else {
+                let Some(TokenTree::Group(body)) = tokens.get(i + 3) else {
                     return Err(compile_err!(
-                        "`#{}` must be followed by `(args)` + `{{body}}` or \
-                         directly `{{body}}`",
+                        "`#{}` must be followed by `(args)` or `[args]` + \
+                         `{{body}}` (or directly `{{body}}`)",
                         name
                     ));
                 };
                 if body.delimiter() != delimiter![{}] {
                     return Err(compile_err!(
-                        "`#{}` must be followed by `(args)` + `{{body}}` or \
-                         directly `{{body}}`",
+                        "`#{}` must be followed by `(args)` or `[args]` + \
+                         `{{body}}` (or directly `{{body}}`)",
                         name
                     ));
                 }
-                cursor.bump(); // #
-                cursor.bump(); // name
-                cursor.bump(); // (args)
-                cursor.bump(); // {body}
+                let consumed = 4;
                 match name.to_string().as_str() {
-                    "fill" => expand_fill(args, body, trait_def).map(|tt| vec![tt]),
-                    "delegate" => {
-                        expand_delegate(args, body, trait_def).map(|tt| vec![tt])
-                    }
+                    "fill" => expand_fill(args, body, trait_def)
+                        .map(|tt| (vec![tt], consumed)),
+                    "delegate" => expand_delegate(args, body, trait_def)
+                        .map(|tt| (vec![tt], consumed)),
                     "blanket" => {
                         expand_blanket(args, body, trait_def, trait_full_path)
+                            .map(|v| (v, consumed))
                     }
                     // Open extension: `#name(args){body}` →
                     // `{ name!{(args){body} trait_def} }`, a function-like
@@ -204,14 +195,14 @@ fn expand_directive(
                         let inner = quote! {
                             #name ! { #args #body #trait_def }
                         };
-                        Ok(vec![Group::new(delimiter![{}], inner).into()])
+                        Ok((vec![Group::new(delimiter![{}], inner).into()], consumed))
                     }
                 }
             }
         }
     } else {
         Err(compile_err!(
-            "`#{}` must be followed by parenthesized args `(args)` or a code \
+            "`#{}` must be followed by `(args)` / `[args]` or a code \
              block `{{body}}`",
             name
         ))

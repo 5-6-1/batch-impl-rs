@@ -2,11 +2,163 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.6.5 (2026-08-06)
+
+### `#cmd[args]{body}` 等价写法 + blanket `@0` 统一到 codegen
+
+- `#cmd[args]{body}`（方括号参数）确认可用并宣传：与 `(args)` 等价
+  （`_` 分支通吃）；错误消息更新为 `(args)` or `[args]`；tutorial 指令章节
+  注明两种写法（方括号在参数含括号时更清晰）；ui fixture
+  `directive_bad_follow` 快照重新生成；
+- **blanket 的 `@0` 统一到 codegen**：`resolve_target_predicates` 删掉 @0
+  替换分支——`@0`/`@N` 保留原样进 spec，由 codegen 的 `resolve_where_at`
+  统一解析（blanket 的 fresh 泛型是唯一 fresh，`@0` 索引正确）；预处理器
+  只保留 `@trait` 替换（trait 路径只有预处理知道）；架构上"`@N` 是唯一
+  codegen 记号"对 blanket wrapper where 也成立；
+- 验证：fmt/clippy -D warnings 干净，lib 10 / dsl 51 / regression 26 /
+  ui 34 fixture / doctest 50 全绿。
+### punct 工具统一 + 指令系统打扫（#blanket 拆分）
+
+- 库内 punct 工具（`is_punct` 既有 + 新增 `is_punct_at` / `is_joint_punct_at`）：
+  替换散落的 `matches!(...Punct(p)...)` 独立表达式（consts/consts_expand/
+  path_prefix/where_process/scan 内部），match 臂 guard / slice 解构 /
+  绑定需求处保留（模式本身）；
+- `#blanket` 拆分：blanket.rs 401 → `blanket.rs`（249：doc + expand_blanket +
+  resolve_target_predicates + 新 trait_with_args）+ 新 `blanket_wrappers.rs`
+  （160：BlanketWrapper + parse_blanket_wrappers）——全 ≤350；
+- blanket.rs 的 t_bound/trait_part 重复收敛为 `trait_with_args`（trait 路径 +
+  手动角度组，blanket 输出不再被 angle_collect 配对）；
+- 验证：fmt/clippy -D warnings 干净，lib 10 / dsl 51 / regression 26 /
+  ui 33 fixture / doctest 50 全绿。
+### 宏调用 passthrough 洞修复（expand_consts + angle_collect 的 `()` 组）
+
+- **洞**：`expand_consts` 与 `angle_collect_at` 的 `()` 组无条件进入递归——
+  `ident!(...)` 宏调用的参数（用户 Rust）会被 DSL 常量替换 / `<` 被错误配对；
+  此前只对 `[]` 组有 `bracket_is_passthrough` 守卫（`ident![...]` / `#[...]`），
+  `()` 组漏了；
+- 修：`()` 组统一走 `bracket_is_passthrough`（前 token 是 `!`/`#` 则原样保留）——
+  宏调用 `foo!(...)` passthrough；`#name(...)` 指令参数（前是 Ident）与 DSL 元组
+  `(A, B)` 仍进入；
+- `render_angles` 同步：改为索引遍历 + passthrough 判定（宏调用组不重建、
+  span 原样保留）；`angle_collect_at` 的 depth 错误 `map_or_else` 简化；
+- 探针实测：`echo!(@u*)` 宏参数 `@u*` 原样传入（stringify = "@u*"）；
+  angle 测试新增 `m!(a < b)`（Paren 宏调用含 `<`，不报错 + roundtrip 保持）；
+- 验证：fmt/clippy -D warnings 干净，lib 10 / dsl 51 / regression 26 /
+  ui 33 fixture / doctest 50 全绿。
+### 常量系统打扫（consts 拆分 + 行为收紧）
+
+- 拆分：consts.rs 520 行 → `consts.rs`（272：模块 doc + 内置常量表 +
+  expand_consts 入口 + collect_user_consts）+ 新 `consts_expand.rs`（258：
+  try_expand_at + check_value_refs）——依赖单向（consts → consts_expand），
+  全部 ≤350；
+- `render_list` / `render_list_strings` 合并为泛型 `render_list<S: ToString>`
+  （&str/String 都支持，省一份重复）；
+- try_expand_at 的 `tokens.first().map(...).unwrap_or_else(call_site)` 两处
+  收敛为 `tokens[0].span()`（tokens[0] 恒为 `@`）；
+- **行为收紧**：`check_value_refs` 的 known 判断加 `is_range` 条件——裸
+  范围端点引用 `@a=@u8`（无 `..`）现在**定义处**报错（此前放行、使用处才炸）；
+  新 ui fixture `const_bare_endpoint` 锁定；
+- 验证：fmt/clippy -D warnings 干净，lib 10 / dsl 51 / regression 26 /
+  ui 33 fixture / doctest 50 全绿。
+### 构造链重构：`From<TyKind>` + `to_ty()` + `with_span` 取代 `TyKind::X(TyX(…)` 嵌套
+
+- 作者指出：`impl_from_for_ty!` 宏的 `From<$struct> for Ty` 是 span 改造的遗留
+  错位——宏本意是"子类型 → 变体"（span 前的 `Ty` = 现在的 `TyKind`）；
+- 宏定稿四件套：`From<TyKind>`（纯结构转换，`TyArray(x).into()` 取代
+  `TyKind::Array(TyArray(x))`）、`From<Ty>`（call_site 版，`to_ty` 的实现基础）、
+  `to_ty()`（链式入口，显式返回类型解决 `.into().with_span(span)` 的 E0282——
+  method resolution 无法反推 `.into()` 目标）、`From<Box<Ty>>`（Expand 遍历器用）；
+  删 Option<Ty>/Option<Box<Ty>> 两个无调用点的 From；
+- 新增 `Ty::with_span(span)`（只改节点层 span）；`Ty::new(span, x.into())` 与
+  `x.to_ty().with_span(span)` 两种构造形态并存（各司其职）；
+- 全库替换 ~50 处 `TyKind::X(TyX(…))` → `TyX(…).into()`（TyKind 目标）或
+  `TyX(…).to_ty().with_span(span)`（Ty::new 内）；3 处模式位置（match 臂 /
+  if let 解构）保留；
+- net -74 行（+171/-245）；to_ty 消费 self 是刻意设计（clippy allow）；
+- 验证：fmt/clippy -D warnings 干净，lib 10 / dsl 51 / regression 26 / ui 32
+  fixture / doctest 50 全绿。
+### Cursor 定位收敛（方案 A：parse 专属只读游标）
+
+- 定位：`Cursor` = **parse 层专属**只读游标（entry/parse_atom/driver/generic/
+  fuzz）；**预处理层（preprocess/*）统一 Vec+index 遍历**（重写语义，读改写）；
+- 改动：`expand_tokens` / `expand_directive`（preprocess/mod.rs）改
+  `tokens: &[TokenTree] + i`——expand_directive 返回 `(输出, 消费数)`；
+  `where_process` 签名改 `tokens: &[TokenTree]`（入口不再包 Cursor）；
+  `Cursor::peek_at` / `prev_bracket_passthrough` 删（无调用者）；
+- 验证：fmt/clippy -D warnings 干净，lib 10 / dsl 51 / regression 26 /
+  ui 34 fixture / doctest 50 全绿；Cursor 使用面收敛到 parse 层。
+
+### where 部分整理（6 阶段链路核对 + 3 处小修）
+
+- 链路：where_process（裸 where 重写）→ parse_primitive（尾部剥离
+  TyWithWhere）→ apply（组合）→ extract_impl_parts（where_clauses 提取）→
+  trait_bounds（trait where 合并）→ resolve_where_at（@N 解析）；
+- `where` 末尾缺 body 提前报错（去 `i + 1 < len` 短路——where 是 Rust 关键字，
+  Ident `where` 只可能是 DSL 形式）；`tokens[i+1]` 越界 → `get`；
+  scan_body_boundary 的 `Vec<&TokenTree>` + cloned → 直接收集；
+- 验证：全绿（同上）。
+
+### parse 层打扫
+
+- parse/mod.rs 354 → 339：`cursor.peek().map(...).unwrap_or_else(call_site)` ×3
+  收敛为 `cursor_span`；WithAttr/WithPrefix 半应用分支（rest 空 vs apply）
+  收敛为 `attach_wrapper`（TyKind + rest + trait_name）；
+- parse_atom.rs：parse_range 的 `TyKind::Range(TyRange {...})` → `TyRange {...}.into()`
+  （统一 into 风格）；
+- 验证：全绿；parse 层全部 ≤350（339/199/128）。
+
+### ast 层拆分（types.rs 470 → 4 文件全 ≤350）
+
+- `types.rs` 470 → **261**：子类型定义 + Ty/TyKind + Op + MAX_EXPAND +
+  count_leaves + fresh 系列；
+- 新 `types_visit.rs`（159）：Expand 枚举 + expand_wrapped/expand_rebuild +
+  `Ty::map_children` + `Ty::expand`（遍历归一处）；
+- 新 `types_from.rs`（65）：`impl_from_for_ty!` 宏（子类型 → TyKind/Ty/
+  Box<Ty> + to_ty）+ 18 变体调用列表；
+- types_render.rs（169）保持；ast/mod.rs 聚合 re-export；
+- 验证：全绿。
+
+### codegen 层打扫
+
+- generate_impl：删 `let parts = parts;` 影子绑定（NLL 已覆盖，历史遗留）；
+  `Ty::new(call_site, TyPrimitive(...).into())` → `TyPrimitive(...).to_ty()`；
+  HashSet 显式导入；resolve_where_at 过时注释修正（blanket wrapper where
+  的 @N 现在也走这里——@0 统一后的文档同步）；
+- impl_parts.rs：extract_impl_parts 的 4 处双构造（WithCode/WithWhere/WithAttr
+  None 分支 + WithPrefix 目标包装）统一 to_ty 链式；测试 1 处同步；
+- ast/types_visit.rs：map_children 的 `redundant_closure` allow 属性在 ast
+  拆分时丢失——加回（`&mut FnMut` 不能被 move 进 `.map(f)`）；
+- 验证：全绿；codegen 层 311/145 行。
+
+### entry 层打扫
+
+- expand_attr_macro：path prefix 分支收敛——`if !include_trait { match } else
+  { 重复 None 分支 }` 改为 `(!include_trait).then(|| try_parse_path_prefix(...))
+  .flatten()` + 单一 match（None 分支只写一次）；
+- 新增 `Cursor::span()`（当前位置 span，at_end 时 call_site）——entry 3 处
+  `peek().map(...).unwrap_or_else(...)` 收敛；trait_path 的 first() 处
+  `map_or_else` 同步；`path_prefix::` 模块路径改 use；
+- 验证：全绿；entry 层 286/67/68。
+
+### 文档规则（作者措辞 + 不标开发中）
+
+- 文档中**项目所有者/设计意图**用"作者"；**库使用者**保留"用户"（如
+  "用户自定义常量""用户泛型""用户可见"——使用 batch-impl 写 DSL 的人）；
+  代码标识符（user_table 等）与源码错误消息不改；
+- 版本状态标记不写"（开发中）"（避免遗漏）；中文 doc 头部直接写版本号。
+### util 层打扫
+
+- `scan_with` / `scan_stop` 双名合并：scan_with 无外部使用者（全走
+  scan_stop 转发）——scan_stop 内联实现，删转发层；
+- scan_stop 的 `->` 箭头 guard 用 `is_joint_punct_at`（统一 punct 工具）；
+- `Cursor::is_punct` 委托 `is_punct_at`（消除重复 matches!）；
+- 验证：全绿；util 层 161/41/11。
+
 ## 0.6.4 (2026-08-05)
 
 ### `@trait` 提前展开（常量阶段/段级），`@N` 成为唯一 codegen 记号
 
-- 用户指出：`@trait` 不该留到 codegen（只有 `@N` 需要 impl 泛型列表）。
+- 作者指出：`@trait` 不该留到 codegen（只有 `@N` 需要 impl 泛型列表）。
   结构性原因：`where{...}` 是 Brace 组，`expand_consts` 不进入（body 的 `@`
   是 pattern 语法）——where 谓词里的 `@trait`/`@N` 都残留到
   `resolve_where_at`；
@@ -36,9 +188,9 @@
   每个构造 `Ty::new(span, ...)` 用左操作数 span，`o.span` 仅 fallthrough）；
 - 测试全绿（分离声明顺序、数组/范围/泛型外提均回归）。
 
-### `@N` 语义修正（用户设计评审）
+### `@N` 语义修正（作者设计评审）
 
-- 用户初衷：`@N` 应是 `_Param_N_BatchGen_` 的直接映射（宏元层常量）——但 fresh
+- 作者初衷：`@N` 应是 `_Param_N_BatchGen_` 的直接映射（宏元层常量）——但 fresh
   编号是全局计数器、与最终 impl 泛型位置无关（多 fresh 源/用户泛型混排时错位），
   直接映射不可靠；
 - 定案：`@N` = where 谓词内**第 N 个 fresh 泛型**（`_Param_{N}_BatchGen_` 形式）。
@@ -67,7 +219,7 @@
 - 测试：dsl 51（type/lifetime/const 三族 + 组合 + bound 继承）；ui
   `generic_family_batch_trait`（batch_trait! 报错）。
 
-### 常量名字族改名（用户拍板）
+### 常量名字族改名（作者拍板）
 
 - 提案：`@i*`/`@u*`/`@f*` 取代 `@uint`/`@int`/`@float`（族符号统一——原
   `uint` 与范围族 `u8` 的 `u` 不一致）；`@u8..64` 宽度缩写提案被否（收益小、
@@ -82,7 +234,7 @@
 
 ### 文档修正
 
-- 用户指出 README 头部示例错误：`#[batch_impl(()^4)]` 的 `// →` 注释声称展开为
+- 作者指出 README 头部示例错误：`#[batch_impl(()^4)]` 的 `// →` 注释声称展开为
   4 个不同长度的元组 impl（`(A,)` 到 `(A, B, C, D)`）——实际 `()^N` 是**单个**
   N 元组（`()^4` → `(A, B, C, D)`），多长度是 `()^1..=4` 范围语法（教程 §11 表
   一直正确，测试 `tuple_pow_basic` 锁定语义）。实测探针确认后修正 README 中英
@@ -242,7 +394,8 @@
   （大写）——普通 where 谓词（where{@0: @trait<T>}）的 @trait 被错误拒绝、
   错误消息自相矛盾；全库其余 4 处均小写。**教训**：dev-changelog 此前声称
   "resolve_where_at 同步小写"实际未替换——PowerShell Select-String 大小写
-  不敏感的反噬（残留检查误报通过）。测试：dsl eview_fixes_locked
+  不敏感的反噬（残留检查误报通过）。测试：dsl 
+eview_fixes_locked
   （B1 场景 + 自引用 bound 需补 impl WhereAtTrait<u32> for u32）。
 - **B2（回归隐患）**：新顺序（@ 先于 <> 配对）下 expand_consts 运行时
   真实 None 组（宏变量 $(...)*/$x:ty 展开产物）尚未被 angle_collect
@@ -250,7 +403,8 @@
   angle_collect 在入口扁平化，此处永远不会出现"在新顺序下不成立。修复：
   expand_consts 加 delimiter![none] 分支——新顺序下 <> 组尚未存在，
   None 组必是真实透明组，无旧歧义（0.6.0 曾踩过的 delimiter![none] 误伤
-  尖括号组问题不复存在）。测试：dsl eview_fixes_locked（宏变量 + 组内
+  尖括号组问题不复存在）。测试：dsl 
+eview_fixes_locked（宏变量 + 组内
   @uint 探针实测，2024 edition 下 gen 是保留字、宏名须换）。
 - **B3（文档）**：@all_default_types 依赖 trait 关联类型默认值
   （	ype T = u8;）——nightly（ssociated_type_defaults，stable 报
@@ -266,7 +420,7 @@
 
 ### 宏元层完整化（0.6.1 主线：`@` 唯一宏元记号 + blanket 约束合并）
 
-- 背景：用户提出「`#all` 看着不顺眼，违反 `#` 的两种格式」——`#` 应
+- 背景：作者提出「`#all` 看着不顺眼，违反 `#` 的两种格式」——`#` 应
   只剩指令名；范围选择（选哪些 item）是宏元层操作，统一归 `@`；
 - `@all` 系：try_expand_at 加分支（`resolve_all_marker` 抽公共表——指令域
   与宏元层共用），展开为 Bracket 组（`render_list_strings`）；batch_impl
@@ -318,7 +472,7 @@
 
 ### 预处理顺序修正：`@ <> # where`
 
-- 背景：用户提议宏元层（`@`）应是最外一趟。实测当前顺序（`<> @ #`）
+- 背景：作者提议宏元层（`@`）应是最外一趟。实测当前顺序（`<> @ #`）
   的 bug：`batch_trait!( @inner = Vec<u8>; @outer = Vec<@inner>; ... )`
   ——`Vec<@inner>` 的 `@inner` 被 angle_collect 配对进尖括号组，而
   expand_consts 刻意不进入 `<>` 组（`delimiter![<>]` 与真实 None 组
@@ -337,7 +491,7 @@
 ### 新范围标记：`@all_required*` / `@all_default*`
 
 - 背景：`@all` 系一直未区分 trait item 的默认实现状态（`#fill(@all)` 连有
-  默认实现的也覆盖，`@all + -name` 逐个排除繁琐）；用户提出按状态过滤；
+  默认实现的也覆盖，`@all + -name` 逐个排除繁琐）；作者提出按状态过滤；
 - 实现：`get_trait_item_names` 加 `default: Option<bool>` 过滤参数
   （`Some(true)` 仅默认、`Some(false)` 仅 required、`None` 全含），
   syn 判断字段：`TraitItem::Fn(f).default` / `Const(c).default` /
@@ -467,7 +621,7 @@
   推销 + 教程，教程代码块全部进 doctest）
 - 开发者文档独立 `docs/architecture.md`（架构图、关键设计决策、错误机制、
   测试矩阵、发布流程）
-- CHANGELOG 拆分为用户版（CHANGELOG.md）与开发者版（本文件），0.1.0 →
+- CHANGELOG 拆分为作者版（CHANGELOG.md）与开发者版（本文件），0.1.0 →
   最新全部历史条目分类迁移
 - 注意：rustdoc 对无语言标注代码块默认按 rust 编译（`<impl-泛型>...` 骨架
   需 `text` 标注）

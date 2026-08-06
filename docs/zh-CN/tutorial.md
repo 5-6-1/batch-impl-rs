@@ -1,8 +1,10 @@
 # batch-impl 教程
 
-**v0.6.3（开发中）**——0.6.2 已发布：按 receiver 种类过滤
+**v0.6.5**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
 （`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`）、
-`#blanket` 静态方法委托、span 诊断；错误消息全英文。0.6.3 为文档修正。
+`#blanket` 静态方法委托、span 诊断、`@u*`/`@i*`/`@f*` 改名、泛型参数族、
+`@N` 只索引 fresh 泛型；0.6.5：`#cmd[args]{body}` 方括号参数、宏调用
+passthrough 修复、裸范围端点定义处报错、blanket `@N` 统一 codegen 解析。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码，
 每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
@@ -288,6 +290,10 @@ trait HasType { type Item; }
 ```
 
 ### `#fill(methods){body}` — 多方法同一 body
+
+> 指令参数可用 `(args)` 或 `[args]`——两者等价（如
+> `#fill[@all_methods]{0}`）；方括号在嵌套/遮蔽场景（参数本身含括号）下更
+> 清晰。`#name{body}`（无参数）两种写法通用。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -804,7 +810,8 @@ batch_trait!(
 `batch_trait!` 多段每段 trait 名不同——常量值里的 `@trait` 在分段后
 **逐段替换为本段 trait 路径**：
 
-`ust
+`
+ust
 # use batch_impl::batch_trait;
 # trait A<T> {} trait B<T> {}
 batch_trait!{
@@ -827,7 +834,7 @@ batch_trait!{
 | `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | 按 receiver 类型过滤的 Bracket 组（`&self`/`&mut self` / `self` / 关联函数） | 只委托引用方法（绕开 by-value 委托语义不定）；`#blanket(@all_ref_methods){Box}` |
 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | 泛型参数族：展开为**扁平 `<...>` 泛型声明**（类型参数只名字、const 完整 `const N: usize`、生命周期原样） | 泛型声明照抄 trait 形参（bound 走同名继承）；`#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T)]`——连续声明保持生命周期在前 |
 | `@Cow` | `Cow<'_>` + 固有约束谓词 | blanket 包装（deref target = `T::Owned`） |
-| `@N`（位置引用） | where 谓词内**第 N 个 fresh 泛型**（`_Param_{N}_BatchGen_` 形式）的名字 | blanket 包装谓词中 `@0` = 目标泛型（唯一 fresh）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；**用户泛型直接写名字**（不参与 @N 索引） |
+| `@N`（位置引用） | where 谓词内**第 N 个 fresh 泛型**（`_Param_{N}_BatchGen_` 形式）的名字 | blanket 包装谓词中 `@0` = 目标泛型（唯一 fresh）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；**作者泛型直接写名字**（不参与 @N 索引） |
 
 > `@N` 是唯一在 **codegen 阶段**解析的记号（需要最终 impl 泛型列表）；
 > `@trait` 已提前：batch_impl 在常量阶段展开（trait 路径已知）、

@@ -23,7 +23,7 @@ use proc_macro2::Span;
 pub(crate) fn err_ty(msg: &str) -> Ty {
     Ty::new(
         proc_macro2::Span::call_site(),
-        TyKind::Error(TyError(quote! { compile_error!(#msg); })),
+        TyError(quote! { compile_error!(#msg); }).into(),
     )
 }
 
@@ -31,7 +31,7 @@ pub(crate) fn err_ty(msg: &str) -> Ty {
 /// token / `Ty::span` / the apply `span` parameter in hand at the error site).
 pub(crate) fn err_ty_at(msg: &str, span: Span) -> Ty {
     let ts = quote_spanned!(span => compile_error!(#msg););
-    Ty::new(span, TyKind::Error(TyError(ts)))
+    TyError(ts).to_ty().with_span(span)
 }
 
 /// Expansion-count check: returns a `compile_error!` signal when `len` exceeds [`MAX_EXPAND`].
@@ -82,40 +82,30 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
                 ) {
                     return e;
                 }
-                Ty::new(span, TyKind::Array(TyArray(result)))
+                TyArray(result).to_ty().with_span(span)
             }
             TyKind::Group(g) => self.apply(*g.0, span),
             TyKind::WithCode(wc) => match wc.0 {
-                Some(inner) => Ty::new(
-                    span,
-                    TyKind::WithCode(TyWithCode(
-                        Ty::new(span, self.clone().into()).apply(*inner).into(),
-                        wc.1,
-                    )),
-                ),
-                None => Ty::new(
-                    span,
-                    TyKind::WithCode(TyWithCode(
-                        Some(Box::new(Ty::new(span, self.into()))),
-                        wc.1,
-                    )),
-                ),
+                Some(inner) => TyWithCode(
+                    Ty::new(span, self.clone().into()).apply(*inner).into(),
+                    wc.1,
+                )
+                .to_ty()
+                .with_span(span),
+                None => TyWithCode(Some(Box::new(Ty::new(span, self.into()))), wc.1)
+                    .to_ty()
+                    .with_span(span),
             },
             TyKind::WithWhere(ww) => match ww.0 {
-                Some(inner) => Ty::new(
-                    span,
-                    TyKind::WithWhere(TyWithWhere(
-                        Ty::new(span, self.clone().into()).apply(*inner).into(),
-                        ww.1,
-                    )),
-                ),
-                None => Ty::new(
-                    span,
-                    TyKind::WithWhere(TyWithWhere(
-                        Some(Box::new(Ty::new(span, self.into()))),
-                        ww.1,
-                    )),
-                ),
+                Some(inner) => TyWithWhere(
+                    Ty::new(span, self.clone().into()).apply(*inner).into(),
+                    ww.1,
+                )
+                .to_ty()
+                .with_span(span),
+                None => TyWithWhere(Some(Box::new(Ty::new(span, self.into()))), ww.1)
+                    .to_ty()
+                    .with_span(span),
             },
             // When the right operand is `WithType` (e.g. the fresh generic tuple of `()^N`),
             // hoist the generic declaration outward: `T^<A>X` => `<A>(T^X)`,
@@ -127,18 +117,17 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             TyKind::WithType(wt) if self.is_type_param() => {
                 self.apply_help(Ty::new(o.span, TyKind::WithType(wt)), span)
             }
-            TyKind::WithType(wt) => Ty::new(
-                span,
-                TyKind::WithType(TyWithType(
-                    wt.0,
-                    Ty::new(span, self.clone().into()).apply(*wt.1).into(),
-                )),
-            ),
+            TyKind::WithType(wt) => TyWithType(
+                wt.0,
+                Ty::new(span, self.clone().into()).apply(*wt.1).into(),
+            )
+            .to_ty()
+            .with_span(span),
             TyKind::Error(e) => Ty::new(span, TyKind::Error(e)),
             TyKind::Range(TyRange { start, end, inclusive }) => {
                 map_range(start, end, inclusive, span, |n| {
                     Ty::new(span, self.clone().into())
-                        .apply(Ty::new(span, TyKind::Num(TyNum(n))))
+                        .apply(TyNum(n).to_ty().with_span(span))
                 })
             }
             other => self.apply_help(Ty::new(o.span, other), span),
@@ -211,7 +200,7 @@ impl TyWithPrefix {
                     Some(t) => t.apply(o),
                     None => o,
                 };
-                Ty::new(span, TyKind::WithPrefix(TyWithPrefix(self.0, inner.into())))
+                TyWithPrefix(self.0, inner.into()).to_ty().with_span(span)
             }
             // self^T=>T
             TyPrefix::SelfType => o,
@@ -222,18 +211,13 @@ impl TyWithPrefix {
 impl TyPrimitive {
     /// `T^U` => `T<U>`; `T^<A,B>` => `T<A,B>`
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
-        let o_span = o.span;
         match o.kind {
             TyKind::TypeParam(tp) => {
-                Ty::new(span, TyKind::Generic(TyGeneric(self.into(), tp)))
+                TyGeneric(self.into(), tp).to_ty().with_span(span)
             }
-            _ => Ty::new(
-                span,
-                TyKind::Generic(TyGeneric(
-                    self.into(),
-                    TyTypeParam::single(&Ty::new(o_span, o.kind)),
-                )),
-            ),
+            _ => TyGeneric(self.into(), TyTypeParam::single(&o))
+                .to_ty()
+                .with_span(span),
         }
     }
 }
@@ -242,29 +226,24 @@ impl TyGeneric {
     /// `T<A>^B` => `T<A,B>`; `T<A>^<B,C>` => `T<A,B,C>`
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         let mut tp = self.1;
-        let o_span = o.span;
         match o.kind {
             TyKind::TypeParam(rhs) => tp.extend(rhs),
-            _ => tp.push_arg(&Ty::new(o_span, o.kind)),
+            _ => tp.push_arg(&o),
         }
-        Ty::new(span, TyKind::Generic(TyGeneric(self.0, tp)))
+        TyGeneric(self.0, tp).to_ty().with_span(span)
     }
 }
 
 impl TyTrait {
     /// `Trait<T>^U` => `WithTrait(Trait<T>, U)` (trait generics applied to the target type)
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
-        let o_span = o.span;
         match o.kind {
             TyKind::TypeParam(rhs) => {
                 let mut tp = self.1;
                 tp.extend(rhs);
-                Ty::new(span, TyKind::Trait(TyTrait(self.0, tp)))
+                TyTrait(self.0, tp).to_ty().with_span(span)
             }
-            _ => Ty::new(
-                span,
-                TyKind::WithTrait(TyWithTrait(self, Ty::new(o_span, o.kind).into())),
-            ),
+            _ => Ty::new(span, TyWithTrait(self, o.into()).into()),
         }
     }
 }
@@ -274,6 +253,6 @@ impl TyArray {
     /// is dispatched layer-wise by the default `apply` Array branch and flattened via `expand`)
     pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
         let result = self.0.into_iter().map(|e| e.apply(o.clone())).collect();
-        Ty::new(span, TyKind::Array(TyArray(result)))
+        TyArray(result).to_ty().with_span(span)
     }
 }
