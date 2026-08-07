@@ -5,7 +5,50 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.6 (2026-08-06)
+
+### `(T)^N` group-strip semantics + unsuffixed number rendering
+
+- **Breaking**: `(T)^N` previously (since 0.2.0) generated a length-N
+  repeated tuple `(T, T, ...)`; it now strips the group and equals `T^N`
+  (for a plain type `^N` is a const-generic argument: `(W)^2 = W<2>`,
+  where `W` is a type with a const generic). Upgrade users who relied on
+  `(T)^N` for tuple generation must switch to `(T,)^N`;
+- `(<T>)` is invalid syntax (a `<` right after `(` is not a legal type);
+- Numbers/ranges render without a `usize` suffix (`W<2>` instead of
+  `W<2usize>`, `[u8; 3]` instead of `[u8; 3usize]`).
+
+### Input-validation guards (evaluator findings)
+
+- `expand_consts` nesting guard (128 levels — deeply nested `[[[` no longer
+  overflows the stack);
+- `#blanket` `:N` capped at 128 (`Box:999999` no longer overflows rustc);
+- batch_trait! constant definitions reject reserved `@all_*` names at the
+  definition site;
+- `#blanket` `Box:` (empty depth after the colon) errors at the DSL layer.
+
+### `#delegate` supports parameter patterns
+
+- Expression-forwardable patterns (e.g. `(a, b)`) keep their signature and
+  are forwarded by rebuilding via the pattern tokens; `ref x`, guards, `_`
+  and nested forms (`(ref x, ref y)`) are auto-named (`arg0`, …).
+
+### Input-validation completion
+
+- batch_trait! constant definitions reject the bare `@all` name;
+- Constant-value reference validation (check_value_refs) gained a
+  128-level nesting guard;
+- Depth guard moved before Group recursion; type-ascription patterns
+  (`x: u32`) fall back to named delegation;
+- `#blanket` wrappers support an `@0` position marker: with `@0` the target
+  T can sit anywhere (`(u32, @0)` → `(u32, T)`); without it, `part^T`
+  appends T last (unchanged);
+- Six empty placeholder macros (batch_impl_delegate / fill / blanket /
+  name / open / consts) serve as directive documentation entries — doc-only
+  symbols that expand to nothing.
+
 ## 0.6.5 (2026-08-06)
+
 
 ### Directive arguments accept bracket form: `#cmd[args]{body}`
 

@@ -163,15 +163,14 @@ impl TyTuple {
 }
 
 impl TyGroup {
-    /// `(T)^N` / `(<Bound>)^N` reuse the tuple's Num logic; `(T)^other` delegates to the inner type
-    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
-        match o.kind {
-            // (T)^N / (<tr>)^N → reuse the tuple's Num logic
-            TyKind::Num(TyNum(n)) => {
-                tuple_pow(vec![Ty::new(span, TyKind::Group(self))], n)
-            }
-            _ => self.0.apply(o),
-        }
+    /// `(T)` strips to the inner type, so `(T)^N` equals `T^N` (e.g.
+    /// `(W)^2` = `W^2` = `W<2>`, a const-generic argument; only valid for
+    /// types with a const generic — `(u8)^2` would emit `u8<2>`, which
+    /// rustc rejects with E0109). Tuple generation needs `(T,)^N`.
+    /// A bare `<T>` group is rejected earlier by parsing (`<` right after
+    /// `(` is not a type).
+    pub(crate) fn apply_help(self, o: Ty, _span: Span) -> Ty {
+        self.0.apply(o)
     }
 }
 

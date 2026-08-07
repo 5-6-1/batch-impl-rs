@@ -1,0 +1,7 @@
+error: batch-impl: #blanket `:999999` is too large (deref depth must be ≤ 128)
+ --> tests/ui/blanket_bad_huge_depth.rs:5:1
+  |
+5 | #[batch_impl(#blanket(@all_methods){Box:999999})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

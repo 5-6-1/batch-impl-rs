@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.6.5**——0.6.2/0.6.3/0.6.4 已发布：receiver 过滤（`@all_ref_methods` 等）+ `#blanket` 静态方法委托 + span 诊断、`@u*`/`@i*`/`@f*` 改名、泛型参数族、`@N` 只索引 fresh 泛型；0.6.5：`#cmd[args]{body}` 方括号参数、宏调用 passthrough 修复、裸范围端点定义处报错、blanket `@N` 统一 codegen 解析。
+**v0.6.6**——0.6.2/0.6.3/0.6.4/0.6.5 已发布；0.6.6：`(T)^N` 分组剥离语义（= `T^N`，const 泛型实参如 `W<2>`——**破坏性变更**：元组生成须 `(T,)^N`）、数字渲染不带 `usize` 后缀、输入校验护栏（consts 嵌套深度 / `#blanket` `:N` 上限 / `@all_*` 保留名 / 空 `:` 深度）、`#delegate` 参数模式转发（非 `_` 模式保留在签名中并在调用处重建）、六个文档占位宏（`batch_impl_fill!` 等——DSL 的可 hover rustdoc 入口，见 `src/lib.rs` 底部）。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
@@ -67,7 +67,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.6.5"
+batch-impl = "0.6.6"
 ```
 
 需要 Rust 2024 edition 及以上。

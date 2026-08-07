@@ -1,7 +1,0 @@
-error: batch-impl: #delegate method `Dummy::m` param `(a, b) : (i32, i32)` cannot be forwarded: only `self` and plain identifier patterns are supported
- --> tests/ui/delegate_pattern_arg.rs:4:1
-  |
-4 | #[batch_impl_only(usize #delegate(m){**self})]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl_only` (in Nightly builds, run with -Z macro-backtrace for more info)

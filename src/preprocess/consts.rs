@@ -122,6 +122,30 @@ pub(crate) fn render_list<S: ToString>(
 pub(crate) fn expand_consts(
     tokens: &[TokenTree], ctx: ConstCtx,
 ) -> Result<Vec<TokenTree>, TokenStream> {
+    expand_consts_at(tokens, ctx, 0)
+}
+
+/// Builds the standard nesting-depth error (span from the first token).
+pub(crate) fn depth_err(tokens: &[TokenTree]) -> TokenStream {
+    let sp = tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
+    compile_error_str(
+        &format!(
+            "batch-impl: nesting depth exceeds {} levels (perhaps an accidental extra bracket)",
+            crate::preprocess::angle::MAX_NEST_DEPTH
+        ),
+        sp,
+    )
+}
+
+/// Recursive core of [`expand_consts`] with a nesting guard (mirrors
+/// `angle_collect`'s `MAX_NEST_DEPTH` — an accidental extra bracket must
+/// error out instead of overflowing the stack).
+fn expand_consts_at(
+    tokens: &[TokenTree], ctx: ConstCtx, depth: usize,
+) -> Result<Vec<TokenTree>, TokenStream> {
+    if depth > crate::preprocess::angle::MAX_NEST_DEPTH {
+        return Err(depth_err(tokens));
+    }
     let mut result = vec![];
     let mut i = 0;
     while i < tokens.len() {
@@ -148,11 +172,20 @@ pub(crate) fn expand_consts(
                 if bracket_is_passthrough(tokens, i) {
                     result.push(tokens[i].clone());
                 } else {
+                    // Guard before materializing the group's stream: the
+                    // recursion-entry check runs after `stream()`/collect, so
+                    // check the next level here to fail before touching the
+                    // subtree.
+                    if depth + 1 > crate::preprocess::angle::MAX_NEST_DEPTH {
+                        return Err(depth_err(&tokens[i..i + 1]));
+                    }
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     result.push(
                         Group::new(
                             g.delimiter(),
-                            expand_consts(&inner, ctx)?.into_iter().collect(),
+                            expand_consts_at(&inner, ctx, depth + 1)?
+                                .into_iter()
+                                .collect(),
                         )
                         .into(),
                     );
@@ -167,7 +200,7 @@ pub(crate) fn expand_consts(
                     // already intercepted at definition, so recursion
                     // terminates).
                     Some((expanded, consumed)) => {
-                        let expanded = expand_consts(&expanded, ctx)?;
+                        let expanded = expand_consts_at(&expanded, ctx, depth + 1)?;
                         result.extend(expanded);
                         i += consumed;
                     }
@@ -192,7 +225,9 @@ pub(crate) fn expand_consts(
                     && g.delimiter() == delimiter![{}]
                 {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
-                    let expanded = expand_consts(&inner, ctx)?.into_iter().collect();
+                    let expanded = expand_consts_at(&inner, ctx, depth + 1)?
+                        .into_iter()
+                        .collect();
                     result.push(tokens[i].clone());
                     result.push(Group::new(delimiter![{}], expanded).into());
                     i += 2;
@@ -236,6 +271,17 @@ pub(crate) fn collect_user_consts(
             return Err(compile_err!(
                 "batch-impl: constant name `@trait` is a reserved marker \
                  (segment-level substitution into a trait path); please rename"
+            ));
+        }
+        // `@all` / `@all_*` are reserved item selectors (methods / types /
+        // params / lifetimes) — a user constant with such a name would be
+        // shadowed by the built-in selector lookup, so reject at the
+        // definition instead of failing confusingly at the use site
+        if name_str == "all" || name_str.starts_with("all_") {
+            return Err(compile_err!(
+                "batch-impl: constant name `@{}` is a reserved `@all` \
+                 selector; please rename",
+                name_str
             ));
         }
         // Name collision with a built-in constant → error (prevent

@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.6.5** (2026-08-06) — 0.6.2/0.6.3/0.6.4 released (receiver filters, static delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, `@N` indexes only fresh generics); 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen.
+**v0.6.6** (2026-08-06) — 0.6.2–0.6.5 released; 0.6.6: `(T)^N` group-strip semantics (= `T^N`, a const-generic arg like `W<2>` — **breaking**: tuple generation now needs `(T,)^N`), unsuffixed number rendering, input-validation guards (consts nesting depth, `#blanket` `:N` cap, `@all_*` reserved names, empty `:` depth), `#delegate` parameter-pattern forwarding (non-`_` patterns kept in the signature and rebuilt in the call), and six doc placeholder macros (`batch_impl_fill!` etc. — hoverable rustdoc entries for the DSL, see the bottom of `src/lib.rs`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -60,7 +60,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.6.5"
+batch-impl = "0.6.6"
 ```
 
 Requires Rust 2024 edition or newer.

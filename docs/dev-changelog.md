@@ -5,7 +5,109 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.6 (2026-08-06)
+
+### Tuple/fn syntax-boundary fixes (`(T)^2 = T^2`)
+
+- `(T)^2 = T^2` confirmed: a group strips before `^N`, which for a plain type
+  is a const-generic argument (`(u8)^2 = u8<2>`); TyGroup restored to
+  strip-then-apply (tuple generation needs `(T,)^N`);
+- `(<T>)^2` rejected (a `<` right after `(` is not a legal type) — locked by
+  ui fixture `group_angle_bare`;
+- Number/range rendering uses unsuffixed literals: `u8<2>` / `[u8; 3]`
+  (was `u8<2usize>` / `[u8; 3usize]`);
+- Tutorial fixes: fn-arrow note (`fn(A,B)-C` = `fn(A,B)->C`, `->` is not a
+  DSL operator), tuple note block (`(T)` is a group, `(<u8>)` is invalid,
+  `(<Clone>)^N` unsupported).
+
+### Input-validation guards (evaluator findings)
+
+- `expand_consts` gained a 128-level nesting guard (mirrors angle_collect):
+  deeply nested `[[[...]]]` previously overflowed the stack (reproduced at
+  4000 levels), now errors with "nesting depth exceeds 128 levels";
+- `check_value_refs` (the sibling recursive validator of constant-value
+  references) gained the same 128-level nesting guard — deeply nested
+  constant values no longer overflow the stack (ui fixture
+  const_value_deep_nesting);
+- `#blanket` `:N` depth capped at 128: `Box:999999` previously expanded a
+  million-deref delegation body and overflowed rustc, now errors with
+  "deref depth must be ≤ 128";
+- batch_trait! constant definitions reject reserved names at the
+  definition site: the `@all_*` prefix (`@all_methods = ...` previously
+  passed the definition and failed at the use site, now errors with
+  "reserved `@all_*` selector") and the bare `@all`;
+- `#blanket` `Box:` (empty depth after the colon) previously passed
+  silently (the `:` leaked into the type), now errors at the DSL layer
+  ("after `:` must come a number");
+- New ui fixtures ×5: const_reserved_all / blanket_bad_empty_depth /
+  blanket_bad_huge_depth / nested_bracket_too_deep /
+  const_value_deep_nesting.
+
+### `#delegate` param-pattern fixes (evaluator finding)
+
+- **Pattern kept + expression rebuild**: a non-`_` parameter pattern (e.g.
+  `(a, b)`) stays in the generated signature, and the delegation call uses
+  the pattern's token stream directly as an expression — `(a, b)` binds
+  `a`/`b` and `(a, b)` rebuilds the tuple for the target (`[x, y]`,
+  `Foo { x }`, `&x` work the same way);
+- **Recursive non-forwardable detection (`pat_is_forwardable`)**: `ref x`
+  (`by_ref`), guards / `x @ pat` (`subpat`), `_`, and nested forms such as
+  `(ref x, ref y)` are all detected recursively and fall back to `arg0`, …
+  renaming (signature and call together, parsed via syn::Pat::parse_single);
+  forwardable patterns (`(a, b)` / `[x, y]` / `Foo { x }` / `&x`) keep their
+  signature and are forwarded by using the pattern tokens directly as an
+  expression (rebuild);
+- `collect_call_args` now returns `Vec<TokenStream>`: Ident → name,
+  forwardable pattern → `quote!(#pat)` used directly as an expression;
+- `build_from_item_sig`: signature-override variant (needed for the
+  fallback rename to reach the generated signature);
+- New dsl tests delegate_wildcard_param / delegate_tuple_pattern /
+  delegate_ref_nested_pattern;
+- Removed the stale ui fixture delegate_pattern_arg (delegate no longer
+  rejects pattern params).
+
+
+### Depth-guard hardening (evaluator holes E / D)
+
+- **Guard moved earlier**: the `depth + 1` check now runs before
+  `stream()`/collect in both consts.rs and consts_expand.rs, so it fires
+  before the subtree is materialized;
+- **Measured clarification**: the 20000-level default-stack crash happens
+  while rustc parses the macro argument (the macro's first line never
+  runs — verified by an `[entry] start` trace); once RUST_MIN_STACK lets
+  parsing through, the 128-level guard intercepts gracefully.
+  proc-macro2's Group Clone is Rc-shared (shallow) — the "into_iter deep
+  copies the whole tree" mechanism does not hold; the real ceiling for
+  deeply nested input is rustc's macro-thread stack, which a macro cannot
+  intercept;
+- **Pat::Type** (type-ascription patterns `x: u32`) cannot appear in an
+  expression position → falls back to `arg{i}` naming (hole D).
+
+### `@0` position marker in blanket wrappers
+
+- A wrapper's main part (minus where / `:N`) **with `@0`** treats `@0` as the
+  target T's position — emitted as-is with `@0` replaced by the fresh
+  generic, so T can sit anywhere (`(u32, @0)` → `(u32, T)`);
+- **Without `@0`** → `part^T` (target appended last, unchanged);
+- has_at0 / replace_at0 helpers (recursing into groups); dsl tests
+  blanket_at0_position / blanket_at0_const_generic (custom Deref +
+  `<const N: usize>` generics, coexisting with the user's `N`).
+
+### Directive documentation placeholders
+
+- Six new empty `#[proc_macro]` placeholder macros (doc-only symbols):
+  batch_impl_delegate / batch_impl_fill / batch_impl_blanket /
+  batch_impl_name (`#name{body}` fill-by-name) / batch_impl_open (open
+  extension) / batch_impl_consts (`@` constant system) — directive docs
+  become hoverable/searchable rustdoc symbols instead of unreachable
+  tokens inside macro arguments;
+- **Measured**: a proc-macro crate cannot export plain `pub fn` (E0753),
+  so the placeholders are empty `#[proc_macro]` macros
+  (`batch_impl_delegate!{}` expands to nothing; docs render normally);
+- Each placeholder ships a compilable doctest example (57 doctests pass).
+
 ## 0.6.5 (2026-08-06)
+
 
 ### Documentation rules (author wording + no in-dev marker)
 

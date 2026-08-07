@@ -197,6 +197,28 @@ pub(crate) fn check_value_refs(
     tokens: &[TokenTree], table: &std::collections::HashMap<String, Vec<TokenTree>>,
     def_name: &str,
 ) -> Result<(), TokenStream> {
+    check_value_refs_at(tokens, table, def_name, 0)
+}
+
+/// Recursive core of [`check_value_refs`] with a nesting guard (mirrors
+/// `expand_consts`'s `MAX_NEST_DEPTH` — a deeply nested constant value must
+/// error out instead of overflowing the stack).
+fn check_value_refs_at(
+    tokens: &[TokenTree], table: &std::collections::HashMap<String, Vec<TokenTree>>,
+    def_name: &str, depth: usize,
+) -> Result<(), TokenStream> {
+    if depth > crate::preprocess::angle::MAX_NEST_DEPTH {
+        let sp =
+            tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
+        return Err(compile_error_str(
+            &format!(
+                "batch-impl: nesting depth exceeds {} levels in a constant \
+                 value (perhaps an accidental extra bracket)",
+                crate::preprocess::angle::MAX_NEST_DEPTH
+            ),
+            sp,
+        ));
+    }
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
@@ -239,10 +261,23 @@ pub(crate) fn check_value_refs(
                 i += if star { 3 } else { 2 };
             }
             TokenTree::Group(g) => {
-                check_value_refs(
+                // Guard before materializing the group's stream (same
+                // rationale as expand_consts_at).
+                if depth + 1 > crate::preprocess::angle::MAX_NEST_DEPTH {
+                    return Err(compile_error_str(
+                        &format!(
+                            "batch-impl: nesting depth exceeds {} levels in a \
+                             constant value (perhaps an accidental extra bracket)",
+                            crate::preprocess::angle::MAX_NEST_DEPTH
+                        ),
+                        tokens[i].span(),
+                    ));
+                }
+                check_value_refs_at(
                     &g.stream().into_iter().collect::<Vec<_>>(),
                     table,
                     def_name,
+                    depth + 1,
                 )?;
                 i += 1;
             }

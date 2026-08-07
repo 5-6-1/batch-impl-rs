@@ -1,0 +1,10 @@
+error: batch-impl: constant name `@all` is a reserved `@all` selector; please rename
+ --> tests/ui/const_reserved_all.rs:5:1
+  |
+5 | / batch_trait! {
+6 | |     @all = [u8];
+7 | |     A: TraitA;
+8 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

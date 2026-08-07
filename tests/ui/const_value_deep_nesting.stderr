@@ -1,0 +1,10 @@
+error: batch-impl: nesting depth exceeds 128 levels in a constant value (perhaps an accidental extra bracket)
+ --> tests/ui/const_value_deep_nesting.rs:5:1
+  |
+5 | / batch_trait! {
+6 | |     @a = [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[...
+7 | |     A: TraitA;
+8 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

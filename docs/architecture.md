@@ -1,6 +1,8 @@
 # batch-impl Internal Architecture
 
-**v0.6.5** — 0.6.2/0.6.3/0.6.4 released: preprocessing order `@ <> # where`, complete macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation, `@u*` rename, generic-param families, fresh-only `@N`, `@trait` expansion; 0.6.5: `@N` the only codegen marker (blanket unified), `#cmd[args]` bracket args.
+**v0.6.6** — 0.6.2/0.6.3/0.6.4 released: preprocessing order `@ <> # where`, complete macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation, `@u*` rename, generic-param families, fresh-only `@N`, `@trait` expansion; 0.6.5: `@N` the only codegen marker (blanket unified), `#cmd[args]` bracket
+args; 0.6.6: `(T)^N` group-strip semantics, unsuffixed number rendering,
+input-validation guards.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 

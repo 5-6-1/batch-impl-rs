@@ -260,6 +260,127 @@ fn directive_delegate() {
     assert_eq!(b.d_len(), 4);
 }
 
+// `#delegate` auto-names `_` wildcard params (`arg0`, ...) so they can be
+// forwarded — trait declarations may use `_` (a pattern parameter would be
+// E0642), and a delegation call cannot forward an unnamed param.
+trait WildcardInner {
+    fn m(&self, ab: (u32, u32)) -> u32;
+}
+impl WildcardInner for Vec<u32> {
+    fn m(&self, ab: (u32, u32)) -> u32 {
+        ab.0 + ab.1
+    }
+}
+#[batch_impl(Box<Vec<u32>> #delegate(@all_methods){**self})]
+trait WildcardOuter {
+    fn m(&self, _: (u32, u32)) -> u32;
+}
+
+#[test]
+fn delegate_wildcard_param() {
+    let b = Box::new(vec![1u32, 2]);
+    assert_eq!(<Box<Vec<u32>> as WildcardOuter>::m(&b, (3, 4)), 7);
+}
+
+// A trait method with a default body may use a tuple pattern parameter
+// (pattern params are only illegal in bodyless declarations, E0642);
+// `#delegate` renames `(a, b)` to `arg0` and forwards it.
+#[allow(dead_code)]
+struct DestrBox(usize);
+#[allow(dead_code)]
+trait DestructureNum {
+    fn dm(&self, ab: (u32, u32)) -> u32;
+}
+impl DestructureNum for DestrBox {
+    fn dm(&self, ab: (u32, u32)) -> u32 {
+        ab.0 * ab.1
+    }
+}
+#[batch_impl(Box<DestrBox> #delegate(dm){**self})]
+trait DestructureOuter {
+    fn dm(&self, (a, b): (u32, u32)) -> u32 {
+        a + b
+    }
+}
+
+#[test]
+fn delegate_tuple_pattern() {
+    let b = Box::new(DestrBox(5));
+    assert_eq!(<Box<DestrBox> as DestructureOuter>::dm(&b, (3, 4)), 12);
+}
+
+// A nested non-forwardable pattern (`(ref a, ref b)` — `ref` tokens cannot
+// appear in an expression position) falls back to `arg{i}` renaming; a plain
+// `(a, b)` keeps its pattern.
+struct RefBox;
+trait RefNum {
+    fn rm(&self, ab: (u32, u32), extra: &u32) -> u32;
+}
+impl RefNum for RefBox {
+    fn rm(&self, ab: (u32, u32), extra: &u32) -> u32 {
+        ab.0 + ab.1 + *extra
+    }
+}
+#[batch_impl(Box<RefBox> #delegate(rm){**self})]
+trait RefOuter {
+    fn rm(&self, (ref _a, ref _b): (u32, u32), _extra: &u32) -> u32 {
+        0
+    }
+}
+
+#[test]
+fn delegate_ref_nested_pattern() {
+    let b = Box::new(RefBox);
+    assert_eq!(<Box<RefBox> as RefOuter>::rm(&b, (3, 4), &5), 12);
+}
+
+// A blanket wrapper whose main part contains `@0` marks the target position:
+// `@0` is replaced by the fresh target generic and the wrapper is emitted
+// as-is (so `T` can sit anywhere, e.g. `(u32, @0, u8)`); without `@0` the
+// wrapper is applied as `wrapper^T` (target appended last).
+trait BlanketAt0 {
+    fn tag(&self) -> u32;
+}
+#[batch_impl_only(u32 { fn tag(&self) -> u32 { 7 } })]
+trait BlanketAt0 {}
+#[batch_impl_only(#blanket(@all_methods){Box<@0>})]
+trait BlanketAt0 {
+    fn tag(&self) -> u32;
+}
+
+#[test]
+fn blanket_at0_position() {
+    let b = Box::new(5u32);
+    assert_eq!(<Box<u32> as BlanketAt0>::tag(&b), 7);
+}
+
+// `@0` combines with user generics: a custom Deref type with a const
+// parameter — `<const N: usize> #blanket(@all){MyPtrWithNum<@0, N>}` keeps
+// the user's `N` and replaces `@0` with the fresh target generic; the
+// delegation body derefs one layer (`**self`) to the `T` target.
+struct MyPtrWithNum<T, const N: usize>(Box<T>, [u8; N]);
+impl<T, const N: usize> std::ops::Deref for MyPtrWithNum<T, N> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+trait CfgT {
+    fn tag(&self) -> u32;
+}
+#[batch_impl_only(u32 { fn tag(&self) -> u32 { 7 } })]
+trait CfgT {}
+#[batch_impl_only(<const N: usize> #blanket(@all){MyPtrWithNum<@0, N>})]
+trait CfgT {
+    fn tag(&self) -> u32;
+}
+
+#[test]
+fn blanket_at0_const_generic() {
+    let p = MyPtrWithNum(Box::new(5u32), [0u8; 4]);
+    assert_eq!(<MyPtrWithNum<u32, 4> as CfgT>::tag(&p), 7);
+}
+
 // ============================================================
 // 16. batch_trait! function-like macro
 // ============================================================

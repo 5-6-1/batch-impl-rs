@@ -233,3 +233,141 @@ pub fn batch_preprocess_test(
     }
     preprocess::render_angles(methods).into()
 }
+
+// ============================================================
+// Documentation placeholders for the DSL directive / macro-meta layers.
+//
+// The `#` directives and `@` constants live inside macro arguments, so IDE
+// hover and docs.rs cannot reach them. Each placeholder below is a public
+// no-op function whose doc block documents one directive — a hoverable,
+// searchable rustdoc entry. Never call these functions.
+// ============================================================
+
+/// Documentation placeholder for the `#delegate` directive.
+///
+/// `#delegate(args){target}` generates one delegation call per selected
+/// method: each becomes `fn m(&self, ...) -> R { (target).m(...) }`. The
+/// `self` argument is skipped; the remaining arguments are forwarded (named
+/// params as-is, non-identifier patterns renamed to `arg{i}` when they
+/// cannot be used as an expression).
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// #[batch_impl(
+///     Vec<u32> #d_len{self.len()},
+///     Box<Vec<u32>> #delegate(d_len){**self}
+/// )]
+/// trait MyLen { fn d_len(&self) -> usize; }
+/// # fn main() {}
+/// ```
+///
+/// **Documentation marker only — never call this function.**
+#[proc_macro]
+pub fn batch_impl_delegate(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::new()
+}
+
+/// Documentation placeholder for the `#fill` directive.
+///
+/// `#fill(args){body}` copies each selected trait item's signature and
+/// substitutes `body` as its implementation. Selection supports the `@all`
+/// families (`@all_methods`, `@all_ref_methods`, `@all_default_methods`,
+/// ...), individual names, and `-` subtraction (`#fill(@all_methods, -foo)`).
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// #[batch_impl(Vec<u32> #fill(@all_methods){0})]
+/// trait F { fn zero(&self) -> u32; }
+/// # fn main() {}
+/// ```
+///
+/// **Documentation marker only — never call this function.**
+#[proc_macro]
+pub fn batch_impl_fill(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::new()
+}
+
+/// Documentation placeholder for the `#blanket` directive.
+///
+/// `#blanket(args){wrapper list}` implements the trait for every wrapper
+/// around a fresh generic `T`, delegating each method by deref. Wrappers may
+/// carry a `:N` deref-depth annotation and a `where{...}` predicate; a
+/// wrapper whose main part contains `@0` treats `@0` as T's position
+/// (`(u32, @0)` → `(u32, T)`), otherwise it is applied as `wrapper^T`.
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// #[batch_impl(#blanket(@all_methods){Box})]
+/// trait B { fn tag(&self) -> u32; }
+/// # fn main() {}
+/// ```
+///
+/// **Documentation marker only — never call this function.**
+#[proc_macro]
+pub fn batch_impl_blanket(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::new()
+}
+
+/// Documentation placeholder for the `#name{body}` fill-by-name directive.
+///
+/// `#name{body}` looks up the single trait item named `name` — a method, an
+/// associated const, or an associated type — and fills it with `body` (the
+/// body must match that item's shape).
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// #[batch_impl(Box<Vec<u32>> #count{self.len()})]
+/// trait L { fn count(&self) -> usize; }
+/// # fn main() {}
+/// ```
+///
+/// **Documentation marker only — never call this function.**
+#[proc_macro]
+pub fn batch_impl_name(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::new()
+}
+
+/// Documentation placeholder for the open-extension protocol.
+///
+/// A `#name(args){body}` whose `name` is not a built-in directive expands to
+/// a call of a user-defined function-like macro of the same name, handed the
+/// args, body and trait definition:
+/// `#my_ext(x){y}` → `{ my_ext!{ (x) {y} trait_def } }`.
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// macro_rules! my_ext { ($($rest:tt)*) => {}; }
+/// #[batch_impl(Box<u32> #my_ext(x){y})]
+/// trait O {}
+/// # fn main() {}
+/// ```
+///
+/// **Documentation marker only — never call this function.**
+#[proc_macro]
+pub fn batch_impl_open(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::new()
+}
+
+/// Documentation placeholder for the `@` macro-meta constant system.
+///
+/// `@` names expand before all other DSL processing (`@ <> # where` order):
+/// - built-in name families: `@uint` / `@int` / `@float` / `@num` /
+///   `@scalar` and wildcards `@u*` / `@i*` / `@f*`;
+/// - range families: `@u8..u128` / `@i8..i128` / `@f32..f64` (inclusive);
+/// - `batch_trait!` user constants: a leading `@name = value;` segment
+///   (lazy expansion, reference checks);
+/// - `@N` position references (resolved by codegen) and `@trait`
+///   (segment-level trait path).
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// #[batch_impl(Box^@u*)]
+/// trait C {}
+/// # fn main() {}
+/// ```
+///
+/// **Documentation marker only — never call this function.**
+#[proc_macro]
+pub fn batch_impl_consts(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::new()
+}

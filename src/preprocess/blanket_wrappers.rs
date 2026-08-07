@@ -7,6 +7,11 @@ use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::util::{compile_err, compile_err_at, compile_error_str, is_single_colon};
+
+/// Upper bound for a #blanket wrapper's :N deref depth — the delegation
+/// body contains N + 1 derefs, so an unbounded :N (e.g. Box:999999)
+/// would expand into a pathological type and overflow rustc.
+pub(crate) const MAX_BLANKET_DEPTH: usize = 128;
 /// A single `#blanket` wrapper element: type expression + deref depth +
 /// optional bound predicates.
 pub(crate) struct BlanketWrapper {
@@ -80,6 +85,16 @@ pub(crate) fn parse_blanket_wrappers(
                                 lit.span(),
                             ));
                         }
+                        if depth > MAX_BLANKET_DEPTH {
+                            return Err(compile_error_str(
+                                &format!(
+                                    "batch-impl: #blanket `:{}` is too large \
+                                     (deref depth must be ≤ {})",
+                                    depth, MAX_BLANKET_DEPTH
+                                ),
+                                lit.span(),
+                            ));
+                        }
                         ty_end = i;
                     }
                     Some(other) => {
@@ -90,7 +105,16 @@ pub(crate) fn parse_blanket_wrappers(
                             other
                         ));
                     }
-                    None => {}
+                    // `Box:` with nothing after the colon: reject (the `:`
+                    // would otherwise leak into the type and surface as a
+                    // confusing rustc error)
+                    None => {
+                        return Err(compile_error_str(
+                            "batch-impl: after #blanket `:` must come a number \
+                             (e.g. `Box^Arc:2`)",
+                            current[i].span(),
+                        ));
+                    }
                 }
                 break;
             }

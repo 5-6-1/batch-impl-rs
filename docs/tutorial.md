@@ -1,6 +1,9 @@
 # batch-impl Tutorial
 
-**v0.6.5** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen.
+**v0.6.6** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen; 0.6.6: `(T)^N` group-strip semantics
+(= `T^N`, a const-generic arg like `W<2>`; **breaking** — tuple generation now needs `(T,)^N`), unsuffixed number rendering,
+and input-validation guards (consts nesting depth, `#blanket` `:N` cap,
+`@all_*` reserved names, empty `:` depth).
 
 A progressively-learned DSL: start from a single impl line and work up to advanced matrix composition. All examples are compilable code; the product of every step is ordinary Rust — the impls the macro generates are token-for-token equivalent to handwritten ones.
 
@@ -354,6 +357,33 @@ trait RecvB {
 ```
 
 The three markers work in `#fill` / `#delegate` / `#blanket` and `-` exclusions alike
+
+### `@0` position marker in blanket wrappers
+
+Each `#blanket` wrapper's main part (minus `where` and `:N`) expands to
+`part^T` (target appended last, e.g. `Box` → `Box<T>`) when it contains no
+`@0`; with `@0`, the marker is the target's position — the wrapper is emitted
+as-is with `@0` replaced by the fresh target generic, so `T` can sit anywhere:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(#blanket(@all_methods){Box})]       // → Box<T> (T last)
+trait PosTail { fn tag(&self) -> u32; }
+#[batch_impl(#blanket(@all_methods){Box<@0>})]   // → Box<T> (equivalent)
+trait PosBox { fn tag(&self) -> u32; }
+# fn main() {}
+```
+
+`(u32, @0)` likewise expands to `(u32, T)` (T in second position) — the
+delegation body is still generated from the deref depth, so non-Deref
+wrappers need a where predicate or a custom `#delegate` target.
+
+`@0` composes freely with user generics: `Rc<Box<@0>>` and `Rc^Box` expand
+identically (`Rc<Box<T>>`); a custom Deref type with a const parameter
+works too — `<const N: usize> #blanket(@all){MyPtrWithNum<@0, N>}` yields
+`impl<const N: usize, T> Trait for MyPtrWithNum<T, N> where T: Trait` (the
+user's `N` is kept, `@0` is replaced by the fresh target generic, and the
+delegation body follows the deref depth).
 (e.g. `#fill(@all_methods, -@all_value_methods)` = only reference + static methods).
 
 ### List subtraction `-name`
@@ -610,6 +640,10 @@ trait FnTupleGen {}
 // → impl FnTupleGen for fn(u32, u32) {}
 ```
 
+`fn(A, B)-C` is equivalent to `fn(A, B) -> C` (the `-` appends a return
+type). Note that `->` is **not** a DSL operator — do not try
+`(A, B)->C` (a `(` group followed by `->` cannot be parsed).
+
 `unsafe fn(...)` types: when `unsafe` immediately precedes `fn`, it modifies the fn type itself, unrelated to the
 unsafe impl marker of `unsafe^T` (`unsafe^fn(...)` is "unsafe impl targeting an fn type"):
 
@@ -703,13 +737,20 @@ When the right side of `^` is a number or a range, tuples of the specified lengt
 |--------|------------|
 | `()^3` | `(A, B, C)` (with 3 generic parameters) |
 | `(T,)^3` | `(T, T, T)` |
-| `(<Clone>)^3` | `(A:Clone, B:Clone, C:Clone)` |
+| `(Box<u8>,)^2` | `(Box<u8>, Box<u8>)` (elements may be generic types) |
 | `(T1, T2)^2` | Cartesian product `(T1,T1), (T1,T2), (T2,T1), (T2,T2)` |
 | `()^1..3` | `(A,), (A, B)` (lengths 1 to 2) |
 | `()^1..=3` | `(A,), (A, B), (A, B, C)` (lengths 1 to 3) |
 | `(T,)^2..4` | `(T, T), (T, T, T)` (lengths 2 to 3) |
 
-> Note: `(T)` is grouping (not a tuple); `(T,)` is the single-element tuple.
+> Note: `(T)` is a group, `(T,)` is the 1-tuple — `(T)^N` strips the
+> group and equals `T^N` (for a plain type `^N` is a const-generic
+> argument: `(W)^2 = W<2>` where `W` is a type with a const generic; to
+> generate tuples write `(T,)^N`).
+> `(<u8>)` is invalid: a `<` right after `(` is not a legal type — a
+> 1-tuple needs a complete type plus a comma, e.g. `(Box<u8>,)`.
+> `(<Clone>)^N` (bound-base) is not supported; use
+> `()^N where{@0: Clone, ...}` instead.
 
 ```rust
 # use batch_impl::batch_impl;

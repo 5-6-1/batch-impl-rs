@@ -1,10 +1,12 @@
 # batch-impl 教程
 
-**v0.6.5**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
+**v0.6.6**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
 （`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`）、
 `#blanket` 静态方法委托、span 诊断、`@u*`/`@i*`/`@f*` 改名、泛型参数族、
 `@N` 只索引 fresh 泛型；0.6.5：`#cmd[args]{body}` 方括号参数、宏调用
-passthrough 修复、裸范围端点定义处报错、blanket `@N` 统一 codegen 解析。
+passthrough 修复、裸范围端点定义处报错、blanket `@N` 统一 codegen 解析；0.6.6：`(T)^N` 分组剥离语义
+（= `T^N`，const 泛型实参如 `W<2>`；**破坏性变更**——元组生成须 `(T,)^N`）、数字渲染不带 `usize` 后缀、
+输入校验护栏（consts 嵌套深度 / `#blanket` `:N` 上限 / `@all_*` 保留名 / 空 `:` 深度）。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码，
 每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
@@ -372,6 +374,34 @@ trait RecvB {
 三个标记在 `#fill` / `#delegate` / `#blanket` 与 `-` 排除中通用
 （如 `#fill(@all_methods, -@all_value_methods)` = 只填引用 + 静态方法）。
 
+### blanket 包装的 `@0` 位置标记
+
+`#blanket` 的 `{}` 内各项（包装列表）的主部分（去掉 `where` 与 `:N`）若
+**未带 `@0`**，展开为 `部分^T`（T 附加在末尾，如 `Box` → `Box<T>`）；
+若**带 `@0`**，`@0` 即目标 T 的位置占位——展开为 `部分` 原样（`@0`
+替换成 fresh 泛型名），T 可放在任意位置：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(#blanket(@all_methods){Box})]       // → Box<T>（T 在末尾）
+trait PosTail { fn tag(&self) -> u32; }
+#[batch_impl(#blanket(@all_methods){Box<@0>})]   // → Box<T>（等价写法）
+trait PosBox { fn tag(&self) -> u32; }
+# fn main() {}
+```
+
+`(u32, @0)` 同理展开为 `(u32, T)`（T 在第二位）——非 Deref 包装的委托体
+需配合 where 谓词或改用 `#delegate` 自定义委托目标。
+
+`@0` 与用户泛型自由组合：`Rc<Box<@0>>` 与 `Rc^Box` 展开等价
+（`Rc<Box<T>>`）；自定义 Deref 类型带 const 参数也成立——如
+`<const N: usize> #blanket(@all){MyPtrWithNum<@0, N>}` 生成
+`impl<const N: usize, T> Trait for MyPtrWithNum<T, N> where T: Trait`
+（用户参数 `N` 保留、`@0` 替换为 fresh 目标泛型、委托体按 Deref 深度）。
+
+注意 blanket 的委托体仍按 deref 深度生成（`**self` 等），非 Deref 包装
+（如元组）需配合 where 谓词或改用 `#delegate` 自定义委托目标。
+
 ### 列表减法 `-name`
 
 参数中 `-` 前缀表示排除项（保留列表减去排除列表，排除优先）。
@@ -635,6 +665,9 @@ trait FnTupleGen {}
 // → impl FnTupleGen for fn(u32, u32) {}
 ```
 
+`fn(A, B)-C` 等价于 `fn(A, B) -> C`（`-` 追加返回类型）。注意 `->` 不是
+DSL 操作符——不要尝试写 `(A, B)->C`（`(` 分组后 `->` 无法解析，会报错）。
+
 `unsafe fn(...)` 类型：`unsafe` 紧跟 `fn` 时修饰 fn 类型本身，与 `unsafe^T` 的
 unsafe impl 标记无关（`unsafe^fn(...)` 才是"unsafe impl，目标为 fn 类型"）：
 
@@ -728,13 +761,17 @@ trait ComplexMarker {}
 |---------------|-----------------------------------------------|
 | `()^3`        | `(A, B, C)`（带3个泛型参数）                  |
 | `(T,)^3`      | `(T, T, T)`                                   |
-| `(<Clone>)^3` | `(A:Clone, B:Clone, C:Clone)`                 |
+| `(Box<u8>,)^2` | `(Box<u8>, Box<u8>)`（元素可以是泛型类型）        |
 | `(T1, T2)^2`  | 笛卡尔积 `(T1,T1), (T1,T2), (T2,T1), (T2,T2)` |
 | `()^1..3`     | `(A,), (A, B)`（长度1到2）                    |
 | `()^1..=3`    | `(A,), (A, B), (A, B, C)`（长度1到3）         |
 | `(T,)^2..4`   | `(T, T), (T, T, T)`（长度2到3）               |
 
-> 注意：`(T)` 是分组（非元组），`(T,)` 才是单元素元组。
+> 注意：`(T)` 是分组，`(T,)` 才是单元素元组——`(T)^N` 会剥离分组，等价于
+> `T^N`（普通类型 `^N` 是 const 泛型实参：`(W)^2 = W<2>`，其中 `W` 为带 const
+> 泛型的类型；要生成元组须写 `(T,)^N`）。`(<u8>)` 是错误语法：`(` 后直接 `<` 不是合法类型，单元素
+> 元组须写完整类型加逗号，如 `(Box<u8>,)`。`(<Clone>)^N`（带 bound 的空
+> 元组基座）不支持，改用 `()^N where{@0: Clone, ...}` 表达。
 
 ```rust
 # use batch_impl::batch_impl;

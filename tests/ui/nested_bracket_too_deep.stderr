@@ -1,0 +1,7 @@
+error: batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket)
+ --> tests/ui/nested_bracket_too_deep.rs:5:1
+  |
+5 | #[batch_impl([[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[...]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]])]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

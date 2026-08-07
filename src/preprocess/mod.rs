@@ -52,8 +52,10 @@ pub(crate) mod blanket_wrappers;
 pub(crate) mod consts;
 pub(crate) mod consts_ctx;
 pub(crate) mod consts_expand;
+pub(crate) mod delegate_args;
 pub(crate) mod empty_generics;
-pub(crate) mod helpers;
+pub(crate) mod name_list;
+pub(crate) mod trait_items;
 pub(crate) mod where_process;
 
 pub(crate) use angle::*;
@@ -61,8 +63,10 @@ pub(crate) use blanket_wrappers::*;
 pub(crate) use consts::*;
 pub(crate) use consts_ctx::*;
 pub(crate) use consts_expand::*;
+pub(crate) use delegate_args::*;
 pub(crate) use empty_generics::*;
-pub(crate) use helpers::*;
+pub(crate) use name_list::*;
+pub(crate) use trait_items::*;
 pub(crate) use where_process::*;
 
 mod blanket;
@@ -71,6 +75,7 @@ pub(crate) use blanket::expand_blanket;
 use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
+use syn::parse::Parser;
 
 use crate::util::{bracket_is_passthrough, compile_err, compile_error_str, is_punct};
 
@@ -259,7 +264,11 @@ fn expand_fill(
 /// `#delegate(args){target}` → `{fn m1(sig){(target).m1(params)} ...}`
 ///
 /// Generates a delegation call per method: skips the `self` argument and
-/// forwards the remaining arguments as-is.
+/// forwards the remaining arguments as-is. Non-identifier parameter patterns
+/// (`_`, tuple patterns like `(a, b)` — legal when the trait method has a
+/// default body — or any other pattern) are renamed to `arg0`, `arg1`, ...
+/// in both the copied signature and the delegation call, so they can be
+/// forwarded by name.
 fn expand_delegate(
     args_group: &Group, target: &Group, trait_def: &ItemTrait,
 ) -> Result<TokenTree, TokenStream> {
@@ -273,18 +282,39 @@ fn expand_delegate(
                 name
             ));
         };
-        let sig = f.sig.clone();
+        let mut sig = f.sig.clone();
+        // Only patterns that cannot be used directly as an expression need
+        // renaming: `_` has no binding, `ref x` / guards / `x @ pat` are
+        // pattern-only tokens (checked recursively, so `(ref x, y)` is
+        // caught too). Everything else keeps its pattern — its token stream
+        // works as an expression in the call (`(a, b)` binds `a`/`b`, and
+        // `(a, b)` rebuilds the tuple). Parsed via syn (`arg{i}` is always a
+        // valid identifier pattern).
+        let mut arg_idx = 0usize;
+        for input in &mut sig.inputs {
+            if let syn::FnArg::Typed(pat_type) = input
+                && !pat_is_forwardable(&pat_type.pat)
+            {
+                pat_type.pat = syn::Pat::parse_single
+                    .parse_str(&format!("arg{}", arg_idx))
+                    .expect(
+                        "generated arg names are always valid identifier patterns",
+                    )
+                    .into();
+                arg_idx += 1;
+            }
+        }
         let call_args = collect_call_args(&sig).map_err(|pat| {
             compile_err!(
                 "batch-impl: #delegate method `{}::{}` param `{}` cannot be \
-                 forwarded: only `self` and plain identifier patterns are \
-                 supported",
+                 forwarded (unsupported parameter pattern); please rename it \
+                 to a plain identifier",
                 trait_def.ident,
                 name,
                 pat
             )
         })?;
         let body = quote! { (#target_stream) . #name ( #(#call_args),* ) };
-        Ok(build_from_item(item, &body))
+        Ok(build_from_item_sig(item, Some(&sig), &body))
     })
 }

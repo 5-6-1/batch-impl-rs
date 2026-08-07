@@ -26,9 +26,6 @@ fn ui() {
     t.compile_fail("tests/ui/single_name_not_found.rs");
     t.compile_fail("tests/ui/delegate_on_non_fn.rs");
 
-    // #delegate destructuring-pattern arguments cannot be forwarded
-    t.compile_fail("tests/ui/delegate_pattern_arg.rs");
-
     // DSL semantic errors
     t.compile_fail("tests/ui/empty_range.rs");
 
@@ -68,6 +65,12 @@ fn ui() {
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
     // at the definition by `check_value_refs`
     t.compile_fail("tests/ui/const_bare_endpoint.rs");
+    t.compile_fail("tests/ui/group_angle_bare.rs");
+    t.compile_fail("tests/ui/const_reserved_all.rs");
+    t.compile_fail("tests/ui/blanket_bad_empty_depth.rs");
+    t.compile_fail("tests/ui/blanket_bad_huge_depth.rs");
+    t.compile_fail("tests/ui/nested_bracket_too_deep.rs");
+    t.compile_fail("tests/ui/const_value_deep_nesting.rs");
 
     // #blanket: non-Deref wrappers / illegal `:N`
     t.compile_fail("tests/ui/blanket_ptr.rs");

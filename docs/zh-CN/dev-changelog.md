@@ -2,7 +2,89 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.6.6 (2026-08-06)
+
+### 元组/fn 语法边界修正（`(T)^2 = T^2`）
+
+- `(T)^2 = T^2` 规则确认：分组剥离后幂 = const 泛型实参（`(u8)^2 = u8<2>`），
+  TyGroup 恢复剥离语义（元组生成须 `(T,)^N`）；
+- `(<T>)^2` 报错锁定（`(` 后 `<` 不是合法类型）——ui fixture group_angle_bare；
+- 数字/范围渲染改 unsuffixed literal：`u8<2>` / `[u8; 3]`
+  （原 `u8<2usize>` / `[u8; 3usize]`）；
+- 教程修正：fn-arrow 说明（`fn(A,B)-C = fn(A,B)->C`，`->` 不是 DSL 操作符）、
+  元组注意块（`(T)` 分组非元组 / `(<u8>)` 错误语法 / `(<Clone>)^N` 不支持）。
+
+### 输入校验四连（评测员发现）
+
+- `expand_consts` 补深度守卫（128 层，与 angle_collect 一致）：超深嵌套
+  `[[[...]]]` 之前直接栈溢出（4000 层复现），现在报优雅的
+  "nesting depth exceeds 128 levels"；
+- `check_value_refs`（校验常量值引用的兄弟递归）补 128 层深度守卫——
+  深嵌套常量值不再栈溢出（ui fixture const_value_deep_nesting）；
+- `#blanket` 的 `:N` 深度加上限 128：`Box:999999` 之前生成百万级 `*`
+  委托体导致 rustc 栈溢出，现在报 "deref depth must be ≤ 128"；
+- batch_trait! 自定义常量在定义处拦截保留名：`@all_*` 前缀
+  （`@all_methods = ...` 之前定义处通过、使用时才报错，现在定义处直接报
+  "reserved `@all_*` selector"）与裸 `@all`；
+- `#blanket` 冒号后空内容（`Box:`）之前静默通过（`:` 泄漏进类型、
+  rustc 层报错），现在 DSL 层报 "after `:` must come a number"；
+- 新增 ui fixture ×5：const_reserved_all / blanket_bad_empty_depth /
+  blanket_bad_huge_depth / nested_bracket_too_deep /
+  const_value_deep_nesting。
+
+### #delegate 参数模式修正（评测员发现）
+
+- **模式保留 + 表达式重建**：非 `_` 参数模式（如 `(a, b)`）保留原签名，
+  委托调用直接用模式的 token 作表达式——`(a, b)` 解构绑定 `a`/`b` 后
+  由 `(a, b)` 重建元组传给目标（`[x, y]` / `Foo { x }` / `&x` 同理）；
+- **不可作表达式模式递归检测（pat_is_forwardable）**：`ref x`（by_ref）、
+  守卫/`x @ pat`（subpat）、`_`、嵌套形式（如 `(ref x, ref y)`）都会
+  递归查出并 fallback 改写成 `arg0`…（签名 + 调用同步，syn::Pat::parse_single
+  解析）；可作模式（`(a, b)` / `[x, y]` / `Foo { x }` / `&x`）保留签名，
+  委托调用直接以模式 token 作表达式重建；
+- `collect_call_args` 返回 `Vec<TokenStream>`：Ident → 名字、可作模式 →
+  `quote!(#pat)` 直接作表达式；
+- `build_from_item_sig`：签名覆写变体（fallback 改名后需同步到生成签名）；
+- 新增 dsl 测试 delegate_wildcard_param / delegate_tuple_pattern /
+  delegate_ref_nested_pattern；
+- 删除过时 ui fixture delegate_pattern_arg（delegate 不再拒绝模式参数）。
+
+### 深度守卫加固（评测员洞 E / 洞 D）
+
+- **守卫前移**：Group 递归前先检查 `depth + 1`（在 stream()/collect 之前
+  拦截）——consts.rs / consts_expand.rs 两处，防"守卫在深拷贝后执行"；
+- **实测澄清**：20000 层嵌套默认栈崩溃发生在 **rustc 解析宏参数阶段**
+  （宏函数第一行未执行——entry trace 验证 `[entry] start` 未打印）；
+  RUST_MIN_STACK 让解析通过后，守卫 128 层正常优雅拦截。proc-macro2
+  的 Group Clone 是 Rc 共享（浅拷贝），"into_iter 深拷贝整棵树"的
+  机制不成立——超深输入的上限是 rustc 宏线程栈，宏侧无法拦截；
+- **Pat::Type**（类型注解模式 `x: u32`）不可作表达式 → fallback
+  命名（洞 D，`(x : u32)` 不是合法表达式）。
+
+### #blanket 包装的 `@0` 位置标记
+
+- 包装主部分（去掉 where / :N）**带 `@0`** → `@0` 即目标 T 的位置占位，
+  展开为原样（`@0` 替换成 fresh 泛型名）——T 可放任意位置
+  （`(u32, @0)` → `(u32, T)`）；
+- **不带 `@0`** → `部分^T`（T 附加末尾，现状不变）；
+- has_at0 / replace_at0 helper（递归进组）；dsl 测试 blanket_at0_position /
+  blanket_at0_const_generic（自定义 Deref + `<const N: usize>` 泛型，
+  与用户参数 N 共存）。
+
+### 指令文档占位宏族
+
+- 新增 6 个 `#[proc_macro]` 空占位宏（doc 只读符号）：batch_impl_delegate /
+  batch_impl_fill / batch_impl_blanket / batch_impl_name（`#name{body}`
+  按名填充）/ batch_impl_open（开放扩展协议）/ batch_impl_consts
+  （`@` 常量系统）——指令与常量的文档从"宏参数里的不可达 token"变成
+  "可 hover / 可搜索的 rustdoc 符号"；
+- **实测**：proc-macro crate 不能导出普通 `pub fn`（E0753——"cannot export
+  any items other than proc-macro tagged"），占位用空 `#[proc_macro]`
+  宏实现（`batch_impl_delegate!{}` 空展开无害，doc 正常渲染）；
+- 每个占位带可编译 doctest 例子（57 个 doctest 全过）。
+
 ## 0.6.5 (2026-08-06)
+
 
 ### `#cmd[args]{body}` 等价写法 + blanket `@0` 统一到 codegen
 

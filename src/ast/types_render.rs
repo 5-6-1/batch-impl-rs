@@ -121,12 +121,12 @@ impl ToTokens for Ty {
                 render_optional(w.1.as_deref(), quote!(#[#stream]), false)
             }
             TyKind::Num(n) => {
-                let n = n.0;
-                quote!(#n)
+                let lit = proc_macro2::Literal::usize_unsuffixed(n.0);
+                quote!(#lit)
             }
             TyKind::Range(r) => {
-                let start = r.start;
-                let end = r.end;
+                let start = proc_macro2::Literal::usize_unsuffixed(r.start);
+                let end = proc_macro2::Literal::usize_unsuffixed(r.end);
                 if r.inclusive {
                     quote!(#start ..= #end)
                 } else {
