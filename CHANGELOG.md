@@ -12,7 +12,7 @@
 - `*` **flattens a container / generator** into the enclosing list (only before `[]`/`()`):
   - In-list splicing: `[a, *[d,e,f]]` = `[a,d,e,f]`; `^`/`-` right-operand flat append: `(a,b,c)^*(d,e,f)` = `(a,b,c,d,e,f)` (concat); `Vec^*(a,b)` = `Vec<a,b>` (multi-arg)
   - Generator splat: `(*(()^3))` = `(A,B,C)` (group → tuple + fresh decl hoisted)
-- Nested splats idempotent, empty no-op; **left-operand semantics by source bracket**: `*[...]^T` distributes (`*[A^T,B^T]` — set, mirrors `TyArray`), `*(...)^T` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`); `#fill` single-item preference — write `#name{body}` instead of `#fill(name){body}`; `*const`/`*mut` pointers unaffected
+- Nested splats idempotent, empty no-op; **left-operand semantics by source bracket**: `*[...]^T` distributes (`*[A^T,B^T]` — set, mirrors `TyArray`), `*(...)^T` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`); **`*(A,B)^N` pow dispatches the Cartesian combinations** — `*(A,B)^2` = `*[(A,A),(A,B),(B,A),(B,B)]` (4 tuple impls); `*()^N` keeps its splat shape for a carrier — `T^*()^2` = `<A,B>T<A,B>`; `#fill` single-item preference — write `#name{body}` instead of `#fill(name){body}`; `*const`/`*mut` pointers unaffected
 
 ### Distribution propagation & generator fixes
 

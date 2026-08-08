@@ -1895,7 +1895,7 @@ fn nested_generator_in_tuple_pow() {
     fn assert_trait<T: NestedGenT>() {}
     assert_trait::<((u8, u16, u32), (u8, u16, u32), (u8, u16, u32))>();
 }
-// ---- List distribution in nested positions (0.6.8) ----
+// ---- List distribution in nested positions (0.7.0) ----
 
 #[batch_impl((u8, [u16, u32, u64]))]
 trait TupDist {}
