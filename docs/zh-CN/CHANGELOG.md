@@ -2,6 +2,25 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 未发布
+
+### trait 泛型实参：具体实参替换进指令 body
+
+spec 级 trait 段带具体实参时，现在会把 trait 的泛型参数替换进指令抄写的 body：
+
+```rust
+#[batch_impl_only(
+    From<bool>
+    Frac^*(*@u*)^2
+    #from{
+        Frac { positive: true, num: value.into(), denom: true.into() }
+    }
+)]
+pub trait From<T>: Sized { fn from(value: T) -> Self; }
+```
+
+生成 `impl From<bool> for Frac<u8, u8> { fn from(value: bool) { ... } }` × 36——抄写的签名（以及你 body 代码里）的 `T` 会被替换成 `bool`。
+
 ## 0.7.0 (2026-08-08)
 
 ### splat：`*` 前缀展开

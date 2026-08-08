@@ -39,8 +39,9 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── mod.rs            Apply trait: the default `apply` does right-operand structural dispatch (Array/Group/WithCode/WithWhere/WithType/Range/Error handled generically; anything else falls through to `apply_help`); every Ty* subtype implements Apply; impl Apply for TyKind forwards `apply_help` per variant; Ty::apply takes the span at a single point
   │   └── apply_tuple.rs    tuple and container operators + tuple expansion (^N / Cartesian product / ranges / fresh generics)
   ├── codegen/              code generation
-  │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl (the impl-block assembly entry)
+  │   ├── mod.rs            extract_impl_parts → postprocess → hoist_type_params → generate_impl (the impl-block assembly entry)
   │   ├── impl_parts.rs     the ImplParts struct + traversal of the 18 variants (extract / hoist)
+  │   ├── postprocess.rs    trait generic substitution over ImplParts (`From<bool>`: `value: T` → `value: bool` in directive bodies)
   │   ├── top_level.rs      top-level macro injection (`{! ...}` — spec-body merge + macro-input rewrite)
   │   ├── fresh.rs          fresh-name sweeping (`_Param_{g}_{i}_` → `_Param_0..N_` per impl)
   │   └── where_at.rs       `@` where-predicate resolution (`@N`/`@g_i`/`@all_fresh`/`@N..M`)

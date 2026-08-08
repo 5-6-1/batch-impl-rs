@@ -37,10 +37,11 @@ pub(crate) use preprocess_test::preprocess_test;
 /// `tokens` must already be paired by `angle_collect` and bare-`where` rewritten
 /// (see module docs); `top_level` controls the stop semantics of the spec list.
 /// Errors are returned via `Err` as a `compile_error!` stream.
+#[allow(clippy::too_many_arguments)]
 fn run_pipeline(
     tokens: &[TokenTree], top_level: Op, trait_full_path: &TokenStream,
     trait_last_ident: &Ident, is_unsafe: bool, start_trait: Option<ItemTrait>,
-    trait_bounds: &TraitBounds,
+    trait_bounds: &TraitBounds, trait_param_names: &[Ident],
 ) -> Result<TokenStream, TokenStream> {
     let mut cursor = Cursor::new(tokens);
     let impls = parse_batch_trait_entry(
@@ -51,6 +52,7 @@ fn run_pipeline(
         is_unsafe,
         start_trait,
         trait_bounds,
+        trait_param_names,
     );
     // Exit conversion: restore angle-bracket groups to flat `<...>` tokens (see render_angles)
     Ok(render_angles(impls))
@@ -131,6 +133,22 @@ pub(crate) fn expand_attr_macro(
     // including where predicates), so the expansion is fully equivalent to handwritten code.
     let expanded =
         expand_empty_trait_generics(&expanded, &trait_item, &trait_bounds)?;
+    // Trait generic param names — needed by the codegen postprocess (trait
+    // generic substitution) for *both* entry macros: batch_impl_only drops the
+    // trait definition but still substitutes its params in directive bodies.
+    // Only type/const params are collected — lifetime params stay untouched:
+    // a body's `'a` refers to the impl's own lifetime generic, not to a
+    // substituted trait arg.
+    let trait_param_names = trait_item
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            syn::GenericParam::Type(tp) => Some(tp.ident.clone()),
+            syn::GenericParam::Const(cp) => Some(cp.ident.clone()),
+            syn::GenericParam::Lifetime(_) => None,
+        })
+        .collect::<Vec<_>>();
     let start_trait = if include_trait { trait_item.into() } else { None };
     run_pipeline(
         &expanded,
@@ -140,6 +158,7 @@ pub(crate) fn expand_attr_macro(
         is_unsafe,
         start_trait,
         &trait_bounds,
+        &trait_param_names,
     )
 }
 
@@ -285,6 +304,7 @@ pub(crate) fn expand_batch_trait(
             None,
             // batch_trait! has no trait definition, so generic bounds cannot be inherited
             &Default::default(),
+            &[],
         )?);
     }
     Ok(result.into())

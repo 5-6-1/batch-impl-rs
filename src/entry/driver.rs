@@ -28,10 +28,14 @@ use crate::util::Cursor;
 /// leaf to emit the corresponding impl block. Note: a bare code block `WithCode(None, ...)`
 /// is also a leaf, injected verbatim as a top-level item by `generate_impl` (the carrier of
 /// open instruction extensions).
+// Pipeline entry with many context params (spec tokens, trait path/name,
+// bounds, fresh-name list) — clippy's default 7-arg threshold is not useful
+// here; a context struct would obscure the one-shot pipeline flow.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn parse_batch_trait_entry(
     cursor: &mut Cursor, top_level: Op, trait_full_path: &TokenStream,
     trait_last_ident: &Ident, is_unsafe_trait: bool, start_trait: Option<ItemTrait>,
-    trait_bounds: &TraitBounds,
+    trait_bounds: &TraitBounds, trait_param_names: &[Ident],
 ) -> TokenStream {
     let mut tys = vec![];
     // Leading comma (`#[batch_impl(,usize)]` / `A: ,usize`): the whole list starts with `,`.
@@ -91,6 +95,7 @@ pub(crate) fn parse_batch_trait_entry(
             trait_full_path,
             is_unsafe_trait,
             trait_bounds,
+            trait_param_names,
         ));
     }
     impls

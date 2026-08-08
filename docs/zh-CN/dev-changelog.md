@@ -2,6 +2,15 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 未发布
+
+### trait 泛型实参替换进指令 body + codegen 后处理层
+
+- **新能力**：spec 级 trait 段带具体实参（`Conv<bool> [Pair<A, A>, Pair<B, B>] #conv{...}`）现在会把 trait 的泛型参数替换进指令抄写的 body——生成的 impl 里 `fn conv(value: T)` 变成 `fn conv(value: bool)`（此前裸 `T` 会泄漏进 impl，E0425）。`#[batch_impl]` 与 `#[batch_impl_only]` 都支持；trait 定义是参数名的来源。
+- **codegen 后处理层**（`codegen/postprocess.rs`）：trait 泛型替换从 preprocess 移出（preprocess 不再通过 `expand_tokens`/`expand_directive`/`build_from_item` 穿参数映射），改为对 `ImplParts` 的后处理——把 `ImplParts::trait_generic_names`（具体实参）与入口 trait 的 type/const 参数名（经 `run_pipeline` → `parse_batch_trait_entry` → `generate_impl` 传递）配对，重写 body（fn 签名 + 用户代码块）。lifetime 实参（`'static`）与 lifetime 参数排除——body 引用的是自身 impl 的 lifetime。这与 `sweep_fresh_names` 一起构成"codegen 后处理"概念：提取之后、渲染之前的复杂 token 重写，`ImplParts` 携带全部所需上下文。
+- **测试中发现的 bug**（未修）：右 splat + 简单 Ident 元素解析错误——`Pair^*(A, B)` 展开成 `Pair<A<B>>` 而非 `Pair<A, B>`（`*(...)` 与 `*[...]` 两种形式都坏；泛型元素如 `Pair^*(Vec<u8>, Box<u8>)` 正常）。已记录待修；新测试改用手写泛型列表 `[Pair<A, A>, Pair<B, B>]`。
+- 测试：`trait_generic_args`（dsl）——真实（非丢弃）trait 的泛型替换，验证 impl 编译通过且方法可引用。
+
 ## 0.7.0 (2026-08-08)
 
 ### 核心重组：codegen 拆分 + fresh 名协议统一

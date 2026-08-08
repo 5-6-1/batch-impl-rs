@@ -243,7 +243,8 @@ mod tests {
             wrapped.into(),
         )
         .into();
-        let out = generate_impl(impl_ty, &quote!(WhereArr), false, &tb).to_string();
+        let out =
+            generate_impl(impl_ty, &quote!(WhereArr), false, &tb, &[]).to_string();
         assert!(
             !out.contains("compile_error"),
             "expansion must not contain compile_error: {out}"

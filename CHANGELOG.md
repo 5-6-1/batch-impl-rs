@@ -5,6 +5,28 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+### Trait generic args: concrete args substitute into directive bodies
+
+A spec-level trait segment with concrete args now substitutes the trait's
+generic params in directive-copied bodies:
+
+```rust
+#[batch_impl_only(
+    From<bool>
+    Frac^*(*@u*)^2
+    #from{
+        Frac { positive: true, num: value.into(), denom: true.into() }
+    }
+)]
+pub trait From<T>: Sized { fn from(value: T) -> Self; }
+```
+
+generates `impl From<bool> for Frac<u8, u8> { fn from(value: bool) { ... } }`
+× 36 — the `T` in the copied signature (and in your body code) is replaced
+with `bool`.
+
 ## 0.7.0 (2026-08-08)
 
 ### Splat: `*` prefix flattening

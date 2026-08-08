@@ -7,11 +7,13 @@
 
 mod fresh;
 mod impl_parts;
+mod postprocess;
 mod top_level;
 mod where_at;
 
 pub(crate) use fresh::*;
 pub(crate) use impl_parts::*;
+pub(crate) use postprocess::*;
 pub(crate) use top_level::*;
 pub(crate) use where_at::*;
 
@@ -19,7 +21,7 @@ use crate::TraitBounds;
 use crate::ast::types_render::render_param;
 use crate::ast::*;
 use crate::util::{compile_err, compile_error_str};
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
 use std::collections::HashSet;
 
@@ -39,7 +41,7 @@ use std::collections::HashSet;
 ///   (`hoist_type_params`) → build generics / trait generics / impl body → render `quote!`
 pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
-    trait_bounds: &TraitBounds,
+    trait_bounds: &TraitBounds, trait_param_names: &[Ident],
 ) -> TokenStream {
     // bare code block: `{...}` as the whole spec → emit verbatim as a top-level item
     // (not wrapped in an impl block). A `!`-marked block (top-level macro form)
@@ -95,6 +97,11 @@ pub(crate) fn generate_impl(
         return e.0;
     }
     let mut parts = extract_impl_parts(ty);
+
+    // Codegen postprocess: substitute trait generic params in the body
+    // (`From<bool>`: `value: T` → `value: bool` — the directive-copied
+    // signature and user code block). ImplParts carries the arg names.
+    substitute_trait_generics(&mut parts, trait_param_names);
 
     // hoist nested `WithType` (fresh generics) out of the target type, preventing `<A>` leaks
     let mut nested_params = vec![];

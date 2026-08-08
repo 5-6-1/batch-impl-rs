@@ -5,6 +5,36 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+### Trait generic args substitute in directive bodies + codegen postprocess layer
+
+- **New capability**: a spec-level trait segment with concrete args
+  (`Conv<bool> [Pair<A, A>, Pair<B, B>] #conv{...}`) now substitutes the
+  trait's generic params in directive-copied bodies — `fn conv(value: T)`
+  becomes `fn conv(value: bool)` in the generated impl (previously the raw
+  `T` leaked into the impl, E0425). Works for `#[batch_impl]` and
+  `#[batch_impl_only]`; the trait definition is the source of param names.
+- **Codegen postprocess layer** (`codegen/postprocess.rs`): trait generic
+  substitution moved out of preprocess (which no longer threads a param map
+  through `expand_tokens`/`expand_directive`/`build_from_item`) into a
+  postprocess over `ImplParts` — it pairs `ImplParts::trait_generic_names`
+  (the concrete args) with the entry trait's type/const param names
+  (threaded via `run_pipeline` → `parse_batch_trait_entry` → `generate_impl`)
+  and rewrites the body (fn signature + user code block). Lifetime args
+  (`'static`) and lifetime params are excluded — bodies reference their own
+  impl lifetimes. This joins `sweep_fresh_names` as the "codegen
+  postprocess" concept: complex token rewrites after extraction, where
+  `ImplParts` carries all needed context.
+- **Bug found while testing** (not yet fixed): a right-splat with plain
+  ident elements misparses — `Pair^*(A, B)` expands to `Pair<A<B>>` instead
+  of `Pair<A, B>` (both `*(...)` and `*[...]` forms; generic elements like
+  `Pair^*(Vec<u8>, Box<u8>)` are fine). Tracked; the new test uses a
+  handwritten generic list `[Pair<A, A>, Pair<B, B>]` instead.
+- Tests: `trait_generic_args` (dsl) — trait generic substitution with a
+  real (non-discarded) trait, verifying the impl compiles and the method is
+  referenceable.
+
 ## 0.7.0 (2026-08-08)
 
 ### Core restructure: codegen split + fresh-name protocol unification

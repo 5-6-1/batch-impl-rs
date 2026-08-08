@@ -174,6 +174,10 @@ pub(crate) fn build_from_item(
 
 /// Like [`build_from_item`], but with an optional signature override (used by
 /// `#delegate`, which may have rewritten `_` wildcard params into named ones).
+///
+/// Trait generic substitution (`From<bool>`: `value: T` → `value: bool`) is
+/// NOT done here — it is a codegen postprocess over `ImplParts`, which has
+/// both the trait arg names and the full body.
 pub(crate) fn build_from_item_sig(
     item: &syn::TraitItem, sig: Option<&syn::Signature>, body: &TokenStream,
 ) -> TokenStream {

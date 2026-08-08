@@ -2160,3 +2160,32 @@ fn splat_one_layer() {
     assert_rl::<Pair<u128, u32>>();
     assert_rl::<Pair<usize, usize>>();
 }
+
+// Trait generic args (`Conv<bool>` in the spec): the trait param in copied
+// directive signatures is substituted — `fn conv(value: T)` becomes
+// `fn conv(value: bool)` (compiling proves the substitution; a raw `T`
+// would be E0425). The real trait is defined here; the batch_impl_only
+// item below is only a discarded signature source.
+trait Conv<T>: Sized {
+    fn conv(_value: T) -> Self;
+}
+
+#[batch_impl_only(
+    Conv<bool>
+    [Pair<SplatA, SplatA>, Pair<SplatB, SplatB>]
+    #conv{unimplemented!()}
+)]
+pub trait Conv<T>: Sized {
+    fn conv(_value: T) -> Self;
+}
+
+#[test]
+fn trait_generic_args() {
+    // Reference the generated method (proves the impl exists with the
+    // substituted signature) — never call it (unimplemented! body).
+    fn assert_c<T: Conv<bool>>() {
+        let _ = <T as Conv<bool>>::conv;
+    }
+    assert_c::<Pair<SplatA, SplatA>>();
+    assert_c::<Pair<SplatB, SplatB>>();
+}

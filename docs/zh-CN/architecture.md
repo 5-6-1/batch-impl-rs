@@ -39,8 +39,12 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── mod.rs            Apply trait（默认 apply 做右操作数结构化分发；全部 Ty* 子类型实现 Apply）
   │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
   ├── codegen/              代码生成
-  │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
-  │   └── impl_parts.rs     ImplParts 结构 + 19 变体遍历（extract / hoist）
+  │   ├── mod.rs            extract_impl_parts → 后处理 → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
+  │   ├── impl_parts.rs     ImplParts 结构 + 19 变体遍历（extract / hoist）
+  │   ├── postprocess.rs    ImplParts 上的 trait 泛型替换（`From<bool>`：指令 body 里 `value: T` → `value: bool`）
+  │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
+  │   ├── fresh.rs          fresh 名清扫（`_Param_{g}_{i}_` → 每个 impl 的 `_Param_0..N_`）
+  │   └── where_at.rs       `@` where 谓词解析（`@N`/`@g_i`/`@all_fresh`/`@N..M`）
   └── testing/              测试基建（cfg(test)）
       └── fuzz.rs           proptest：随机 token 喂真实宏入口（expand_attr_macro），承诺不 panic
 ```
