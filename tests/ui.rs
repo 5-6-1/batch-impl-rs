@@ -86,6 +86,11 @@ fn ui() {
     // @all generic-parameter families need trait_def (batch_trait! has none)
     t.compile_fail("tests/ui/generic_family_batch_trait.rs");
 
-    // one pass path, ensuring normal cases are not broken
+    // splat: a bare `*` that is neither a splat nor a raw pointer errors;
+    // a generator splat as a generic argument errors (fresh decl has nowhere to live)
+    t.compile_fail("tests/ui/star_misuse.rs");
+    t.compile_fail("tests/ui/gen_splat_arg.rs");
+
+    // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");
 }

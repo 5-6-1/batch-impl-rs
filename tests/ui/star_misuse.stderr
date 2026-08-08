@@ -1,0 +1,5 @@
+error: batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`)
+ --> tests/ui/star_misuse.rs:4:14
+  |
+4 | #[batch_impl(*u8)]
+  |              ^

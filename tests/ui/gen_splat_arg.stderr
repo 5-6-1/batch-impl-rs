@@ -1,0 +1,26 @@
+error: batch-impl: a generator splat (`*(()^N)`) cannot be a generic argument (its fresh declaration has nowhere to live)
+ --> tests/ui/gen_splat_arg.rs:7:1
+  |
+7 | #[batch_impl(Pair<*(()^2)>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0107]: struct takes 2 generic arguments but 1 generic argument was supplied
+ --> tests/ui/gen_splat_arg.rs:7:14
+  |
+7 | #[batch_impl(Pair<*(()^2)>)]
+  | -------------^^^^-----------
+  | |            |
+  | |            expected 2 generic arguments
+  | supplied 1 generic argument
+  |
+note: struct defined here, with 2 generic parameters: `X`, `Y`
+ --> tests/ui/gen_splat_arg.rs:5:8
+  |
+5 | struct Pair<X, Y>(X, Y);
+  |        ^^^^ -  -
+help: add missing generic argument
+  |
+7 | #[batch_impl(Pair<*(()^2)>)], Y
+  |                             +++
