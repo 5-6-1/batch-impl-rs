@@ -1885,3 +1885,215 @@ fn generic_param_families() {
     let a: [u8; 3] = [1, 2, 3];
     assert_eq!(a.n(), 3);
 }
+#[batch_impl((()^3,)^3)]
+trait NestedGenT {}
+
+#[test]
+fn nested_generator_in_tuple_pow() {
+    // (T,)^3 clones the generator's fresh declarations; hoisting must
+    // dedupe them so the impl has one shared generic trio.
+    fn assert_trait<T: NestedGenT>() {}
+    assert_trait::<((u8, u16, u32), (u8, u16, u32), (u8, u16, u32))>();
+}
+// ---- List distribution in nested positions (0.6.8) ----
+
+#[batch_impl((u8, [u16, u32, u64]))]
+trait TupDist {}
+
+#[batch_impl(([u8, u16], [u32, u64]))]
+trait TupDist2 {}
+
+#[batch_impl(Vec<[u8, u16, u32]>)]
+trait GenDist {}
+
+#[batch_impl(Box<[u8, u16]>)]
+trait TraitDist {}
+
+#[test]
+fn list_distribution_nested() {
+    fn assert_t1<T: TupDist>() {}
+    assert_t1::<(u8, u16)>();
+    assert_t1::<(u8, u64)>();
+    fn assert_t2<T: TupDist2>() {}
+    assert_t2::<(u8, u32)>();
+    assert_t2::<(u16, u64)>();
+    fn assert_g<T: GenDist>() {}
+    assert_g::<Vec<u8>>();
+    assert_g::<Vec<u32>>();
+    fn assert_t<T: TraitDist>() {}
+    assert_t::<Box<u8>>();
+    assert_t::<Box<u16>>();
+}
+
+// pow_cartesian output nested in an outer tuple: the array of combos must
+// distribute through the tuple (user scenario `(()^2, ((A_,)^2,(<Clone>,)^2)^3, ()^4)^2`).
+// Fresh counts differ per generator (`()^2` / `()^3`) so no combo pair
+// overlaps after the sweep rename (E0119 is the user's responsibility when
+// concrete and fresh generators collide).
+struct A_;
+#[batch_impl(((A_,)^2, ((A_,)^2,(<Clone>,)^2)^2, ()^3)^2)]
+trait NestedPow {}
+
+#[test]
+fn pow_cartesian_nested_in_tuple() {
+    fn assert_t<T: NestedPow>() {}
+    // `[e0, e0]` — both positions pick the `(A_,)^2` generator
+    assert_t::<((A_, A_), (A_, A_))>();
+    // `[e0, e2]` — position 2 picks the `()^3` fresh trio
+    assert_t::<((A_, A_), (u8, u16, u32))>();
+    // `[e0, e1_1]` — position 2 picks an inner cartesian combo
+    // (`((A_,)^2, (<Clone>,)^2)` combo 2 = `(A_,A_), (C0,C1)`)
+    assert_t::<((A_, A_), ((A_, A_), (u8, u16)))>();
+}
+
+// ---- Splat (`*` prefix): flatten containers / generators (0.6.8) ----
+
+// ---- Splat (`*` prefix): flatten containers / generators (0.6.8) ----
+
+struct SplatA;
+struct SplatB;
+struct SplatC;
+struct SplatD;
+struct SplatE;
+struct SplatF;
+struct Pair<A, B>(A, B);
+struct Triple<A, B, C>(A, B, C);
+
+#[batch_impl([SplatA, *[SplatD, SplatE, SplatF]])]
+trait SplatArr {}
+
+#[batch_impl((SplatA, SplatB, SplatC)^*(SplatD, SplatE, SplatF))]
+trait SplatConcat {}
+
+#[batch_impl((*(()^3)))]
+trait SplatGen {}
+
+#[batch_impl((SplatA, *(()^3)))]
+trait SplatGenFlat {}
+
+#[batch_impl(*[Vec, Box]^SplatF)]
+trait SplatLeft {}
+
+#[batch_impl(Pair^*(SplatD, SplatE))]
+trait SplatArgs {}
+
+#[test]
+fn splat_scenarios() {
+    fn assert_t<T: SplatArr>() {}
+    assert_t::<SplatA>();
+    assert_t::<SplatD>();
+    assert_t::<SplatF>();
+    fn assert_c<T: SplatConcat>() {}
+    assert_c::<(SplatA, SplatB, SplatC, SplatD, SplatE, SplatF)>();
+    fn assert_g<T: SplatGen>() {}
+    assert_g::<(u8, u16, u32)>();
+    fn assert_gf<T: SplatGenFlat>() {}
+    assert_gf::<(SplatA, u8, u16, u32)>();
+    fn assert_l<T: SplatLeft>() {}
+    assert_l::<Vec<SplatF>>();
+    assert_l::<Box<SplatF>>();
+    fn assert_args<T: SplatArgs>() {}
+    assert_args::<Pair<SplatD, SplatE>>();
+}
+
+// nested splat is idempotent; empty splat is a no-op
+#[batch_impl((*(*[SplatD, SplatE])))]
+trait SplatNested {}
+
+#[batch_impl([SplatA, *()])]
+trait SplatEmpty {}
+
+#[test]
+fn splat_idempotent_and_empty() {
+    fn assert_n<T: SplatNested>() {}
+    assert_n::<(SplatD, SplatE)>();
+    fn assert_e<T: SplatEmpty>() {}
+    assert_e::<SplatA>();
+}
+
+// trailing-comma splat; empty splat in the middle of a tuple
+#[batch_impl((*(SplatA,)))]
+trait SplatTrailingComma {}
+
+#[batch_impl((SplatA, *(), SplatB))]
+trait SplatMiddleEmpty {}
+
+#[test]
+fn splat_trailing_comma_and_middle_empty() {
+    fn assert_t<T: SplatTrailingComma>() {}
+    assert_t::<(SplatA,)>();
+    fn assert_m<T: SplatMiddleEmpty>() {}
+    assert_m::<(SplatA, SplatB)>();
+}
+
+// `[*(a,b)]` — lone splat at the slice position flattens into a list
+// (syntax parity with `(*(a,b))` → `(a,b)`).
+#[batch_impl([*(SplatA, SplatB)])]
+trait SplatLoneArray {}
+
+#[test]
+fn splat_lone_array() {
+    fn assert_t<T: SplatLoneArray>() {}
+    assert_t::<SplatA>();
+    assert_t::<SplatB>();
+}
+
+// generic-arg splat: `Pair<*(A, B)>` → `Pair<A, B>` (one impl, multi-arg)
+// — distinct from `Pair<[A, B]>` which dispatches.
+#[batch_impl(Pair<*(SplatA, SplatB)>)]
+trait SplatGenArgs {}
+
+#[batch_impl(Pair<*(SplatA, *(SplatB))>)]
+trait SplatGenArgsNested {}
+
+#[test]
+fn splat_generic_args() {
+    fn assert_t<T: SplatGenArgs>() {}
+    assert_t::<Pair<SplatA, SplatB>>();
+    fn assert_n<T: SplatGenArgsNested>() {}
+    assert_n::<Pair<SplatA, SplatB>>();
+}
+
+// Splat rules: R1 `T^*(A,B)` ≡ `T-A-B` (right operand always flattens);
+// R2 left semantics by source — `*[...]` distributes `^T` (`*[A^T,B^T]`,
+// enabling composition `X^*[A,B]^T` = `X<A^T, B^T>`, one impl), `*(...)`
+// appends (`*(A,B,...,T)`, list semantics).
+#[batch_impl(Pair^*[Vec, Box]^u16)]
+trait SplatRule2 {}
+
+#[batch_impl(Pair^*(Vec<u8>, Box<u8>))]
+trait SplatRule1 {}
+
+#[batch_impl((SplatA, SplatB)^*(SplatC, SplatD))]
+trait SplatConcat2 {}
+
+#[batch_impl(Triple^*(SplatA, SplatB)^SplatC)]
+trait SplatParenAppend {}
+
+#[batch_impl(*(SplatA, SplatB)^SplatC)]
+trait SplatParenLeft {}
+
+#[batch_impl(*[Vec, Box]^SplatC)]
+trait SplatBracketLeft {}
+
+#[test]
+fn splat_rules() {
+    fn assert_r2<T: SplatRule2>() {}
+    assert_r2::<Pair<Vec<u16>, Box<u16>>>();
+    fn assert_r1<T: SplatRule1>() {}
+    assert_r1::<Pair<Vec<u8>, Box<u8>>>();
+    fn assert_c<T: SplatConcat2>() {}
+    assert_c::<(SplatA, SplatB, SplatC, SplatD)>();
+    // Source-driven left semantics: `*(...)` appends the operand
+    // (list — mirrors TyTuple), `*[...]` distributes it (set — mirrors
+    // TyArray).
+    fn assert_pa<T: SplatParenAppend>() {}
+    assert_pa::<Triple<SplatA, SplatB, SplatC>>();
+    fn assert_pl<T: SplatParenLeft>() {}
+    assert_pl::<SplatA>();
+    assert_pl::<SplatB>();
+    assert_pl::<SplatC>();
+    fn assert_bl<T: SplatBracketLeft>() {}
+    assert_bl::<Vec<SplatC>>();
+    assert_bl::<Box<SplatC>>();
+}

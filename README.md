@@ -1,6 +1,6 @@
 ﻿# batch-impl
 
-**v0.6.8** (2026-08-08) — 0.6.2–0.6.7 released; 0.6.7: per-impl fresh numbering (`@N` anywhere, incl. target types), top-level open extension (`{! ...}`), `@all_fresh` / `@N..M` batch where-references, error aggregation.
+**v0.7.0** (2026-08-08) — 0.6.7 released; 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists, `*[...]` distribute / `*(...)` append as left operand), array distribution propagation (nested `[A,B]` Cartesian products), generator fresh-declaration fix, `#fill` single-item preference (`#name{...}`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -54,6 +54,7 @@ What you write is **a description of a "type matrix"**, and batch-impl generates
 | `^` / `-`  | apply: apply the left container/modifier to the right type | **the same operation**, only associativity differs |
 | `[A, B]`   | list                                              | horizontal expansion (Cartesian product) |
 | `(A, B)`   | tuple                                             | permutations (ordered pairs)     |
+| `*[...]` / `*(...)` | splat: flatten into the enclosing list | `[a, *[b,c]]` = `[a,b,c]`; left `*[...]` distributes / `*(...)` appends |
 | `#name`    | directive: auto-copy the item signature from the trait definition | the body doesn't hand-write signatures |
 
 `^` and `-` are **the same operation** (the left side is a modifier/container, the right side is the target type), differing only in associativity:
@@ -69,7 +70,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.6.7"
+batch-impl = "0.7.0"
 ```
 
 Requires Rust 2024 edition or newer.
@@ -106,6 +107,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | Feature                                          | In one sentence                              | Tutorial chapter |
 |--------------------------------------------------|----------------------------------------------|------------------|
 | Side-by-side lists `[A, B]`                      | Implement for multiple types at once, body reused | Lists and body |
+| Splat `*` prefix                                | Flatten containers/generators into the enclosing list — in-list splice, `^` right-operand flat append, generic multi-arg; left operand `*[...]` distribute / `*(...)` append | Lists |
 | `^` / `-` operators                              | Right/left associativity of the same operation: nesting vs. accumulation | Operators |
 | Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | Generic automation |
 | Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | Associated types |

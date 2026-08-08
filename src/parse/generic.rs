@@ -2,8 +2,8 @@
 //!
 //! Provides matching and parsing of `<...>` generic parameters plus related helpers.
 
-use proc_macro2::{Ident, TokenStream, TokenTree};
-use quote::quote;
+use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+use quote::{ToTokens, quote};
 
 use crate::ast::*;
 use crate::parse::parse_item;
@@ -91,6 +91,55 @@ pub(crate) fn parse_angle_bracket_contents(
         if chunk.is_empty() {
             continue;
         }
+        // Splat arg: `Foo<*(a,b)>` / `Foo<*[a,b]>` flattens into multiple
+        // generic args (`Foo<a,b>`, one impl) — distinct from `Foo<[a,b]>`
+        // which dispatches. A flattened generator's declaration cannot live
+        // in a `TyTypeParam`, so it errors (the compile_error! token renders
+        // in the impl header).
+        if let [TokenTree::Punct(star), TokenTree::Group(g)] = chunk
+            && star.as_char() == '*'
+            && matches!(g.delimiter(), Delimiter::Bracket | Delimiter::Parenthesis)
+        {
+            let inner = g.stream().into_iter().collect::<Vec<TokenTree>>();
+            let mut flat = vec![];
+            let mut decl = None;
+            for c in split_at_depth0(&inner, ',') {
+                if c.is_empty() {
+                    continue;
+                }
+                let (mut es, d) = splat_expand(
+                    parse_item(&mut Cursor::new(c), Op::Dash, trait_name)
+                        .unwrap_or_else(empty),
+                );
+                flat.append(&mut es);
+                decl = merge_decls(decl, d);
+            }
+            if decl.is_some() {
+                // No `;` here — a semicolon after `compile_error!` is illegal
+                // inside a generic-arg list; the bare invocation still emits
+                // the targeted error when rustc expands it in type position.
+                let err_ident = Ident::new("compile_error", star.span());
+                let err = quote! {
+                    #err_ident!(
+                        "batch-impl: a generator splat (`*(()^N)`) cannot be a \
+                         generic argument (its fresh declaration has nowhere \
+                         to live)"
+                    )
+                };
+                params.push((err, None));
+                continue;
+            }
+            for e in flat {
+                let name = match resolve_at_refs(
+                    &e.to_token_stream().into_iter().collect::<Vec<_>>(),
+                ) {
+                    Ok(v) => v.into_iter().collect(),
+                    Err(e) => e,
+                };
+                params.push((name, None));
+            }
+            continue;
+        }
         // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
         // types (flat token splitting) — resolve them to fresh names here.
         // A resolution error yields a `compile_error!` token stream that
@@ -131,10 +180,10 @@ pub(crate) fn parse_angle_bracket_contents(
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
     let span =
         tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site);
-    Ty::new(span, TyPrimitive(tokens.iter().cloned().collect()).into())
+    TyPrimitive(tokens.iter().cloned().collect()).to_ty().with_span(span)
 }
 
 /// Empty token node (fallback for unwrap_or_else)
 pub(crate) fn empty() -> Ty {
-    Ty::new(proc_macro2::Span::call_site(), TyPrimitive(quote![]).into())
+    TyPrimitive(quote![]).to_ty()
 }

@@ -18,13 +18,9 @@ use crate::apply::apply_tuple::map_range;
 use crate::ast::*;
 use proc_macro2::Span;
 
-/// Build a `Ty::Error` containing `compile_error!` with the given message
-/// (call-site span).
+/// Build a `Ty::Error` containing `compile_error!` (call-site span).
 pub(crate) fn err_ty(msg: &str) -> Ty {
-    Ty::new(
-        proc_macro2::Span::call_site(),
-        TyError(quote! { compile_error!(#msg); }).into(),
-    )
+    TyError(quote! { compile_error!(#msg); }).to_ty()
 }
 
 /// `err_ty` with an explicit span: the error renders at `span` (the offending
@@ -74,8 +70,11 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             // Array-array chains (`[A,B]^[C,D]^[E,F]`) check the limit by **leaf count** —
             // each intermediate array is small, but leaf count grows exponentially along the `^` chain.
             TyKind::Array(arr) => {
-                let result: Vec<Ty> =
-                    arr.0.into_iter().map(|e| self.clone().apply(e, span)).collect();
+                let result = arr
+                    .0
+                    .into_iter()
+                    .map(|e| self.clone().apply(e, span))
+                    .collect::<Vec<Ty>>();
                 if let Some(e) = check_expand_limit(
                     "list chain expansion",
                     result.iter().map(count_leaves).sum(),
@@ -84,26 +83,64 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
                 }
                 TyArray(result).to_ty().with_span(span)
             }
+            // Right-operand splat: `T^*(A,B,...)` ≡ `T-A-B-...` — flat
+            // append through the `-` chain (tuples concat, generators
+            // recurse keeping the decl, arrays distribute, left splats
+            // distribute per element — see `TySplat::apply_help`).
+            TyKind::Splat(s) => {
+                let elems = s.elems().to_vec();
+                {
+                    let left = self.clone().into();
+                    // Rule 1: `T^*(A,B,...)` ≡ `T-A-B-...` — flatten the
+                    // elements (containers/generators, hoisting declarations)
+                    // then append each through the shared apply chain. This
+                    // covers every left kind with no special case: tuples
+                    // concat (`(a,b)-c-d` = `(a,b,c,d)`), generators recurse
+                    // into their inner via `TyWithType::apply_help` (the
+                    // declaration stays on the inner — unwrapping it here
+                    // would drop the decl), arrays distribute, generics
+                    // accumulate params, left splats distribute per element.
+                    {
+                        let mut flat = vec![];
+                        let mut decl = None;
+                        for e in elems {
+                            let (mut es, d) = splat_expand(e);
+                            flat.append(&mut es);
+                            decl = merge_decls(decl, d);
+                        }
+                        let mut acc = Ty { span, kind: left };
+                        for e in flat {
+                            acc = acc.apply(e);
+                        }
+                        match decl {
+                            Some(d) => {
+                                TyWithType(d, acc.into()).to_ty().with_span(span)
+                            }
+                            None => acc,
+                        }
+                    }
+                }
+            }
             TyKind::Group(g) => self.apply(*g.0, span),
             TyKind::WithCode(wc) => match wc.0 {
                 Some(inner) => TyWithCode(
-                    Ty::new(span, self.clone().into()).apply(*inner).into(),
+                    Ty { span, kind: self.clone().into() }.apply(*inner).into(),
                     wc.1,
                 )
                 .to_ty()
                 .with_span(span),
-                None => TyWithCode(Some(Box::new(Ty::new(span, self.into()))), wc.1)
+                None => TyWithCode(Ty { span, kind: self.into() }.into(), wc.1)
                     .to_ty()
                     .with_span(span),
             },
             TyKind::WithWhere(ww) => match ww.0 {
                 Some(inner) => TyWithWhere(
-                    Ty::new(span, self.clone().into()).apply(*inner).into(),
+                    Ty { span, kind: self.clone().into() }.apply(*inner).into(),
                     ww.1,
                 )
                 .to_ty()
                 .with_span(span),
-                None => TyWithWhere(Some(Box::new(Ty::new(span, self.into()))), ww.1)
+                None => TyWithWhere(Ty { span, kind: self.into() }.into(), ww.1)
                     .to_ty()
                     .with_span(span),
             },
@@ -115,7 +152,7 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             // lifetimes after type params; keep declaration order via
             // `WithType(self, o)` so `<'a, T>` stays lifetimes-first.
             TyKind::WithType(wt) if self.is_type_param() => {
-                self.apply_help(Ty::new(o.span, TyKind::WithType(wt)), span)
+                self.apply_help(wt.to_ty().with_span(o.span), span)
             }
             // When both operands carry declarations (fresh-fresh chains like
             // `()^3-()^3`), merge params left-first: declaration order then
@@ -136,18 +173,18 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
                         .with_span(span)
                 }
                 _ => {
-                    let inner = Ty::new(span, self.into()).apply(*wt.1);
+                    let inner = Ty { span, kind: self.into() }.apply(*wt.1);
                     TyWithType(wt.0, inner.into()).to_ty().with_span(span)
                 }
             },
-            TyKind::Error(e) => Ty::new(span, TyKind::Error(e)),
+            TyKind::Error(e) => Ty { span, kind: TyKind::Error(e) },
             TyKind::Range(TyRange { start, end, inclusive }) => {
                 map_range(start, end, inclusive, span, |n| {
-                    Ty::new(span, self.clone().into())
+                    Ty { span, kind: self.clone().into() }
                         .apply(TyNum(n).to_ty().with_span(span))
                 })
             }
-            other => self.apply_help(Ty::new(o.span, other), span),
+            other => self.apply_help(Ty { span: o.span, kind: other }, span),
         }
     }
 
@@ -184,6 +221,7 @@ impl Apply for TyKind {
             TyKind::Trait(t) => t.apply_help(o, span),
             TyKind::Array(a) => a.apply_help(o, span),
             TyKind::Tuple(t) => t.apply_help(o, span),
+            TyKind::Splat(s) => s.apply_help(o, span),
             TyKind::Group(g) => g.apply_help(o, span),
             TyKind::Fn(f) => f.apply_help(o, span),
             TyKind::WithAttr(w) => w.apply_help(o, span),
@@ -195,17 +233,54 @@ impl Apply for TyKind {
             TyKind::Num(n) => n.apply_help(o, span),
             TyKind::Range(r) => r.apply_help(o, span),
             TyKind::PrimitiveArray(pa) => pa.apply_help(o, span),
-            TyKind::Error(e) => Ty::new(span, TyKind::Error(e)),
+            TyKind::Error(e) => Ty { span, kind: TyKind::Error(e) },
         }
     }
 }
 
-impl TyWithPrefix {
+impl Apply for TySplat {
+    /// Left-operand splat — fully delegates to the mirrored container, then
+    /// re-wraps the result as a splat (the `*` flattening survives until
+    /// consumption):
+    /// - `TySplat::Array` → `TyArray` distribution (`*[A,B]^T` = `*[A^T,B^T]`)
+    /// - `TySplat::Tuple` → `TyTuple` append / tuple-pow (`*(A,B)^T` =
+    ///   `*(A,B,...,T)`; `*(A,B)^N` = Cartesian product); `*()^N` keeps the
+    ///   splat shape (`*()^2` = `<A,B>*(A,B)`, `T^*()^2` = `<A,B>T<A,B>`).
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
+        let result = match self {
+            TySplat::Array(a) => a.apply(o, span),
+            TySplat::Tuple(t) => t.apply(o, span),
+        };
+        let Ty { span, kind } = result;
+        match kind {
+            // Re-wrap whichever container came back — the splat stays a
+            // splat until consumption (container collection / expand).
+            TyKind::Tuple(t) => TySplat::Tuple(t).to_ty().with_span(span),
+            TyKind::Array(a) => TySplat::Array(a).to_ty().with_span(span),
+            // `*()^N` (empty splat) yields `WithType(decl, tuple)` via
+            // pow_empty — keep the splat shape; over-limit errors are
+            // final shapes and pass through untouched.
+            TyKind::WithType(wt) => {
+                let inner = *wt.1;
+                if let TyKind::Tuple(t) = inner.kind {
+                    TyWithType(wt.0, TySplat::Tuple(t).to_ty().into())
+                        .to_ty()
+                        .with_span(span)
+                } else {
+                    TyWithType(wt.0, inner.into()).to_ty().with_span(span)
+                }
+            }
+            other => Ty { span, kind: other },
+        }
+    }
+}
+
+impl Apply for TyWithPrefix {
     /// `&^T` => `&T`; `*const^T` => `*const T`; `self^T` => `T`; `unsafe^T` => `unsafe T`
     /// (unsafe impl marker)
     ///
     /// `&T^U` => `&(T^U)`, `unsafe T^U` => `unsafe (T^U)`: modifiers pass through to the inner type.
-    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
         match self.0 {
             // &^T=>&T / unsafe^T=>unsafe T
             TyPrefix::Ref
@@ -225,9 +300,9 @@ impl TyWithPrefix {
     }
 }
 
-impl TyPrimitive {
+impl Apply for TyPrimitive {
     /// `T^U` => `T<U>`; `T^<A,B>` => `T<A,B>`
-    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
         match o.kind {
             TyKind::TypeParam(tp) => {
                 TyGeneric(self.into(), tp).to_ty().with_span(span)
@@ -239,9 +314,9 @@ impl TyPrimitive {
     }
 }
 
-impl TyGeneric {
+impl Apply for TyGeneric {
     /// `T<A>^B` => `T<A,B>`; `T<A>^<B,C>` => `T<A,B,C>`
-    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
         let mut tp = self.1;
         match o.kind {
             TyKind::TypeParam(rhs) => tp.extend(rhs),
@@ -251,24 +326,24 @@ impl TyGeneric {
     }
 }
 
-impl TyTrait {
+impl Apply for TyTrait {
     /// `Trait<T>^U` => `WithTrait(Trait<T>, U)` (trait generics applied to the target type)
-    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
         match o.kind {
             TyKind::TypeParam(rhs) => {
                 let mut tp = self.1;
                 tp.extend(rhs);
                 TyTrait(self.0, tp).to_ty().with_span(span)
             }
-            _ => Ty::new(span, TyWithTrait(self, o.into()).into()),
+            _ => TyWithTrait(self, o.into()).to_ty().with_span(span),
         }
     }
 }
 
-impl TyArray {
+impl Apply for TyArray {
     /// `[A,B]^C` => `[A^C, B^C]` (right operand is plain; the Cartesian product of `[A,B]^[C,D]`
     /// is dispatched layer-wise by the default `apply` Array branch and flattened via `expand`)
-    pub(crate) fn apply_help(self, o: Ty, span: Span) -> Ty {
+    fn apply_help(self, o: Ty, span: Span) -> Ty {
         let result = self.0.into_iter().map(|e| e.apply(o.clone())).collect();
         TyArray(result).to_ty().with_span(span)
     }

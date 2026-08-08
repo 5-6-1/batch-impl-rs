@@ -9,6 +9,30 @@ pub(crate) struct TyArray(pub(crate) Vec<Ty>);
 /// `(...,)`
 pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
 #[derive(Clone, Debug)]
+/// `*[...]` / `*(...)` — splat: flatten a container's elements into the
+/// enclosing tuple/array/`^` argument list. Parse-time intermediate: consumed
+/// by container collection and apply, so the final AST never contains it.
+/// The variant mirrors the source bracket and drives the **left-operand**
+/// semantics: `TySplat::Array` distributes `^T` (`*[A^T,B^T]` — set, mirrors
+/// `TyArray`), `TySplat::Tuple` appends (`*(A,B,...,T)` — list, mirrors
+/// `TyTuple`). Right operands and container collection always flatten
+/// regardless of variant.
+pub(crate) enum TySplat {
+    Tuple(TyTuple),
+    Array(TyArray),
+}
+
+impl TySplat {
+    /// The flattened elements — both variants store the same list shape, so
+    /// traversal (expand / render / codegen) reads them through one entry.
+    pub(crate) fn elems(&self) -> &[Ty] {
+        match self {
+            TySplat::Tuple(t) => &t.0,
+            TySplat::Array(a) => &a.0,
+        }
+    }
+}
+#[derive(Clone, Debug)]
 /// `(...)`
 pub(crate) struct TyGroup(pub(crate) Box<Ty>);
 #[derive(Clone, Debug)]
@@ -133,10 +157,6 @@ pub(crate) struct Ty {
 }
 
 impl Ty {
-    pub(crate) fn new(span: Span, kind: TyKind) -> Self {
-        Ty { span, kind }
-    }
-
     /// Chainable constructor: builds a node from a subtype's `into()` and
     /// overrides its span (`TyArray(x).into().with_span(span)`).
     pub(crate) fn with_span(mut self, span: Span) -> Self {
@@ -161,6 +181,7 @@ impl Ty {
 pub(crate) enum TyKind {
     Array(TyArray),
     Tuple(TyTuple),
+    Splat(TySplat),
     Group(TyGroup),
     PrimitiveArray(TyPrimitiveArray),
     Primitive(TyPrimitive),

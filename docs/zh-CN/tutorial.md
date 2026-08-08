@@ -1,12 +1,6 @@
 # batch-impl 教程
 
-**v0.6.8**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
-（`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`）、
-`#blanket` 静态方法委托、span 诊断、`@u*`/`@i*`/`@f*` 改名、泛型参数族、
-`@N` 只索引 fresh 泛型；0.6.5：`#cmd[args]{body}` 方括号参数、宏调用
-passthrough 修复、裸范围端点定义处报错、blanket `@N` 统一 codegen 解析；0.6.6：`(T)^N` 分组剥离语义
-（= `T^N`，const 泛型实参如 `W<2>`；**破坏性变更**——元组生成须 `(T,)^N`）、数字渲染不带 `usize` 后缀、
-输入校验护栏（consts 嵌套深度 / `#blanket` `:N` 上限 / `@all_*` 保留名 / 空 `:` 深度）；
+**v0.7.0**——0.6.7 已发布；0.7.0：**splat** `*` 前缀（摊平容器/生成器到列表；左操作数 `*[...]` 分配 / `*(...)` 追加）、数组分发传播、`#fill` 单元素推荐（`#name{...}`）；0.6.x：receiver 过滤、`#blanket` 委托、span 诊断、泛型参数族、`@N` fresh 引用。
 0.6.7：fresh 逐 impl 编号（`@N` 任意位置、含目标类型本身）、`@g_i` 分组引用、
 顶层开放扩展（`{! ...}`——宏收到 `{spec}(args){body}trait` 并生成自己的 impl）、
 `@all_fresh` / `@N..M` 批量 where 引用、错误聚合。
@@ -60,6 +54,25 @@ trait Tagged { fn tag(&self) -> &'static str; }
 // → impl Tagged for f32   { ... }
 ```
 
+**分发传播**：`[A, B]` 列表是分发源——除了作为目标/操作数，嵌套位置也会传播：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl((u8, [u16, u32, u64]))]
+trait T {}
+// → impl T for (u8, u16) {}
+// → impl T for (u8, u32) {}
+// → impl T for (u8, u64) {}
+
+#[batch_impl(Vec<[u8, u16, u32]>)]
+trait V {}
+// → impl V for Vec<u8> {}
+// → impl V for Vec<u16> {}
+// → impl V for Vec<u32> {}
+```
+
+规则：元组/泛型实参中出现 `[A, B]` → 笛卡尔积分发（多数组全组合）；嵌套数组递归拆到底（`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`）；`(X, [A,B])^N` 的组合含数组由外层分发递归覆盖。注意：具体生成器与 fresh 生成器组合可能 E0119 重叠（fresh 数量/结构相同）——rustc 兜底，用不同 fresh 数量的生成器可避免。
+
 ### 独立/共享 body 合并
 
 列表项可有独立 body，与共享 body 合并：
@@ -106,6 +119,33 @@ trait Zero {
 > **操作数严格性**：`^`/`-`/`,` 两侧必须有操作数——`A^`、`^A`、`-A`、`,A`、`A,,B`
 > 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等
 > 括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
+
+### splat（`*` 展开）
+
+`*` 前缀把容器/生成器**展开拼入**（扁平化）——只出现在 `[]`/`()` 之前：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl([u8, *[u16, u32, u64]])]
+trait SplatList {}
+// → impl SplatList for u8 {}
+// → impl SplatList for u16 {} / u32 / u64
+
+#[batch_impl((u8, u16, u32)^*(u64, usize, i8))]
+trait SplatConcat {}
+// → impl SplatConcat for (u8, u16, u32, u64, usize, i8) {}
+//   （现状 `^` 是嵌套追加——`*` 给扁平拼接）
+
+#[batch_impl((*(()^3)))]
+trait SplatGen {}
+// → impl<T0, T1, T2> SplatGen for (T0, T1, T2) {}   // 生成器 splat（组变元组）
+```
+
+语义：元组/数组内 `*X` → 元素拼入（`[a, *[d,e,f]]` = `[a,d,e,f]`）；`^`/`-` 右操作数 `*X` → 扁平追加（左元组拼接 / 左泛型多实参 `Vec^*(a,b)` = `Vec<a,b>`，与来源括号无关）；
+左操作数按来源括号分语义——`*[A,B]^T` 分配（`*[A^T,B^T]`——集合，对标 `TyArray`）、`*(A,B)^T` 追加（`*(A,B,...,T)`——列表，对标 `TyTuple`）。泛型实参 `Foo<*(a,b)>` = `Foo<a,b>`（多实参单 impl——与 `Foo<[a,b]>` 分发区分）。
+
+两条规则：`T^*(A,B,...)` ≡ `T-A-B-...`（右 splat = 扁平参数追加——与 `-` 链等价，来源无关）；左 splat 按来源——`*[A,B]^T` = `*[A^T,B^T]`（分配律——组合 `X^*[A,B]^T` = `X<A^T,B^T>` 一个 impl）、`*(A,B)^T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空
+splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
 
 ## 4. 泛型声明
 
@@ -295,6 +335,10 @@ trait HasType { type Item; }
 ```
 
 ### `#fill(methods){body}` — 多方法同一 body
+
+> **单元素推荐 `#name{body}`**：只填一个方法/常量/类型时，写 `#name{body}`
+> （如 `#N{5}`）而非 `#fill(name){body}`——更短且自文档化。`#fill` 用于
+> **多个** item（`#fill(a, b)`、`#fill(@all_required_methods)`）。
 
 > 指令参数可用 `(args)` 或 `[args]`——两者等价（如
 > `#fill[@all_methods]{0}`）；方括号在嵌套/遮蔽场景（参数本身含括号）下更

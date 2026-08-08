@@ -55,3 +55,9 @@ pub(crate) fn parse_grouped_fresh(s: &str) -> Option<(usize, usize)> {
     let (g, i) = rest.split_once('_')?;
     Some((g.parse().ok()?, i.parse().ok()?))
 }
+
+/// Whether an identifier matches the reserved fresh pattern
+/// (`_Param_*_BatchGen_`, grouped or single-numbered).
+pub(crate) fn is_fresh_name(s: &str) -> bool {
+    s.starts_with(FRESH_PREFIX) && s.ends_with(FRESH_SUFFIX)
+}

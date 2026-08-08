@@ -1,11 +1,6 @@
 # batch-impl Internal Architecture
 
-**v0.6.8** — 0.6.2/0.6.3/0.6.4 released: preprocessing order `@ <> # where`, complete macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation, `@u*` rename, generic-param families, fresh-only `@N`, `@trait` expansion; 0.6.5: `@N` the only codegen marker (blanket unified), `#cmd[args]` bracket
-args; 0.6.6: `(T)^N` group-strip semantics, unsuffixed number rendering,
-input-validation guards; 0.6.7: per-impl fresh numbering + `@g_i` grouped
-references, top-level open extension (`{! ...}`), `@all_fresh` / `@N..M`
-batch where-references, error aggregation, preprocess restructured into
-`directives/` + `consts/` sub-folders.
+**v0.7.0** — 0.6.7 released; 0.7.0: the **splat** `*` prefix (`TySplat{Tuple,Array}` enum mirroring the source bracket, full delegation to `TyTuple`/`TyArray` apply + re-wrap), array distribution propagation, parse-layer split into `chain`/`primary`/`trailing`; 0.6.x: preprocessing order `@ <> # where`, complete macro-meta layer, `@N` fresh references, receiver filtering, blanket delegation, span diagnostics.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
@@ -23,7 +18,10 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── scan.rs           scanning and cursor: Cursor<'a> + scan_stop (angle brackets already paired; only the -> guard remains)
   │   └── diagnostic.rs     unified compile_error_str(msg, span) / compile_err! / compile_err_at! for compile-time diagnostics (ident-span scheme: only the compile_error keyword gets the target span)
   ├── parse/                parsing layer
-  │   ├── mod.rs            DSL parser: precedence climbing (Op::Semi/Comma/Dash/Caret/Prim)
+  │   ├── mod.rs            entry: parse_primitive + `@` reference resolution (119 lines)
+  │   ├── chain.rs          operator-chain parsing: `-`/`^` precedence climbing (parse_item / parse_operand)
+  │   ├── primary.rs        primary types: groups, generic args (incl. array dispatch), splats, prefixes
+  │   ├── trailing.rs       trailing `{body}` / `where{...}` split + wrapper attachment
   │   ├── parse_atom.rs     atom-level parsing: attributes / fn / prefixes / ranges / groups / lists
   │   └── generic.rs        generic parsing: parse_generic / parse_angle_bracket_contents (angle-bracket groups are delimiter![<>])
   ├── preprocess/           preprocessing layer (token rewriter, one pass per file; mod.rs aggregates re-exports)
@@ -34,11 +32,11 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── where_process.rs  bare-where rewrite: `where predicates {body}` → legacy `where{predicates}`
   │   └── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
   ├── ast/                  AST layer
-  │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 18 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
+  │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 19 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
   │   ├── fresh.rs          fresh-name protocol (`_Param_*_BatchGen_` constants + generate/construct/parse trio)
   │   └── types_render.rs   AST rendering: ToTokens impl for Ty + the params_to_tokens family
   ├── apply/                application layer
-  │   ├── mod.rs            Apply trait: the default `apply` does right-operand structural dispatch (Array/Group/WithCode/WithWhere/WithType/Range/Error handled generically; anything else falls through to `apply_help`) + impl Apply for TyKind forwards `apply_help` per variant; Ty::apply takes the span at a single point
+  │   ├── mod.rs            Apply trait: the default `apply` does right-operand structural dispatch (Array/Group/WithCode/WithWhere/WithType/Range/Error handled generically; anything else falls through to `apply_help`); every Ty* subtype implements Apply; impl Apply for TyKind forwards `apply_help` per variant; Ty::apply takes the span at a single point
   │   └── apply_tuple.rs    tuple and container operators + tuple expansion (^N / Cartesian product / ranges / fresh generics)
   ├── codegen/              code generation
   │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl (the impl-block assembly entry)
@@ -71,6 +69,7 @@ generate_impl**
 - **Angle-bracket groups**: proc-macro2 only groups `()`/`[]`/`{}`; `<>` is flat Punct. `angle_collect` pairs `<...>` into `delimiter![<>]` groups in a single pass at the entry (the `>` of `->` arrows does not participate), so downstream parsing no longer tracks `<>` depth; on the output side `render_angles` restores the flat `<...>`. `angle_collect` is **destructive** (re-collecting an already-paired group would flatten it as a real None group), so it runs only once.
 - **The delimiter! macro**: `Delimiter::None` has two meanings in this crate — `delimiter![<>]` (the carrier of angle-bracket groups) and `delimiter![none]` (a real transparent group, the product of macro-variable expansion). They expand to the same value and cannot serve as two arms in a single match. A proc-macro crate cannot use `#[macro_export]`, so the macro lives at the top of `preprocess` and is imported into the crate root via `#[macro_use]` (textual scope requires it to be declared before all its authors).
 - **where-predicate inheritance**: **single-type-parameter predicates** (`T: Clone`) in a trait-level where clause are merged into `TraitParam.bound` (inline + where splicing), while **all remaining predicates pass through verbatim** to the impl's where clause. Reference collection happens on the **syn AST** (`syn::visit`): single-segment paths and generic arguments are the parameter reference positions; path segments after `::` (associated type names), associated-type binding names, and HRTB binders (`for<'a>`) are naturally excluded; const generic arguments / array lengths are collected via `visit_expr`. In `impl_names`, `const N` is normalized to `N` to match the reference check.
+- **The splat `*` prefix**: `*[...]` / `*(...)` flattens a container/generator into the enclosing list — a parse-time intermediate consumed by container collection and apply, so the final AST never contains it. `TySplat` is an enum mirroring the source bracket: `TySplat::Array` (set — left operand distributes `^T`, mirrors `TyArray`) vs `TySplat::Tuple` (list — appends / tuple-powers, mirrors `TyTuple`); the left-operand `apply_help` **delegates to the mirrored container** and re-wraps the result, so the splat survives until consumption (enabling `X^*[A,B]^T` = `X<A^T,B^T>`, one impl). Right operands and container collection flatten regardless of variant.
 
 ## Syntax-Domain Isolation
 
@@ -78,7 +77,7 @@ The DSL consists of two (future three) **mutually non-penetrating syntax domains
 
 | Domain | Tokens | Semantics | Parsed by |
 |----|------|------|----------|
-| **Type domain** (spec expressions) | `^`/`-` (the two associativities of the same apply: right-nesting / left-accumulation), `[...]` lists, `(...)` tuples, `<...>` generics, `where{...}` suffix, attached `{body}` | Describes a type matrix; each cell generates one impl | `parse/` + `apply/` + `codegen/` |
+| **Type domain** (spec expressions) | `^`/`-` (the two associativities of the same apply: right-nesting / left-accumulation), `[...]` lists, `(...)` tuples, `*[...]`/`*(...)` splats, `<...>` generics, `where{...}` suffix, attached `{body}` | Describes a type matrix; each cell generates one impl | `parse/` + `apply/` + `codegen/` |
 | **Directive domain** (`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){wrapper}` / open extension) | `,`-separated argument lists, `-name` exclusions, `@all` family markers | Copies signatures from the trait definition / fills bodies in bulk / delegates calls / blanket delegation | `preprocess/` (`parse_names_from_tokens` parses independently; DSL parsing never enters) |
 | **Macro-meta layer** (`@` constants) | `@u*`/`@i*`/`@f*` name families, `@scalar`/`@num`, `@u8..u128`/`@i8..i128`/`@f32..f64` range families, `batch_trait!` leading `@name=value;` custom sections | Names and reuses type-matrix entries; after lexical substitution into lists they follow the original pipeline, participating in no in-domain parsing | `consts.rs` (after angle_collect, before directive preprocessing) |
 

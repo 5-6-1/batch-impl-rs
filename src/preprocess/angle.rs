@@ -198,13 +198,12 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
 mod tests {
     use super::*;
     use proc_macro2::TokenStream as TS2;
-    use std::str::FromStr;
 
     /// Roundtrip of entry collect + exit restore: `<...>` is paired into
     /// groups then restored to flat; the tokens are equivalent.
     fn roundtrip(s: &str) -> String {
-        let ts: TS2 = FromStr::from_str(s).unwrap();
-        let v: Vec<_> = ts.into_iter().collect();
+        let ts = s.parse::<TS2>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
         let collected = angle_collect(&v).unwrap();
         render_angles(collected.into_iter().collect()).to_string()
     }
@@ -213,13 +212,14 @@ mod tests {
     /// instead of overflowing the stack.
     #[test]
     fn angle_nesting_limit() {
-        let ts: TS2 = FromStr::from_str(&format!(
+        let ts = format!(
             "{}0{}",
             "[".repeat(MAX_NEST_DEPTH + 1),
             "]".repeat(MAX_NEST_DEPTH + 1)
-        ))
+        )
+        .parse::<TS2>()
         .unwrap();
-        let v: Vec<_> = ts.into_iter().collect();
+        let v = ts.into_iter().collect::<Vec<_>>();
         let err = angle_collect(&v).unwrap_err().to_string();
         assert!(
             err.contains("nesting depth exceeds"),
@@ -245,17 +245,17 @@ mod tests {
     fn angle_unmatched_errors() {
         // Orphaned < / > is invalid input: reports compile_error! (no longer
         // passthrough)
-        let ts: TS2 = FromStr::from_str("A <").unwrap();
+        let ts = "A <".parse::<TS2>().unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
-        let ts: TS2 = FromStr::from_str("A >").unwrap();
+        let ts = "A >".parse::<TS2>().unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_err());
         // `ident![...]` macro bodies are not entered: inner comparison < does
         // not error
-        let ts: TS2 = FromStr::from_str("m![a < b]").unwrap();
+        let ts = "m![a < b]".parse::<TS2>().unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
         // `ident!(...)` macro bodies are not entered either (Paren groups are
         // otherwise recursed as DSL tuples)
-        let ts: TS2 = FromStr::from_str("m!(a < b)").unwrap();
+        let ts = "m!(a < b)".parse::<TS2>().unwrap();
         assert!(angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok());
         assert_eq!(roundtrip("m!(a < b)"), "m ! (a < b)");
     }
@@ -265,7 +265,7 @@ mod tests {
         // `ident![...]` macro bodies and `#[...]` attributes are not entered
         // (content is arbitrary Rust, incl. comparison <)
         for s in ["m![a < b]", "#[a < b]", "#[#zzz{1}]"] {
-            let ts: TS2 = FromStr::from_str(s).unwrap();
+            let ts = s.parse::<TS2>().unwrap();
             assert!(
                 angle_collect(&ts.into_iter().collect::<Vec<_>>()).is_ok(),
                 "input {s} should passthrough"
@@ -277,7 +277,7 @@ mod tests {
     fn none_group_flattened() {
         // Real None group (macro-variable expansion output): after flattening,
         // the <...> in its content pairs as usual
-        let inner: TS2 = FromStr::from_str("Vec<T>").unwrap();
+        let inner = "Vec<T>".parse::<TS2>().unwrap();
         let none = proc_macro2::Group::new(delimiter![none], inner);
         let collected = angle_collect(&[none.into()]).unwrap();
         let rendered = render_angles(collected.into_iter().collect());

@@ -97,7 +97,7 @@ pub(crate) fn expand_empty_trait_generics(
                         continue;
                     }
                 };
-                let args: Vec<TokenTree> = group.stream().into_iter().collect();
+                let args = group.stream().into_iter().collect::<Vec<TokenTree>>();
                 let bindings_only = !args.is_empty() && args_all_bindings(&args);
                 if args.is_empty() || bindings_only {
                     // Expand into an angle-group sequence (the pairing-output
@@ -111,10 +111,10 @@ pub(crate) fn expand_empty_trait_generics(
                         .into(),
                     );
                     out.extend(quote!(#id));
-                    let args_ts: TokenStream = if args.is_empty() {
+                    let args_ts = if args.is_empty() {
                         quote!(#(#arg_names),*)
                     } else {
-                        let bind_ts: TokenStream = args.iter().cloned().collect();
+                        let bind_ts = args.iter().cloned().collect::<TokenStream>();
                         quote!(#(#arg_names),* , #bind_ts)
                     };
                     out.push(proc_macro2::Group::new(delimiter![<>], args_ts).into());

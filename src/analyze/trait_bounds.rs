@@ -86,7 +86,7 @@ pub(crate) fn generic_param_names(generics: &syn::Generics) -> Vec<TokenStream> 
 
 pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
     // Set of param names (type + const are idents, lifetimes carry a `'` prefix)
-    let type_const_names: Vec<String> = trait_item
+    let type_const_names = trait_item
         .generics
         .params
         .iter()
@@ -95,8 +95,8 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
             syn::GenericParam::Const(cp) => Some(cp.ident.to_string()),
             _ => None,
         })
-        .collect();
-    let lt_names: Vec<String> = trait_item
+        .collect::<Vec<String>>();
+    let lt_names = trait_item
         .generics
         .params
         .iter()
@@ -106,7 +106,7 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
             }
             _ => None,
         })
-        .collect();
+        .collect::<Vec<String>>();
     let mut params = vec![];
     for p in &trait_item.generics.params {
         match p {

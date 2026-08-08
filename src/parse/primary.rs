@@ -1,0 +1,243 @@
+//! Primary type parsing: groups, generic args (incl. array dispatch), splats, prefixes.
+
+use crate::apply::{err_ty, err_ty_at};
+use crate::ast::*;
+use crate::parse::generic::{
+    empty, is_trait_base, parse_angle_bracket_contents, parse_generic,
+    parse_type_params, primitive,
+};
+use crate::parse::parse_atom::{
+    parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
+};
+use crate::parse::parse_primitive;
+use crate::parse::trailing::{attach_wrapper, split_arg_candidates};
+use crate::parse::{parse_item, split_at_depth0};
+use crate::util::Cursor;
+use proc_macro2::{Delimiter, Ident, Punct, Spacing, TokenTree};
+
+pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
+    if let Some((attr, rest)) = parse_attribute(tokens) {
+        return attach_wrapper(
+            TyWithAttr(TyAttr(attr), None).into(),
+            rest,
+            trait_name,
+        );
+    }
+
+    if let Some(function) = parse_function(tokens, trait_name) {
+        return function;
+    }
+
+    // Bare `fn` (no params): `fn^(A,B)` gets its args filled in later by the `^` operator
+    if let [TokenTree::Ident(name)] = tokens
+        && name == "fn"
+    {
+        return TyFn(None, None, false).into();
+    }
+
+    if let Some((prefix, rest)) = parse_prefix(tokens) {
+        // `unsafe` prefix disambiguation:
+        // - bare `unsafe` (rest empty) → unsafe impl marker (unsafe^T / unsafe-T), passthrough verbatim
+        // - `unsafe fn...` → unsafe fn type (TyFn.is_unsafe set)
+        // - `unsafe X` (X not fn) → error: in Rust, unsafe only qualifies fn types; writing it next to
+        //   any other type is almost certainly a forgotten `^` (unsafe^Vec<T>)
+        if matches!(prefix, TyPrefix::Unsafe) && !rest.is_empty() {
+            if matches!(rest.first(), Some(TokenTree::Ident(f)) if f == "fn") {
+                let inner = parse_primitive(rest, trait_name);
+                return match inner.kind {
+                    TyKind::Fn(mut f) => {
+                        f.2 = true;
+                        f.to_ty().with_span(inner.span)
+                    }
+                    // rest starts with `fn`, so parse_primitive must return TyFn; defensive fallback
+                    other => Ty { span: inner.span, kind: other },
+                };
+            }
+            return err_ty(
+                "batch-impl: `unsafe` can only qualify a fn type (e.g. `unsafe fn(u32) -> u32`) \
+or act as a bare impl marker (e.g. `unsafe^T`)",
+            );
+        }
+        let inner =
+            attach_wrapper(TyWithPrefix(prefix, None).into(), rest, trait_name);
+        return inner;
+    }
+
+    // Splat prefix: `*[...]` / `*(...)` — flatten a container's elements into
+    // the enclosing list / `^` argument list. `*const`/`*mut` stay pointers
+    // (handled by parse_prefix above). The group's contents are comma-split
+    // and each chunk parsed as a full expression (`parse_item` — so `*()^3`
+    // keeps its generator); splats are flattened at consumption (container
+    // collection / apply), not here.
+    if let [TokenTree::Punct(star), TokenTree::Group(group), rest @ ..] = tokens
+        && star.as_char() == '*'
+        && matches!(
+            group.delimiter(),
+            Delimiter::Bracket | Delimiter::Parenthesis
+        )
+    {
+        let inner = group.stream().into_iter().collect::<Vec<TokenTree>>();
+        let elems = if inner.is_empty() {
+            Vec::new()
+        } else {
+            split_at_depth0(&inner, ',')
+                .iter()
+                // `*(A,)` — a trailing comma yields an empty chunk; skip it
+                // (empty splat elements are not elements at all).
+                .filter(|c| !c.is_empty())
+                .map(|c| {
+                    parse_item(&mut Cursor::new(c), Op::Dash, trait_name)
+                        .unwrap_or_else(empty)
+                })
+                .collect()
+        };
+        // `*[...]` is set semantics (distribute), `*(...)` is list semantics
+        // (append) — the variant mirrors the parse-time delimiter.
+        let splat = if matches!(group.delimiter(), Delimiter::Bracket) {
+            TySplat::Array(TyArray(elems)).to_ty()
+        } else {
+            TySplat::Tuple(TyTuple(elems)).to_ty()
+        }
+        .with_span(star.span());
+        return if rest.is_empty() {
+            splat
+        } else {
+            splat.apply(parse_primitive(rest, trait_name))
+        };
+    }
+
+    // A bare `*` that is neither a splat (`*[...]` / `*(...)`) nor a raw
+    // pointer (`*const`/`*mut` — handled by parse_prefix) is a mistake;
+    // surface a targeted error instead of rustc's raw-pointer confusion.
+    if let [TokenTree::Punct(star), ..] = tokens
+        && star.as_char() == '*'
+    {
+        return err_ty_at(
+            "batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw \
+             pointer (`*const T` / `*mut T`)",
+            star.span(),
+        );
+    }
+
+    if let Some(range) = parse_range(tokens) {
+        return range;
+    }
+
+    if let [TokenTree::Literal(literal)] = tokens
+        && let Ok(number) = literal.to_string().parse()
+    {
+        return TyNum(number).into();
+    }
+
+    // An angle-bracket group (`delimiter![<>]`) is a generic list; must go through
+    // parse_type_params (else `HashMap^<A,B>`'s right operand is swallowed as empty by parse_group)
+    if let [TokenTree::Group(group)] = tokens
+        && group.delimiter() != delimiter![<>]
+    {
+        return parse_group(group, trait_name);
+    }
+
+    if let Some((base, args, rest)) = parse_generic(tokens) {
+        let args_vec = args.into_iter().collect::<Vec<TokenTree>>();
+        // List distribution in generic args: an array arg (`Vec<[A, B]>`) is
+        // a dispatch list — Cartesian-product the args into multiple generic
+        // instantiations wrapped in a TyArray (expanded by the work queue).
+        let arg_chunks = split_at_depth0(&args_vec, ',');
+        let has_array_arg = arg_chunks.iter().any(|c| {
+            matches!(c, [TokenTree::Group(g)] if g.delimiter() == Delimiter::Bracket)
+        });
+        if has_array_arg {
+            let candidates = arg_chunks
+                .iter()
+                .map(|c| {
+                    if let [TokenTree::Group(g)] = c
+                        && g.delimiter() == Delimiter::Bracket
+                    {
+                        // Recursive split: nested array args (`[[A, B], C]`)
+                        // distribute down to leaves — array distribution is
+                        // idempotent, so flattening the whole depth is
+                        // equivalent to distributing layer by layer.
+                        let inner =
+                            g.stream().into_iter().collect::<Vec<TokenTree>>();
+                        split_at_depth0(&inner, ',')
+                            .iter()
+                            .flat_map(|e| split_arg_candidates(e))
+                            .collect()
+                    } else {
+                        vec![c.to_vec()]
+                    }
+                })
+                .collect::<Vec<Vec<Vec<TokenTree>>>>();
+            let mut combos: Vec<Vec<Vec<TokenTree>>> = vec![vec![]];
+            for cands in &candidates {
+                let mut next = vec![];
+                for ex in &combos {
+                    for c in cands {
+                        let mut combo = ex.clone();
+                        combo.push(c.clone());
+                        next.push(combo);
+                    }
+                }
+                combos = next;
+            }
+            let variants = combos
+                .into_iter()
+                .map(|combo| {
+                    let mut flat = vec![];
+                    for (i, c) in combo.iter().enumerate() {
+                        if i > 0 {
+                            flat.push(TokenTree::Punct(Punct::new(
+                                ',',
+                                Spacing::Alone,
+                            )));
+                        }
+                        flat.extend(c.iter().cloned());
+                    }
+                    let params = parse_angle_bracket_contents(&flat, trait_name);
+                    if is_trait_base(&base, trait_name) {
+                        TyTrait(base.iter().cloned().collect(), params).into()
+                    } else {
+                        TyGeneric(primitive(&base).into(), params).into()
+                    }
+                })
+                .collect::<Vec<Ty>>();
+            let generic = TyArray(variants).into();
+            return if rest.is_empty() {
+                generic
+            } else {
+                generic.apply(parse_primitive(&rest, trait_name))
+            };
+        }
+        let params = parse_angle_bracket_contents(&args_vec, trait_name);
+        let generic = if is_trait_base(&base, trait_name) {
+            TyTrait(base.iter().cloned().collect(), params).into()
+        } else {
+            // rest non-empty and not an angle-bracket group (`Vec<T><U>` = chained generics, via apply):
+            // anything else (e.g. `Vec<T>U`) is treated as a passthrough
+            if !rest.is_empty()
+                && !matches!(rest.first(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>])
+            {
+                return primitive(tokens);
+            }
+            TyGeneric(primitive(&base).into(), params).into()
+        };
+        return if rest.is_empty() {
+            generic
+        } else {
+            generic.apply(parse_primitive(&rest, trait_name))
+        };
+    }
+
+    if let Some((args, rest)) = parse_type_params(tokens) {
+        let args_vec = args.into_iter().collect::<Vec<_>>();
+        let params = parse_angle_bracket_contents(&args_vec, trait_name);
+        let params = params.into();
+        return if rest.is_empty() {
+            params
+        } else {
+            params.apply(parse_primitive(&rest, trait_name))
+        };
+    }
+
+    primitive(tokens)
+}

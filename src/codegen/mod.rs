@@ -102,12 +102,15 @@ pub(crate) fn generate_impl(
     parts.impl_generics.extend(nested_params);
 
     // inherit trait generic bounds: same-name inheritance vs. mismatch errors; see trait_bounds docs
-    let mut errs: Vec<TokenStream> = vec![];
-    let trait_args: Vec<String> =
-        parts.trait_generic_names.iter().map(|n| n.to_string()).collect();
+    let mut errs = vec![];
+    let trait_args = parts
+        .trait_generic_names
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<String>>();
     // const params are named `const N` in the parse layer (the keyword is needed to
     // render `const N: usize`); normalize to `N` to match trait args and where-predicate refs
-    let impl_name_streams: Vec<TokenStream> = parts
+    let impl_name_streams = parts
         .impl_generics
         .iter()
         .map(|(n, _)| {
@@ -115,9 +118,9 @@ pub(crate) fn generate_impl(
             let bare = s.strip_prefix("const ").unwrap_or(&s);
             bare.parse().unwrap()
         })
-        .collect();
-    let impl_names: HashSet<String> =
-        impl_name_streams.iter().map(|n| n.to_string()).collect();
+        .collect::<Vec<TokenStream>>();
+    let impl_names =
+        impl_name_streams.iter().map(|n| n.to_string()).collect::<HashSet<String>>();
     for (name, bound) in &mut parts.impl_generics {
         if bound.is_some() {
             continue;
@@ -154,10 +157,7 @@ pub(crate) fn generate_impl(
             ));
             continue;
         }
-        *bound = Some(Ty::new(
-            proc_macro2::Span::call_site(),
-            TyPrimitive(b.clone()).into(),
-        ));
+        *bound = Some(TyPrimitive(b.clone()).to_ty());
     }
     // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
     for (pred, refs) in &trait_bounds.extra_predicates {

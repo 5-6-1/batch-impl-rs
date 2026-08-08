@@ -83,7 +83,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 // Split the where group into predicates at depth-0 commas so
                 // each predicate resolves independently (`@all_fresh` /
                 // `@N..M` expansions must not swallow following predicates).
-                let tokens: Vec<_> = ww.1.0.clone().into_iter().collect();
+                let tokens = ww.1.0.clone().into_iter().collect::<Vec<_>>();
                 for pred in split_at_depth0(&tokens, ',') {
                     parts.where_clauses.push(pred.iter().cloned().collect());
                 }
@@ -112,18 +112,17 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                             &mut parts.target_type,
                             TyWithPrefix(wp.0, None).to_ty().with_span(span),
                         );
-                        parts.target_type = Ty::new(
-                            span,
-                            TyWithPrefix(wp.0, old_target.into()).into(),
-                        );
+                        parts.target_type = TyWithPrefix(wp.0, old_target.into())
+                            .to_ty()
+                            .with_span(span);
                     }
                 }
                 parts
             }
-            None => ImplParts::leaf(Ty::new(span, TyKind::WithPrefix(wp))),
+            None => ImplParts::leaf(wp.to_ty().with_span(span)),
         },
-        TyKind::Error(e) => ImplParts::leaf(Ty::new(span, TyKind::Error(e))),
-        o => ImplParts::leaf(Ty::new(span, o)),
+        TyKind::Error(e) => ImplParts::leaf(Ty { span, kind: TyKind::Error(e) }),
+        o => ImplParts::leaf(Ty { span, kind: o }),
     }
 }
 
@@ -139,14 +138,29 @@ pub(crate) fn hoist_type_params(
 ) -> Ty {
     match ty.kind {
         // Generic-declaration wrapper: hoist the declaration outward (params
-        // are added to `out`, not to the rebuilt node).
+        // are added to `out`, not to the rebuilt node). Same-named fresh
+        // params are collected once — `(T,)^N` clones `T` (a generator such
+        // as `()^3`) N times, and each clone carries its own declaration of
+        // the same fresh names; the clones reference one shared generic.
         TyKind::WithType(wt) => {
-            out.extend(wt.0.params);
+            for (name, bound) in wt.0.params {
+                let name_str = name.to_string();
+                if is_fresh_name(&name_str)
+                    && let Some(existing) =
+                        out.iter_mut().find(|(n, _)| n.to_string() == name_str)
+                {
+                    // Prefer a declaration with a bound over the bare one.
+                    if existing.1.is_none() {
+                        existing.1 = bound;
+                    }
+                } else {
+                    out.push((name, bound));
+                }
+            }
             hoist_type_params(*wt.1, out)
         }
         // All other variants: recurse into children uniformly.
-        other => {
-            Ty::new(ty.span, other).map_children(&mut |c| hoist_type_params(c, out))
-        }
+        other => Ty { span: ty.span, kind: other }
+            .map_children(&mut |c| hoist_type_params(c, out)),
     }
 }

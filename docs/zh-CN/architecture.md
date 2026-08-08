@@ -1,9 +1,6 @@
 # batch-impl 内部架构
 
-**v0.6.8**——0.6.2/0.6.3/0.6.4 已发布：预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托、`@N` 唯一 codegen 记号；0.6.5：blanket `@N` 统一、`#cmd[args]` 方括号参数；0.6.6：`(T)^N`
-分组剥离语义、数字渲染无后缀、输入校验护栏；0.6.7：fresh 逐 impl 编号 +
-`@g_i` 分组引用、顶层开放扩展（`{! ...}`）、`@all_fresh` / `@N..M` 批量
-where 引用、错误聚合、preprocess 重组为 `directives/` + `consts/` 子文件夹。
+**v0.7.0**——0.6.7 已发布；0.7.0：**splat** `*` 前缀（`TySplat{Tuple,Array}` 枚举镜像来源括号，完整委托 `TyTuple`/`TyArray` apply + 包回）、数组分发传播、parse 层拆分 `chain`/`primary`/`trailing`；0.6.x：预处理顺序 `@ <> # where`、宏元层完整化、`@N` fresh 引用、receiver 过滤、blanket 委托、span 诊断。
 
 面向贡献者：模块组织、解析流程、错误机制、测试矩阵。
 
@@ -21,7 +18,10 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── scan.rs           扫描与游标：Cursor<'a> + scan_stop（尖括号已配对，仅剩 -> 守卫）
   │   └── diagnostic.rs     统一 compile_error_str(msg, span) / compile_err! / compile_err_at! 用于编译期诊断（ident-span 方案：只盖 compile_error 关键字）
   ├── parse/                解析层
-  │   ├── mod.rs            DSL 解析器：优先级攀爬（Op::Semi/Comma/Dash/Caret/Prim）
+  │   ├── mod.rs            入口：parse_primitive + `@` 引用解析（119 行）
+  │   ├── chain.rs          运算符链解析：`-`/`^` 优先级攀爬（parse_item / parse_operand）
+  │   ├── primary.rs        主类型：分组、泛型实参（含数组分发）、splat、前缀
+  │   ├── trailing.rs       尾随 `{body}` / `where{...}` 拆分 + wrapper 附着
   │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
   │   └── generic.rs        泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 delimiter![<>]）
   ├── preprocess/           预处理层（token 重写器，一个趟一个文件；mod.rs 聚合 re-export）
@@ -36,11 +36,11 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── fresh.rs          fresh 名协议（`_Param_*_BatchGen_` 常量 + 生成/构造/解析三函数）
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
-  │   ├── mod.rs            Apply trait（apply_help 带 span 参数）+ Ty::apply 单点取 span 委托 TyKind 分发（右操作数"结构"优先）
+  │   ├── mod.rs            Apply trait（默认 apply 做右操作数结构化分发；全部 Ty* 子类型实现 Apply）
   │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
   ├── codegen/              代码生成
   │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
-  │   └── impl_parts.rs     ImplParts 结构 + 18 变体遍历（extract / hoist）
+  │   └── impl_parts.rs     ImplParts 结构 + 19 变体遍历（extract / hoist）
   └── testing/              测试基建（cfg(test)）
       └── fuzz.rs           proptest：随机 token 喂真实宏入口（expand_attr_macro），承诺不 panic
 ```
@@ -82,6 +82,13 @@ angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..
   `TraitParam.bound`（内联 + where 拼接），**其余谓词原样透传**到 impl 的
   where 子句。引用收集在 **syn AST** 上做（`syn::visit`）：单段路径与泛型实参
   是形参引用位置；`::` 后的路径段（关联类型名）、关联类型绑定名、
+- **splat `*` 前缀**：`*[...]` / `*(...)` 把容器/生成器摊平进外层列表——parse 期
+  中间态（容器收集与 apply 时消费，最终 AST 从不含它）。`TySplat` 是镜像来源
+  括号的枚举：`TySplat::Array`（集合——左操作数分配 `^T`，对标 `TyArray`）vs
+  `TySplat::Tuple`（列表——追加/元组幂，对标 `TyTuple`）；左操作数
+  `apply_help` **委托镜像容器**再包回结果，splat 保持到消费
+  （实现 `X^*[A,B]^T` = `X<A^T,B^T>` 单 impl）。右操作数与容器收集无论
+  变体一律摊平。
   HRTB binder（`for<'a>`）天然排除；const 泛型实参 / 数组长度经 `visit_expr`
   收集。`impl_names` 中 `const N` 归一如 `N` 以匹配引用检查。
 
@@ -91,7 +98,7 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
 
 | 域 | 记号 | 语义 | 由谁解析 |
 |----|------|------|----------|
-| **类型域**（spec 表达式） | `^`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
+| **类型域**（spec 表达式） | `^`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`*[...]`/`*(...)` splat、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
 | **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`@all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
 | **宏元层**（`@` 常量） | `@u*`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
 

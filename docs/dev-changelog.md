@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.6.8 (2026-08-08)
+## 0.7.0 (2026-08-08)
 
 ### Core restructure: codegen split + fresh-name protocol unification
 
@@ -22,6 +22,62 @@
   — previously scattered across `ast/types.rs`, `parse/mod.rs`, and
   `codegen/mod.rs`; the three layers now share one protocol source and
   cannot drift apart.
+
+### Splat (`*` prefix)
+
+- New `*[...]` / `*(...)` splat: flattens a container/generator into the
+  enclosing list — spliced inside tuples/arrays (`[a, *[d,e,f]]` = `[a,d,e,f]`),
+  flat-append as a `^`/`-` right operand (`T^*(A,B)` ≡ `T-A-B`), multi-arg as a
+  generic argument (`Foo<*(a,b)>` = `Foo<a,b>`), idempotent nested
+  (`*(*[a,b])` = `[a,b]`), empty no-op (`[a, *()]` = `[a]`);
+- **Source-driven left semantics**: `TySplat` is an enum mirroring its parse
+  delimiter — `TySplat::Array` distributes `^T` (`*[A^T,B^T]` — set, mirrors
+  `TyArray`), `TySplat::Tuple` appends / tuple-powers (`*(A,B,...,T)`, or
+  `*(A,B)^N` Cartesian product — list, mirrors `TyTuple`); `*()^N` (empty
+  splat) keeps its splat shape — `*()^2` = `<A,B>*(A,B)`, `T^*()^2` =
+  `<A,B>T<A,B>` — identical to the canonical `*(()^N)` (a bare fresh
+  splat as a lone target hits rustc's E0119/E0207 in both forms); the
+  left-operand
+  `apply_help` **delegates to `TyArray`/`TyTuple::apply_help`** and re-wraps
+  the result into the matching splat variant (a splat stays a splat until
+  consumed) — no duplicated distribution/append logic. Right operands and
+  container collection flatten regardless of variant (per user decision —
+  "`*` 意义就在这");
+- `*const`/`*mut` raw pointers unaffected (disambiguated by the following
+  token); bare `*u8` errors with a targeted message (ui: `star_misuse`);
+  a generator splat as a generic argument errors — its fresh declaration has
+  nowhere to live (ui: `gen_splat_arg`);
+- Right-splat branch collapsed from three match arms (tuple concat / generator
+  recurse / chain) to one flat chain — tuples concat via their own apply_help,
+  generators recurse through `TyWithType::apply_help` keeping the declaration
+  (a prior version unwrapped `*wt.1` and dropped the decl — E0425).
+
+### Style unification + `Apply` trait-ification
+
+- All `Ty*` subtypes now implement the `Apply` trait (17 impls) — `apply_help`
+  became a trait method; internal recursion calls `.apply()` (full
+  right-operand dispatch), never `apply_help` directly. `TySplat::apply_help`
+  is now pure delegation: `TySplat::Array(a) => a.apply(o)` /
+  `TySplat::Tuple(t) => t.apply(o)`, then re-wraps the returned container
+  (splat stays a splat until consumption); `*()^N` keeps its splat shape via
+  the `WithType` passthrough (`*()^2` = `<A,B>*(A,B)`).
+- Constructor style unified: `Ty::new(span, TyKind::X(sub))` nesting removed
+  crate-wide (`Ty::new` deleted — 49 call sites → `X(...).to_ty().with_span(...)`;
+  passthrough uses `Ty { span, kind }`); value-site wrappers use `val.into()`
+  (`Some(Box::new(x))` → `x.into()` via `From<Ty> for Option<Box<Ty>>`; the one
+  `Box::new` left is inside `From<$t> for Box<Ty>` — the definition site, the
+  only way to build a Box; bare `value.into()` there recurses into the impl
+  itself, verified E0119-style stack overflow); type annotations moved to the
+  right-hand side (`collect::<Vec<T>>()`, `parse::<usize>()`, `s.parse::<TS2>()`)
+  except mandatory ones (empty `vec![]`, `parse_quote!`).
+- Parse layer split: `parse/mod.rs` (582 lines) → `chain.rs` (operator
+  climbing) / `primary.rs` (atoms, generic args, splats) / `trailing.rs`
+  (body/where split, wrapper attach) + `mod.rs` (119); all parse files ≤ 350.
+- Docs: `#fill` single-item preference emphasized in the tutorial
+  (`#name{body}` over `#fill(name){body}` — verified no single-item `#fill`
+  anywhere in the repo); splat position survey: 8 allowed sites, 4 macro-level
+  errors (directive args / `@` defs / bare `*` / generator-arg), 2 rustc
+  fallbacks (where predicates / generic decls).
 
 ## 0.6.7 (2026-08-08)
 

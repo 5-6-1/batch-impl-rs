@@ -19,7 +19,7 @@ macro_rules! impl_from_for_ty {
             // Subtype → full Ty (call_site span). `to_ty()` builds on this.
             impl From<$struct> for Ty {
                 fn from(value: $struct) -> Self {
-                    Ty::new(Span::call_site(), TyKind::$variant(value))
+                    Ty { span: Span::call_site(), kind: TyKind::$variant(value) }
                 }
             }
             // Chainable entry point: explicit return type resolves `self.into()`
@@ -34,6 +34,11 @@ macro_rules! impl_from_for_ty {
                 }
             }
             // Kept: the `Expand` traversers build `Some(e.into())` expecting Box<Ty>.
+            // `value.into()` alone would recurse into this very impl (target
+            // `Box<Ty>` matches itself); inside `Box::new` the target is the
+            // argument — inferred as `Ty` via `From<$t> for Ty` (non-recursive).
+            // `Box::new` here is the definition site (the only way to build a
+            // Box), not a usage-site wrapper.
             impl From<$struct> for Box<Ty> {
                 fn from(value: $struct) -> Self {
                     Box::new(value.into())
@@ -46,6 +51,7 @@ macro_rules! impl_from_for_ty {
 impl_from_for_ty! {
     TyArray => Array,
     TyTuple => Tuple,
+    TySplat => Splat,
     TyGroup => Group,
     TyPrimitiveArray => PrimitiveArray,
     TyPrimitive => Primitive,

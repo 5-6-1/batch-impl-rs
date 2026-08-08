@@ -5,7 +5,19 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.6.8 (2026-08-08)
+## 0.7.0 (2026-08-08)
+
+### Splat: `*` prefix flattening
+
+- `*` **flattens a container / generator** into the enclosing list (only before `[]`/`()`):
+  - In-list splicing: `[a, *[d,e,f]]` = `[a,d,e,f]`; `^`/`-` right-operand flat append: `(a,b,c)^*(d,e,f)` = `(a,b,c,d,e,f)` (concat); `Vec^*(a,b)` = `Vec<a,b>` (multi-arg)
+  - Generator splat: `(*(()^3))` = `(A,B,C)` (group → tuple + fresh decl hoisted)
+- Nested splats idempotent, empty no-op; **left-operand semantics by source bracket**: `*[...]^T` distributes (`*[A^T,B^T]` — set, mirrors `TyArray`), `*(...)^T` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`); `#fill` single-item preference — write `#name{body}` instead of `#fill(name){body}`; `*const`/`*mut` pointers unaffected
+
+### Distribution propagation & generator fixes
+
+- Arrays (dispatch lists) in nested positions (tuple elements / generic args / pow_cartesian combos) distribute by Cartesian product — `(u8, [u16, u32])` → `(u8,u16)`/`(u8,u32)`; `Vec<[u8,u16]>` → `Vec<u8>`/`Vec<u16>`
+- Fix: `(T,)^N` cloning a generator T (e.g. `(()^3,)^3`) hoisted duplicate fresh declarations → E0403; same-named fresh now declared once (shared semantics)
 
 ## 0.6.7 (2026-08-08)
 

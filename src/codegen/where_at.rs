@@ -27,7 +27,7 @@ pub(crate) fn resolve_where_at(
         .filter(|n| parse_grouped_fresh(&n.to_string()).is_some())
         .collect();
     fresh_sorted.sort_by_key(|n| parse_grouped_fresh(&n.to_string()).unwrap());
-    let tokens: Vec<_> = pred.clone().into_iter().collect();
+    let tokens = pred.clone().into_iter().collect::<Vec<_>>();
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
@@ -52,7 +52,7 @@ pub(crate) fn resolve_where_at(
                             MAX_EXPAND
                         ));
                     }
-                    let tail: Vec<TokenTree> = tokens[i + 2..].to_vec();
+                    let tail = tokens[i + 2..].to_vec();
                     let comma = TokenTree::Punct(Punct::new(',', Spacing::Alone));
                     for (k, &name) in fresh_sorted.iter().enumerate() {
                         if k > 0 {
@@ -120,7 +120,7 @@ pub(crate) fn resolve_where_at(
                                 MAX_EXPAND
                             ));
                         }
-                        let tail: Vec<TokenTree> = tokens[end_idx + 1..].to_vec();
+                        let tail = tokens[end_idx + 1..].to_vec();
                         let comma = TokenTree::Punct(Punct::new(',', Spacing::Alone));
                         for (offset, &name) in
                             fresh_sorted[start..start + count].iter().enumerate()
@@ -223,7 +223,7 @@ mod tests {
             }
         );
         let tb = extract_trait_bounds(&trait_def);
-        let target: Ty = TyTuple(vec![]).into();
+        let target = TyTuple(vec![]).to_ty();
         let trait_ty = TyTrait(
             quote!(WhereArr),
             TyTypeParam {
@@ -236,13 +236,7 @@ mod tests {
             TyTypeParam {
                 params: vec![
                     (quote!(T), None),
-                    (
-                        quote!(const N),
-                        Some(Ty::new(
-                            proc_macro2::Span::call_site(),
-                            TyPrimitive(quote!(usize)).into(),
-                        )),
-                    ),
+                    (quote!(const N), Some(TyPrimitive(quote!(usize)).to_ty())),
                 ],
                 bindings: vec![],
             },

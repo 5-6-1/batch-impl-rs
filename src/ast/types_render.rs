@@ -77,6 +77,17 @@ impl ToTokens for Ty {
                     t.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
                 quote!((#(#elems,)*))
             }
+            // Defensive: splats are consumed at parse/apply time; a residual
+            // splat renders with its original bracket so a bug surfaces
+            // visibly instead of silently dropping elements.
+            TyKind::Splat(s) => {
+                let elems =
+                    s.elems().iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
+                match s {
+                    TySplat::Array(_) => quote!(*[#(#elems),*]),
+                    TySplat::Tuple(_) => quote!((*(#(#elems,)*))),
+                }
+            }
             TyKind::Group(g) => {
                 let inner = g.0.to_token_stream();
                 quote!((#inner))

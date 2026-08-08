@@ -161,7 +161,7 @@ fn replace_segment_trait(
             // Recurse into groups (where{...} predicates and type groups):
             // segment-level `@trait` must reach every DSL structure, not
             // just the top level.
-            let inner: Vec<_> = g.stream().into_iter().collect();
+            let inner = g.stream().into_iter().collect::<Vec<_>>();
             let inner = replace_segment_trait(inner, trait_full_path)?;
             out.push(
                 proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect())

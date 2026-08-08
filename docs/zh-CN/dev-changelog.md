@@ -2,7 +2,7 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.6.8 (2026-08-08)
+## 0.7.0 (2026-08-08)
 
 ### 核心重组：codegen 拆分 + fresh 名协议统一
 
@@ -16,6 +16,51 @@
   `parse_grouped_fresh`（codegen 层识别分组形式）——此前散落在
   `ast/types.rs`、`parse/mod.rs`、`codegen/mod.rs` 三处；三层现在共享
   单一协议源，不可能漂移。
+
+### splat（`*` 前缀）
+
+- 新增 `*[...]` / `*(...)` splat：把容器/生成器展开拼入外层列表——元组/数组内拼接
+  （`[a, *[d,e,f]]` = `[a,d,e,f]`）、`^`/`-` 右操作数扁平追加（`T^*(A,B)` ≡ `T-A-B`）、
+  泛型实参多实参（`Foo<*(a,b)>` = `Foo<a,b>`）、嵌套幂等（`*(*[a,b])` = `[a,b]`）、
+  空无操作（`[a, *()]` = `[a]`）；
+- **左操作数按来源分语义**：`TySplat` 是镜像 parse 定界符的枚举——`TySplat::Array`
+  分配 `^T`（`*[A^T,B^T]`——集合，对标 `TyArray`）、`TySplat::Tuple` 追加/元组幂
+  （`*(A,B,...,T)`，或 `*(A,B)^N` 笛卡尔积——列表，对标 `TyTuple`）；`*()^N`（空
+  splat）保持 splat 形态——`*()^2` = `<A,B>*(A,B)`、`T^*()^2` =
+  `<A,B>T<A,B>`——与标准写法 `*(()^N)` 完全等价（裸 fresh splat 单独作目标
+  在两种写法下都会命中 rustc 的 E0119/E0207）；左操作数
+  `apply_help` **委托 `TyArray`/`TyTuple::apply_help`** 再把结果包回对应 splat 变体
+  （splat 在消费前保持 splat）——无重复的分发/追加逻辑。右操作数与容器收集
+  一律摊平、与变体无关（用户决策——"`*` 意义就在这"）；
+- `*const`/`*mut` 原始指针不受影响（按后续 token 区分）；裸 `*u8` 报定向错误
+  （ui: `star_misuse`）；生成器 splat 作泛型实参报错——fresh 声明无处安放
+  （ui: `gen_splat_arg`）；
+- 右 splat 分支从三个 match 臂（元组拼接 / 生成器递归 / 转链）收敛为一条扁平转链——
+  元组走自身 apply_help 拼接、生成器经 `TyWithType::apply_help` 递归且保留声明
+  （此前版本手动解包 `*wt.1` 丢掉 decl——E0425）。
+
+### 风格统一 + Apply trait 化
+
+- 全部 `Ty*` 子类型实现 `Apply` trait（17 个）——`apply_help` 变为 trait 方法；
+  内部递归统一调 `.apply()`（完整右操作数分发），绝不直接调 `apply_help`。
+  `TySplat::apply_help` 现在是纯委托：`TySplat::Array(a) => a.apply(o)` /
+  `TySplat::Tuple(t) => t.apply(o)`，再把返回的容器包回（splat 保持到消费）；
+  `*()^N` 经 `WithType` 透传保持 splat 形态（`*()^2` = `<A,B>*(A,B)`）。
+- 构造风格统一：`Ty::new(span, TyKind::X(sub))` 嵌套包装全库清除（`Ty::new`
+  删除——49 处调用点改 `X(...).to_ty().with_span(...)`；透传用
+  `Ty { span, kind }`）；值处包装用 `val.into()`（`Some(Box::new(x))` →
+  `x.into()`——`From<Ty> for Option<Box<Ty>>`；唯一保留的 `Box::new` 在
+  `From<$t> for Box<Ty>` 定义处——Box 唯一构造方式，裸 `value.into()` 会递归
+  到 impl 自身（实测栈溢出））；类型标注移到等式右侧
+  （`collect::<Vec<T>>()`、`parse::<usize>()`、`s.parse::<TS2>()`），必要标注
+  （空 `vec![]`、`parse_quote!`）保留。
+- parse 层拆分：`parse/mod.rs`（582 行）→ `chain.rs`（运算符攀爬）/ `primary.rs`
+  （原子、泛型实参、splat）/ `trailing.rs`（body/where 拆分、wrapper 附着）+
+  `mod.rs`（119）；parse 全部文件 ≤ 350。
+- 文档：tutorial 强调 `#fill` 单元素推荐（`#name{body}` 优于 `#fill(name){body}`——
+  全库核实无单元素 `#fill`）；splat 位置盘点：8 类允许位置、4 处宏定向错误
+  （指令参数 / `@` 定义 / 裸 `*` / 生成器实参）、2 处 rustc 兜底
+  （where 谓词 / 泛型声明）。
 
 ## 0.6.7 (2026-08-08)
 

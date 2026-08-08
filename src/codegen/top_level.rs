@@ -31,7 +31,7 @@ pub(crate) fn walk_top_level(
 ) -> Result<(), TokenStream> {
     match &ty.kind {
         TyKind::WithCode(TyWithCode(inner, code)) => {
-            let tokens: Vec<TokenTree> = code.0.clone().into_iter().collect();
+            let tokens = code.0.clone().into_iter().collect::<Vec<TokenTree>>();
             let is_top = matches!(tokens.first(), Some(TokenTree::Punct(p)) if p.as_char() == '!');
             if is_top {
                 if top.is_some() {
@@ -86,7 +86,7 @@ pub(crate) fn render_ty_tokens(ty: &Ty) -> Vec<TokenTree> {
 pub(crate) fn rewrite_macro_input(
     mac: TokenStream, spec: TokenStream,
 ) -> TokenStream {
-    let tokens: Vec<TokenTree> = mac.into_iter().collect();
+    let tokens = mac.into_iter().collect::<Vec<TokenTree>>();
     let mut out: Vec<TokenTree> = Vec::with_capacity(tokens.len() + 1);
     let mut inserted = false;
     let mut i = 0;

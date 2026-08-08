@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.6.8** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen; 0.6.6: `(T)^N` group-strip semantics
+**v0.7.0** — 0.6.7 released; 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists; left operand `*[...]` distribute / `*(...)` append), array distribution propagation, `#fill` single-item preference (`#name{...}`); 0.6.x: receiver filters, `#blanket` delegation, span diagnostics, generic-parameter families, `@N` fresh references.
 (= `T^N`, a const-generic arg like `W<2>`; **breaking** — tuple generation now needs `(T,)^N`), unsuffixed number rendering,
 and input-validation guards (consts nesting depth, `#blanket` `:N` cap,
 `@all_*` reserved names, empty `:` depth); 0.6.7: per-impl fresh numbering
@@ -57,6 +57,25 @@ trait Tagged { fn tag(&self) -> &'static str; }
 // → impl Tagged for f32   { ... }
 ```
 
+**Distribution propagation**: `[A, B]` lists are a dispatch source — besides being a target/operand, nested positions propagate:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl((u8, [u16, u32, u64]))]
+trait T {}
+// → impl T for (u8, u16) {}
+// → impl T for (u8, u32) {}
+// → impl T for (u8, u64) {}
+
+#[batch_impl(Vec<[u8, u16, u32]>)]
+trait V {}
+// → impl V for Vec<u8> {}
+// → impl V for Vec<u16> {}
+// → impl V for Vec<u32> {}
+```
+
+Rule: an `[A, B]` inside a tuple / generic arg expands by Cartesian product (multiple arrays → full product); nested arrays flatten recursively (`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`); pow_cartesian combos containing arrays are covered by the outer distribution. Note: concrete and fresh generators with the same fresh count/shape can overlap with E0119 — rustc's call; use generators with distinct fresh counts to avoid it.
+
 ### Merging per-item and shared bodies
 
 List items can have their own bodies, which merge with a shared body:
@@ -103,6 +122,45 @@ Precedence, low to high: `;` < `,` < `-` < `^`; `()` grouping sits above all ope
 > **Operand strictness**: `^`/`-`/`,` require operands on both sides — `A^`, `^A`, `-A`, `,A`, `A,,B`
 > all raise `compile_error!`; only a **trailing comma** (`A,` / `[A, B,]`) is allowed. Brackets such as
 > `();`/`[]` are real tokens, not empty operands. `;` stays lenient as the `batch_trait!` section boundary.
+
+### Splat (`*` flatten)
+
+The `*` prefix **flattens a container / generator into the enclosing list**
+— it appears only before `[]`/`()`:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl([u8, *[u16, u32, u64]])]
+trait SplatList {}
+// → impl SplatList for u8 {}
+// → impl SplatList for u16 {} / u32 / u64
+
+#[batch_impl((u8, u16, u32)^*(u64, usize, i8))]
+trait SplatConcat {}
+// → impl SplatConcat for (u8, u16, u32, u64, usize, i8) {}
+//   (`^` alone nests — `*` gives flat concatenation)
+
+#[batch_impl((*(()^3)))]
+trait SplatGen {}
+// → impl<T0, T1, T2> SplatGen for (T0, T1, T2) {}   // generator splat (group → tuple)
+```
+
+Semantics: inside a tuple/array, `*X` splices the elements (`[a, *[d,e,f]]` =
+`[a,d,e,f]`); as a `^`/`-` right operand, `*X` appends flatly (left tuple →
+concat; left generic → multi-arg `Vec^*(a,b)` = `Vec<a,b>`); the **source
+bracket drives the left-operand semantics** — `*[A,B]^T` distributes
+(`*[A^T,B^T]` — set, mirrors `TyArray`), `*(A,B)^T` appends (`*(A,B,...,T)` —
+list, mirrors `TyTuple`). Generic args `Foo<*(a,b)>` = `Foo<a,b>` (multi-arg,
+one impl — distinct from `Foo<[a,b]>` dispatch).
+
+Two rules: `T^*(A,B,...)` ≡ `T-A-B-...` (right splat = flat argument append —
+equivalent to the `-` chain, regardless of source bracket); left splat by
+source — `*[A,B]^T` = `*[A^T,B^T]` (distribution; composing `X^*[A,B]^T` =
+`X<A^T,B^T>`, one impl) and `*(A,B)^T` = `*(A,B,...,T)` (append).
+
+Nested splats are idempotent (`*(*[a,b])` = `[a,b]`), empty is a no-op
+(`[a, *()]` = `[a]`); `*const`/`*mut` pointers are unaffected
+(disambiguated by the following token).
 
 ## 4. Generic Declarations
 
@@ -283,6 +341,11 @@ trait HasType { type Item; }
 ```
 
 ### `#fill(methods){body}` — one body for many methods
+
+> **Prefer `#name{body}` for a single item**: when filling exactly one
+> method/const/type, write `#name{body}` (e.g. `#N{5}`) instead of
+> `#fill(name){body}` — shorter and self-documenting. `#fill` is for
+> **many** items (`#fill(a, b)`, `#fill(@all_required_methods)`).
 
 > Directive arguments accept `(args)` or `[args]` — equivalent (e.g.
 > `#fill[@all_methods]{0}`); square brackets are clearer when the arguments
@@ -1028,6 +1091,6 @@ return path show the macro invocation line), and never panic:
 | `@a=@a` (circular reference) | `batch-impl: constant '@a' references unknown '@a' (undefined or defined later; ...)` |
 | `#fill()` (empty arguments) | `batch-impl: the directive's argument list cannot be empty` |
 | missing target after `-` | `batch-impl: directive arguments cannot be empty` |
-| bare `where` without a code block | `batch-impl: \`where\` predicates are missing a code block {...}` |
+| bare `where` without a code block | `batch-impl: 'where' predicates are missing a code block {...}` |
 | inherited predicate referring to an undeclared parameter | `batch-impl: trait argument 'X' maps to parameter 'T' (bound 'IntoIterator'); automatic inheritance requires the same name; rename to 'T' or write the bound manually` |
 | `#blanket` illegal wrapper | `batch-impl: #blanket ...` (`*const`/`*mut`, `self`, empty elements, illegal `:N`, and non-forwardable pattern parameters all error) |

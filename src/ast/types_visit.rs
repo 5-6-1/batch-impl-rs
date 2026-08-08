@@ -2,14 +2,66 @@
 //! home ([`Ty::map_children`]). Split from `types.rs` so node definitions and
 //! traversal stay under the per-file budget.
 
+use crate::apply::check_expand_limit;
 use crate::ast::types::{
     Ty, TyArray, TyFn, TyGeneric, TyGroup, TyKind, TyPrimitiveArray, TyTuple,
-    TyWithAttr, TyWithCode, TyWithPrefix, TyWithTrait, TyWithType, TyWithWhere,
+    TyTypeParam, TyWithAttr, TyWithCode, TyWithPrefix, TyWithTrait, TyWithType,
+    TyWithWhere,
 };
 
 pub(crate) enum Expand {
     Leaf(Ty),
     Many(Vec<Ty>),
+}
+
+/// Splat consumption: flatten a splat element (or any container / generator)
+/// into its element list, hoisting fresh declarations out. Returns the flat
+/// elements plus the merged declaration (if any generator was flattened — the
+/// caller wraps the enclosing container in `WithType(decl, ...)`).
+///
+/// Shared by the parse layer (container element collection) and the apply
+/// layer (right-splat argument appending / left-splat distribution).
+pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
+    match ty.kind {
+        TyKind::Splat(s) => fold_splat_elems(s.elems().to_vec()),
+        TyKind::Array(a) => fold_splat_elems(a.0),
+        TyKind::Tuple(t) => fold_splat_elems(t.0),
+        TyKind::Group(g) => splat_expand(*g.0),
+        // Generator: flatten the inner container, hoist the declaration out.
+        TyKind::WithType(wt) => {
+            let TyWithType(params, inner) = wt;
+            let (elems, _) = splat_expand(*inner);
+            (elems, Some(params))
+        }
+        // Anything else (primitive / generic / nested containers that belong
+        // to the element itself, e.g. `Vec<()^2>`) stays a single element.
+        other => (vec![Ty { span: ty.span, kind: other }], None),
+    }
+}
+
+fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
+    let mut flat = vec![];
+    let mut decl = None;
+    for e in elems {
+        let (mut es, d) = splat_expand(e);
+        flat.append(&mut es);
+        decl = merge_decls(decl, d);
+    }
+    (flat, decl)
+}
+
+/// Merge two optional fresh declarations (`TyTypeParam::extend` semantics).
+pub(crate) fn merge_decls(
+    a: Option<TyTypeParam>, b: Option<TyTypeParam>,
+) -> Option<TyTypeParam> {
+    match (a, b) {
+        (None, b) => b,
+        (a, None) => a,
+        (Some(mut a), Some(b)) => {
+            a.extend(b);
+            Some(a)
+        }
+    }
 }
 
 /// Shared "recurse inner and rewrap" logic for wrapper variants: `make` rebuilds
@@ -95,7 +147,7 @@ impl Ty {
             .to_ty()
             .with_span(span),
             // No children: keep as-is.
-            other => Ty::new(span, other),
+            other => Ty { span, kind: other },
         }
     }
 
@@ -110,17 +162,74 @@ impl Ty {
         let Ty { span, kind } = self;
         match kind {
             TyKind::Array(ty) => Expand::Many(ty.0),
+            // Top-level splat: consume (flatten containers/generators) and
+            // distribute like a list. Fresh declarations from flattened
+            // generators wrap each distributed element.
+            TyKind::Splat(s) => {
+                let (elems, decl) = splat_expand(s.to_ty().with_span(span));
+                Expand::Many(
+                    elems
+                        .into_iter()
+                        .map(|e| match &decl {
+                            Some(d) => TyWithType(d.clone(), e.into())
+                                .to_ty()
+                                .with_span(span),
+                            None => e,
+                        })
+                        .collect(),
+                )
+            }
+            TyKind::Tuple(t) => {
+                // List distribution: an array element (a dispatch list) makes
+                // the tuple expand by Cartesian product — `(X, [A, B])` →
+                // `(X, A)`, `(X, B)`. Combos that still contain arrays
+                // re-expand through the driver work queue (recursive
+                // distribution, which also covers pow_cartesian outputs
+                // nested in outer tuples). Pure tuples stay a Leaf.
+                if t.0.iter().any(|e| matches!(e.kind, TyKind::Array(_))) {
+                    let mut combos: Vec<Vec<Ty>> = vec![vec![]];
+                    for e in &t.0 {
+                        let candidates = match &e.kind {
+                            TyKind::Array(a) => a.0.clone(),
+                            _ => vec![e.clone()],
+                        };
+                        let mut next =
+                            Vec::with_capacity(combos.len() * candidates.len());
+                        for ex in &combos {
+                            for c in &candidates {
+                                let mut combo = ex.clone();
+                                combo.push(c.clone());
+                                next.push(combo);
+                            }
+                        }
+                        combos = next;
+                    }
+                    if let Some(e) =
+                        check_expand_limit("tuple list distribution", combos.len())
+                    {
+                        return e.expand();
+                    }
+                    Expand::Many(
+                        combos
+                            .into_iter()
+                            .map(|combo| TyTuple(combo).to_ty().with_span(span))
+                            .collect(),
+                    )
+                } else {
+                    Expand::Leaf(t.to_ty().with_span(span))
+                }
+            }
             TyKind::WithCode(wc) => {
                 let TyWithCode(inner, payload) = wc;
                 expand_wrapped(
-                    move |i| Ty::new(span, TyWithCode(i, payload.clone()).into()),
+                    move |i| TyWithCode(i, payload.clone()).to_ty().with_span(span),
                     inner,
                 )
             }
             TyKind::WithWhere(ww) => {
                 let TyWithWhere(inner, payload) = ww;
                 expand_wrapped(
-                    move |i| Ty::new(span, TyWithWhere(i, payload.clone()).into()),
+                    move |i| TyWithWhere(i, payload.clone()).to_ty().with_span(span),
                     inner,
                 )
             }
@@ -153,7 +262,7 @@ impl Ty {
                 )
             }
             TyKind::Group(g) => (*g.0).expand(),
-            other => Expand::Leaf(Ty::new(span, other)),
+            other => Expand::Leaf(Ty { span, kind: other }),
         }
     }
 }
