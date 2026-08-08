@@ -32,16 +32,16 @@
   (`*(*[a,b])` = `[a,b]`), empty no-op (`[a, *()]` = `[a]`);
 - **Source-driven left semantics**: `TySplat` is an enum mirroring its parse
   delimiter — `TySplat::Array` distributes `^T` (`*[A^T,B^T]` — set, mirrors
-  `TyArray`), `TySplat::Tuple` appends (`*(A,B,...,T)` — list, mirrors
-  `TyTuple`); `*()^N` (empty splat) keeps its splat shape — `T^*()^2` =
-  `<A,B>T<A,B>` (a positional fresh pair via a carrier; a bare `*()^N` as a
+  `TyArray`, re-wrapped so right-splat chains can flatten into a container),
+  `TySplat::Tuple` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`,
+  re-wrapped); **`^N` pow on a splat yields final shapes that leave the
+  splat**: `*(A,B)^2` = `*[(A,A),(A,B),(B,A),(B,B)]` (Cartesian combos
+  dispatch as-is — re-wrapping would re-flatten the tuples into duplicates,
+  E0119); `*()^N` (empty splat) re-wraps its fresh tuple into the splat so a
+  carrier appends the params (`T^*()^2` = `<A,B>T<A,B>`; a bare `*()^N` as a
   lone target is rejected by rustc — its multiple impls share one generic
-  declaration while each uses only one param, E0207); **pow on a non-empty
-  splat (`*(A,B)^N`) is rejected with a dedicated diagnostic** — splat
-  flattening would duplicate the Cartesian tuple combinations (E0119);
-  use `(A,B)^N` directly for a Cartesian product, or `T^*()^N` for fresh
-  generics; a bare `*()` as a lone target yields **no impls** (empty list,
-  no elements); the left-operand
+  declaration while each uses only one param, E0207); a bare `*()` as a lone
+  target yields **no impls** (empty list, no elements); the left-operand
   `apply_help` **delegates to `TyArray`/`TyTuple::apply_help`** and re-wraps
   the result into the matching splat variant (a splat stays a splat until
   consumed) — no duplicated distribution/append logic. Right operands and
