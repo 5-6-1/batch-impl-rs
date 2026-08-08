@@ -29,6 +29,8 @@ use crate::entry::driver::parse_batch_trait_entry;
 
 pub(crate) mod driver;
 pub(crate) mod path_prefix;
+mod preprocess_test;
+pub(crate) use preprocess_test::preprocess_test;
 
 /// Common pipeline: DSL parse/expand → generate impl → restore angle brackets.
 ///
