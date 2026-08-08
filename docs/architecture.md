@@ -35,13 +35,17 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   └── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
   ├── ast/                  AST layer
   │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 18 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
+  │   ├── fresh.rs          fresh-name protocol (`_Param_*_BatchGen_` constants + generate/construct/parse trio)
   │   └── types_render.rs   AST rendering: ToTokens impl for Ty + the params_to_tokens family
   ├── apply/                application layer
   │   ├── mod.rs            Apply trait: the default `apply` does right-operand structural dispatch (Array/Group/WithCode/WithWhere/WithType/Range/Error handled generically; anything else falls through to `apply_help`) + impl Apply for TyKind forwards `apply_help` per variant; Ty::apply takes the span at a single point
   │   └── apply_tuple.rs    tuple and container operators + tuple expansion (^N / Cartesian product / ranges / fresh generics)
   ├── codegen/              code generation
-  │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl (incl. where-predicate attachment and reference checks)
-  │   └── impl_parts.rs     the ImplParts struct + traversal of the 18 variants (extract / hoist)
+  │   ├── mod.rs            extract_impl_parts → hoist_type_params → generate_impl (the impl-block assembly entry)
+  │   ├── impl_parts.rs     the ImplParts struct + traversal of the 18 variants (extract / hoist)
+  │   ├── top_level.rs      top-level macro injection (`{! ...}` — spec-body merge + macro-input rewrite)
+  │   ├── fresh.rs          fresh-name sweeping (`_Param_{g}_{i}_` → `_Param_0..N_` per impl)
+  │   └── where_at.rs       `@` where-predicate resolution (`@N`/`@g_i`/`@all_fresh`/`@N..M`)
   └── testing/              test infrastructure (cfg(test))
       └── fuzz.rs           proptest: random tokens fed to the real macro entry (expand_attr_macro), promising never to panic
 ```

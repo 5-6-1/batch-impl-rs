@@ -188,20 +188,6 @@ fn parse_operand(
 
 /// Parses an `@`-reference literal into its fresh name: `@N` → the swept
 /// name `_Param_{N}_BatchGen_` (pure construction); `@g_i` (a literal with an
-/// underscore, e.g. `0_1`) → the grouped name `_Param_{g}_{i}_BatchGen_`,
-/// which the codegen sweeper renumbers along with the generated names.
-fn at_ref_name(lit: &str) -> Option<String> {
-    if let Ok(n) = lit.parse::<usize>() {
-        return Some(format!("_Param_{}_BatchGen_", n));
-    }
-    if let Some((g, i)) = lit.split_once('_')
-        && let (Ok(g), Ok(i)) = (g.parse::<usize>(), i.parse::<usize>())
-    {
-        return Some(format!("_Param_{}_{}_BatchGen_", g, i));
-    }
-    None
-}
-
 /// Resolves `@N` / `@g_i` position references inside a token chunk that is
 /// **not** parsed as a type (angle-group contents go through flat token
 /// splitting in `parse_type_params`, so `Box<@0>` would otherwise keep the

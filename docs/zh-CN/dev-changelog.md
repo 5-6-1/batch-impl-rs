@@ -4,6 +4,19 @@
 
 ## 0.6.8 (2026-08-08)
 
+### 核心重组：codegen 拆分 + fresh 名协议统一
+
+- `codegen/` 从 672 行单体拆为四个文件，全部在单文件预算内：`mod.rs`
+  （generate_impl + 组装，242 行）、`top_level.rs`（顶层宏注入——spec
+  主体合并 + 宏输入重写）、`fresh.rs`（fresh 名清扫）、`where_at.rs`
+  （`@` where 谓词解析）；
+- **fresh 名协议统一**到 `ast/fresh.rs`：保留模式 `_Param_*_BatchGen_`
+  （前缀/后缀常量）+ 生成/构造/解析三函数——`fresh_param`（apply 层铸造
+  `_Param_{g}_{i}_`）、`at_ref_name`（parse 层把 `@N`/`@g_i` 转为名字）、
+  `parse_grouped_fresh`（codegen 层识别分组形式）——此前散落在
+  `ast/types.rs`、`parse/mod.rs`、`codegen/mod.rs` 三处；三层现在共享
+  单一协议源，不可能漂移。
+
 ## 0.6.7 (2026-08-08)
 
 ### fresh 系统重构：分组生成 + 每 impl 清扫；`@N` 纯构造

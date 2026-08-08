@@ -1,7 +1,6 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{ToTokens, quote};
+use quote::ToTokens;
 use std::cell::Cell;
-use syn::Ident;
 
 #[derive(Clone, Debug)]
 /// `[...,]`
@@ -250,14 +249,4 @@ pub(crate) fn take_group() -> usize {
         c.set(g + 1);
         g
     })
-}
-
-/// Generates a fresh generic param name `_Param_{g}_{i}_BatchGen_` (group g,
-/// position i within the generator) that never collides with user code
-/// (`_Param_*_BatchGen_` is a reserved pattern). The codegen sweeper
-/// renumbers these to `_Param_0..N_BatchGen_` per impl before rendering.
-pub(crate) fn fresh_param(g: usize, i: usize) -> TokenStream {
-    let name = format!("_Param_{}_{}_BatchGen_", g, i);
-    let ident = Ident::new(&name, proc_macro2::Span::call_site());
-    quote!(#ident)
 }

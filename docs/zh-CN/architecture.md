@@ -33,6 +33,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
   ├── ast/                  AST 层
   │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 18 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
+  │   ├── fresh.rs          fresh 名协议（`_Param_*_BatchGen_` 常量 + 生成/构造/解析三函数）
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
   │   ├── mod.rs            Apply trait（apply_help 带 span 参数）+ Ty::apply 单点取 span 委托 TyKind 分发（右操作数"结构"优先）

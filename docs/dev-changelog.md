@@ -7,6 +7,22 @@
 
 ## 0.6.8 (2026-08-08)
 
+### Core restructure: codegen split + fresh-name protocol unification
+
+- `codegen/` split from a 672-line monolith into four files, all under the
+  per-file budget: `mod.rs` (generate_impl + assembly, 242 lines),
+  `top_level.rs` (top-level macro injection — spec-body merge + macro-input
+  rewrite), `fresh.rs` (fresh-name sweeping), `where_at.rs` (`@` where
+  predicate resolution);
+- **Fresh-name protocol unified** in `ast/fresh.rs`: the reserved
+  `_Param_*_BatchGen_` pattern (prefix/suffix constants) plus the
+  generate/construct/parse trio — `fresh_param` (apply layer mints
+  `_Param_{g}_{i}_`), `at_ref_name` (parse layer turns `@N`/`@g_i` into
+  names), `parse_grouped_fresh` (codegen layer identifies the grouped form)
+  — previously scattered across `ast/types.rs`, `parse/mod.rs`, and
+  `codegen/mod.rs`; the three layers now share one protocol source and
+  cannot drift apart.
+
 ## 0.6.7 (2026-08-08)
 
 ### Fresh-system rework: grouped generation + per-impl sweep; `@N` pure construction
