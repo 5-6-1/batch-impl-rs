@@ -233,23 +233,31 @@ pub(crate) fn count_leaves(ty: &Ty) -> usize {
 }
 
 thread_local! {
-    static FRESH_COUNTER: Cell<usize> = 0.into();
+    static GROUP_COUNTER: Cell<usize> = 0.into();
 }
 
-/// Resets the fresh param counter (called once per macro entry so generated
-/// generic names do not collide across macros)
+/// Resets the fresh-generator group counter (per spec / `batch_trait!`
+/// segment, so group ids are DSL-local; the codegen sweeper renumbers every
+/// impl's fresh params to `_Param_0..N_BatchGen_` afterwards).
 pub(crate) fn reset_fresh_counter() {
-    FRESH_COUNTER.set(0);
+    GROUP_COUNTER.set(0);
 }
 
-/// Generates a fresh generic param name that never collides with user code
-/// (`_Param_0_BatchGen_`, `_Param_1_BatchGen_`, ...)
-pub(crate) fn fresh_param() -> TokenStream {
-    FRESH_COUNTER.with(|c| {
-        let n = c.get();
-        c.set(n + 1);
-        let name = format!("_Param_{}_BatchGen_", n);
-        let ident = Ident::new(&name, proc_macro2::Span::call_site());
-        quote!(#ident)
+/// Takes the next fresh-generator group id.
+pub(crate) fn take_group() -> usize {
+    GROUP_COUNTER.with(|c| {
+        let g = c.get();
+        c.set(g + 1);
+        g
     })
+}
+
+/// Generates a fresh generic param name `_Param_{g}_{i}_BatchGen_` (group g,
+/// position i within the generator) that never collides with user code
+/// (`_Param_*_BatchGen_` is a reserved pattern). The codegen sweeper
+/// renumbers these to `_Param_0..N_BatchGen_` per impl before rendering.
+pub(crate) fn fresh_param(g: usize, i: usize) -> TokenStream {
+    let name = format!("_Param_{}_{}_BatchGen_", g, i);
+    let ident = Ident::new(&name, proc_macro2::Span::call_site());
+    quote!(#ident)
 }

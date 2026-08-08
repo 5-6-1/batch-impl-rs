@@ -1,8 +1,15 @@
-# batch-impl
+﻿# batch-impl
 
-**v0.6.6**——0.6.2/0.6.3/0.6.4/0.6.5 已发布；0.6.6：`(T)^N` 分组剥离语义（= `T^N`，const 泛型实参如 `W<2>`——**破坏性变更**：元组生成须 `(T,)^N`）、数字渲染不带 `usize` 后缀、输入校验护栏（consts 嵌套深度 / `#blanket` `:N` 上限 / `@all_*` 保留名 / 空 `:` 深度）、`#delegate` 参数模式转发（非 `_` 模式保留在签名中并在调用处重建）、六个文档占位宏（`batch_impl_fill!` 等——DSL 的可 hover rustdoc 入口，见 `src/lib.rs` 底部）。
+**v0.6.7**（2026-08-06）——0.6.2–0.6.6 已发布；0.6.7：fresh 逐 impl 编号（`@N` 任意位置含目标类型）、顶层开放扩展（`{! ...}`）、`@all_fresh` / `@N..M` 批量 where 引用、错误聚合。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
+
+核心批量 DSL 之下还有两层更深的架构：**宏元层**（`@` 常量 / 选择器 /
+位置引用——一个用于组合生成泛型的小型元语言）与**开放指令系统**
+（`#fill` / `#delegate` / `#blanket` + 用户 `#name` 宏，含顶层宏注入
+`{! ...}`）。可以把它看作"带可插拔 codegen 协议的批量 impl 生成器"——
+"一行"故事覆盖常见场景，下面的层次覆盖组合场景（分发矩阵、blanket
+委托、自定义 codegen）。
 
 ```rust
 use batch_impl::batch_impl;
@@ -67,7 +74,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.6.6"
+batch-impl = "0.6.7"
 ```
 
 需要 Rust 2024 edition 及以上。
@@ -108,10 +115,10 @@ trait Describe2 { fn describe(&self) -> String; }
 | 关联类型绑定                         | `Iter<Item=T>` → `type Item = T;`           | 关联类型    |
 | 指令系统 `#name`/`#fill`/`#delegate` | 签名自动抄、body 批量填、委托调用           | 指令系统    |
 | 覆盖式委托 `#blanket`                | 包装矩阵一行生成委托 impl（任意包装 + `:N`、泛型 trait、assoc 投影、包装 where 谓词、静态方法经 `t` 转发） | 指令系统    |
-| 开放扩展                             | 不认识的 `#name(args){body}` 交给你的同名宏 | 指令系统    |
+| 开放扩展                             | 不认识的 `#name(args){body}` 变为顶层宏调用：你的同名宏收到 `{spec}(args){body}trait` 并生成自己的 impl | 指令系统    |
 | `@` 常量                             | 内置族 `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` 系/`@Cow` + batch_trait! 自定义（懒展开、链式引用） | 常量系统    |
 | 泛型参数族                           | `@all_type_params` / `@all_const_params` / `@all_lifetimes`——泛型声明照抄 trait 形参（bound 走同名继承） | 常量系统    |
-| 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`）归宏元层 | 常量系统    |
+| 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`/`@g_i`/`@all_fresh`/`@N..M`）归宏元层 | 常量系统    |
 | `where{...}`                         | 约束容器统一（`<>` 只留名字），blanket 约束并列合并 | where 子句  |
 | 元组生成                             | `()^3`、`(T,)^N`、笛卡尔积、范围            | 元组生成    |
 | fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持                          | 修饰符      |

@@ -1,0 +1,7 @@
+error: batch-impl: `@2_0` in a where predicate — this impl has no group 2 position 0 (grouped fresh names are `_Param_{g}_{i}_BatchGen_`; use `@N` for the impl's document-order fresh)
+ --> tests/ui/at_group_out_of_range.rs:5:1
+  |
+5 | #[batch_impl(()^3-()^3 where{@2_0: Clone})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

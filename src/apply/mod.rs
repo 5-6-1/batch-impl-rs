@@ -117,12 +117,29 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             TyKind::WithType(wt) if self.is_type_param() => {
                 self.apply_help(Ty::new(o.span, TyKind::WithType(wt)), span)
             }
-            TyKind::WithType(wt) => TyWithType(
-                wt.0,
-                Ty::new(span, self.clone().into()).apply(*wt.1).into(),
-            )
-            .to_ty()
-            .with_span(span),
+            // When both operands carry declarations (fresh-fresh chains like
+            // `()^3-()^3`), merge params left-first: declaration order then
+            // matches the target type's document order (`<A,B,C,D,E,F>` for
+            // `(A,B,C,(D,E,F))`), so hoisting collects `_Param_0..5` in order.
+            // The inner type takes only the left's inner part (`left_wt.1`
+            // apply right's inner) — the left's declaration layer is consumed
+            // by the merge, otherwise hoisting would collect it twice (E0403).
+            TyKind::WithType(wt) => match self.clone().into() {
+                TyKind::WithType(left_wt) => {
+                    let mut params = left_wt.0.params;
+                    params.extend(wt.0.params);
+                    let mut bindings = left_wt.0.bindings;
+                    bindings.extend(wt.0.bindings);
+                    let inner = (*left_wt.1).apply(*wt.1);
+                    TyWithType(TyTypeParam { params, bindings }, inner.into())
+                        .to_ty()
+                        .with_span(span)
+                }
+                _ => {
+                    let inner = Ty::new(span, self.into()).apply(*wt.1);
+                    TyWithType(wt.0, inner.into()).to_ty().with_span(span)
+                }
+            },
             TyKind::Error(e) => Ty::new(span, TyKind::Error(e)),
             TyKind::Range(TyRange { start, end, inclusive }) => {
                 map_range(start, end, inclusive, span, |n| {

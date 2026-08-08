@@ -10,7 +10,7 @@ use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
-use crate::ast::fresh_param;
+use crate::ast::{fresh_param, take_group};
 use crate::preprocess::{
     angle_collect, build_from_item, collect_call_args, get_trait_item,
     parse_blanket_wrappers, parse_names_from_tokens,
@@ -62,8 +62,10 @@ pub(crate) fn expand_blanket(
         trait_def,
     )?;
     // Fresh generic: avoids clashing with other names (same mechanism as the
-    // `()^N` tuple generic)
-    let t = fresh_param();
+    // `()^N` tuple generic); group 0 position 0 — the blanket is the spec's
+    // only fresh generator, and the codegen sweeper renumbers it to
+    // `_Param_0_BatchGen_`.
+    let t = fresh_param(take_group(), 0);
 
     // Generic trait copy: param order = trait params first, fresh T last
     // (`T: Foo<X>` references X; reversed order is E0401).
@@ -187,13 +189,14 @@ pub(crate) fn expand_blanket(
             }
         }
         let wrapper_ty = &wrapper.ty;
-        // `@0` in the wrapper's main part marks the target position: replace
-        // it with the fresh generic and emit the wrapper as-is (so `T` can sit
-        // anywhere, e.g. `(u32, @0, u8)`). Without `@0` the wrapper is applied
-        // as `wrapper^T` (target appended last) — the existing behavior.
+        // `@0` in the wrapper's main part marks the target position: emit the
+        // wrapper as-is and let the parse layer resolve `@0` into the fresh
+        // generic name (so `T` can sit anywhere, e.g. `(u32, @0, u8)`).
+        // Without `@0` the wrapper is applied as `wrapper^T` (target appended
+        // last) — the existing behavior.
         let wrapper_vec: Vec<_> = wrapper_ty.clone().into_iter().collect();
         let target: TokenStream = if has_at0(&wrapper_vec) {
-            replace_at0(&wrapper_vec, &t).into_iter().collect()
+            quote!(#wrapper_ty)
         } else {
             quote!(#wrapper_ty ^ #t)
         };
@@ -205,7 +208,8 @@ pub(crate) fn expand_blanket(
 }
 
 /// Whether a wrapper's main part contains the `@0` target marker (`@` +
-/// literal `0`, possibly nested inside groups).
+/// literal `0`, possibly nested inside groups) — the position decision only;
+/// the marker itself is resolved by the parse layer into the fresh name.
 fn has_at0(tokens: &[TokenTree]) -> bool {
     let v: Vec<_> = tokens.to_vec();
     v.iter().enumerate().any(|(i, tt)| match tt {
@@ -217,42 +221,6 @@ fn has_at0(tokens: &[TokenTree]) -> bool {
         }
         _ => false,
     })
-}
-
-/// Replaces every `@0` in the wrapper's main part with the blanket's fresh
-/// target generic name (recursing into groups).
-fn replace_at0(tokens: &[TokenTree], t: &TokenStream) -> Vec<TokenTree> {
-    let mut out = Vec::with_capacity(tokens.len());
-    let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
-            TokenTree::Punct(p)
-                if p.as_char() == '@'
-                    && matches!(
-                        tokens.get(i + 1),
-                        Some(TokenTree::Literal(l)) if l.to_string() == "0"
-                    ) =>
-            {
-                out.extend(t.clone());
-                i += 2;
-            }
-            TokenTree::Group(g) => {
-                let inner = g.stream().into_iter().collect::<Vec<_>>();
-                let mut new_g = Group::new(
-                    g.delimiter(),
-                    replace_at0(&inner, t).into_iter().collect(),
-                );
-                new_g.set_span(g.span());
-                out.push(new_g.into());
-                i += 1;
-            }
-            _ => {
-                out.push(tokens[i].clone());
-                i += 1;
-            }
-        }
-    }
-    out
 }
 
 /// `Trait<X, Y>` with grouped angle args — blanket runs after `angle_collect`

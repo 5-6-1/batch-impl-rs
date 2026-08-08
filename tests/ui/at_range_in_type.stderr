@@ -1,0 +1,5 @@
+error: expected one of `>`, a const expression, lifetime, or type, found `@`
+ --> tests/ui/at_range_in_type.rs:5:18
+  |
+5 | #[batch_impl(Vec<@0..=2>)]
+  |                  ^ expected one of `>`, a const expression, lifetime, or type

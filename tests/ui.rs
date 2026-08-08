@@ -65,6 +65,13 @@ fn ui() {
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
     // at the definition by `check_value_refs`
     t.compile_fail("tests/ui/const_bare_endpoint.rs");
+    t.compile_fail("tests/ui/at_group_out_of_range.rs");
+    t.compile_fail("tests/ui/top_level_block_not_last.rs");
+    t.compile_fail("tests/ui/top_level_manual_not_last.rs");
+    t.compile_fail("tests/ui/at_range_in_type.rs");
+    t.compile_fail("tests/ui/error_aggregation.rs");
+    t.compile_fail("tests/ui/top_level_without_attach.rs");
+    t.compile_fail("tests/ui/error_aggregation_codegen.rs");
     t.compile_fail("tests/ui/group_angle_bare.rs");
     t.compile_fail("tests/ui/const_reserved_all.rs");
     t.compile_fail("tests/ui/blanket_bad_empty_depth.rs");

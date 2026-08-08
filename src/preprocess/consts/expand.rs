@@ -1,14 +1,14 @@
 //! Per-`@` recognition and expansion ([`try_expand_at`]) plus reference
 //! visibility validation inside constant values ([`check_value_refs`]).
 //!
-//! Split from `consts` so the built-in constant tables / entry points
-//! (`consts.rs`) and the per-token expansion logic stay under the per-file
-//! line budget. `consts.rs` (entry + tables) → `consts_expand` (single-`@`
+//! Split from `table` so the built-in constant tables / entry points
+//! (`table.rs`) and the per-token expansion logic stay under the per-file
+//! line budget. `table.rs` (entry + tables) → `expand.rs` (single-`@`
 //! logic) is the only dependency direction.
 
 use proc_macro2::{TokenStream, TokenTree};
 
-use crate::preprocess::consts_ctx::ConstCtx;
+use crate::preprocess::consts::ctx::ConstCtx;
 use crate::preprocess::{
     builtin_named, builtin_range, render_list, split_range_endpoint,
 };
@@ -170,19 +170,27 @@ pub(crate) fn try_expand_at(
             if star { 3 } else { 2 },
         )
             .into()),
-        None => Err(compile_err_at!(
-            tokens[0].span(),
-            "batch-impl: unknown @ constant `@{}`; built-ins: `@u*` `@i*` `@f*` \
+        None => {
+            // `@all_fresh` is a where-predicate selector resolved by codegen
+            // (each fresh generic gets the predicate tail) — keep it as-is
+            // here; the constant stage must not claim it.
+            if name_str == "all_fresh" {
+                return Ok(None);
+            }
+            Err(compile_err_at!(
+                tokens[0].span(),
+                "batch-impl: unknown @ constant `@{}`; built-ins: `@u*` `@i*` `@f*` \
              `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` `@f32..f64`\
              {}",
-            lookup,
-            if ctx.user_table().is_some() {
-                "; batch_trait! user constants must be defined before the \
+                lookup,
+                if ctx.user_table().is_some() {
+                    "; batch_trait! user constants must be defined before the \
                  reference (defining them later has no effect)"
-            } else {
-                ""
-            }
-        )),
+                } else {
+                    ""
+                }
+            ))
+        }
     }
 }
 

@@ -1,8 +1,17 @@
-# batch-impl
+﻿# batch-impl
 
-**v0.6.6** (2026-08-06) — 0.6.2–0.6.5 released; 0.6.6: `(T)^N` group-strip semantics (= `T^N`, a const-generic arg like `W<2>` — **breaking**: tuple generation now needs `(T,)^N`), unsuffixed number rendering, input-validation guards (consts nesting depth, `#blanket` `:N` cap, `@all_*` reserved names, empty `:` depth), `#delegate` parameter-pattern forwarding (non-`_` patterns kept in the signature and rebuilt in the call), and six doc placeholder macros (`batch_impl_fill!` etc. — hoverable rustdoc entries for the DSL, see the bottom of `src/lib.rs`).
+**v0.6.7** (2026-08-06) — 0.6.2–0.6.6 released; 0.6.7: per-impl fresh numbering (`@N` anywhere, incl. target types), top-level open extension (`{! ...}`), `@all_fresh` / `@N..M` batch where-references, error aggregation.
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
+
+Beyond the core batch-impl DSL, the crate carries two deeper layers: a
+**macro-meta layer** (`@` constants / selectors / positional references — a
+small meta-language for composing generated generics) and an **open directive
+system** (`#fill` / `#delegate` / `#blanket` + user `#name` macros, including
+top-level macro injection `{! ...}`). Think of it as a batch impl generator
+with a pluggable codegen protocol — the "one line" story covers the common
+case; the layers below it cover the composing cases (dispatch matrices,
+blanket delegation, custom codegen).
 
 ```rust
 use batch_impl::batch_impl;
@@ -60,7 +69,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.6.6"
+batch-impl = "0.6.7"
 ```
 
 Requires Rust 2024 edition or newer.
@@ -102,9 +111,9 @@ trait Describe2 { fn describe(&self) -> String; }
 | Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | Associated types |
 | Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | Directive system |
 | Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | Directive system |
-| Open extension                                   | Unknown `#name(args){body}` is handed to your macro with the same name | Directive system |
+| Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | Directive system |
 | `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` customization (lazy expansion, chained references) | Constant system |
-| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`) belong to the macro-meta layer | Constant system |
+| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..M`) belong to the macro-meta layer | Constant system |
 | `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | where clauses |
 | Tuple generation                                 | `()^3`, `(T,)^N`, Cartesian product, ranges  | Tuple generation |
 | fn types / unsafe / pointers / attributes        | Full support for type-level modifiers        | Modifiers |

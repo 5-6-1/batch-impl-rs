@@ -1,0 +1,7 @@
+error: batch-impl: a top-level `{! ...}` block needs an attached type (the spec body is prepended to the macro input)
+ --> tests/ui/top_level_without_attach.rs:5:1
+  |
+5 | #[batch_impl({! some_macro!{}})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

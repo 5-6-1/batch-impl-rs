@@ -16,6 +16,7 @@ pub(crate) mod preprocess;
 #[cfg(test)]
 mod testing;
 use proc_macro2::{TokenStream, TokenTree};
+use quote::quote;
 use syn::{ItemTrait, parse_macro_input};
 
 mod analyze;
@@ -138,15 +139,18 @@ pub fn batch_trait(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     expand_batch_trait(input).unwrap_or_else(Into::into)
 }
 
-/// Test-only open-extension macro (function-like): `name!{(method name list){body} trait T {...}}`.
+/// Test-only open-extension macro (function-like): `name!{ {spec}(method name list){body} trait T {...} }`.
 ///
-/// Parses the method name list, body, and trait definition from the macro input, generating
-/// `fn signature { body }` per method (reusing the trait signature) — equivalent to handing
-/// the `#fill` implementation to the user.
+/// Parses the spec body (first Brace group — the target type), the method name list,
+/// the body, and the trait definition from the macro input. In the **top-level form**
+/// (4 segments) it emits a full `impl Trait for {spec}`; in the legacy in-impl form
+/// (3 segments, no spec group) it emits `fn signature { body }` per method (reusing
+/// the trait signature) — equivalent to handing the `#fill` implementation to the user.
 ///
 /// Used to verify open instruction extension: `#name(args){body}` expands to
-/// `{name!{(args){body} trait ...}}`, with the macro call landing in the impl body and being
-/// expanded by the user macro into the needed fn definitions based on the trait
+/// `{ ! name!{(args){body} trait ...} }`, the `!` marking top-level emission —
+/// codegen prepends the spec body and emits the call at top level, where the user
+/// macro generates arbitrary items (typically its own impl)
 /// (see section 28 of `tests/dsl.rs`).
 ///
 /// Design point: this must be a **function-like macro call** `name!{...}`, not an
@@ -163,8 +167,24 @@ pub fn batch_preprocess_test(
         Ok(v) => v,
         Err(e) => return e.into(),
     };
-    // Shape: `(add, inc) {*self+1} trait AddInc {...}`
-    let Some(TokenTree::Group(names_group)) = tokens.first() else {
+    // Shape: `{spec}(method name list){body} trait ...` (top-level form —
+    // the first Brace group is the spec body; the macro emits a full impl
+    // for it) or the legacy `(method name list){body} trait ...` (in-impl
+    // form — emits associated fn definitions for the enclosing impl).
+    let spec = match tokens.first() {
+        Some(TokenTree::Group(g))
+            if g.delimiter() == delimiter![{}]
+                && matches!(
+                    tokens.get(1),
+                    Some(TokenTree::Group(p)) if p.delimiter() == delimiter![()]
+                ) =>
+        {
+            Some(g.stream())
+        }
+        _ => None,
+    };
+    let idx = if spec.is_some() { 1 } else { 0 };
+    let Some(TokenTree::Group(names_group)) = tokens.get(idx) else {
         return compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
             tokens
@@ -184,7 +204,7 @@ pub fn batch_preprocess_test(
         )
         .into();
     }
-    let Some(TokenTree::Group(body_group)) = tokens.get(1) else {
+    let Some(TokenTree::Group(body_group)) = tokens.get(idx + 1) else {
         return compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
             tokens
@@ -204,7 +224,7 @@ pub fn batch_preprocess_test(
         )
         .into();
     }
-    let trait_ts = tokens[2..].iter().cloned().collect();
+    let trait_ts = tokens[idx + 2..].iter().cloned().collect();
     let trait_item = match syn::parse2(trait_ts) {
         Ok(t) => t,
         Err(_) => {
@@ -231,7 +251,16 @@ pub fn batch_preprocess_test(
         };
         methods.extend(build_from_item(item, &body));
     }
-    preprocess::render_angles(methods).into()
+    match spec {
+        // Top-level form: emit a full impl for the spec body (`{spec}` first
+        // segment) — the batch_impl crate emits no impl in this mode.
+        Some(spec_ts) => {
+            let ident = &trait_item.ident;
+            preprocess::render_angles(quote!(impl #ident for #spec_ts { #methods }))
+                .into()
+        }
+        None => preprocess::render_angles(methods).into(),
+    }
 }
 
 // ============================================================

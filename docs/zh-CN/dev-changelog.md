@@ -2,6 +2,98 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.6.7 (2026-08-06)
+
+### fresh 系统重构：分组生成 + 每 impl 清扫；`@N` 纯构造
+
+- **分组 fresh 生成**：fresh 参数生成为 `_Param_{g}_{i}_BatchGen_`
+  （g = spec 内的生成器序号——每 spec/段重置、DSL-local；i = 生成器内部
+  位次）。codegen **清扫器**在渲染前把每个 impl 的 fresh 参数按
+  (组次, 位次) 序重编号为 `_Param_0..N_BatchGen_`——即目标类型文档序；
+- **每 impl 独立编号修复单元漂移**：每个 impl 独立清扫，`@N` 恒指
+  *本 impl* 的第 N 个 fresh——跨 spec 与 range 生成可用
+  （`()^1..=3 where{@0: Clone}` 与 `(()^2, ()^2 where{@0: Clone})`
+  此前在后续单元报 "out of range"——计数器跨单元延续；现在每单元从 0
+  开始）。`@N` 是纯构造（`@N` → `_Param_{N}_BatchGen_`）——无需查表，
+  恒与清扫后名字匹配；
+- **组合场景**（`()^3-()^3`）：`@0` 是左元组首元素（文档序——此前是
+  声明序第一个——hoist 先声明嵌套元组——Breaking）；
+- **目标类型 `@N` 通道**：`@N` 位置引用在类型域边界消解为 fresh 名
+  （`parse_operand` + 尖括号扁平 chunk 的 `resolve_at_refs`——`Box<@0>`
+  可用）。blanket 不再自行替换包装的 `@0` 位置标记（`replace_at0` 删除；
+  `has_at0` 只保留位置决策——有 `@0` 原样发射、parse 层消解标记）；
+- **声明序 = 文档序**：apply 双方都带泛型声明时（fresh-fresh 链如
+  `()^3-()^3`）params 左先合并，hoist 按目标类型文档序收集；inner 只取
+  左的 inner 部分（否则 hoist 重复收集左声明——E0403）；
+- 标记占位方案评估（决策）：曾考虑"泛型名占位、codegen 统一生成"——
+  否决：分组名 + 每 impl 清扫即达可预测，无需标记 token 系统（其需
+  标记/`@N` 区分规则、parse 期替换、Ty 树 token 存活）；
+- **`@g_i` 分组引用启用**：`@0_1`（含下划线的 Literal）在目标类型（parse
+  层）与 where 谓词（impl 组匹配——impl 无该组时报 "no group g position i"）
+  中解析为分组名 `_Param_{g}_{i}_BatchGen_`——跨数组分发 impl 稳定（`@N`
+  在分发下文档序语义漂移）；清扫器把引用与生成名一起重编号；
+- **`@N` 稳定性承诺**：编号语义在 0.6.4 → 0.6.7 间修订过三次（泛型参数族
+  时代 → `@N` 语义修正 → 每 impl 编号 + 文档序 + 目标类型通道）。现机制
+  （每 impl 清扫为 `_Param_0..N_BatchGen_`、`@N` 纯构造）视为**最终形态**
+  ——今后任何改动都是刻意的破坏性发布。
+
+### preprocess 目录重构 + 文档整理
+
+- `preprocess/` 重组为两个子文件夹：**`directives/`**（`#` 指令系统：
+  name_list / trait_items / delegate_args / blanket / blanket_wrappers +
+  mod.rs 入口）与 **`consts/`**（`@` 常量系统：table / expand / ctx +
+  mod.rs 入口）——扁平 12 文件混杂了两个无关关注点；`preprocess/mod.rs`
+  收敛为 5 个 mod + glob re-export；内部路径更新
+  （`crate::preprocess::consts::ctx::ConstCtx` 等）；
+- tutorial：`@` 宏元层以**三个维度**（常量 / 选择器 / 位置引用）引入并加
+  组合说明；新增 `@N` vs `@g_i` 选择指引、`@N` 稳定性承诺、学习成本提示
+  （日常用 `@u*` / `@all_methods` / `@0` 即可；分组/批量/范围引用仅在
+  谓词需要指名特定 fresh 时再学）；
+- README：开头补分层定位——"带可插拔 codegen 协议的批量 impl 生成器"
+  （"一行"故事之下还有宏元层 + 开放指令系统）；
+- architecture 模块图同步新 preprocess 布局。
+- 新增 dsl 测试：at_refs_numbered_match_in_join（u8-only Marker 约束验证 @0 = 文档序第一个 fresh）与 at_refs_across_generation_units（range 长度 + 多 spec）。
+### 顶层宏注入（`{! ...}`）
+
+- **开放扩展改为顶层**：`#cmd(args){body}` 展开为 `{ ! name!{(args){body} trait_def} }`
+  ——`!` 标记顶层发射：codegen 剥离 `!`、把 spec 主体（目标类型，渲染为一个
+  Brace 组）插到宏输入开头（4 段协议 `{spec}(args){body}trait`）、顶层输出
+  宏调用——用户宏生成任意 item（通常是自己完整的 impl）；此模式下
+  batch-impl 不再生成 impl（**Breaking**：开放扩展宏必须解析 4 段并生成
+  完整 item，而非关联项）；
+- **`T {! m!{...}}` attach 形态**：同一顶层协议、用户手写宏输入；
+  `T {m!{...}}`（无 `!`）保留旧的内嵌形态（关联项——用户写完整输入含
+  trait）。每个 spec 至多一个 `{!}` 且必须是最后一个块——`{!}` 后跟
+  `{...}` 块报错（现状块序下或在 walk_top_level 的 "must be the last
+  block" 报错、或经顶层路径在 rustc 层报错；ui fixture
+  `top_level_block_not_last` / `top_level_manual_not_last`）；
+- **守卫**：无 attach 类型的独立 `{! ...}` 报 "needs an attached type"
+  （不再输出无效 Rust；ui fixture `top_level_without_attach`）；
+  `{! }` 后无宏调用报 "must contain a macro call"；
+  `walk_top_level` 区分"普通块内部发现 `{!}`"与"`{!}` 在更外层"，未来块序
+  变更不会误报前置块；
+- `batch_preprocess_test`（测试宏）支持双协议：4 段顶层形态生成
+  `impl Trait for {spec}`；3 段内嵌形态生成关联 fn 定义。
+
+### `@all_fresh` / `@N..M` 批量引用（where 谓词）
+
+- `@all_fresh: Bound` 展开为每个 fresh 泛型一个谓词
+  （`_Param_0_: Bound, _Param_1_: Bound, ...`）；impl 无 fresh 泛型或展开
+  超过 `MAX_EXPAND` 时报错；
+- `@N..M` / `@N..=M` 展开连续 fresh 段（`@0..=2: Clone` 约束前三个）；
+  越界与超 MAX_EXPAND 谓词报错，空范围（`@0..0`）也报错（不再静默展开为
+  空）；常量阶段放行 `@all_fresh`（where 专用选择器）；
+- 类型内的范围引用（`Vec<@0..=2>`）在 parse 层报定向错误（ui fixture
+  `at_range_in_type`）。
+
+### 错误聚合
+
+- driver 现在收集每个 spec 的错误（经 `map_children` 递归进嵌套包装——
+  `Box<@0..=2>` 的错误在类型参数里）一次全部报出；旧行为停在第一个错误。
+  有任何错误时只输出错误——不输出部分 impl（ui fixture
+  `error_aggregation`）。
+  约束验证 `@0` = join 中文档序第一个 fresh）与
+  `at_refs_across_generation_units`（range 长度 + 多 spec）。
 ## 0.6.6 (2026-08-06)
 
 ### 元组/fn 语法边界修正（`(T)^2 = T^2`）

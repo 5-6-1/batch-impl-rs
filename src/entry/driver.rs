@@ -4,7 +4,7 @@ use syn::ItemTrait;
 
 use crate::TraitBounds;
 use crate::apply::err_ty;
-use crate::ast::{Expand, Op};
+use crate::ast::{Expand, Op, Ty, TyKind, reset_fresh_counter};
 use crate::codegen::generate_impl;
 use crate::parse::parse_item;
 use crate::util::Cursor;
@@ -42,6 +42,9 @@ pub(crate) fn parse_batch_trait_entry(
         tys.push(err_ty("batch-impl: spec list cannot start with `,`"));
     }
     while let Some(ty) = parse_item(cursor, top_level, trait_last_ident.into()) {
+        // Fresh-generator group ids are DSL-local: reset per spec so `@g_i`
+        // (future) and the codegen sweep never depend on spec position.
+        reset_fresh_counter();
         let mut queue = vec![ty];
         while let Some(item) = queue.pop() {
             match item.expand() {
@@ -53,6 +56,33 @@ pub(crate) fn parse_batch_trait_entry(
                 Expand::Leaf(leaf) => tys.push(leaf),
             }
         }
+    }
+    // Error aggregation: collect every spec's error (recursing into nested
+    // wrappers — e.g. `Box<@0..=2>` carries the range error inside its
+    // type params) and report them all at once; the old behavior stopped at
+    // the first error, hiding later ones. When any error exists, only the
+    // errors are emitted — no partial impls.
+    fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
+        if let Ty { kind: TyKind::Error(e), .. } = ty {
+            out.push(e.0.clone());
+        }
+        // Reuse map_children's exhaustive child list for the recursion
+        // (rebuild-style pass; children visited in the same order).
+        ty.clone().map_children(&mut |child| {
+            collect_errors(&child, out);
+            child
+        });
+    }
+    let mut errors = vec![];
+    for t in &tys {
+        collect_errors(t, &mut errors);
+    }
+    if !errors.is_empty() {
+        let mut out = TokenStream::new();
+        for e in errors {
+            out.extend(e);
+        }
+        return out;
     }
     let mut impls = start_trait.map_or(quote![], |t| quote![#t]);
     for t in tys {

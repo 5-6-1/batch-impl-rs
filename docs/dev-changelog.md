@@ -5,6 +5,130 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.7 (2026-08-06)
+
+### Fresh-system rework: grouped generation + per-impl sweep; `@N` pure construction
+
+- **Grouped fresh generation**: fresh params are generated as
+  `_Param_{g}_{i}_BatchGen_` (group = the generating site within the spec —
+  per-spec/per-segment group counter, DSL-local; position = the site's own
+  index). The codegen **sweeper** renumbers every impl's fresh params to
+  `_Param_0..N_BatchGen_` in (group, position) order before rendering — which
+  is the target type's document order;
+- **Per-impl numbering fixes unit drift**: each impl sweeps independently, so
+  `@N` always refers to *that* impl's N-th fresh — usable across specs and
+  range-generated impls (`()^1..=3 where{@0: Clone}` and
+  `(()^2, ()^2 where{@0: Clone})` previously errored "out of range" on the
+  later units because the counter continued across them; now every unit's
+  fresh starts at 0). `@N` is a pure construction (`@N` → `_Param_{N}_BatchGen_`)
+  that always matches the swept name — no lookup needed;
+- **Combination scenarios** (`()^3-()^3`): `@0` is the left tuple's first
+  element (document order — previously the declaration-order first, since
+  hoisting declared the nested tuple first — Breaking);
+- **Target-type `@N` channel**: `@N` position references are resolved at the
+  type-domain boundary (`parse_operand`, plus `resolve_at_refs` for flat
+  angle-group chunks such as `Box<@0>`) into the fresh name. Blanket's
+  wrapper `@0` position marker is no longer replaced by blanket itself
+  (`replace_at0` removed; `has_at0` keeps only the position decision — with
+  `@0` the wrapper is emitted as-is and the parse layer resolves the marker);
+- **Declaration order = document order**: when both operands of an apply
+  carry generic declarations (fresh-fresh chains like `()^3-()^3`), params
+  merge left-first so hoisting collects them in the target type's document
+  order; the inner type takes only the left's inner part (otherwise hoisting
+  collects the left declaration twice — E0403);
+- Marked-placement evaluation (decision): a "generic-name placeholder
+  resolved by codegen" system was considered and rejected — grouped names +
+  per-impl sweep reach predictability without a marker token system (which
+  would need a marker/`@N` distinction rule, parse-time substitution, and
+  Ty-tree token survival);
+- **`@g_i` grouped references enabled**: `@0_1` (a literal with an underscore)
+  resolves to the grouped name `_Param_{g}_{i}_BatchGen_` in the target type
+  (parse layer) and where predicates (impl-group match, erroring "no group g
+  position i" when the impl has no such group) — stable across array-dispatch
+  impls, where `@N`'s document-order meaning shifts; the sweeper renumbers
+  the reference along with the generated names;
+- **`@N` stability commitment**: the numbering semantics were revised across
+  0.6.4 → 0.6.7 (generic-param-family era → `@N` semantic fix → per-impl
+  numbering + document order + target-type channel). The current mechanism
+  (per-impl sweep to `_Param_0..N_BatchGen_`, `@N` = pure construction) is
+  considered **final** — any future change is a deliberate breaking release.
+
+### Preprocess directory restructure + documentation pass
+
+- `preprocess/` reorganized into two sub-folders: **`directives/`** (the `#`
+  directive system: name_list / trait_items / delegate_args / blanket /
+  blanket_wrappers + mod.rs entry) and **`consts/`** (the `@` constant
+  system: table / expand / ctx + mod.rs entry) — the flat 12-file layout was
+  grouping two unrelated concerns; `preprocess/mod.rs` now declares 5 modules
+  with glob re-exports; internal paths updated
+  (`crate::preprocess::consts::ctx::ConstCtx` etc.);
+- tutorial: the `@` macro-meta layer is now introduced as **three
+  dimensions** (constants / selectors / positional references) with a
+  composition note; added `@N` vs `@g_i` selection guidance, the `@N`
+  stability commitment, and a learning-cost note (start with `@u*` /
+  `@all_methods` / `@0`; reach for grouped/batch/range references only when a
+  predicate must name a specific fresh);
+- README: the intro now states the crate's layered positioning — batch impl
+  generator with a pluggable codegen protocol (macro-meta layer + open
+  directive system below the "one line" story);
+- architecture.md module graph updated for the new preprocess layout.
+- New dsl tests: `at_refs_numbered_match_in_join` (u8-only `Marker` bound verifies `@0` = document-order first fresh in a join) and `at_refs_across_generation_units` (range lengths + multiple specs).
+### Top-level macro injection (`{! ...}`)
+
+- **Open extension is now top-level**: `#cmd(args){body}` expands to
+  `{ ! name!{(args){body} trait_def} }` — the `!` marks top-level emission:
+  codegen strips it, prepends the spec body (the target type, rendered as
+  one Brace group) to the macro input (4-segment protocol
+  `{spec}(args){body}trait`), and emits the call at top level — the
+  user macro generates arbitrary items (typically its own impl); batch-impl
+  generates no impl in this mode (Breaking: open-extension macros must now
+  parse 4 segments and emit complete items, not associated items);
+- **`T {! m!{...}}` attach form**: the same top-level protocol with a
+  user-written macro input; `T {m!{...}}` (no `!`) keeps the legacy in-impl
+  form (associated items — the user writes the full input including the
+  trait). At most one `{!}` per spec and it must be the last block — a
+  following `{...}` block errors (under the current block order either at
+  walk_top_level's "must be the last block" or at the rustc layer via the
+  top-level path; ui fixtures `top_level_block_not_last` /
+  `top_level_manual_not_last`);
+- **Guards**: a standalone `{! ...}` (no attached type) errors "needs an
+  attached type" instead of emitting invalid Rust (ui fixture
+  `top_level_without_attach`); an empty `{! }` (no macro call) errors "must
+  contain a macro call"; `walk_top_level` tracks whether a `{!}` was
+  found inside a plain block vs. outside it, so a future block-order change
+  cannot misreport preceding blocks;
+- `batch_preprocess_test` (test macro) gained the dual protocol: the
+  4-segment top-level form emits `impl Trait for {spec}`; the 3-segment
+  in-impl form emits associated fn definitions.
+
+### `@all_fresh` / `@N..M` batch references (where predicates)
+
+- `@all_fresh: Bound` expands to one predicate per fresh generic
+  (`_Param_0_: Bound, _Param_1_: Bound, ...`); errors when the impl has no
+  fresh generics or the expansion exceeds `MAX_EXPAND`;
+- `@N..M` / `@N..=M` expand a contiguous fresh range (`@0..=2: Clone`
+  bounds the first three); out-of-range and > MAX_EXPAND predicates error,
+  and an empty range (`@0..0`) errors instead of silently expanding to
+  nothing; the constant stage passes `@all_fresh` through (where-only
+  selector);
+- A range reference in a type (`Vec<@0..=2>`) errors at the parse layer
+  with a targeted message (ui fixture `at_range_in_type`);
+- **Where-group predicate splitting**: a `where{...}` group is now split
+  into predicates at depth-0 commas (`extract_impl_parts`), so an
+  `@all_fresh` / `@N..M` expansion cannot swallow the following predicates
+  in the same group (`where{@all_fresh: Clone, @0..=2: Copy}` previously
+  leaked `@0..=2` into the rendered where clause — locked by dsl test
+  `at_all_fresh_with_range_same_group`).
+
+### Error aggregation
+
+- The driver now collects every spec's error (recursing into nested
+  wrappers via `map_children` — `Box<@0..=2>` carries its error in the type
+  params) and reports them all at once; the old behavior stopped at the
+  first error. When any error exists only the errors are emitted — no
+  partial impls (ui fixture `error_aggregation`).
+
+
 ## 0.6.6 (2026-08-06)
 
 ### Tuple/fn syntax-boundary fixes (`(T)^2 = T^2`)

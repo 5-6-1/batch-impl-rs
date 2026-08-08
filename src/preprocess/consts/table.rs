@@ -22,7 +22,7 @@
 use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::quote;
 
-use crate::preprocess::consts_ctx::{ConstCtx, UserConsts};
+use crate::preprocess::consts::ctx::{ConstCtx, UserConsts};
 use crate::util::{bracket_is_passthrough, is_punct};
 use crate::util::{compile_err, compile_error_str};
 

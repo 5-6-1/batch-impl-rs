@@ -1,14 +1,3 @@
-error[E0428]: the name `T` is defined multiple times
- --> tests/ui/num_as_left_operand.rs:8:1
-  |
-4 | trait T {}
-  | ------- previous definition of the trait `T` here
-...
-8 | trait T {}
-  | ^^^^^^^ `T` redefined here
-  |
-  = note: `T` must be defined only once in the type namespace of this module
-
 error: batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T^0)
  --> tests/ui/num_as_left_operand.rs:7:1
   |

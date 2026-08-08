@@ -48,29 +48,16 @@ macro_rules! delimiter {
 }
 
 pub(crate) mod angle;
-pub(crate) mod blanket_wrappers;
 pub(crate) mod consts;
-pub(crate) mod consts_ctx;
-pub(crate) mod consts_expand;
-pub(crate) mod delegate_args;
+pub(crate) mod directives;
 pub(crate) mod empty_generics;
-pub(crate) mod name_list;
-pub(crate) mod trait_items;
 pub(crate) mod where_process;
 
 pub(crate) use angle::*;
-pub(crate) use blanket_wrappers::*;
 pub(crate) use consts::*;
-pub(crate) use consts_ctx::*;
-pub(crate) use consts_expand::*;
-pub(crate) use delegate_args::*;
+pub(crate) use directives::*;
 pub(crate) use empty_generics::*;
-pub(crate) use name_list::*;
-pub(crate) use trait_items::*;
 pub(crate) use where_process::*;
-
-mod blanket;
-pub(crate) use blanket::expand_blanket;
 
 use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 use quote::quote;
@@ -188,19 +175,23 @@ fn expand_directive(
                         expand_blanket(args, body, trait_def, trait_full_path)
                             .map(|v| (v, consumed))
                     }
-                    // Open extension: `#name(args){body}` →
-                    // `{ name!{(args){body} trait_def} }`, a function-like
-                    // macro call in the impl body (attached usage) or at top
-                    // level (standalone usage). Same lineage as
-                    // `#fill`/`#delegate`: the "read trait → generate fn
-                    // definitions" implementation is handed to the user's
-                    // macro of the same name — it parses args / body / trait
-                    // and produces impl items.
+                    // Open extension: `#name(args){body}` → a **top-level**
+                    // macro call `{ ! name!{(args){body} trait_def} }` — the
+                    // `!` prefix marks top-level emission: codegen strips it,
+                    // prepends the spec body (target + preceding blocks,
+                    // merged in chain order) to the macro input, and emits
+                    // the call at top level (no impl generated). The macro
+                    // receives `{spec}(args){body} trait` and generates
+                    // arbitrary items (the same lineage as `#fill`/`#delegate`
+                    // — the "read trait → generate" logic is the user's).
                     _ => {
                         let inner = quote! {
                             #name ! { #args #body #trait_def }
                         };
-                        Ok((vec![Group::new(delimiter![{}], inner).into()], consumed))
+                        Ok((
+                            vec![Group::new(delimiter![{}], quote!(! #inner)).into()],
+                            consumed,
+                        ))
                     }
                 }
             }

@@ -1,9 +1,11 @@
 //! Parsing layer: DSL precedence-climbing parser and angle-bracket generic parsing.
 
 mod generic;
+pub(crate) use generic::split_at_depth0;
 mod parse_atom;
 
-use proc_macro2::{Ident, TokenStream, TokenTree};
+use proc_macro2::{Group, Ident, TokenStream, TokenTree};
+use quote::quote;
 
 use crate::apply::{err_ty, err_ty_at};
 use crate::ast::*;
@@ -14,7 +16,7 @@ use crate::parse::generic::{
 use crate::parse::parse_atom::{
     parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
 };
-use crate::util::Cursor;
+use crate::util::{Cursor, compile_error_str};
 
 // ============================================================
 // Operator-level parsing
@@ -134,8 +136,124 @@ fn parse_operand(
     if cursor.at_end() {
         return None;
     }
+    // `@N` macro-meta position reference: resolved at the type-domain
+    // boundary (parse_operand is the type domain's entry) into the fresh
+    // name — `@N` → the swept name `_Param_{N}_BatchGen_`, `@g_i` (literal
+    // with an underscore, e.g. `0_1`) → the grouped name
+    // `_Param_{g}_{i}_BatchGen_` (renumbered by the codegen sweeper along
+    // with the generated names). `@trait` never reaches here (expanded at
+    // the constant stage / segment level).
+    if cursor.is_punct('@') {
+        let at_span = cursor.span();
+        cursor.bump(); // consume `@`
+        return match cursor.peek() {
+            Some(TokenTree::Literal(lit)) => {
+                match at_ref_name(&lit.to_string()) {
+                    Some(name) => {
+                        cursor.bump(); // consume the literal
+                        // `@0..2` in a type is a range reference — only valid
+                        // as a where-predicate subject (`@0..=2: Bound`);
+                        // error here instead of a confusing "expected type,
+                        // found `..`".
+                        if cursor.is_punct('.') {
+                            return Some(err_ty_at(
+                                "batch-impl: `@N..M` range references are only \
+                                 allowed as a where-predicate subject \
+                                 (e.g. `where{@0..=2: Clone}`)",
+                                at_span,
+                            ));
+                        }
+                        let ident = Ident::new(&name, at_span);
+                        Some(
+                            Ty::new(at_span, TyPrimitive(quote!(#ident)).into())
+                                .with_span(at_span),
+                        )
+                    }
+                    None => Some(err_ty_at(
+                        "batch-impl: `@` in a type must be followed by a position \
+                         digit (e.g. `@0` or `@0_1`)",
+                        at_span,
+                    )),
+                }
+            }
+            _ => Some(err_ty_at(
+                "batch-impl: `@` in a type must be a position digit (e.g. `@0` or `@0_1`)",
+                at_span,
+            )),
+        };
+    }
     let segment = cursor.take_segment(level.stop_chars());
     parse_item(&mut Cursor::new(segment), level.next()?, trait_name)
+}
+
+/// Parses an `@`-reference literal into its fresh name: `@N` → the swept
+/// name `_Param_{N}_BatchGen_` (pure construction); `@g_i` (a literal with an
+/// underscore, e.g. `0_1`) → the grouped name `_Param_{g}_{i}_BatchGen_`,
+/// which the codegen sweeper renumbers along with the generated names.
+fn at_ref_name(lit: &str) -> Option<String> {
+    if let Ok(n) = lit.parse::<usize>() {
+        return Some(format!("_Param_{}_BatchGen_", n));
+    }
+    if let Some((g, i)) = lit.split_once('_')
+        && let (Ok(g), Ok(i)) = (g.parse::<usize>(), i.parse::<usize>())
+    {
+        return Some(format!("_Param_{}_{}_BatchGen_", g, i));
+    }
+    None
+}
+
+/// Resolves `@N` / `@g_i` position references inside a token chunk that is
+/// **not** parsed as a type (angle-group contents go through flat token
+/// splitting in `parse_type_params`, so `Box<@0>` would otherwise keep the
+/// raw `@0`). Recurses into groups; `@` followed by a non-digit errors.
+pub(crate) fn resolve_at_refs(
+    tokens: &[TokenTree],
+) -> Result<Vec<TokenTree>, TokenStream> {
+    let mut out = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
+            TokenTree::Punct(p) if p.as_char() == '@' => {
+                let at_span = p.span();
+                match tokens.get(i + 1) {
+                    Some(TokenTree::Literal(lit)) => {
+                        let name =
+                            at_ref_name(&lit.to_string()).ok_or_else(|| {
+                                compile_error_str(
+                                    "batch-impl: `@` in a type must be followed by a \
+                                 position digit (e.g. `@0` or `@0_1`)",
+                                    at_span,
+                                )
+                            })?;
+                        let ident = Ident::new(&name, at_span);
+                        out.push(TokenTree::Ident(ident));
+                        i += 2;
+                    }
+                    _ => {
+                        return Err(compile_error_str(
+                            "batch-impl: `@` in a type must be a position digit (e.g. `@0` or `@0_1`)",
+                            at_span,
+                        ));
+                    }
+                }
+            }
+            TokenTree::Group(g) => {
+                let inner = g.stream().into_iter().collect::<Vec<_>>();
+                let mut new_g = Group::new(
+                    g.delimiter(),
+                    resolve_at_refs(&inner)?.into_iter().collect(),
+                );
+                new_g.set_span(g.span());
+                out.push(TokenTree::Group(new_g));
+                i += 1;
+            }
+            _ => {
+                out.push(tokens[i].clone());
+                i += 1;
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// DSL parse entry: strips trailing `{...}` code blocks / `where{...}` suffixes,

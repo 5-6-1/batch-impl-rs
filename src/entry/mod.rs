@@ -196,6 +196,9 @@ pub(crate) fn expand_batch_trait(
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
     loop {
+        // Fresh-generator group ids are DSL-local per segment (each segment
+        // generates independent impl sets).
+        reset_fresh_counter();
         // Skip leading `;` (allows consecutive semicolons and a trailing one)
         while cursor.is_punct(';') {
             cursor.bump();

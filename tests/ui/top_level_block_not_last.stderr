@@ -1,0 +1,5 @@
+error: expected one of `!`, `(`, `+`, `::`, `<`, `where`, or `{`, found keyword `fn`
+ --> tests/ui/top_level_block_not_last.rs:5:62
+  |
+5 | #[batch_impl(usize #batch_preprocess_test(add,inc){*self+1} {fn other() {}})]
+  |                                                              ^^ expected one of 7 possible tokens

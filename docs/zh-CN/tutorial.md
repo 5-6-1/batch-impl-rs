@@ -1,12 +1,15 @@
 # batch-impl 教程
 
-**v0.6.6**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
+**v0.6.7**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
 （`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`）、
 `#blanket` 静态方法委托、span 诊断、`@u*`/`@i*`/`@f*` 改名、泛型参数族、
 `@N` 只索引 fresh 泛型；0.6.5：`#cmd[args]{body}` 方括号参数、宏调用
 passthrough 修复、裸范围端点定义处报错、blanket `@N` 统一 codegen 解析；0.6.6：`(T)^N` 分组剥离语义
 （= `T^N`，const 泛型实参如 `W<2>`；**破坏性变更**——元组生成须 `(T,)^N`）、数字渲染不带 `usize` 后缀、
-输入校验护栏（consts 嵌套深度 / `#blanket` `:N` 上限 / `@all_*` 保留名 / 空 `:` 深度）。
+输入校验护栏（consts 嵌套深度 / `#blanket` `:N` 上限 / `@all_*` 保留名 / 空 `:` 深度）；
+0.6.7：fresh 逐 impl 编号（`@N` 任意位置、含目标类型本身）、`@g_i` 分组引用、
+顶层开放扩展（`{! ...}`——宏收到 `{spec}(args){body}trait` 并生成自己的 impl）、
+`@all_fresh` / `@N..M` 批量 where 引用、错误聚合。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码，
 每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
@@ -468,26 +471,31 @@ trait Len { fn t10(&self) -> usize; }
 
 ### 扩展机制（开放指令系统）
 
-不认识的 `#name(args){body}` 自动转换为一个 `{...}` 代码块，内容是**函数式宏调用**
-`name!{(args){body} trait ...}`——把方法名列表、body 和整个 trait 定义一起交给
-用户的同名宏，由它展开为需要的 fn 定义。这意味着指令系统是**开放的**，与
-`#fill` / `#delegate` 完全同源：都是"读 trait → 生成 fn 定义"，只不过实现交给
-用户（`#fill` 是库实现，开放指令是用户宏实现）。
+不认识的 `#name(args){body}` 变为**顶层宏调用**：展开为 `!` 标记块
+`{ ! name!{(args){body} trait ...} }`，codegen 在顶层输出该调用并把 spec 主体
+前置——用户的同名宏收到 `{spec}(args){body} trait ...`（4 段，spec 主体在最前），
+展开为任意 item，通常是它自己完整的 impl。这意味着指令系统是**开放的**，与
+`#fill` / `#delegate` 完全同源：都是"读 trait → 生成"，只不过实现交给用户
+（`#fill` 是库实现，开放指令是用户宏实现）。
 
 ```rust
 # use batch_impl::batch_impl;
-# use batch_impl::batch_preprocess_test; // 测试用开放扩展宏：解析 (names){body} trait → 生成 fn 定义
+# use batch_impl::batch_preprocess_test; // 测试用开放扩展宏：解析 {spec}(names){body} trait → 生成 impl
 #[batch_impl(usize #batch_preprocess_test(add,inc){*self+1})]
 trait AddInc {
     fn add(&self) -> Self;
     fn inc(&self) -> Self;
 }
 // → trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; }
-// → impl AddInc for usize {
-//       batch_preprocess_test!{(add,inc){*self+1} trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; }}
-//   }
-//   → 宏展开为：fn add(&self) -> Self { *self + 1 } fn inc(&self) -> Self { *self + 1 }
+// → batch_preprocess_test!{ {usize} (add,inc){*self+1} trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; } }
+//   → 宏展开为：impl AddInc for usize {
+//       fn add(&self) -> Self { *self + 1 } fn inc(&self) -> Self { *self + 1 }
+//     }
 ```
+
+同一顶层协议也可手写：给 spec 附加 `{! m!{...}}`（`T {! m!{...}}`——用户手写
+宏输入，同样 4 段）。没有 `!` 的 `T {m!{...}}` 把宏调用留在 impl body（关联项——
+用户自己写完整输入含 trait）。`{!}` 块必须是 spec 的最后一个块，且至多一个。
 
 > 说明：这是"用户自定义的 `#fill`"——每个类型可各挂一个
 > （`usize #batch_preprocess_test(...){...}, isize #batch_preprocess_test(...){...}`），
@@ -798,6 +806,18 @@ trait FixedMatrix {}
 
 ### `@` 常量 — 内置类型族命名
 
+`@` 宏元层有**三个维度**：
+
+| 维度 | 记号 | 作用 |
+|------|------|------|
+| **常量** | `@u*` / `@num` / `@scalar` / `@u8..u128` / 自定义 `@name=value;` | 类型族列表，解析前展开 |
+| **选择器** | `@all` 族（`@all_methods` / `@all_required*` / `@all_ref_methods` / `@all_type_params` …） | 指令作用域的 item 集合选择（见 §7） |
+| **位置引用** | `@N` / `@g_i` / `@all_fresh` / `@N..M` | 命名宏生成的 fresh 泛型（见下节） |
+
+三者都是**纯词法替换**——在任何 DSL 解析前展开为 token，因此可与类型 DSL
+（`[Box, Rc]^@uints`）、指令（`#fill(@all)`）、where 谓词
+（`where{@0..=2: Copy}`）自由组合。
+
 常用类型矩阵不必手写：`@` 常量在预处理阶段展开为字面列表，与手写等价。
 
 | 常量 | 展开 |
@@ -871,11 +891,29 @@ batch_trait!{
 | `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | 按 receiver 类型过滤的 Bracket 组（`&self`/`&mut self` / `self` / 关联函数） | 只委托引用方法（绕开 by-value 委托语义不定）；`#blanket(@all_ref_methods){Box}` |
 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | 泛型参数族：展开为**扁平 `<...>` 泛型声明**（类型参数只名字、const 完整 `const N: usize`、生命周期原样） | 泛型声明照抄 trait 形参（bound 走同名继承）；`#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T)]`——连续声明保持生命周期在前 |
 | `@Cow` | `Cow<'_>` + 固有约束谓词 | blanket 包装（deref target = `T::Owned`） |
-| `@N`（位置引用） | where 谓词内**第 N 个 fresh 泛型**（`_Param_{N}_BatchGen_` 形式）的名字 | blanket 包装谓词中 `@0` = 目标泛型（唯一 fresh）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；**作者泛型直接写名字**（不参与 @N 索引） |
+| `@N`（位置引用） | *本 impl* 第 N 个 fresh 泛型（`_Param_{N}_BatchGen_` 形式）的名字——每个 impl 把自身 fresh 按文档序重编号为 `0..N`，跨 spec 与 range 生成均可用 | blanket 包装谓词中 `@0` = 目标泛型（唯一 fresh）；元组生成 `()^N` 中 `@k` = 第 k 个 fresh 泛型；也可直接用于目标类型（`Box<@0>`）；**用户泛型直接写名字**（不参与 @N 索引） |
+| `@g_i`（分组引用） | 第 g 个生成器的第 i 个产物（`_Param_{g}_{i}_BatchGen_`）——**跨数组分发 impl 稳定**（impl 无该组时报错而非静默漂移） | `()^3-()^3 where{@0_0: Clone}` = 左生成器第一个 fresh，`@1_0` = 右生成器第一个；也可用于目标类型 |
+| `@all_fresh` | 本 impl 的全部 fresh 泛型（仅限谓词 subject） | `where{@all_fresh: Clone}` 约束全部 fresh 泛型 |
+| `@N..M` / `@N..=M`（范围） | 连续 fresh 段（仅限谓词 subject） | `where{@0..=2: Copy}` 约束前三个 fresh |
 
-> `@N` 是唯一在 **codegen 阶段**解析的记号（需要最终 impl 泛型列表）；
-> `@trait` 已提前：batch_impl 在常量阶段展开（trait 路径已知）、
+> `@N` 按编号解析：where 谓词内在 codegen 阶段、目标类型内在 parse 层
+> （类型域边界）；`@trait` 已提前：batch_impl 在常量阶段展开（trait 路径已知）、
 > batch_trait! 在段级替换（递归进入 where 组）。
+
+**`@N` 与 `@g_i` 怎么选**：`@N` 按每 impl 的文档序编号 fresh 泛型——简单，
+但跨数组分发 impl 语义会漂移（每个 impl 从 0 重编号）。`@g_i` 指名精确的
+生成点（第 g 组第 i 位）——**跨分发 impl 稳定**；分发场景下 where 谓词要
+指特定生成器的 fresh 时用它（`[Box, ()^2]^()^2`）。`@all_fresh` / `@N..M`
+是"全部 fresh"/"连续段"的批量形式。
+
+**稳定性承诺**：`@N` 编号语义在 0.6.4 → 0.6.7 间修订过三次（每 impl 编号 +
+文档序 + 目标类型通道）。现机制（每 impl 清扫为 `_Param_0..N_BatchGen_`、
+`@N` 纯构造）视为**最终形态**——今后任何改动都按刻意破坏性发布处理。
+
+**学习提示**：`@` 层是一个小型元语言——记号累积确有学习成本。日常只需
+`@u*` / `@num` / `@scalar`（常量）+ `@all_methods`（选择器）+ `@0`
+（blanket 目标）即可走得很远。分组/批量/范围引用为组合场景而存在——
+谓词需要指名特定 fresh 泛型时再拿，不必提前学。
 
 `@all` 系展开为 Bracket 组后走指令参数解析：**`#` 不再作为范围标记**——
 `#` 只剩指令名一种格式（`#fill`/`#delegate`/`#blanket`/开放扩展），范围
@@ -898,6 +936,10 @@ trait TupleWhereAt { fn tmk() -> u32; }
 #[batch_impl(<T> AtWhere<T> Vec<T> where{T: Default} { fn an(&self) -> usize { self.len() } })]
 trait AtWhere<T: Clone> { fn an(&self) -> usize; }
 // → impl<T: Clone + Default> AtWhere<T> for Vec<T> { ... }
+
+// 批量引用：@all_fresh 约束全部 fresh；@N..=M 约束连续段
+#[batch_impl(()^3-()^3 where{@all_fresh: Clone, @0..=2: Copy})]
+trait BatchWhereAt {}
 ```
 
 （blanket 包装谓词中 `@0` = 目标泛型 fresh T，见 §7 `#blanket`；`@trait` 也可

@@ -2,6 +2,39 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.6.7 (2026-08-06)
+
+### `@N` 位置引用：每 impl 独立编号 + 目标类型支持
+
+- **破坏性变更**：fresh 泛型编号现为**每 impl 独立**——每个生成的 impl
+  把自身 fresh 参数按文档序重编号为 `_Param_0..N_BatchGen_`，`@N` 恒指
+  *本 impl* 的第 N 个 fresh。这修复了单元漂移：`@0` 现可在跨 spec 与
+  range 生成的 impl 中使用（此前计数器跨单元延续，后续单元 `@0` 报错）。
+  组合场景（如 `()^3-()^3`）下 `@0` 是生成类型中第一个出现的 fresh
+  （此前按声明顺序，与文档序不一致）；
+- `@N` 现可直接用于目标类型（`Box<@0>`）；blanket 包装的位置标记
+  （`(u32, @0)`）走同一通道。
+
+### 开放扩展改为顶层（`#cmd` / `{! ...}`）
+
+- **破坏性变更**：开放扩展 `#cmd(args){body}` 现为**顶层**——宏调用收到
+  `{spec}(args){body}trait`（4 段，spec 主体在最前）并生成任意 item，
+  通常是自己完整的 impl；batch-impl 不再为它生成 impl。同一协议也可通过
+  给 spec 附加 `{! m!{...}}` 使用（用户手写宏输入）。内嵌形态
+  `T {m!{...}}`（无 `!`）仍把宏调用留在 impl body（关联项，用户手写完整
+  输入含 trait）。
+
+### `@all_fresh` / `@N..M` 批量 where 引用
+
+- `@all_fresh: Bound` 约束全部 fresh 泛型；`@N..M` / `@N..=M` 约束连续
+  fresh 段（`@0..=2: Clone`）；两者展开为逗号分隔的多谓词，越界/超大
+  展开报错。
+
+### 错误聚合
+
+- 多个 spec 的错误一次全部报出，不再停在第一个错误。
+
+
 ## 0.6.6 (2026-08-06)
 
 ### `(T)^N` 分组剥离语义 + 数字渲染无后缀
@@ -14,7 +47,7 @@
 - 数字/范围渲染不带 `usize` 后缀（`W<2>` 而非 `W<2usize>`、`[u8; 3]` 而非
   `[u8; 3usize]`）。
 
-### 输入校验护栏（评测员发现）
+### 输入校验护栏
 
 - `expand_consts` 深度守卫 128 层（超深 `[[[` 嵌套不再栈溢出）；
 - `#blanket` `:N` 上限 128（`Box:999999` 不再栈溢出）；
@@ -85,7 +118,7 @@
 
 - 问题：`where{...}` 是 Brace 组，`expand_consts` 原先不进入（body 的 `@` 是
   pattern 语法）——where 谓词里的 `@trait`/`@N` 都残留到 codegen 的
-  `resolve_where_at`；作者指出 `@trait` 不该留到 codegen（只有 `@N` 需要
+  `resolve_where_at`；`@trait` 不该留到 codegen（只有 `@N` 需要
   impl 泛型列表）；
 - 修复三处：
   - `expand_consts` 识别 `where` Ident + Brace 组（DSL 结构非 body）→ 进入展开
@@ -106,7 +139,7 @@
   fresh，`@0` 恰好是"第 0 个 fresh"，不再是特例规则；
 - 破坏点：`<T> ... where{@0: Default}` 曾指用户泛型 T——改为 `where{T: Default}`
   （更自然）；越界报错更新（"impl has N fresh generics"）；
-- 作者初衷：`@N` 本意就是 `_Param_N_BatchGen_` 的直接映射——fresh 编号是全局
+- 初衷：`@N` 本意就是 `_Param_N_BatchGen_` 的直接映射——fresh 编号是全局
   计数器、与最终位置无关（多 fresh 源/用户泛型混排时错位），故用"第 N 个 fresh"
   加固：位置可数、与编号无关、含用户泛型场景的纯粹性。
 
@@ -284,7 +317,7 @@
 
 - README 精简为推销版（为什么要用它、心智模型、快速开始、特性一览），
   完整教程独立到 `docs/tutorial.md`，开发者文档独立到 `docs/architecture.md`
-- CHANGELOG 拆分为本文件（作者视角）与 `docs/dev-changelog.md`（开发者视角）
+- CHANGELOG 拆分为本文件（用户可见变更）与 `docs/dev-changelog.md`（开发者笔记）
 - 教程新增 `@` 常量与 `#blanket` 章节；架构文档新增「语法域隔离」与
   「附着语义」章节
 

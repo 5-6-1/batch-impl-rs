@@ -1,7 +1,9 @@
 # batch-impl 内部架构
 
-**v0.6.6**——0.6.2/0.6.3/0.6.4 已发布：预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托、`@N` 唯一 codegen 记号；0.6.5：blanket `@N` 统一、`#cmd[args]` 方括号参数；0.6.6：`(T)^N`
-分组剥离语义、数字渲染无后缀、输入校验护栏。
+**v0.6.7**——0.6.2/0.6.3/0.6.4 已发布：预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托、`@N` 唯一 codegen 记号；0.6.5：blanket `@N` 统一、`#cmd[args]` 方括号参数；0.6.6：`(T)^N`
+分组剥离语义、数字渲染无后缀、输入校验护栏；0.6.7：fresh 逐 impl 编号 +
+`@g_i` 分组引用、顶层开放扩展（`{! ...}`）、`@all_fresh` / `@N..M` 批量
+where 引用、错误聚合、preprocess 重组为 `directives/` + `consts/` 子文件夹。
 
 面向贡献者：模块组织、解析流程、错误机制、测试矩阵。
 
@@ -23,13 +25,12 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
   │   └── generic.rs        泛型解析：parse_generic / parse_angle_bracket_contents（尖括号组即 delimiter![<>]）
   ├── preprocess/           预处理层（token 重写器，一个趟一个文件；mod.rs 聚合 re-export）
-  │   ├── mod.rs            delimiter! 分隔符拼写宏 + 指令预处理：#name 指令展开（内置 + 开放扩展）
-  │   ├── consts.rs         `@` 常量系统：内置类型族（@u*/@scalar/@u8..u128）+ batch_trait! 自定义定义段
+  │   ├── mod.rs            delimiter! 分隔符拼写宏 + 管线：angle_collect → expand_consts → expand_tokens（#name 指令展开）→ where_process
+  │   ├── directives/       `#` 指令系统：#fill / #delegate / #blanket + 开放扩展（name_list / trait_items / delegate_args / blanket / blanket_wrappers）
+  │   ├── consts/           `@` 常量系统：内置类型族（@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 范围）+ batch_trait! 自定义定义段 + where 选择器（@all_fresh / @N..M 放行）（table / expand / ctx）
   │   ├── empty_generics.rs `A<>` 照抄展开（形参渲染用合并后的 bound）
-  │   ├── helpers.rs        预处理辅助：build_from_item / get_trait_item / parse_names_from_tokens（列表减法 `-`）
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
-  │   ├── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
-  │   └── blanket.rs        `#blanket` 覆盖式委托（包装元素任意类型 + :N 深度；实例方法经 deref、静态方法经泛型 `t` 转发）
+  │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
   ├── ast/                  AST 层
   │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 18 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
@@ -99,7 +100,7 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
   在指令域是排除记号（`#fill(@all,-foo)`）——两域解析互不进入，语义永不冲突；
 - **域边界即模块边界**：类型域解析（`parse_item` 优先级攀爬）永远不递归进入
   指令参数；指令预处理（`expand_tokens`）只展开 `#` 指令，不解释 DSL 运算符；
-  `@` 常量（`preprocess/consts.rs`）只做词法替换，不进入任何域；
+  `@` 常量（`preprocess/consts/`）只做词法替换，不进入任何域；
 - **透传守卫统一**：`ident![...]` 宏体与 `#[...]` 属性内的内容是任意 Rust，
   四个递归入口（`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`）一律不进入，
   判定收敛在 `scan::bracket_is_passthrough`（0.5.7 曾因一处守卫缺失误展开

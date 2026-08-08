@@ -1,9 +1,13 @@
 # batch-impl Tutorial
 
-**v0.6.6** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen; 0.6.6: `(T)^N` group-strip semantics
+**v0.6.7** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen; 0.6.6: `(T)^N` group-strip semantics
 (= `T^N`, a const-generic arg like `W<2>`; **breaking** — tuple generation now needs `(T,)^N`), unsuffixed number rendering,
 and input-validation guards (consts nesting depth, `#blanket` `:N` cap,
-`@all_*` reserved names, empty `:` depth).
+`@all_*` reserved names, empty `:` depth); 0.6.7: per-impl fresh numbering
+(`@N` anywhere, incl. the target type itself), `@g_i` grouped references,
+top-level open extension (`{! ...}` — the macro receives
+`{spec}(args){body}trait` and emits its own impl), `@all_fresh` / `@N..M`
+batch where-references, error aggregation.
 
 A progressively-learned DSL: start from a single impl line and work up to advanced matrix composition. All examples are compilable code; the product of every step is ordinary Rust — the impls the macro generates are token-for-token equivalent to handwritten ones.
 
@@ -363,7 +367,7 @@ The three markers work in `#fill` / `#delegate` / `#blanket` and `-` exclusions 
 Each `#blanket` wrapper's main part (minus `where` and `:N`) expands to
 `part^T` (target appended last, e.g. `Box` → `Box<T>`) when it contains no
 `@0`; with `@0`, the marker is the target's position — the wrapper is emitted
-as-is with `@0` replaced by the fresh target generic, so `T` can sit anywhere:
+as-is and `@0` resolves to the fresh target generic, so `T` can sit anywhere:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -452,26 +456,35 @@ trait Len { fn t10(&self) -> usize; }
 
 ### Extension mechanism (open directive system)
 
-An unrecognized `#name(args){body}` is automatically converted into a `{...}` code block whose content is a **functional macro invocation**
-`name!{(args){body} trait ...}` — the method-name list, body, and the whole trait definition are handed to the user's same-named macro,
-which expands them into the needed fn definitions. This means the directive system is **open** and
-shares the same origin as `#fill` / `#delegate`: both are "read the trait → generate fn definitions", except the implementation is delegated to
-the user (`#fill` is the library implementation, an open directive is a user-macro implementation).
+An unrecognized `#name(args){body}` becomes a **top-level macro invocation**:
+it expands to the `!`-marked block `{ ! name!{(args){body} trait ...} }`, and
+codegen emits the call at top level with the spec body prepended — the user's
+same-named macro receives `{spec}(args){body} trait ...` (4 segments, the spec
+body first) and expands into arbitrary items, typically its own impl. This
+means the directive system is **open**: `#fill`/`#delegate` are library
+implementations of the "read the trait → generate" idea, an open directive is
+a user-macro implementation of the same idea.
 
 ```rust
 # use batch_impl::batch_impl;
-# use batch_impl::batch_preprocess_test; // test-only open-extension macro: parses (names){body} trait → generates fn definitions
+# use batch_impl::batch_preprocess_test; // test-only open-extension macro: parses {spec}(names){body} trait → generates an impl
 #[batch_impl(usize #batch_preprocess_test(add,inc){*self+1})]
 trait AddInc {
     fn add(&self) -> Self;
     fn inc(&self) -> Self;
 }
 // → trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; }
-// → impl AddInc for usize {
-//       batch_preprocess_test!{(add,inc){*self+1} trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; }}
-//   }
-//   → the macro expands to: fn add(&self) -> Self { *self + 1 } fn inc(&self) -> Self { *self + 1 }
+// → batch_preprocess_test!{ {usize} (add,inc){*self+1} trait AddInc { fn add(&self) -> Self; fn inc(&self) -> Self; } }
+//   → the macro expands to: impl AddInc for usize {
+//       fn add(&self) -> Self { *self + 1 } fn inc(&self) -> Self { *self + 1 }
+//     }
 ```
+
+The same top-level protocol is available by hand: attach `{! m!{...}}` to a
+spec (`T {! m!{...}}` — user-written input, same 4 segments). Without the
+`!` (`T {m!{...}}`) the macro call stays in the impl body (associated items —
+write the full input including the trait yourself). A `{!}` block must be
+the last block of the spec, and there can be at most one.
 
 > Note: this is a "user-defined `#fill`" — each type can attach its own
 > (`usize #batch_preprocess_test(...){...}, isize #batch_preprocess_test(...){...}`),
@@ -777,6 +790,18 @@ trait FixedMatrix {}
 
 ### `@` Constants — built-in type-family names
 
+The `@` macro-meta layer has **three dimensions**:
+
+| Dimension | Markers | Role |
+|-----------|---------|------|
+| **Constants** | `@u*` / `@num` / `@scalar` / `@u8..u128` / custom `@name=value;` | type-family lists, expanded before parsing |
+| **Selectors** | `@all` family (`@all_methods` / `@all_required*` / `@all_ref_methods` / `@all_type_params` ...) | item-set selection for directive scopes (see §7) |
+| **Positional references** | `@N` / `@g_i` / `@all_fresh` / `@N..M` | naming macro-generated fresh generics (next section) |
+
+All three are **pure lexical substitution** — they expand to tokens before any DSL
+parsing, so they compose freely with the type DSL (`[Box, Rc]^@uints`), directives
+(`#fill(@all)`), and where predicates (`where{@0..=2: Copy}`).
+
 Common type matrices don't have to be written by hand: `@` constants expand to literal lists during preprocessing, equivalent to writing them out.
 
 | Constant | Expands to |
@@ -846,11 +871,36 @@ constants (`batch_trait!` is a function-like macro that can't get the definition
 | `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | Bracket groups filtered by receiver kind (`&self`/`&mut self` / `self` / associated functions) | delegate only reference methods (bypassing the uncertain by-value delegation semantics); `#blanket(@all_ref_methods){Box}` |
 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | generic-parameter families: expand to a **flat `<...>` generic declaration** (type parameters as bare names, const parameters in full `const N: usize` form, lifetimes verbatim) | generic declarations copied verbatim from the trait's parameters (bounds via same-named inheritance); `#[batch_impl(@all_lifetimes @all_type_params Borrowed<'a, T> &'a T)]` — consecutive declarations keep lifetimes first |
 | `@Cow` | `Cow<'_>` + intrinsic constraint predicates | blanket wrapping (deref target = `T::Owned`) |
-| `@N` (positional reference) | the name of the **Nth fresh generic** (of the form `_Param_{N}_BatchGen_`) inside where predicates | in blanket wrapper predicates `@0` = the target generic (the only fresh); in tuple generation `()^N`, `@k` = the kth fresh generic; **user generics are written by name** (they don't participate in `@N` indexing) |
+| `@N` (positional reference) | the name of the **Nth fresh generic** of *that impl* (of the form `_Param_{N}_BatchGen_`) — every impl renumbers its fresh to `0..N` in document order, so `@N` works across specs and range-generated impls | in blanket wrapper predicates `@0` = the target generic (the only fresh); in tuple generation `()^N`, `@k` = the kth fresh generic; also usable in the target type itself (`Box<@0>`); **user generics are written by name** (they don't participate in `@N` indexing) |
+| `@g_i` (grouped reference) | group g, position i of that generating site (`_Param_{g}_{i}_BatchGen_`) — **stable across array-dispatch impls** (a group absent from an impl errors instead of silently shifting) | `()^3-()^3 where{@0_0: Clone}` = the left generator's first fresh, `@1_0` = the right generator's first; also usable in the target type |
+| `@all_fresh` | every fresh generic of that impl (predicate-subject only) | `where{@all_fresh: Clone}` bounds all fresh generics |
+| `@N..M` / `@N..=M` (range) | a contiguous fresh range (predicate-subject only) | `where{@0..=2: Copy}` bounds the first three freshes |
 
-> `@N` is the only marker resolved at the **codegen stage** (it needs the final impl generic list);
+> `@N` resolves by number: in where predicates at the codegen stage, in the target
+> type at the parse layer (the type-domain boundary);
 > `@trait` has been moved earlier: `batch_impl` expands it at the constant stage (the trait path is known),
 > and `batch_trait!` replaces it per section (recursively entering where groups).
+
+**Choosing between `@N` and `@g_i`**: `@N` numbers fresh generics per impl in
+document order — simple, but the meaning shifts across array-dispatch impls
+(each impl renumbers from 0). `@g_i` names the exact generating site (group g,
+position i) — **stable across dispatched impls**; use it when a where predicate
+must refer to a specific generator's fresh in a dispatch
+(`[Box, ()^2]^()^2`). `@all_fresh` / `@N..M` are the batch forms for
+"every fresh" / "a contiguous run".
+
+**Stability**: the `@N` numbering semantics were revised across 0.6.4 →
+0.6.7 (per-impl numbering + document order + target-type channel). The current
+mechanism (per-impl sweep to `_Param_0..N_BatchGen_`, `@N` = pure construction)
+is considered **final** — any future change is treated as a deliberate
+breaking release.
+
+**Learning note**: the `@` layer is a small meta-language — the accumulated
+markers have real learning cost. You can go far with just `@u*` / `@num` /
+`@scalar` (constants) + `@all_methods` (selector) + `@0` (the blanket target).
+The grouped / batch / range references exist for the composing scenarios —
+reach for them when a predicate needs to name a specific fresh generic, not
+earlier.
 
 After the `@all` family expands into Bracket groups, normal directive-argument parsing applies: **`#` is no longer a scope marker** —
 `#` now only appears in the single form of a directive name (`#fill`/`#delegate`/`#blanket`/open extensions), and scope
@@ -873,6 +923,10 @@ trait TupleWhereAt { fn tmk() -> u32; }
 #[batch_impl(<T> AtWhere<T> Vec<T> where{T: Default} { fn an(&self) -> usize { self.len() } })]
 trait AtWhere<T: Clone> { fn an(&self) -> usize; }
 // → impl<T: Clone + Default> AtWhere<T> for Vec<T> { ... }
+
+// batch references: @all_fresh bounds every fresh; @N..=M bounds a range
+#[batch_impl(()^3-()^3 where{@all_fresh: Clone, @0..=2: Copy})]
+trait BatchWhereAt {}
 ```
 
 (In blanket wrapper predicates `@0` = the target generic, fresh T — see §7 `#blanket`; `@trait` can also appear

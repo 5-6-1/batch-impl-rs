@@ -7,6 +7,7 @@ use quote::quote;
 
 use crate::ast::*;
 use crate::parse::parse_item;
+use crate::parse::resolve_at_refs;
 use crate::util::{Cursor, is_single_colon, scan_stop};
 
 // ============================================================
@@ -62,7 +63,9 @@ pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> b
 /// `T: Two<A` / `B>`); if the macro ever generates generic-group contents containing angle
 /// brackets, they must be paired (`Group::new(delimiter![<>], ...)`) before insertion,
 /// never scattered as flat `<...>`.
-fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
+pub(crate) fn split_at_depth0(
+    tokens: &[TokenTree], separator: char,
+) -> Vec<&[TokenTree]> {
     let mut chunks = vec![];
     let mut rest = tokens;
     while let Some(index) = scan_stop(rest, &[separator]) {
@@ -88,11 +91,16 @@ pub(crate) fn parse_angle_bracket_contents(
         if chunk.is_empty() {
             continue;
         }
+        // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
+        // types (flat token splitting) — resolve them to fresh names here.
+        // A resolution error yields a `compile_error!` token stream that
+        // surfaces when the impl header is rendered.
         if let Some(eq) = scan_stop(chunk, &['=']) {
-            bindings.push((
-                chunk[..eq].iter().cloned().collect(),
-                chunk[eq + 1..].iter().cloned().collect(),
-            ));
+            let value = match resolve_at_refs(&chunk[eq + 1..]) {
+                Ok(v) => v.into_iter().collect(),
+                Err(e) => e,
+            };
+            bindings.push((chunk[..eq].iter().cloned().collect(), value));
         } else if let Some(colon) = find_colon_at_depth0(chunk) {
             params.push((
                 chunk[..colon].iter().cloned().collect(),
@@ -105,7 +113,11 @@ pub(crate) fn parse_angle_bracket_contents(
                 .into(),
             ));
         } else {
-            params.push((chunk.iter().cloned().collect(), None));
+            let name = match resolve_at_refs(chunk) {
+                Ok(v) => v.into_iter().collect(),
+                Err(e) => e,
+            };
+            params.push((name, None));
         }
     }
     TyTypeParam { params, bindings }

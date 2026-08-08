@@ -5,7 +5,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 use syn::ItemTrait;
 
-use crate::preprocess::name_list::{AllMarkerSpec, ReceiverFilter};
+use crate::preprocess::directives::name_list::{AllMarkerSpec, ReceiverFilter};
 use crate::util::{compile_err, compile_error_str};
 
 /// Resolves an `all`-family marker. `default=None` includes everything;

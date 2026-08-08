@@ -50,7 +50,8 @@ fn pow_empty(n: usize) -> Ty {
     if n == 0 {
         return TyTuple(vec![]).into();
     }
-    let params = fresh_params(n);
+    let g = take_group();
+    let params = fresh_params(g, n);
     let param_names = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
     let tp: Ty = TyTypeParam {
         params: param_names.into_iter().map(|n| (n, None)).collect(),
@@ -70,7 +71,8 @@ fn pow_single(template: Ty, n: usize) -> Ty {
                 "batch-impl: unexpected bound parameter in (<Trait>)⁁; this is an internal error",
             );
         }
-        let params = fresh_params(n);
+        let g = take_group();
+        let params = fresh_params(g, n);
         let param_names =
             params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
         let bound_tokens = tp.params[0].0.clone().into_iter().collect::<Vec<_>>();
@@ -114,13 +116,16 @@ fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
 /// Instantiate one Cartesian combination: TypeParam positions get a fresh param with the bound
 /// preserved; other positions stay as-is
 fn instantiate_combo(elems: Vec<Ty>) -> Ty {
+    let g = take_group();
     let mut tuple_elems = vec![];
     let mut param_decls = vec![];
+    let mut pos = 0;
     for elem in elems {
         let elem_span = elem.span;
         match elem.kind {
             TyKind::TypeParam(tp) => {
-                let name = fresh_param();
+                let name = fresh_param(g, pos);
+                pos += 1;
                 // Keep the original bound (previously the param name was mistaken for the bound;
                 // `(A: Clone, T)^N` produced `_Param: A` instead of `_Param: Clone`)
                 let params = tp
@@ -145,8 +150,8 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     Ty::new(Span::call_site(), TyKind::TypeParam(merged)).apply(tuple)
 }
 
-fn fresh_params(n: usize) -> Vec<Ty> {
-    (0..n).map(|_| TyPrimitive(fresh_param()).into()).collect()
+fn fresh_params(g: usize, n: usize) -> Vec<Ty> {
+    (0..n).map(|i| TyPrimitive(fresh_param(g, i)).into()).collect()
 }
 
 impl TyTuple {

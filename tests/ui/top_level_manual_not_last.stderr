@@ -1,0 +1,5 @@
+error: cannot find macro `my_macro` in this scope
+ --> tests/ui/top_level_manual_not_last.rs:8:21
+  |
+8 | #[batch_impl(u32 {! my_macro!{}} {fn other() {}})]
+  |                     ^^^^^^^^

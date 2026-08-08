@@ -1,8 +1,11 @@
 # batch-impl Internal Architecture
 
-**v0.6.6** — 0.6.2/0.6.3/0.6.4 released: preprocessing order `@ <> # where`, complete macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation, `@u*` rename, generic-param families, fresh-only `@N`, `@trait` expansion; 0.6.5: `@N` the only codegen marker (blanket unified), `#cmd[args]` bracket
+**v0.6.7** — 0.6.2/0.6.3/0.6.4 released: preprocessing order `@ <> # where`, complete macro-meta layer, unified directive shape, span diagnostics, receiver filtering, blanket static delegation, `@u*` rename, generic-param families, fresh-only `@N`, `@trait` expansion; 0.6.5: `@N` the only codegen marker (blanket unified), `#cmd[args]` bracket
 args; 0.6.6: `(T)^N` group-strip semantics, unsuffixed number rendering,
-input-validation guards.
+input-validation guards; 0.6.7: per-impl fresh numbering + `@g_i` grouped
+references, top-level open extension (`{! ...}`), `@all_fresh` / `@N..M`
+batch where-references, error aggregation, preprocess restructured into
+`directives/` + `consts/` sub-folders.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
@@ -24,13 +27,12 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── parse_atom.rs     atom-level parsing: attributes / fn / prefixes / ranges / groups / lists
   │   └── generic.rs        generic parsing: parse_generic / parse_angle_bracket_contents (angle-bracket groups are delimiter![<>])
   ├── preprocess/           preprocessing layer (token rewriter, one pass per file; mod.rs aggregates re-exports)
-  │   ├── mod.rs            the delimiter! delimiter-spelling macro + directive preprocessing: #name directive expansion (built-in + open extension)
-  │   ├── consts.rs         the `@` constant system: built-in type families (@u*/@i*/@f* name families + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 ranges) + batch_trait! custom definition sections
+  │   ├── mod.rs            the delimiter! delimiter-spelling macro + the pipeline: angle_collect → expand_consts → expand_tokens (#name directive expansion) → where_process
+  │   ├── directives/       the `#` directive system: #fill / #delegate / #blanket + open extension (name_list / trait_items / delegate_args / blanket / blanket_wrappers)
+  │   ├── consts/           the `@` constant system: built-in type families (@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 ranges) + batch_trait! custom definition sections + where selectors (@all_fresh / @N..M pass-through) (table / expand / ctx)
   │   ├── empty_generics.rs `A<>` verbatim-copy expansion (parameter rendering uses the merged bound)
-  │   ├── helpers.rs        preprocessing helpers: build_from_item / get_trait_item / parse_names_from_tokens (list subtraction `-`) / GenericFilter (generic-param families @all_type_params/@all_const_params/@all_lifetimes)
   │   ├── where_process.rs  bare-where rewrite: `where predicates {body}` → legacy `where{predicates}`
-  │   ├── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
-  │   └── blanket.rs        `#blanket` blanket delegation (wrapper elements of any type + :N depth; instance methods forward via deref, static methods via a generic `t`)
+  │   └── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
   ├── ast/                  AST layer
   │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 18 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
   │   └── types_render.rs   AST rendering: ToTokens impl for Ty + the params_to_tokens family

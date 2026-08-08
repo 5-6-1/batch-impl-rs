@@ -5,6 +5,43 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.6.7 (2026-08-06)
+
+### `@N` position references: per-impl numbering + target-type support
+
+- **Breaking**: fresh generic numbering is now **per impl** — every generated
+  impl renumbers its fresh params to `_Param_0..N_BatchGen_` in document
+  order, so `@N` always refers to the N-th fresh of *that* impl. This fixes
+  unit drift: `@0` now works across specs and range-generated impls
+  (previously the counter continued across them and `@0` errored on later
+  units). In combination scenarios (e.g. `()^3-()^3`) `@0` is the first fresh
+  as it appears in the generated type (previously the declaration-order
+  first, which differed from the document order);
+- `@N` is usable in the target type itself (`Box<@0>`); blanket wrapper
+  position markers (`(u32, @0)`) go through the same channel.
+
+### Top-level open extension (`#cmd` / `{! ...}`)
+
+- **Breaking**: the open extension `#cmd(args){body}` is now **top-level** —
+  the macro call receives `{spec}(args){body}trait` (4 segments, the spec
+  body first) and emits arbitrary items, typically its own impl; batch-impl
+  no longer generates the impl for it. The same protocol is available by
+  attaching `{! m!{...}}` to a spec (user-written input). The in-impl form
+  `T {m!{...}}` (no `!`) still lands the call in the impl body (associated
+  items, full input including the trait written by hand).
+
+### `@all_fresh` / `@N..M` batch where-references
+
+- `@all_fresh: Bound` bounds every fresh generic; `@N..M` / `@N..=M` bound a
+  contiguous fresh range (`@0..=2: Clone`); both expand to comma-separated
+  predicates and error on out-of-range / oversized expansions.
+
+### Error aggregation
+
+- Multiple spec errors are reported together instead of stopping at the
+  first one.
+
+
 ## 0.6.6 (2026-08-06)
 
 ### `(T)^N` group-strip semantics + unsuffixed number rendering
@@ -18,7 +55,7 @@
 - Numbers/ranges render without a `usize` suffix (`W<2>` instead of
   `W<2usize>`, `[u8; 3]` instead of `[u8; 3usize]`).
 
-### Input-validation guards (evaluator findings)
+### Input-validation guards
 
 - `expand_consts` nesting guard (128 levels — deeply nested `[[[` no longer
   overflows the stack);
@@ -112,8 +149,8 @@
   exactly one fresh, so `@0` is precisely "the 0-th fresh" — no longer a special-case rule;
 - Breaking point: `<T> ... where{@0: Default}` used to refer to the user generic `T` — write `where{T: Default}`
   instead (more natural); the out-of-bounds error is updated ("impl has N fresh generics");
-- Author's original intent: `@N` was meant as a direct mapping of `_Param_N_BatchGen_` — but fresh numbering is a
-  global counter independent of final position (misaligned when multiple fresh sources / author generics are
+- Original intent: `@N` was meant as a direct mapping of `_Param_N_BatchGen_` — but fresh numbering is a
+  global counter independent of final position (misaligned when multiple fresh sources / user generics are
   interleaved), so "the N-th fresh" hardens it: positions are countable and independent of numbering, keeping
   the user-generic scenario pure.
 
@@ -121,7 +158,7 @@
 
 - Problem: `where{...}` is a Brace group, and `expand_consts` did not enter it (the `@` in a body is
   pattern syntax) — so `@trait`/`@N` in where predicates both remained until codegen's
-  `resolve_where_at`; the author pointed out that `@trait` should not survive to codegen (only `@N` needs
+  `resolve_where_at`; `@trait` should not survive to codegen (only `@N` needs
   the impl generic list);
 - Three fixes:
   - `expand_consts` recognizes the `where` Ident + Brace group (a DSL construct, not a body) → enters it
@@ -295,7 +332,7 @@ wrappers (`impl<T: Trait> Trait for Box<T>` and so on).
 - **Assoc type / const delegation**: when `#all` includes const/type items, projections are generated
   (`type Item = <T as Foo<X>>::Item;` / `const N: Ty = <T as Foo<X>>::N;`) —
   traits with required associated types can also be blanket-covered;
-- `*const`/`*mut`, `self`, empty elements, and invalid `:N` error out, steering authors to hand-written `#delegate`;
+- `*const`/`*mut`, `self`, empty elements, and invalid `:N` error out, steering users to hand-written `#delegate`;
   delegation of by-value receiver methods depends on the wrapper's Deref/move capability, so everything is
   still allowed with rustc as the backstop (documented as a caveat).
 
@@ -308,7 +345,7 @@ wrappers (`impl<T: Trait> Trait for Box<T>` and so on).
 
 - README trimmed to a promotional version (why use it, mental model, quick start, feature overview);
   the full tutorial moved to `docs/tutorial.md`, developer docs to `docs/architecture.md`
-- CHANGELOG split into this file (author perspective) and `docs/dev-changelog.md` (developer perspective)
+- CHANGELOG split into this file (user-facing changes) and `docs/dev-changelog.md` (developer notes)
 - Tutorial gained `@` constant and `#blanket` sections; architecture docs gained "syntax domain isolation" and
   "attachment semantics" sections
 

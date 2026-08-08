@@ -5,6 +5,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::ast::*;
+use crate::parse::split_at_depth0;
 
 /// Recursively extracts all parts an impl block needs from `Ty`.
 ///
@@ -79,7 +80,13 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
         TyKind::WithWhere(ww) => match ww.0 {
             Some(inner) => {
                 let mut parts = extract_impl_parts(*inner);
-                parts.where_clauses.push(ww.1.0);
+                // Split the where group into predicates at depth-0 commas so
+                // each predicate resolves independently (`@all_fresh` /
+                // `@N..M` expansions must not swallow following predicates).
+                let tokens: Vec<_> = ww.1.0.clone().into_iter().collect();
+                for pred in split_at_depth0(&tokens, ',') {
+                    parts.where_clauses.push(pred.iter().cloned().collect());
+                }
                 parts
             }
             None => ImplParts::leaf(ww.to_ty().with_span(span)),
