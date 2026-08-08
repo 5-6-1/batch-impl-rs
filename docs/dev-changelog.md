@@ -88,7 +88,7 @@
   the result into the matching splat variant (a splat stays a splat until
   consumed) — no duplicated distribution/append logic. Right operands and
   container collection flatten regardless of variant (per user decision —
-  "`*` 意义就在这");
+  "that's the point of `*`");
 - `*const`/`*mut` raw pointers unaffected (disambiguated by the following
   token); bare `*u8` errors with a targeted message (ui: `star_misuse`);
   a generator splat as a generic argument errors — its fresh declaration has

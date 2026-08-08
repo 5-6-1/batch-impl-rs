@@ -660,6 +660,33 @@ impl StaticT for u8 {
 //      <Box<Box<u8>> as StaticT>::make() → 递归委托（Box<u8>: StaticT bound）
 ```
 
+### trait 泛型实参：指令抄写时替换
+
+`Trait<实参>` 形式的 trait 段指定具体实参——指令从 trait 定义抄签名/类型时，
+trait 泛型参数会替换成实参。适合对已存在的泛型 trait 生成带固定实参的 impl：
+
+```rust
+# use batch_impl::batch_impl_only;
+# struct Wrapper<T>(T);
+#[batch_impl_only(
+    From<bool>
+    Wrapper^@u8..u16
+    #from{ Wrapper(value.into()) }
+)]
+pub trait From<T>: Sized { fn from(value: T) -> Self; }
+// → impl From<bool> for Wrapper<u8> {
+//       fn from(value: bool) -> Self { Wrapper(value.into()) }
+//   }
+// → impl From<bool> for Wrapper<u16> { ... }
+```
+
+`From<T>` 的 `T` 在抄写 `fn from(value: T)` 时替换成实参 `bool`（body 里的 `T`
+同理）。lifetime 参数/实参不参与替换——body 的 `'a` 引用 impl 自身的 lifetime。
+
+> **注意**：fn 自身的泛型参数不要与 trait 实参重名
+> （`impl<U> A<U>` 里写 `fn foo<U>`）——Rust 禁止泛型参数遮蔽，会报 E0403
+> （错误会同时指向 spec 的 `<U>` 与 fn 的 `<U>`），改名即可。
+
 ## 8. where 子句
 
 ### `where{...}` 后缀
@@ -911,8 +938,7 @@ batch_trait!(
 `batch_trait!` 多段每段 trait 名不同——常量值里的 `@trait` 在分段后
 **逐段替换为本段 trait 路径**：
 
-`
-ust
+```rust
 # use batch_impl::batch_trait;
 # trait A<T> {} trait B<T> {}
 batch_trait!{
@@ -920,7 +946,7 @@ batch_trait!{
     A: @type_t [&, Box]^T;      // → <T> A<T> [&, Box]^T
     B: @type_t Box^[T, Vec<T>]; // → <T> B<T> Box^[T, Vec<T>]
 }
-`
+```
 
 ### 宏元层完整化：`@trait` / `@all` 系 / `@Cow` / `@0`
 
