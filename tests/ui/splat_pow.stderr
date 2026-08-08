@@ -1,0 +1,7 @@
+error: batch-impl: `*(A,B)^N` (pow on a non-empty splat) is not supported — flattening would duplicate the Cartesian combinations; use `(A,B)^N` directly, or `T^*()^N` to generate fresh generic params
+  --> tests/ui/splat_pow.rs:10:1
+   |
+10 | #[batch_impl(*(A, B)^2)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -243,18 +243,37 @@ impl Apply for TySplat {
     /// re-wraps the result as a splat (the `*` flattening survives until
     /// consumption):
     /// - `TySplat::Array` → `TyArray` distribution (`*[A,B]^T` = `*[A^T,B^T]`)
-    /// - `TySplat::Tuple` → `TyTuple` append / tuple-pow (`*(A,B)^T` =
-    ///   `*(A,B,...,T)`; `*(A,B)^N` = Cartesian product); `*()^N` keeps the
-    ///   splat shape (`*()^2` = `<A,B>*(A,B)`, `T^*()^2` = `<A,B>T<A,B>`).
+    /// - `TySplat::Tuple` → `TyTuple` append (`*(A,B)^T` = `*(A,B,...,T)`;
+    ///   pow on a non-empty splat is rejected — flattening would duplicate
+    ///   the Cartesian combinations); `*()^N` keeps the splat shape
+    ///   (`T^*()^2` = `<A,B>T<A,B>`).
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         let result = match self {
             TySplat::Array(a) => a.apply(o, span),
-            TySplat::Tuple(t) => t.apply(o, span),
+            TySplat::Tuple(t) => {
+                // `*(A,B)^N` (pow on a non-empty tuple splat) is rejected:
+                // the Cartesian tuple combinations would be re-flattened by
+                // splat consumption into duplicates (E0119). Use `(A,B)^N`
+                // directly, or `T^*()^N` (empty splat) for fresh generics.
+                if !t.0.is_empty() && matches!(o.kind, TyKind::Num(_)) {
+                    return err_ty_at(
+                        "batch-impl: `*(A,B)^N` (pow on a non-empty splat) is \
+                         not supported — flattening would duplicate the \
+                         Cartesian combinations; use `(A,B)^N` directly, or \
+                         `T^*()^N` to generate fresh generic params",
+                        o.span,
+                    );
+                }
+                t.apply(o, span)
+            }
         };
         let Ty { span, kind } = result;
         match kind {
             // Re-wrap whichever container came back — the splat stays a
             // splat until consumption (container collection / expand).
+            // `*[A,B]^T` distribution keeps the splat so a following
+            // right-splat chain (`Pair^*[A,B]^T` = `Pair<A^T, B^T>`) can
+            // flatten its elements into the container.
             TyKind::Tuple(t) => TySplat::Tuple(t).to_ty().with_span(span),
             TyKind::Array(a) => TySplat::Array(a).to_ty().with_span(span),
             // `*()^N` (empty splat) yields `WithType(decl, tuple)` via

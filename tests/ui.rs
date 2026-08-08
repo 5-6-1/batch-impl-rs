@@ -65,6 +65,10 @@ fn ui() {
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
     // at the definition by `check_value_refs`
     t.compile_fail("tests/ui/const_bare_endpoint.rs");
+
+    // splat: `*(A,B)^N` — pow on a non-empty splat is rejected (flattening
+    // would duplicate the Cartesian combinations)
+    t.compile_fail("tests/ui/splat_pow.rs");
     t.compile_fail("tests/ui/at_group_out_of_range.rs");
     t.compile_fail("tests/ui/top_level_block_not_last.rs");
     t.compile_fail("tests/ui/top_level_manual_not_last.rs");

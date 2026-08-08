@@ -1946,9 +1946,7 @@ fn pow_cartesian_nested_in_tuple() {
     assert_t::<((A_, A_), ((A_, A_), (u8, u16)))>();
 }
 
-// ---- Splat (`*` prefix): flatten containers / generators (0.6.8) ----
-
-// ---- Splat (`*` prefix): flatten containers / generators (0.6.8) ----
+// ---- Splat (`*` prefix): flatten containers / generators (0.7.0) ----
 
 struct SplatA;
 struct SplatB;
@@ -2096,4 +2094,22 @@ fn splat_rules() {
     fn assert_bl<T: SplatBracketLeft>() {}
     assert_bl::<Vec<SplatC>>();
     assert_bl::<Box<SplatC>>();
+}
+
+// `*()^N` — empty splat keeps its splat shape (`TySplat::apply_help`'s
+// WithType re-wrap path): `T^*()^2` = `<A,B>T<A,B>` (a positional fresh
+// pair). The bare `*()^N` target form is NOT usable: its multiple impls
+// share one generic declaration while each uses only one param — rustc
+// rejects the unused params (E0207). Always route through a carrier
+// (`T^*()^N`), which consumes the full declaration. Pow on a non-empty
+// splat (`*(A,B)^N`) is rejected with a dedicated error (see ui tests).
+#[batch_impl(Pair^*()^2)]
+trait SplatEmptyPow {}
+
+#[test]
+fn splat_empty_pow() {
+    // `Pair^*()^2` emits `impl<P0, P1> SplatEmptyPow for Pair<P0, P1>`
+    // (fresh pair as the generic args — any concrete pair is covered).
+    fn assert_t<T: SplatEmptyPow>() {}
+    assert_t::<Pair<SplatA, SplatB>>();
 }
