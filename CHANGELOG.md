@@ -5,7 +5,9 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.6.7 (2026-08-06)
+## 0.6.8 (2026-08-08)
+
+## 0.6.7 (2026-08-08)
 
 ### `@N` position references: per-impl numbering + target-type support
 
@@ -42,7 +44,7 @@
   first one.
 
 
-## 0.6.6 (2026-08-06)
+## 0.6.6 (2026-08-07)
 
 ### `(T)^N` group-strip semantics + unsuffixed number rendering
 

@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.6.7**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
+**v0.6.8**——0.6.2/0.6.3/0.6.4 已发布：按 receiver 种类过滤
 （`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`）、
 `#blanket` 静态方法委托、span 诊断、`@u*`/`@i*`/`@f*` 改名、泛型参数族、
 `@N` 只索引 fresh 泛型；0.6.5：`#cmd[args]{body}` 方括号参数、宏调用

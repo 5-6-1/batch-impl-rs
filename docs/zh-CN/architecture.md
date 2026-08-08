@@ -1,6 +1,6 @@
 # batch-impl 内部架构
 
-**v0.6.7**——0.6.2/0.6.3/0.6.4 已发布：预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托、`@N` 唯一 codegen 记号；0.6.5：blanket `@N` 统一、`#cmd[args]` 方括号参数；0.6.6：`(T)^N`
+**v0.6.8**——0.6.2/0.6.3/0.6.4 已发布：预处理顺序 `@ <> # where`、宏元层完整化、指令统一形态、span 诊断、receiver 过滤、blanket 静态委托、`@N` 唯一 codegen 记号；0.6.5：blanket `@N` 统一、`#cmd[args]` 方括号参数；0.6.6：`(T)^N`
 分组剥离语义、数字渲染无后缀、输入校验护栏；0.6.7：fresh 逐 impl 编号 +
 `@g_i` 分组引用、顶层开放扩展（`{! ...}`）、`@all_fresh` / `@N..M` 批量
 where 引用、错误聚合、preprocess 重组为 `directives/` + `consts/` 子文件夹。

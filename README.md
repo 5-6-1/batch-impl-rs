@@ -1,6 +1,6 @@
 ﻿# batch-impl
 
-**v0.6.7** (2026-08-06) — 0.6.2–0.6.6 released; 0.6.7: per-impl fresh numbering (`@N` anywhere, incl. target types), top-level open extension (`{! ...}`), `@all_fresh` / `@N..M` batch where-references, error aggregation.
+**v0.6.8** (2026-08-08) — 0.6.2–0.6.7 released; 0.6.7: per-impl fresh numbering (`@N` anywhere, incl. target types), top-level open extension (`{! ...}`), `@all_fresh` / `@N..M` batch where-references, error aggregation.
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 

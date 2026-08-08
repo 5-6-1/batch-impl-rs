@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.6.7** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen; 0.6.6: `(T)^N` group-strip semantics
+**v0.6.8** — 0.6.2/0.6.3/0.6.4 are released: receiver filters (`@all_ref_methods` / `@all_value_methods` / `@all_static_methods`), `#blanket` static-method delegation, span diagnostics, `@u*`/`@i*`/`@f*` rename, generic-parameter families, fresh-only `@N`; 0.6.5: `#cmd[args]{body}` bracket args, macro-call passthrough fix, bare range-endpoint rejected at the definition, blanket `@N` resolved by codegen; 0.6.6: `(T)^N` group-strip semantics
 (= `T^N`, a const-generic arg like `W<2>`; **breaking** — tuple generation now needs `(T,)^N`), unsuffixed number rendering,
 and input-validation guards (consts nesting depth, `#blanket` `:N` cap,
 `@all_*` reserved names, empty `:` depth); 0.6.7: per-impl fresh numbering

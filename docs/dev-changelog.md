@@ -5,7 +5,9 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.6.7 (2026-08-06)
+## 0.6.8 (2026-08-08)
+
+## 0.6.7 (2026-08-08)
 
 ### Fresh-system rework: grouped generation + per-impl sweep; `@N` pure construction
 
@@ -129,7 +131,7 @@
   partial impls (ui fixture `error_aggregation`).
 
 
-## 0.6.6 (2026-08-06)
+## 0.6.6 (2026-08-07)
 
 ### Tuple/fn syntax-boundary fixes (`(T)^2 = T^2`)
 
