@@ -2189,3 +2189,20 @@ fn trait_generic_args() {
     assert_c::<Pair<SplatA, SplatA>>();
     assert_c::<Pair<SplatB, SplatB>>();
 }
+
+// Trait generic args pointing at an impl generic: `<U>GenU<U>()` — the
+// generic declaration `<U>` + trait segment `A<U>` + target `()` + a
+// directive. The trait param `T` substitutes to `U` (`fn foo(_: T)` →
+// `fn foo(_: U)`, referencing the impl generic).
+#[batch_impl(<U>GenU<U>() #foo{})]
+trait GenU<T> {
+    fn foo(_: T);
+}
+
+#[test]
+fn trait_generic_args_to_impl_generic() {
+    fn assert_gu<T: GenU<u8>>() {
+        let _ = <T as GenU<u8>>::foo;
+    }
+    assert_gu::<()>();
+}

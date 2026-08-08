@@ -33,7 +33,14 @@
   handwritten generic list `[Pair<A, A>, Pair<B, B>]` instead.
 - Tests: `trait_generic_args` (dsl) — trait generic substitution with a
   real (non-discarded) trait, verifying the impl compiles and the method is
-  referenceable.
+  referenceable; `trait_generic_args_to_impl_generic` — the arg points at an
+  impl generic (`<U>A<U>()` → `fn foo(_: U)`).
+- **Not diagnosed (by design)**: a *function* generic param colliding with
+  the substituted trait arg (`fn foo<U>(_: T)` inside `impl<U> A<U>`) is
+  Rust's own generic-shadowing ban — `E0403` already points at both `U`s
+  (the spec's `<U>` and the fn's `<U>`). The macro emits legal code once
+  the user renames; no postprocess check is added (language-level rule,
+  rustc's diagnostic is already precise).
 
 ## 0.7.0 (2026-08-08)
 
