@@ -34,10 +34,15 @@
   delimiter — `TySplat::Array` distributes `^T` (`*[A^T,B^T]` — set, mirrors
   `TyArray`, re-wrapped so right-splat chains can flatten into a container),
   `TySplat::Tuple` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`,
-  re-wrapped); **`^N` pow on a splat yields final shapes that leave the
-  splat**: `*(A,B)^2` = `*[(A,A),(A,B),(B,A),(B,B)]` (Cartesian combos
-  dispatch as-is — re-wrapping would re-flatten the tuples into duplicates,
-  E0119); `*()^N` (empty splat) re-wraps its fresh tuple into the splat so a
+  re-wrapped); **`^N` pow on a splat re-wraps each Cartesian combo into a
+  splat**: `*(A,B)^2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]` — each combo is a
+  param-position list a right-splat chain flattens into the container
+  (`A^*(*@u*)^2` = `A<u8,u8>`/`A<u8,u16>`/... — repeat-list shorthand for
+  `A<@u*,@u*>`; a lone `*(A,B)^2` target flattens to duplicates, E0119 —
+  use `(A,B)^2` for tuple impls); **splat expands ONE layer**: tuples are
+  types and stay intact (`*((a,b),)` = one `(a,b)` impl; `*(a,(b,c))` keeps
+  `(b,c)`), while arrays / nested splats / generators / groups flatten;
+  `*()^N` (empty splat) re-wraps its fresh tuple into the splat so a
   carrier appends the params (`T^*()^2` = `<A,B>T<A,B>`; a bare `*()^N` as a
   lone target is rejected by rustc — its multiple impls share one generic
   declaration while each uses only one param, E0207); a bare `*()` as a lone

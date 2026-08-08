@@ -25,12 +25,23 @@ pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
     match ty.kind {
         TyKind::Splat(s) => fold_splat_elems(s.elems().to_vec()),
         TyKind::Array(a) => fold_splat_elems(a.0),
-        TyKind::Tuple(t) => fold_splat_elems(t.0),
+        // Splat expands ONE layer: tuples are types, so they stay as single
+        // elements — `*((a,b),)` = `(a,b)` (one tuple impl), and a tuple
+        // inside a splat (`*(a,(b,c))`) keeps `(b,c)` intact. Only lists
+        // (arrays, nested splats) and generators flatten.
+        TyKind::Tuple(t) => {
+            (vec![Ty { span: ty.span, kind: TyKind::Tuple(t) }], None)
+        }
         TyKind::Group(g) => splat_expand(*g.0),
-        // Generator: flatten the inner container, hoist the declaration out.
+        // Generator: its inner container is a *param list* (the fresh tuple),
+        // not a type — flatten it even though bare tuples stay single
+        // elements (`(*(()^3))` = `(P0,P1,P2)`, not `((P0,P1,P2),)`).
         TyKind::WithType(wt) => {
             let TyWithType(params, inner) = wt;
-            let (elems, _) = splat_expand(*inner);
+            let (elems, _) = match inner.kind {
+                TyKind::Tuple(t) => fold_splat_elems(t.0),
+                _ => splat_expand(*inner),
+            };
             (elems, Some(params))
         }
         // Anything else (primitive / generic / nested containers that belong
