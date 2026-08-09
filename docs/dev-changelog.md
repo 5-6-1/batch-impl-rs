@@ -71,9 +71,14 @@
   - **Splat pow inside generic args** (`Frac<*(*@u*)^2>`): the pow result
     (`TyArray([*(u8,u8), ...])`) enters params and distributes in `expand`'s
     generic branch — one impl per pair (36 total, equivalent to the
-    right-splat chain `Frac^*(*@u*)^2`); literal `T<[A,B]>` arrays still
-    distribute at parse time (`has_array_arg`), so the two paths never
-    double-distribute (dsl `splat_pow_arg`).
+    right-splat chain `Frac^*(*@u*)^2`). **Array-arg distribution unified
+    into one path** (user principle: "a rule that doesn't apply universally
+    isn't a rule"): literals (`T<[A,B]>`), constants (`T<@u*>` →
+    `[u8,...]`) and pow results all reach params as a `TyArray` and
+    distribute in that same `expand` branch — the parse-time `has_array_arg`
+    and `split_arg_candidates` were deleted (dsl `splat_pow_arg`; nested
+    `[[A,B],C]` went from recursive flatten-to-leaves to one-layer
+    distribution, consistent with splat's one-layer expansion).
   - **Container rule** (`parse_group`): a group whose content is a lone
     splat parses as the container holding the splat as one element —
     `(*(a,b))` = `( *(a,b) )` (tuple), `[*(a,b)]` = `[ *(a,b) ]` (array);

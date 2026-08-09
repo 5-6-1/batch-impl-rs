@@ -312,11 +312,11 @@ impl Ty {
             TyKind::Group(g) => (*g.0).expand(),
             TyKind::Generic(g) => {
                 // Array args distribute like a list — `T<[A,B]>` → `[T<A>, T<B>]`
-                // (Cartesian across multiple arrays). A literal `T<[A,B]>` is
-                // already split by the parse-time `has_array_arg` path; this
-                // catches array args produced by splat powers
-                // (`*(*@u*)^2` → `[*(u8,u8), ...]`) that enter params as a
-                // `TyArray`.
+                // (Cartesian across multiple arrays). This is the single
+                // authority for array-arg distribution: literal `[A,B]`, the
+                // `[u8,...]` from a `@u*` constant, and the `TyArray` produced
+                // by splat powers (`*(*@u*)^2` → `[*(u8,u8), ...]`) all reach
+                // params as a `TyArray` and distribute here.
                 if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_)))
                 {
                     let mut combos: Vec<TyParams> = vec![vec![]];

@@ -10,10 +10,10 @@ use crate::parse::parse_atom::{
     parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
 };
 use crate::parse::parse_primitive;
-use crate::parse::trailing::{attach_wrapper, split_arg_candidates};
+use crate::parse::trailing::attach_wrapper;
 use crate::parse::{parse_item, split_at_depth0};
 use crate::util::Cursor;
-use proc_macro2::{Delimiter, Ident, Punct, Spacing, TokenTree};
+use proc_macro2::{Delimiter, Ident, TokenTree};
 
 pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
@@ -139,75 +139,6 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
 
     if let Some((base, args, rest)) = parse_generic(tokens) {
         let args_vec = args.into_iter().collect::<Vec<TokenTree>>();
-        // List distribution in generic args: an array arg (`Vec<[A, B]>`) is
-        // a dispatch list — Cartesian-product the args into multiple generic
-        // instantiations wrapped in a TyArray (expanded by the work queue).
-        let arg_chunks = split_at_depth0(&args_vec, ',');
-        let has_array_arg = arg_chunks.iter().any(|c| {
-            matches!(c, [TokenTree::Group(g)] if g.delimiter() == Delimiter::Bracket)
-        });
-        if has_array_arg {
-            let candidates = arg_chunks
-                .iter()
-                .map(|c| {
-                    if let [TokenTree::Group(g)] = c
-                        && g.delimiter() == Delimiter::Bracket
-                    {
-                        // Recursive split: nested array args (`[[A, B], C]`)
-                        // distribute down to leaves — array distribution is
-                        // idempotent, so flattening the whole depth is
-                        // equivalent to distributing layer by layer.
-                        let inner =
-                            g.stream().into_iter().collect::<Vec<TokenTree>>();
-                        split_at_depth0(&inner, ',')
-                            .iter()
-                            .flat_map(|e| split_arg_candidates(e))
-                            .collect()
-                    } else {
-                        vec![c.to_vec()]
-                    }
-                })
-                .collect::<Vec<Vec<Vec<TokenTree>>>>();
-            let mut combos: Vec<Vec<Vec<TokenTree>>> = vec![vec![]];
-            for cands in &candidates {
-                let mut next = vec![];
-                for ex in &combos {
-                    for c in cands {
-                        let mut combo = ex.clone();
-                        combo.push(c.clone());
-                        next.push(combo);
-                    }
-                }
-                combos = next;
-            }
-            let variants = combos
-                .into_iter()
-                .map(|combo| {
-                    let mut flat = vec![];
-                    for (i, c) in combo.iter().enumerate() {
-                        if i > 0 {
-                            flat.push(TokenTree::Punct(Punct::new(
-                                ',',
-                                Spacing::Alone,
-                            )));
-                        }
-                        flat.extend(c.iter().cloned());
-                    }
-                    let params = parse_angle_bracket_contents(&flat, trait_name);
-                    if is_trait_base(&base, trait_name) {
-                        TyTrait(base.iter().cloned().collect(), params).into()
-                    } else {
-                        TyGeneric(primitive(&base).into(), params).into()
-                    }
-                })
-                .collect::<Vec<Ty>>();
-            let generic = TyArray(variants).into();
-            return if rest.is_empty() {
-                generic
-            } else {
-                generic.apply(parse_primitive(&rest, trait_name))
-            };
-        }
         let params = parse_angle_bracket_contents(&args_vec, trait_name);
         let generic = if is_trait_base(&base, trait_name) {
             TyTrait(base.iter().cloned().collect(), params).into()

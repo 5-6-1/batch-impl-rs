@@ -2,8 +2,7 @@
 
 use crate::ast::*;
 use crate::parse::parse_primitive;
-use crate::parse::split_at_depth0;
-use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 
 pub(crate) struct TrailingBody<'a> {
     /// Remaining tokens after stripping the trailing code block
@@ -52,21 +51,4 @@ pub(crate) fn attach_wrapper(
 ) -> Ty {
     let base = Ty { span: proc_macro2::Span::call_site(), kind };
     if rest.is_empty() { base } else { base.apply(parse_primitive(rest, trait_name)) }
-}
-
-/// Recursively splits a bracket group (`[A, B]`) into its leaf candidates,
-/// distributing nested arrays down to leaves (`[[A, B], C]` → `A`, `B`, `C`).
-/// Non-group token sequences are a single candidate.
-pub(crate) fn split_arg_candidates(tokens: &[TokenTree]) -> Vec<Vec<TokenTree>> {
-    if let [TokenTree::Group(g)] = tokens
-        && g.delimiter() == Delimiter::Bracket
-    {
-        let inner = g.stream().into_iter().collect::<Vec<TokenTree>>();
-        split_at_depth0(&inner, ',')
-            .iter()
-            .flat_map(|e| split_arg_candidates(e))
-            .collect()
-    } else {
-        vec![tokens.to_vec()]
-    }
 }

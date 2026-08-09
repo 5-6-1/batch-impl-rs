@@ -99,7 +99,8 @@ angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..
   简写；`*(A,B)^2` 单独作目标摊平成重复，E0119）。**泛型实参内的 splat 幂**
   （`Frac<*(*@u*)^2>`）——幂结果（`TyArray([*(u8,u8), ...])`）进入 params 后
   在 `expand` 的 Generic 分支分发成逐对 impl（36 个，与右 splat 链等价）；
-  字面数组实参（`T<[A,B]>`）仍走 parse 时 `has_array_arg` 路径，两条路径不重复。
+  字面数组实参（`T<[A,B]>`）同样进 params 成 `TyArray`——数组实参分发统一在
+  `expand` 的 Generic 分支（唯一权威），parse 层 `has_array_arg` 已删。
   HRTB binder（`for<'a>`）天然排除；const 泛型实参 / 数组长度经 `visit_expr`
   收集。`impl_names` 中 `const N` 归一如 `N` 以匹配引用检查。
 
