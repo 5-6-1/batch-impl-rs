@@ -84,44 +84,11 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
                 }
                 TyArray(result).to_ty().with_span(span)
             }
-            // Right-operand splat: `T^*(A,B,...)` ≡ `T-A-B-...` — flat
-            // append through the `-` chain (tuples concat, generators
-            // recurse keeping the decl, arrays distribute, left splats
-            // distribute per element — see `TySplat::apply_help`).
-            TyKind::Splat(s) => {
-                let elems = s.elems().to_vec();
-                {
-                    let left = self.clone().into();
-                    // Rule 1: `T^*(A,B,...)` ≡ `T-A-B-...` — flatten the
-                    // elements (containers/generators, hoisting declarations)
-                    // then append each through the shared apply chain. This
-                    // covers every left kind with no special case: tuples
-                    // concat (`(a,b)-c-d` = `(a,b,c,d)`), generators recurse
-                    // into their inner via `TyWithType::apply_help` (the
-                    // declaration stays on the inner — unwrapping it here
-                    // would drop the decl), arrays distribute, generics
-                    // accumulate params, left splats distribute per element.
-                    {
-                        let mut flat = vec![];
-                        let mut decl = None;
-                        for e in elems {
-                            let (mut es, d) = splat_expand(e);
-                            flat.append(&mut es);
-                            decl = merge_decls(decl, d);
-                        }
-                        let mut acc = Ty { span, kind: left };
-                        for e in flat {
-                            acc = acc.apply(e);
-                        }
-                        match decl {
-                            Some(d) => {
-                                TyWithType(d, acc.into()).to_ty().with_span(span)
-                            }
-                            None => acc,
-                        }
-                    }
-                }
-            }
+            // Right-operand splat: kept as a whole — `T^*(A,B,...)` becomes
+            // `T<*(A,B,...)>` with the splat as one generic arg; expansion
+            // happens only in the codegen postprocess (`expand_splats`), not
+            // here (splat survival principle: parse/apply/expand never
+            // flatten `*()` / `*[]`, so nested structures stay intact).
             TyKind::Group(g) => self.apply(*g.0, span),
             TyKind::WithCode(wc) => match wc.0 {
                 Some(inner) => TyWithCode(

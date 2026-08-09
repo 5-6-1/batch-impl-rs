@@ -134,30 +134,24 @@ pub(crate) fn parse_group(
     match group.delimiter() {
         delimiter![()] => {
             if contents.is_empty() || contains_punct(&contents, ',') {
-                let (flat, decl) =
-                    consume_splats(parse_list(&contents, Op::Comma, trait_name));
-                let tuple = TyTuple(flat).to_ty().with_span(group.span());
-                match decl {
-                    Some(d) => {
-                        TyWithType(d, tuple.into()).to_ty().with_span(group.span())
-                    }
-                    None => tuple,
-                }
+                // Splat elements are KEPT (splat survival: parse never
+                // flattens `*()`/`*[]` — `(a, *(b,c))` stays a tuple with a
+                // splat element; codegen expands it into `(a, b, c)`).
+                TyTuple(parse_list(&contents, Op::Comma, trait_name))
+                    .to_ty()
+                    .with_span(group.span())
             } else {
                 let inner =
                     parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)
                         .unwrap_or_else(empty);
                 // Group → tuple: a single-element group whose content is a
-                // splat flattens into multiple elements (`(*(a,b))` → `(a,b)`).
+                // splat stays a tuple holding the splat (`(*(a,b))` keeps
+                // `*(a,b)`; codegen expands it into `(a, b)`).
                 if matches!(inner.kind, TyKind::Splat(_)) {
-                    let (flat, decl) = consume_splats(vec![inner]);
-                    let tuple = TyTuple(flat).to_ty().with_span(group.span());
-                    match decl {
-                        Some(d) => TyWithType(d, tuple.into())
-                            .to_ty()
-                            .with_span(group.span()),
-                        None => tuple,
-                    }
+                    // A lone splat in a single-element group keeps the splat
+                    // as the tuple's element (codegen expands it into the
+                    // tuple's elements): `(*(a,b))` → `(a, b)`.
+                    TyTuple(vec![inner]).to_ty().with_span(group.span())
                 } else {
                     TyGroup(Box::new(inner)).to_ty().with_span(group.span())
                 }
@@ -219,24 +213,4 @@ pub(crate) fn parse_list(
         items.push(item);
     }
     items
-}
-
-/// Consume splat elements in a collected list: only `TySplat` elements are
-/// flattened (containers and generators inside them — `[a, *[d,e,f]]` →
-/// `[a,d,e,f]`); ordinary elements stay untouched (`(a, ()^3)` keeps its
-/// nested generator). Returns the flat list plus the merged fresh declaration
-/// for the enclosing container (wrapped in `WithType` by the caller).
-fn consume_splats(items: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
-    let mut flat = vec![];
-    let mut decl = None;
-    for item in items {
-        if matches!(item.kind, TyKind::Splat(_)) {
-            let (mut es, d) = splat_expand(item);
-            flat.append(&mut es);
-            decl = merge_decls(decl, d);
-        } else {
-            flat.push(item);
-        }
-    }
-    (flat, decl)
 }

@@ -1975,6 +1975,20 @@ trait SplatLeft {}
 #[batch_impl(Pair^*(SplatD, SplatE))]
 trait SplatArgs {}
 
+// Trait segment + right splat: `Conv<bool> Pair^*(A, B)` — the splat stays
+// whole through parse/apply and expands only in codegen: `Pair<A, B>` (the
+// old behavior misparsed to `Pair<A<B>>`).
+#[batch_impl_only(Conv<bool> Pair^*(SplatA, SplatB) #conv{unimplemented!()})]
+pub trait Conv<T>: Sized {
+    fn conv(_value: T) -> Self;
+}
+
+// Nested generic-arg splat: `Map<*(K,V)>` — a splat as one generic arg
+// expands in codegen to its elements: `Map<K,V>`.
+struct SplatMap<K, V>(K, V);
+#[batch_impl(SplatMap<*(SplatA, SplatB)>)]
+trait SplatGenericArg {}
+
 // Splat survival: array elements keep their splat until consumption —
 // `[*(A),*(B)]^2` repeats each element (`[*(A,A),*(B,B)]`), so the splat
 // pow drives both generic positions: `Pair^[*(SplatA),*(SplatB)]^2` =
@@ -1999,6 +2013,10 @@ fn splat_scenarios() {
     assert_l::<Box<SplatF>>();
     fn assert_args<T: SplatArgs>() {}
     assert_args::<Pair<SplatD, SplatE>>();
+    fn assert_cv<T: Conv<bool>>() {}
+    assert_cv::<Pair<SplatA, SplatB>>();
+    fn assert_ga<T: SplatGenericArg>() {}
+    assert_ga::<SplatMap<SplatA, SplatB>>();
     fn assert_s<T: SplatSurvival>() {}
     assert_s::<Pair<SplatA, SplatA>>();
     assert_s::<Pair<SplatB, SplatB>>();

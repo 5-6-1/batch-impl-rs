@@ -30,14 +30,49 @@
   real (non-discarded) trait, verifying the impl compiles and the method is
   referenceable; `trait_generic_args_to_impl_generic` — the arg points at an
   impl generic (`<U>A<U>()` → `fn foo(_: U)`).
-- **Known edge (trait segment + right splat)**: `Conv<bool> Pair^*(A, B)`
-  (a right-splat target after a spec-level trait segment) misparses to
-  `Pair<A<B>>` — plain right-splats without a trait segment are fine (dsl
-  `SplatArgs`). **Still open (reproduced after the splat-survival change)**;
-  the array-splat survival provides a working alternative for the same
-  shape: `Pair^[*(A),*(B)]^2` = `[Pair<A,A>, Pair<B,B>]`. The
-  trait-substitution tests/docs use the list form
-  `[Pair<A, A>, Pair<B, B>]`.
+- **Fixed edge (trait segment + right splat)**: `Conv<bool> Pair^*(A, B)`
+  previously misparsed to `Pair<A<B>>`; the splat-deferred-expansion
+  refactor (below) keeps `*(A,B)` whole through parse/apply and expands it
+  only in codegen — the same input now produces `Pair<A, B>` (verified by
+  dsl `splat_scenarios`'s `assert_cv::<Pair<SplatA, SplatB>>()`). The
+  array-splat alternative `Pair^[*(A),*(B)]^2` still works as before.
+
+### Splat expansion deferred to codegen (parse/apply/expand keep `*()`/`*[]` whole)
+
+- **Principle (user-confirmed)**: a splat (`*(...)` / `*[...]`) is a *whole*
+  unit through parse/apply/expand — it only flattens into its elements in
+  the codegen postprocess. Previously the apply layer flattened right-splat
+  operands (`T^*(A,B)` → flat `T-A-B-...` chain), which misparsed in
+  combinations with trait segments (`Conv<bool> Pair^*(A,B)` → `Pair<A<B>>`)
+  and with trailing code blocks (`Pair^*(A,B) {body}` → `Pair<*const (A,B)>`
+  via the rest-parse path).
+- **Where splats flatten now** (two expansion points, both in codegen):
+  - `expand_splat_elems` (Ty structure): splat elements inside `TyTuple`
+    flatten with fresh declarations hoisted — `(A, *(B,C))` → `(A,B,C)`,
+    `(*(()^3))` → `<P0,P1,P2>(P0,P1,P2)`. Runs before `hoist_type_params`.
+  - `expand_splats` (token level): a `*` punct directly followed by a
+    `(...)`/`[...]` group in the impl header expands to the group's
+    comma-separated elements — `T<*(A,B)>` → `T<A,B>`,
+    `Map<*(K,V)>` → `Map<K,V>` (nested splats recurse). Bodies never pass
+    through it, so `a * b` inside a fn stays multiplication; `*const T` /
+    `*mut T` (a `*` followed by an ident) stay raw pointers.
+  - Spec-list splats (`[*(A),*(B)]`, `*[Vec,Box]^T`) still flatten in the
+    expand phase (`TyKind::Splat` → `Expand::Many`) — that is impl-list
+    generation, not type-structure expansion.
+- **Splat survival unchanged**: `Pair^[*(A),*(B)]^2` still repeats each
+  element (`[Pair<A,A>, Pair<B,B>]`); splat pow (`*(A,B)^2` Cartesian) and
+  left-splat append/distribute (`*[...]^T`, `*(...)^T`) keep working in
+  `TySplat::apply_help`.
+- `TySplat::Tuple` renders as `*(A,B)` (was `(*(A,B))`) — the outer parens
+  were only needed by the old parse-time consumption; the codegen expander
+  matches the bare marker.
+- `consume_splats` (parse-time splat flattening in `parse_group`) deleted;
+  `(a, *(b,c))` and `(*(a,b))` now keep their splat until codegen.
+- Tests: existing splat suite (SplatArgs / SplatConcat / SplatGen /
+  SplatGenFlat / SplatSurvival / SplatLeft / trailing-comma / middle-empty /
+  idempotent) all pass unchanged; new dsl `SplatGenericArg`
+  (`SplatMap<*(A,B)>` → `SplatMap<A,B>`) and `assert_cv` (trait segment +
+  right splat) cover the deferred-expansion paths.
 - **Splat survival (array elements)**: array/list elements that are splats
   are now KEPT until consumption instead of being flattened at parse time
   (`parse_atom.rs` no longer calls `consume_splats` for `[...]` lists or a

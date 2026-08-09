@@ -4,6 +4,13 @@
 
 ## 未发布
 
+### splat 展开延迟到 codegen（bug 修复 + 语义明确）
+
+splat（`*(...)` / `*[...]`）现在在 parse/apply 全程保持整体，只在生成 impl 时摊平成元素。常规场景行为不变（`T^*(A,B)` → `T<A,B>`、`[a, *[b,c]]` = `[a,b,c]`），两个此前损坏的组合现在正常工作：
+
+- `Conv<bool> Pair^*(A, B)` → `impl Conv<bool> for Pair<A, B>`（原误解析成 `Pair<A<B>>`）；
+- `Pair^*(A, B) #method{...}`（右 splat 后跟指令 body）→ `Pair<A, B>`（原产出 `Pair<*const (A, B)>`）。
+
 ### splat 存续：数组元素保持 splat 到消费
 
 数组/列表元素若是 splat，不再 parse 时摊平——splat 活到右操作数 apply 或 codegen 摊平。这让 splat 幂驱动重复位置：
@@ -594,3 +601,6 @@ v0.3.0 是从零开始的完全重写。公开 API 和 DSL 语法与 v0.2.x 保�
 - 泛型支持：impl 泛型（含 const）、trait 泛型、生命周期、泛型继承
 - `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)` 
 - 中文错误提示，`compile_error!` 而非 panic
+
+
+

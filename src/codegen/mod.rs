@@ -103,11 +103,16 @@ pub(crate) fn generate_impl(
     // signature and user code block). ImplParts carries the arg names.
     substitute_trait_generics(&mut parts, trait_param_names);
 
+    // Tuple-level splat expansion (Ty structure): `(A, *(B,C))` → `(A,B,C)`,
+    // with fresh declarations from `*()^N` hoisted. Runs before hoisting so
+    // the lifted decl feeds into the impl generics. (Generic-arg splats like
+    // `T<*(A,B)>` are token-level, expanded at render — see `expand_splats`.)
+    parts.target_type = expand_splat_elems(parts.target_type);
+
     // hoist nested `WithType` (fresh generics) out of the target type, preventing `<A>` leaks
     let mut nested_params = vec![];
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
-
     // inherit trait generic bounds: same-name inheritance vs. mismatch errors; see trait_bounds docs
     let mut errs = vec![];
     let trait_args = parts
@@ -239,9 +244,15 @@ pub(crate) fn generate_impl(
         quote!(where #(#preds),*)
     };
 
+    // Impl-header splat expansion: `T<*(A,B)>` -> `T<A,B>` (the only place
+    // `*()`/`*[]` flatten — parse/apply/expand keep them whole). Bodies are
+    // never touched, so `a * b` inside a fn stays multiplication.
+    let impl_head = expand_splats(quote!(
+        #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target #where_clause
+    ));
     let rendered = quote! {
         #(#attrs)*
-        #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target #where_clause {
+        #impl_head {
             #(#body_tokens)*
         }
     };

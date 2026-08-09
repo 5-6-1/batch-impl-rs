@@ -86,13 +86,12 @@ angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..
   `TraitParam.bound`（内联 + where 拼接），**其余谓词原样透传**到 impl 的
   where 子句。引用收集在 **syn AST** 上做（`syn::visit`）：单段路径与泛型实参
   是形参引用位置；`::` 后的路径段（关联类型名）、关联类型绑定名、
-- **splat `*` 前缀**：`*[...]` / `*(...)` 把容器/生成器摊平进外层列表——parse 期
-  中间态（容器收集与 apply 时消费，最终 AST 从不含它）。`TySplat` 是镜像来源
+- **splat `*` 前缀**：`*[...]` / `*(...)` 把容器/生成器摊平进外层列表——parse/apply/expand 全程的**整体**——只在 codegen 后处理摊平成元素（`expand_splat_elems` 在 Ty 结构层的 `TyTuple` 上展开、`expand_splats` 在 token 层的泛型实参上展开；spec 列表位置的 splat（`[*(A),*(B)]`）在 expand 阶段作为 impl 列表生成摊平）。`TySplat` 是镜像来源
   括号的枚举：`TySplat::Array`（集合——左操作数分配 `^T`，对标 `TyArray`）vs
   `TySplat::Tuple`（列表——追加/元组幂，对标 `TyTuple`）；左操作数
   `apply_help` **委托镜像容器**再包回结果，splat 保持到消费
-  （实现 `X^*[A,B]^T` = `X<A^T,B^T>` 单 impl）。右操作数与容器收集无论
-  变体一律摊平。**splat 只展开一层**：元组是类型、作为单元素保持
+  （实现 `X^*[A,B]^T` = `X<A^T,B^T>` 单 impl）。右 splat 操作数同样保持整体
+  （`T^*(A,B)` = `T<*(A,B)>`，仅在 codegen 展开成 `T<A,B>`）。**splat 只展开一层**：元组是类型、作为单元素保持
   （`*((a,b),)` = 一个 `(a,b)` impl），数组/嵌套 splat/生成器/组摊平。
   **元组 splat 的 `^N` 幂把每个笛卡尔组合包回 splat**——`*(A,B)^2` =
   `[*(A,A),*(A,B),*(B,A),*(B,B)]`——右 splat 链把组合摊平进容器
@@ -239,3 +238,4 @@ TRYBUILD=overwrite cargo test --test ui
 3. `cargo publish`
 4. `git tag vX.Y.Z && git push origin vX.Y.Z`
 5. `gh release create vX.Y.Z --notes-file <notes>`
+

@@ -7,6 +7,18 @@
 
 ## Unreleased
 
+### Splat expansion deferred to codegen (bugfix + clarification)
+
+A splat (`*(...)` / `*[...]`) now stays a whole unit through parsing and
+apply; it flattens into its elements only when the impl is generated. Normal
+cases are unchanged (`T^*(A,B)` → `T<A,B>`, `[a, *[b,c]]` = `[a,b,c]`), and
+two previously-broken combinations now work:
+
+- `Conv<bool> Pair^*(A, B)` → `impl Conv<bool> for Pair<A, B>` (was a
+  misparse to `Pair<A<B>>`);
+- `Pair^*(A, B) #method{...}` (right splat followed by a directive body)
+  → `Pair<A, B>` (was `Pair<*const (A, B)>`).
+
 ### Splat survival: array elements keep their splat until consumption
 
 Array/list elements that are splats are no longer flattened at parse time —
@@ -635,3 +647,6 @@ Feature list:
 - Generic support: impl generics (incl. const), trait generics, lifetimes, generic inheritance
 - `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)`
 - Chinese-language error messages, `compile_error!` instead of panic
+
+
+

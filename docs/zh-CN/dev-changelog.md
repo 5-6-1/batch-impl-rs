@@ -9,7 +9,19 @@
 - **新能力**：spec 级 trait 段带具体实参（`Conv<bool> [Pair<A, A>, Pair<B, B>] #conv{...}`）现在会把 trait 的泛型参数替换进指令抄写的 body——生成的 impl 里 `fn conv(value: T)` 变成 `fn conv(value: bool)`（此前裸 `T` 会泄漏进 impl，E0425）。`#[batch_impl]` 与 `#[batch_impl_only]` 都支持；trait 定义是参数名的来源。
 - **codegen 后处理层**（`codegen/postprocess.rs`）：trait 泛型替换从 preprocess 移出（preprocess 不再通过 `expand_tokens`/`expand_directive`/`build_from_item` 穿参数映射），改为对 `ImplParts` 的后处理——把 `ImplParts::trait_generic_names`（具体实参）与入口 trait 的 type/const 参数名（经 `run_pipeline` → `parse_batch_trait_entry` → `generate_impl` 传递）配对，重写 body（fn 签名 + 用户代码块）。lifetime 实参（`'static`）与 lifetime 参数排除——body 引用的是自身 impl 的 lifetime。这与 `sweep_fresh_names` 一起构成"codegen 后处理"概念：提取之后、渲染之前的复杂 token 重写，`ImplParts` 携带全部所需上下文。
 - 测试：`trait_generic_args`（dsl）——真实（非丢弃）trait 的泛型替换，验证 impl 编译通过且方法可引用；`trait_generic_args_to_impl_generic`——实参指向 impl 泛型（`<U>A<U>()` → `fn foo(_: U)`）。
-- **已知 edge（trait 段 + 右 splat）**：`Conv<bool> Pair^*(A, B)`（trait 段后的右 splat 目标）会误解析成 `Pair<A<B>>`——不带 trait 段的普通右 splat 正常（dsl `SplatArgs`）。**仍未修复（splat 存续后复现确认）**；数组 splat 存续提供了同形状的可用替代：`Pair^[*(A),*(B)]^2` = `[Pair<A,A>, Pair<B,B>]`。trait 替换测试/文档用列表形式 `[Pair<A, A>, Pair<B, B>]`。
+- **已修复 edge（trait 段 + 右 splat）**：`Conv<bool> Pair^*(A, B)` 此前误解析成 `Pair<A<B>>`；splat 延迟展开重构（见下）让 `*(A,B)` 在 parse/apply 全程保持整体、仅在 codegen 展开——同一输入现在产出 `Pair<A, B>`（dsl `splat_scenarios` 的 `assert_cv::<Pair<SplatA, SplatB>>()` 验证）。数组 splat 替代 `Pair^[*(A),*(B)]^2` 仍照常工作。
+
+### splat 展开延迟到 codegen（parse/apply/expand 全程保持 `*()`/`*[]` 整体）
+
+- **原则（用户拍板）**：splat（`*(...)` / `*[...]`）在 parse/apply/expand 是**整体**——只在 codegen 后处理摊平成元素。此前 apply 层直接摊平右 splat 操作数（`T^*(A,B)` → 扁平 `T-A-B-...` 链），与 trait 段（`Conv<bool> Pair^*(A,B)` → `Pair<A<B>>`）和尾部代码块（`Pair^*(A,B) {body}` → rest 解析路径产出 `Pair<*const (A,B)>`）组合时误解析。
+- **现在 splat 摊平的位置**（codegen 内两个展开点）：
+  - `expand_splat_elems`（Ty 结构层）：`TyTuple` 内的 splat 元素摊平且 fresh 声明提升——`(A, *(B,C))` → `(A,B,C)`、`(*(()^3))` → `<P0,P1,P2>(P0,P1,P2)`。在 `hoist_type_params` 之前运行。
+  - `expand_splats`（token 层）：impl 头部里 `*` Punct 后紧跟 `(...)`/`[...]` 组 → 展开成组的逗号分隔元素——`T<*(A,B)>` → `T<A,B>`、`Map<*(K,V)>` → `Map<K,V>`（嵌套递归）。body 不经过它，fn 里的 `a * b` 保持乘法；`*const T` / `*mut T`（`*` 后跟 Ident）保持原始指针。
+  - spec 列表位置的 splat（`[*(A),*(B)]`、`*[Vec,Box]^T`）仍在 expand 阶段摊平（`TyKind::Splat` → `Expand::Many`）——那是 impl 列表生成，不是类型结构展开。
+- **splat 存续不变**：`Pair^[*(A),*(B)]^2` 仍重复每个元素（`[Pair<A,A>, Pair<B,B>]`）；splat 幂（`*(A,B)^2` 笛卡尔积）与左 splat 追加/分配（`*[...]^T`、`*(...)^T`）在 `TySplat::apply_help` 照常。
+- `TySplat::Tuple` 渲染改为 `*(A,B)`（原 `(*(A,B))`）——外括号只服务于旧的 parse 时消费；codegen 展开器匹配裸标记。
+- 删除 `consume_splats`（parse 时摊平 splat 的 `parse_group` 逻辑）；`(a, *(b,c))` 与 `(*(a,b))` 现在保持 splat 直到 codegen。
+- 测试：现有 splat 套件（SplatArgs / SplatConcat / SplatGen / SplatGenFlat / SplatSurvival / SplatLeft / 尾逗号 / 中间空 / 幂等）全部原样通过；新增 dsl `SplatGenericArg`（`SplatMap<*(A,B)>` → `SplatMap<A,B>`）与 `assert_cv`（trait 段 + 右 splat）覆盖延迟展开路径。
 - **splat 存续（数组元素）**：数组/列表元素若是 splat，现在**保持到消费**而非 parse 时摊平（`parse_atom.rs` 不再对 `[...]` 列表或孤立 `[*(...)]` 元素调 `consume_splats`）——splat 活到 apply 右操作数或 codegen，所以 `[*(A),*(B)]^2` 会重复每个元素（`[*(A,A),*(B,B)]`），`Pair^[*(SplatA),*(SplatB)]^2` = `[Pair<SplatA,SplatA>, Pair<SplatB,SplatB>]`（splat 幂驱动两个泛型位）。裸数组/切片（`[u8]`、`[u8; 3]`）与无右操作数的目标（`[a, *[b,c]]` = `[a,b,c]`）不变（codegen 末尾摊平）。**有右操作数时**，保持的 splat 元素走自身 splat 语义（与独立 splat 一致）：`[A,B,C]^D` = `[A^D, B^D, C^D]`（裸列表：分发）、`[A,*(B,C)]^D` = `[A^D, *(B,C,D)]` = `[A^D, B, C, D]`（元组 splat：追加）、`[A,*[B,C]]^D` = `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]`（数组 splat：分发）、`[*(A)]^2` = `[*(A,A)]` = `[A, A]`（幂：重复）。要纯分发请写裸列表 `[A,B,C]^D`。元组仍在 parse 时摊平 splat（本次范围外）。测试：dsl `SplatSurvival`。
 - **不诊断（刻意）**：fn 泛型参数与被替换的 trait 实参重名（`impl<U> A<U>` 里的 `fn foo<U>(_: T)`）是 Rust 自身的泛型遮蔽禁令——`E0403` 已经同时指向两个 `U`（spec 的 `<U>` 与 fn 的 `<U>`）。用户改名后宏输出合法代码；不加后处理检查（语言级规则，rustc 的诊断已足够精确）。
 
