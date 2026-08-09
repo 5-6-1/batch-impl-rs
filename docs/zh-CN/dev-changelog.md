@@ -8,8 +8,8 @@
 
 - **新能力**：spec 级 trait 段带具体实参（`Conv<bool> [Pair<A, A>, Pair<B, B>] #conv{...}`）现在会把 trait 的泛型参数替换进指令抄写的 body——生成的 impl 里 `fn conv(value: T)` 变成 `fn conv(value: bool)`（此前裸 `T` 会泄漏进 impl，E0425）。`#[batch_impl]` 与 `#[batch_impl_only]` 都支持；trait 定义是参数名的来源。
 - **codegen 后处理层**（`codegen/postprocess.rs`）：trait 泛型替换从 preprocess 移出（preprocess 不再通过 `expand_tokens`/`expand_directive`/`build_from_item` 穿参数映射），改为对 `ImplParts` 的后处理——把 `ImplParts::trait_generic_names`（具体实参）与入口 trait 的 type/const 参数名（经 `run_pipeline` → `parse_batch_trait_entry` → `generate_impl` 传递）配对，重写 body（fn 签名 + 用户代码块）。lifetime 实参（`'static`）与 lifetime 参数排除——body 引用的是自身 impl 的 lifetime。这与 `sweep_fresh_names` 一起构成"codegen 后处理"概念：提取之后、渲染之前的复杂 token 重写，`ImplParts` 携带全部所需上下文。
-- **测试中发现的 bug**（未修）：右 splat + 简单 Ident 元素解析错误——`Pair^*(A, B)` 展开成 `Pair<A<B>>` 而非 `Pair<A, B>`（`*(...)` 与 `*[...]` 两种形式都坏；泛型元素如 `Pair^*(Vec<u8>, Box<u8>)` 正常）。已记录待修；新测试改用手写泛型列表 `[Pair<A, A>, Pair<B, B>]`。
 - 测试：`trait_generic_args`（dsl）——真实（非丢弃）trait 的泛型替换，验证 impl 编译通过且方法可引用；`trait_generic_args_to_impl_generic`——实参指向 impl 泛型（`<U>A<U>()` → `fn foo(_: U)`）。
+- **已知 edge（trait 段 + 右 splat）**：`Conv<bool> Pair^*(A, B)`（trait 段后的右 splat 目标）会误解析成 `Pair<A<B>>`——不带 trait 段的普通右 splat 正常（dsl `SplatArgs`）。未修；上面的 trait 替换测试/文档示例用列表 `[Pair<A, A>, Pair<B, B>]`。
 - **不诊断（刻意）**：fn 泛型参数与被替换的 trait 实参重名（`impl<U> A<U>` 里的 `fn foo<U>(_: T)`）是 Rust 自身的泛型遮蔽禁令——`E0403` 已经同时指向两个 `U`（spec 的 `<U>` 与 fn 的 `<U>`）。用户改名后宏输出合法代码；不加后处理检查（语言级规则，rustc 的诊断已足够精确）。
 
 ## 0.7.0 (2026-08-08)
@@ -166,8 +166,7 @@
   `Box<@0..=2>` 的错误在类型参数里）一次全部报出；旧行为停在第一个错误。
   有任何错误时只输出错误——不输出部分 impl（ui fixture
   `error_aggregation`）。
-  约束验证 `@0` = join 中文档序第一个 fresh）与
-  `at_refs_across_generation_units`（range 长度 + 多 spec）。
+
 ## 0.6.6 (2026-08-07)
 
 ### 元组/fn 语法边界修正（`(T)^2 = T^2`）
@@ -642,8 +641,7 @@
   （大写）——普通 where 谓词（where{@0: @trait<T>}）的 @trait 被错误拒绝、
   错误消息自相矛盾；全库其余 4 处均小写。**教训**：dev-changelog 此前声称
   "resolve_where_at 同步小写"实际未替换——PowerShell Select-String 大小写
-  不敏感的反噬（残留检查误报通过）。测试：dsl 
-eview_fixes_locked
+  不敏感的反噬（残留检查误报通过）。测试：dsl `review_fixes_locked`
   （B1 场景 + 自引用 bound 需补 impl WhereAtTrait<u32> for u32）。
 - **B2（回归隐患）**：新顺序（@ 先于 <> 配对）下 expand_consts 运行时
   真实 None 组（宏变量 $(...)*/$x:ty 展开产物）尚未被 angle_collect
@@ -651,15 +649,14 @@ eview_fixes_locked
   angle_collect 在入口扁平化，此处永远不会出现"在新顺序下不成立。修复：
   expand_consts 加 delimiter![none] 分支——新顺序下 <> 组尚未存在，
   None 组必是真实透明组，无旧歧义（0.6.0 曾踩过的 delimiter![none] 误伤
-  尖括号组问题不复存在）。测试：dsl 
-eview_fixes_locked（宏变量 + 组内
+  尖括号组问题不复存在）。测试：dsl `review_fixes_locked`（宏变量 + 组内
   @uint 探针实测，2024 edition 下 gen 是保留字、宏名须换）。
 - **B3（文档）**：@all_default_types 依赖 trait 关联类型默认值
-  （	ype T = u8;）——nightly（ssociated_type_defaults，stable 报
+  （`type T = u8;`）——nightly（`associated_type_defaults`，stable 报
   E0658）——tutorial 标注该标记仅 nightly 场景可用（@all_required_types
-  的 	ype T; 声明 stable 可用）。
-- **B4（防御）**：atch_trait! 定义 @trait=[...] 常量会被特殊记号拦截、
-  被段级替换静默遮蔽——collect_user_consts 拒绝 	rait 作常量名
+  的 `type T;` 声明 stable 可用）。
+- **B4（防御）**：`batch_trait!` 定义 @trait=[...] 常量会被特殊记号拦截、
+  被段级替换静默遮蔽——collect_user_consts 拒绝 `trait` 作常量名
   （"保留记号"报错）。
 - 评测员补充测试 dsl 35 节 macro_meta_review_extras（正向路径全覆盖：
   @all_required 全种类 / @all_default_constants / 标记减法 /

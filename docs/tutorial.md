@@ -1,9 +1,7 @@
 # batch-impl Tutorial
 
 **v0.7.0** — 0.6.7 released; 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists; left operand `*[...]` distribute / `*(...)` append), array distribution propagation, `#fill` single-item preference (`#name{...}`); 0.6.x: receiver filters, `#blanket` delegation, span diagnostics, generic-parameter families, `@N` fresh references.
-(= `T^N`, a const-generic arg like `W<2>`; **breaking** — tuple generation now needs `(T,)^N`), unsuffixed number rendering,
-and input-validation guards (consts nesting depth, `#blanket` `:N` cap,
-`@all_*` reserved names, empty `:` depth); 0.6.7: per-impl fresh numbering
+0.6.7: per-impl fresh numbering
 (`@N` anywhere, incl. the target type itself), `@g_i` grouped references,
 top-level open extension (`{! ...}` — the macro receives
 `{spec}(args){body}trait` and emits its own impl), `@all_fresh` / `@N..M`

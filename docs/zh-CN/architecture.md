@@ -32,7 +32,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
   │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
   ├── ast/                  AST 层
-  │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 18 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
+  │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 19 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
   │   ├── fresh.rs          fresh 名协议（`_Param_*_BatchGen_` 常量 + 生成/构造/解析三函数）
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
@@ -40,7 +40,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
   ├── codegen/              代码生成
   │   ├── mod.rs            extract_impl_parts → 后处理 → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
-  │   ├── impl_parts.rs     ImplParts 结构 + 19 变体遍历（extract / hoist）
+  │   ├── impl_parts.rs     ImplParts 结构 + TyKind 变体遍历（extract / hoist）
   │   ├── postprocess.rs    ImplParts 上的 trait 泛型替换（`From<bool>`：指令 body 里 `value: T` → `value: bool`）
   │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
   │   ├── fresh.rs          fresh 名清扫（`_Param_{g}_{i}_` → 每个 impl 的 `_Param_0..N_`）

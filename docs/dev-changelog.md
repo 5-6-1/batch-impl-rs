@@ -26,15 +26,15 @@
   impl lifetimes. This joins `sweep_fresh_names` as the "codegen
   postprocess" concept: complex token rewrites after extraction, where
   `ImplParts` carries all needed context.
-- **Bug found while testing** (not yet fixed): a right-splat with plain
-  ident elements misparses — `Pair^*(A, B)` expands to `Pair<A<B>>` instead
-  of `Pair<A, B>` (both `*(...)` and `*[...]` forms; generic elements like
-  `Pair^*(Vec<u8>, Box<u8>)` are fine). Tracked; the new test uses a
-  handwritten generic list `[Pair<A, A>, Pair<B, B>]` instead.
 - Tests: `trait_generic_args` (dsl) — trait generic substitution with a
   real (non-discarded) trait, verifying the impl compiles and the method is
   referenceable; `trait_generic_args_to_impl_generic` — the arg points at an
   impl generic (`<U>A<U>()` → `fn foo(_: U)`).
+- **Known edge (trait segment + right splat)**: `Conv<bool> Pair^*(A, B)`
+  (a right-splat target after a spec-level trait segment) misparses to
+  `Pair<A<B>>` — plain right-splats without a trait segment are fine (dsl
+  `SplatArgs`). Not yet fixed; the trait-substitution tests/docs use a list
+  `[Pair<A, A>, Pair<B, B>]` instead.
 - **Not diagnosed (by design)**: a *function* generic param colliding with
   the substituted trait arg (`fn foo<U>(_: T)` inside `impl<U> A<U>`) is
   Rust's own generic-shadowing ban — `E0403` already points at both `U`s

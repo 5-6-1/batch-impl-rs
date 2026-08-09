@@ -40,7 +40,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   └── apply_tuple.rs    tuple and container operators + tuple expansion (^N / Cartesian product / ranges / fresh generics)
   ├── codegen/              code generation
   │   ├── mod.rs            extract_impl_parts → postprocess → hoist_type_params → generate_impl (the impl-block assembly entry)
-  │   ├── impl_parts.rs     the ImplParts struct + traversal of the 18 variants (extract / hoist)
+  │   ├── impl_parts.rs     the ImplParts struct + traversal of the TyKind variants (extract / hoist)
   │   ├── postprocess.rs    trait generic substitution over ImplParts (`From<bool>`: `value: T` → `value: bool` in directive bodies)
   │   ├── top_level.rs      top-level macro injection (`{! ...}` — spec-body merge + macro-input rewrite)
   │   ├── fresh.rs          fresh-name sweeping (`_Param_{g}_{i}_` → `_Param_0..N_` per impl)
