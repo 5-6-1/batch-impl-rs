@@ -59,12 +59,14 @@
   - Spec-list splats (`[*(A),*(B)]`, `*[Vec,Box]^T`) still flatten in the
     expand phase (`TyKind::Splat` → `Expand::Many`) — that is impl-list
     generation, not type-structure expansion.
-  - Generic-arg splats (`Foo<*(a,b)>`) are also kept whole by the parser
-    (`parse/generic.rs` no longer `splat_expand`s them into multiple args);
-    they survive as a single `*(a,b)` arg and expand at render via
-    `expand_splats` — `Foo<*(a,b)>` → `Foo<a,b>`. A generator splat there
-    (`Foo<*(()^N)>`) still errors (its fresh declaration has nowhere to
-    live in a `TyTypeParam`), now detected by `contains_generator`.
+  - Generic-arg splats (`Foo<*(a,b)>`) need no parser special case — the
+    chunk falls through the default path, survives as a single `*(a,b)`
+    arg and expands at render via `expand_splats` — `Foo<*(a,b)>` →
+    `Foo<a,b>` (the dedicated Splat-arg branch and `contains_generator`
+    were deleted; ui `gen_splat_arg` removed). A generator splat there
+    (`Foo<*(()^N)>` / `<*()^3>`) survives as a raw arg and rustc reports
+    the missing declaration — acknowledged oddity, no dedicated
+    diagnostic.
   - **Container rule** (`parse_group`): a group whose content is a lone
     splat parses as the container holding the splat as one element —
     `(*(a,b))` = `( *(a,b) )` (tuple), `[*(a,b)]` = `[ *(a,b) ]` (array);

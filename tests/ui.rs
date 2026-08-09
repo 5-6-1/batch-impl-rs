@@ -90,7 +90,6 @@ fn ui() {
     // a generator splat as a generic argument errors (fresh decl has nowhere to live)
     t.compile_fail("tests/ui/star_misuse.rs");
     t.compile_fail("tests/ui/where_splat_bad.rs");
-    t.compile_fail("tests/ui/gen_splat_arg.rs");
 
     // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");

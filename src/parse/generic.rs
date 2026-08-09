@@ -2,9 +2,9 @@
 //!
 //! Provides matching and parsing of `<...>` generic parameters plus related helpers.
 
-use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 
-use quote::{ToTokens, quote};
+use quote::quote;
 
 use crate::ast::*;
 use crate::parse::parse_item;
@@ -92,43 +92,13 @@ pub(crate) fn parse_angle_bracket_contents(
         if chunk.is_empty() {
             continue;
         }
-        // Splat arg: `Foo<*(a,b)>` / `Foo<*[a,b]>` — kept WHOLE as a single
-        // generic arg (`Foo<*(a,b)>`, one impl); the codegen postprocess
-        // (`expand_splats`) flattens it into its elements (`Foo<a,b>`), per
-        // the splat-survival principle (parse/apply/expand never flatten
-        // `*()`/`*[]`). A generator splat (`Foo<*(()^N)>`) errors — its
-        // fresh declaration has nowhere to live inside a `TyTypeParam` (a
-        // compile_error! token renders in the impl header).
-        if let [TokenTree::Punct(star), TokenTree::Group(g)] = chunk
-            && star.as_char() == '*'
-            && matches!(g.delimiter(), Delimiter::Bracket | Delimiter::Parenthesis)
-        {
-            let ty = parse_item(&mut Cursor::new(chunk), Op::Dash, trait_name)
-                .unwrap_or_else(empty);
-            if contains_generator(&ty) {
-                // No `;` here — a semicolon after `compile_error!` is illegal
-                // inside a generic-arg list; the bare invocation still emits
-                // the targeted error when rustc expands it in type position.
-                let err_ident = Ident::new("compile_error", star.span());
-                let err = quote! {
-                    #err_ident!(
-                        "batch-impl: a generator splat (`*(()^N)`) cannot be a \
-                         generic argument (its fresh declaration has nowhere \
-                         to live)"
-                    )
-                };
-                params.push((err, None));
-                continue;
-            }
-            let name = match resolve_at_refs(
-                &ty.to_token_stream().into_iter().collect::<Vec<_>>(),
-            ) {
-                Ok(v) => v.into_iter().collect(),
-                Err(e) => e,
-            };
-            params.push((name, None));
-            continue;
-        }
+        // Splat args need no special case: `Foo<*(a,b)>` falls through to
+        // the default path below, which keeps the `*(a,b)` token as one
+        // generic arg — the codegen postprocess (`expand_splats`) flattens
+        // it into `Foo<a,b>` at render. A generator splat there
+        // (`Foo<*(()^N)>`) also survives as a raw arg (rustc reports the
+        // missing declaration) — acknowledged as an oddity, not worth a
+        // dedicated diagnostic.
         // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
         // types (flat token splitting) — resolve them to fresh names here.
         // A resolution error yields a `compile_error!` token stream that
@@ -175,26 +145,4 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
 /// Empty token node (fallback for unwrap_or_else)
 pub(crate) fn empty() -> Ty {
     TyPrimitive(quote![]).to_ty()
-}
-
-/// Whether a Ty contains a fresh-generator declaration (`WithType` from
-/// `()^N`) anywhere — used to reject generator splats inside generic args
-/// (their declaration has nowhere to live in a `TyTypeParam`). Splat
-/// elements are not children of `map_children` (the Splat arm keeps the
-/// node), so they are recursed manually.
-fn contains_generator(ty: &Ty) -> bool {
-    if matches!(ty.kind, TyKind::WithType(_)) {
-        return true;
-    }
-    if let TyKind::Splat(s) = &ty.kind {
-        return s.elems().iter().any(contains_generator);
-    }
-    let mut found = false;
-    ty.clone().map_children(&mut |child| {
-        if contains_generator(&child) {
-            found = true;
-        }
-        child
-    });
-    found
 }
