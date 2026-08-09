@@ -9,7 +9,7 @@
 - **新能力**：spec 级 trait 段带具体实参（`Conv<bool> [Pair<A, A>, Pair<B, B>] #conv{...}`）现在会把 trait 的泛型参数替换进指令抄写的 body——生成的 impl 里 `fn conv(value: T)` 变成 `fn conv(value: bool)`（此前裸 `T` 会泄漏进 impl，E0425）。`#[batch_impl]` 与 `#[batch_impl_only]` 都支持；trait 定义是参数名的来源。
 - **codegen 后处理层**（`codegen/postprocess.rs`）：trait 泛型替换从 preprocess 移出（preprocess 不再通过 `expand_tokens`/`expand_directive`/`build_from_item` 穿参数映射），改为对 `ImplParts` 的后处理——把 `ImplParts::trait_generic_names`（具体实参）与入口 trait 的 type/const 参数名（经 `run_pipeline` → `parse_batch_trait_entry` → `generate_impl` 传递）配对，重写 body（fn 签名 + 用户代码块）。lifetime 实参（`'static`）与 lifetime 参数排除——body 引用的是自身 impl 的 lifetime。这与 `sweep_fresh_names` 一起构成"codegen 后处理"概念：提取之后、渲染之前的复杂 token 重写，`ImplParts` 携带全部所需上下文。
 - 测试：`trait_generic_args`（dsl）——真实（非丢弃）trait 的泛型替换，验证 impl 编译通过且方法可引用；`trait_generic_args_to_impl_generic`——实参指向 impl 泛型（`<U>A<U>()` → `fn foo(_: U)`）。
-- **已知 edge（trait 段 + 右 splat）**：`Conv<bool> Pair^*(A, B)`（trait 段后的右 splat 目标）会误解析成 `Pair<A<B>>`——不带 trait 段的普通右 splat 正常（dsl `SplatArgs`）。未修；上面的 trait 替换测试/文档示例用列表 `[Pair<A, A>, Pair<B, B>]`。
+- **已知 edge（trait 段 + 右 splat）**：`Conv<bool> Pair^*(A, B)`（trait 段后的右 splat 目标）会误解析成 `Pair<A<B>>`——不带 trait 段的普通右 splat 正常（dsl `SplatArgs`）。**仍未修复（splat 存续后复现确认）**；数组 splat 存续提供了同形状的可用替代：`Pair^[*(A),*(B)]^2` = `[Pair<A,A>, Pair<B,B>]`。trait 替换测试/文档用列表形式 `[Pair<A, A>, Pair<B, B>]`。
 - **splat 存续（数组元素）**：数组/列表元素若是 splat，现在**保持到消费**而非 parse 时摊平（`parse_atom.rs` 不再对 `[...]` 列表或孤立 `[*(...)]` 元素调 `consume_splats`）——splat 活到 apply 右操作数或 codegen，所以 `[*(A),*(B)]^2` 会重复每个元素（`[*(A,A),*(B,B)]`），`Pair^[*(SplatA),*(SplatB)]^2` = `[Pair<SplatA,SplatA>, Pair<SplatB,SplatB>]`（splat 幂驱动两个泛型位）。裸数组/切片（`[u8]`、`[u8; 3]`）与无右操作数的目标（`[a, *[b,c]]` = `[a,b,c]`）不变（codegen 末尾摊平）。**有右操作数时**，保持的 splat 元素走自身 splat 语义（与独立 splat 一致）：`[A,B,C]^D` = `[A^D, B^D, C^D]`（裸列表：分发）、`[A,*(B,C)]^D` = `[A^D, *(B,C,D)]` = `[A^D, B, C, D]`（元组 splat：追加）、`[A,*[B,C]]^D` = `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]`（数组 splat：分发）、`[*(A)]^2` = `[*(A,A)]` = `[A, A]`（幂：重复）。要纯分发请写裸列表 `[A,B,C]^D`。元组仍在 parse 时摊平 splat（本次范围外）。测试：dsl `SplatSurvival`。
 - **不诊断（刻意）**：fn 泛型参数与被替换的 trait 实参重名（`impl<U> A<U>` 里的 `fn foo<U>(_: T)`）是 Rust 自身的泛型遮蔽禁令——`E0403` 已经同时指向两个 `U`（spec 的 `<U>` 与 fn 的 `<U>`）。用户改名后宏输出合法代码；不加后处理检查（语言级规则，rustc 的诊断已足够精确）。
 
@@ -645,7 +645,7 @@
   不敏感的反噬（残留检查误报通过）。测试：dsl `review_fixes_locked`
   （B1 场景 + 自引用 bound 需补 impl WhereAtTrait<u32> for u32）。
 - **B2（回归隐患）**：新顺序（@ 先于 <> 配对）下 expand_consts 运行时
-  真实 None 组（宏变量 $(...)*/$x:ty 展开产物）尚未被 angle_collect
+  真实 None 组（宏变量 $(...)*/$x:ty 展开产物）当时未被 angle_collect
   扁平化——组内 @ 不再展开（0.6.0 顺序可以）；原注释"真实 None 组已由
   angle_collect 在入口扁平化，此处永远不会出现"在新顺序下不成立。修复：
   expand_consts 加 delimiter![none] 分支——新顺序下 <> 组尚未存在，
@@ -1231,3 +1231,4 @@
 
 `684 (0.-1) → 1961 (0.0) → ≈2153 (0.1.1) → 3197 (0.2) → 1628 (0.3.0 初版)`
 `→ ≈1586 (0.3.0 正式版，五文件) → 4400 (0.6)`
+
