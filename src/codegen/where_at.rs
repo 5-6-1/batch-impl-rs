@@ -227,7 +227,10 @@ mod tests {
         let trait_ty = TyTrait(
             quote!(WhereArr),
             TyTypeParam {
-                params: vec![(quote!(T), None), (quote!(N), None)],
+                params: vec![
+                    (Box::new(TyPrimitive(quote!(T)).to_ty()), None),
+                    (Box::new(TyPrimitive(quote!(N)).to_ty()), None),
+                ],
                 bindings: vec![],
             },
         );
@@ -235,8 +238,11 @@ mod tests {
         let impl_ty = TyWithType(
             TyTypeParam {
                 params: vec![
-                    (quote!(T), None),
-                    (quote!(const N), Some(TyPrimitive(quote!(usize)).to_ty())),
+                    (Box::new(TyPrimitive(quote!(T)).to_ty()), None),
+                    (
+                        Box::new(TyPrimitive(quote!(const N)).to_ty()),
+                        Some(TyPrimitive(quote!(usize)).to_ty()),
+                    ),
                 ],
                 bindings: vec![],
             },

@@ -266,15 +266,12 @@ pub(crate) fn generate_impl(
         quote!(where #(#preds),*)
     };
 
-    // Impl-header splat expansion: `T<*(A,B)>` -> `T<A,B>` (the only place
-    // `*()`/`*[]` flatten — parse/apply/expand keep them whole). Bodies are
-    // never touched, so `a * b` inside a fn stays multiplication.
-    let impl_head = expand_splats(quote!(
-        #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target #where_clause
-    ));
+    // Splat expansion happens structurally in `expand_splat_elems` (target /
+    // trait args); bodies are never touched, so `a * b` inside a fn stays
+    // multiplication. `where`-predicate splats are unsupported (rustc error).
     let rendered = quote! {
         #(#attrs)*
-        #impl_head {
+        #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target #where_clause {
             #(#body_tokens)*
         }
     };

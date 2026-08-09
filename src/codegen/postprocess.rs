@@ -4,11 +4,10 @@
 //! arg names (`trait_generic_names`) and the full body (fn signature + user
 //! code block), so the substitution needs no plumbing through preprocess.
 
-use proc_macro2::{Delimiter, Group, Ident, Punct, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 
 use crate::ast::*;
 use crate::codegen::impl_parts::ImplParts;
-use crate::parse::split_at_depth0;
 
 /// Substitute each trait generic param with its concrete arg in the impl body
 /// (the directive-copied fn signature plus the user's code block).
@@ -69,8 +68,9 @@ fn replace_idents(ts: TokenStream, map: &[(Ident, TokenStream)]) -> TokenStream 
 /// codegen postprocess — parse/apply/expand keep `*()`/`*[]` whole). A splat
 /// element becomes its flat elements with fresh declarations hoisted:
 /// `(A, *(B,C))` → `(A,B,C)`, `(*(()^3))` → `<P0,P1,P2>(P0,P1,P2)`.
-/// Generic args (`T<*(A,B)>`) are handled separately by [`expand_splats`]
-/// (token level), because `TyTypeParam` stores params as token streams.
+/// Generic args (`T<*(A,B)>`) and trait args (`Conv<*(A,B)>`) expand here
+/// too (via [`expand_tp`]) — since `TyTypeParam` stores params as `Box<Ty>`,
+/// splats stay structural and need no token-level pass.
 pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
     let Ty { span, kind } = ty;
     match kind {
@@ -103,9 +103,20 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
             .to_ty()
             .with_span(span),
         TyKind::WithTrait(wt) => {
-            TyWithTrait(wt.0, Box::new(expand_splat_elems(*wt.1)))
-                .to_ty()
-                .with_span(span)
+            // The trait path itself may carry splat args (`Conv<*(A,B)>`) —
+            // expand them via `expand_tp`, hoisting any `*()^N` declaration
+            // into a `TyWithType` around the whole `WithTrait`.
+            let (tp, decl) = expand_tp(wt.0.1);
+            let trait_ty = TyTrait(wt.0.0, tp);
+            let inner = Box::new(expand_splat_elems(*wt.1));
+            match decl {
+                Some(d) => {
+                    TyWithType(d, Box::new(TyWithTrait(trait_ty, inner).to_ty()))
+                        .to_ty()
+                        .with_span(span)
+                }
+                None => TyWithTrait(trait_ty, inner).to_ty().with_span(span),
+            }
         }
         TyKind::WithWhere(ww) => {
             let inner = ww.0.map(|e| Box::new(expand_splat_elems(*e)));
@@ -119,54 +130,58 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
             let inner = wa.1.map(|e| Box::new(expand_splat_elems(*e)));
             TyWithAttr(wa.0, inner).to_ty().with_span(span)
         }
-        // Leaves and token-stream-bearing nodes (Generic / Trait / Splat /
-        // PrimitiveArray / Fn / ...) stay — splats in generic args are
-        // expanded by `expand_splats` at the token level after rendering.
+        TyKind::Generic(g) => {
+            let (tp, decl) = expand_tp(g.1);
+            let generic = TyGeneric(Box::new(expand_splat_elems(*g.0)), tp)
+                .to_ty()
+                .with_span(span);
+            match decl {
+                Some(d) => TyWithType(d, Box::new(generic)).to_ty().with_span(span),
+                None => generic,
+            }
+        }
+        TyKind::Trait(t) => {
+            let (tp, decl) = expand_tp(t.1);
+            let trait_ty = TyTrait(t.0, tp).to_ty().with_span(span);
+            match decl {
+                Some(d) => TyWithType(d, Box::new(trait_ty)).to_ty().with_span(span),
+                None => trait_ty,
+            }
+        }
+        // Leaves and token-stream-bearing nodes (Splat / PrimitiveArray /
+        // Fn / ...) stay — a bare `Splat` is itself the pending expansion.
         other => Ty { span, kind: other },
     }
 }
 
-/// Expand residual splats in an impl-header token stream: a `*` punct
-/// directly followed by a `(...)` / `[...]` group becomes the group's
-/// comma-separated elements. Per the splat-survival principle,
-/// parse/apply/expand never flatten `*()`/`*[]`; the single expansion point
-/// is this codegen postprocess — `T<*(A,B)>` → `T<A,B>`,
-/// `Map<*(K,V)>` → `Map<K,V>`. Recurses into groups so nested splats expand
-/// in place. Applied only to impl headers (generics / trait path / target /
-/// where) — bodies never go through this, so `a * b` inside a fn body is
-/// untouched; `*const T` / `*mut T` (a `*` followed by an ident) stay as-is.
-pub(crate) fn expand_splats(tokens: TokenStream) -> TokenStream {
-    let tokens = tokens.into_iter().collect::<Vec<_>>();
-    let mut out = TokenStream::new();
-    let mut i = 0;
-    while i < tokens.len() {
-        if let TokenTree::Punct(p) = &tokens[i]
-            && p.as_char() == '*'
-            && let Some(TokenTree::Group(g)) = tokens.get(i + 1)
-            && matches!(g.delimiter(), Delimiter::Parenthesis | Delimiter::Bracket)
-        {
-            // `*(...)` / `*[...]` -> the group's comma-separated elements
-            let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let chunks = split_at_depth0(&inner, ',');
-            for (k, chunk) in chunks.iter().enumerate() {
-                if k > 0 {
-                    out.extend([TokenTree::Punct(Punct::new(',', Spacing::Alone))]);
-                }
-                out.extend(expand_splats(chunk.iter().cloned().collect()));
-            }
-            i += 2;
-            continue;
+/// Expand splat params inside a `TyTypeParam` (generic args / trait args): a
+/// `TySplat` param becomes its flat elements; every other param (name / bound
+/// / binding value) recurses through [`expand_splat_elems`]. Fresh
+/// declarations hoisted out of `*()^N` splats are returned for the caller to
+/// wrap in `TyWithType` (a `TyGeneric`/`TyTrait` cannot carry them itself).
+fn expand_tp(tp: TyTypeParam) -> (TyTypeParam, Option<TyTypeParam>) {
+    let mut params = vec![];
+    let mut decl = None;
+    for (name, bound) in tp.params {
+        if matches!(name.kind, TyKind::Splat(_)) {
+            let (es, d) = splat_expand(*name);
+            decl = merge_decls(decl, d);
+            params.extend(es.into_iter().map(|e| (Box::new(e), None)));
+        } else {
+            let name = expand_splat_elems(*name);
+            let bound = bound.map(expand_splat_elems);
+            params.push((Box::new(name), bound));
         }
-        match &tokens[i] {
-            TokenTree::Group(g) => {
-                let inner = expand_splats(g.stream());
-                let mut ng = Group::new(g.delimiter(), inner);
-                ng.set_span(g.span());
-                out.extend([TokenTree::Group(ng)]);
-            }
-            other => out.extend([other.clone()]),
-        }
-        i += 1;
     }
-    out
+    let bindings = tp
+        .bindings
+        .into_iter()
+        .map(|(n, v)| {
+            (
+                Box::new(expand_splat_elems(*n)),
+                Box::new(expand_splat_elems(*v)),
+            )
+        })
+        .collect();
+    (TyTypeParam { params, bindings }, decl)
 }

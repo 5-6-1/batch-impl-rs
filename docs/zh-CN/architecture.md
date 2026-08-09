@@ -86,7 +86,7 @@ angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..
   `TraitParam.bound`（内联 + where 拼接），**其余谓词原样透传**到 impl 的
   where 子句。引用收集在 **syn AST** 上做（`syn::visit`）：单段路径与泛型实参
   是形参引用位置；`::` 后的路径段（关联类型名）、关联类型绑定名、
-- **splat `*` 前缀**：`*[...]` / `*(...)` 把容器/生成器摊平进外层列表——parse/apply/expand 全程的**整体**——只在 codegen 后处理摊平成元素（`expand_splat_elems` 在 Ty 结构层的 `TyTuple` 上展开、`expand_splats` 在 token 层的泛型实参上展开；spec 列表位置的 splat（`[*(A),*(B)]`）在 expand 阶段作为 impl 列表生成摊平）。`TySplat` 是镜像来源
+- **splat `*` 前缀**：`*[...]` / `*(...)` 把容器/生成器摊平进外层列表——parse/apply/expand 全程的**整体**——只在 codegen 后处理摊平成元素（`expand_splat_elems` Ty 结构层——`TyTuple` 元素与泛型/trait 实参经 `expand_tp`，因 `TyTypeParam` 的 params 现为 `Box<Ty>`；spec 列表位置的 splat（`[*(A),*(B)]`）在 expand 阶段作为 impl 列表生成摊平）。`TySplat` 是镜像来源
   括号的枚举：`TySplat::Array`（集合——左操作数分配 `^T`，对标 `TyArray`）vs
   `TySplat::Tuple`（列表——追加/元组幂，对标 `TyTuple`）；左操作数
   `apply_help` **委托镜像容器**再包回结果，splat 保持到消费

@@ -2,7 +2,7 @@
 //! (generics / bindings / attrs / unsafe).
 
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{ToTokens, quote};
 
 use crate::ast::*;
 use crate::parse::split_at_depth0;
@@ -53,16 +53,41 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             let mut parts = extract_impl_parts(*wt.1);
             let (impl_generics, associated_types) =
                 (parts.impl_generics, parts.associated_types);
-            parts.impl_generics = wt.0.params;
-            parts.associated_types = wt.0.bindings;
+            parts.impl_generics =
+                wt.0.params
+                    .into_iter()
+                    .map(|(n, b)| (n.to_token_stream(), b))
+                    .collect();
+            parts.associated_types =
+                wt.0.bindings
+                    .into_iter()
+                    .map(|(n, v)| (n.to_token_stream(), v.to_token_stream()))
+                    .collect();
             parts.impl_generics.extend(impl_generics);
             parts.associated_types.extend(associated_types);
             parts
         }
         TyKind::WithTrait(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            parts.trait_generic_names.extend(wt.0.1.params.into_iter().map(|p| p.0));
-            parts.associated_types.extend(wt.0.1.bindings);
+            // Trait generic args may carry splats (`Conv<*(A,B)>`) — expand
+            // each arg to its flat elements before rendering (token-level:
+            // `trait_generic_names` is `TokenStream` past this point).
+            for (name, _bound) in wt.0.1.params {
+                if matches!(name.kind, TyKind::Splat(_)) {
+                    let (es, _decl) = splat_expand(*name);
+                    parts
+                        .trait_generic_names
+                        .extend(es.into_iter().map(|e| e.to_token_stream()));
+                } else {
+                    parts.trait_generic_names.push(name.to_token_stream());
+                }
+            }
+            parts.associated_types.extend(
+                wt.0.1
+                    .bindings
+                    .into_iter()
+                    .map(|(n, v)| (n.to_token_stream(), v.to_token_stream())),
+            );
             parts
         }
         TyKind::WithCode(wc) => match wc.0 {
@@ -144,7 +169,7 @@ pub(crate) fn hoist_type_params(
         // the same fresh names; the clones reference one shared generic.
         TyKind::WithType(wt) => {
             for (name, bound) in wt.0.params {
-                let name_str = name.to_string();
+                let name_str = name.to_token_stream().to_string();
                 if is_fresh_name(&name_str)
                     && let Some(existing) =
                         out.iter_mut().find(|(n, _)| n.to_string() == name_str)
@@ -154,7 +179,7 @@ pub(crate) fn hoist_type_params(
                         existing.1 = bound;
                     }
                 } else {
-                    out.push((name, bound));
+                    out.push((name.to_token_stream(), bound));
                 }
             }
             hoist_type_params(*wt.1, out)

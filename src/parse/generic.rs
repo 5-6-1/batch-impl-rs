@@ -104,28 +104,34 @@ pub(crate) fn parse_angle_bracket_contents(
         // A resolution error yields a `compile_error!` token stream that
         // surfaces when the impl header is rendered.
         if let Some(eq) = scan_stop(chunk, &['=']) {
+            let name_ty = TyPrimitive(chunk[..eq].iter().cloned().collect()).to_ty();
             let value = match resolve_at_refs(&chunk[eq + 1..]) {
-                Ok(v) => v.into_iter().collect(),
-                Err(e) => e,
+                Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
+                    .unwrap_or_else(empty),
+                Err(e) => TyPrimitive(e).to_ty(),
             };
-            bindings.push((chunk[..eq].iter().cloned().collect(), value));
+            bindings.push((Box::new(name_ty), Box::new(value)));
         } else if let Some(colon) = find_colon_at_depth0(chunk) {
             params.push((
-                chunk[..colon].iter().cloned().collect(),
-                parse_item(
-                    &mut Cursor::new(&chunk[colon + 1..]),
-                    Op::Dash,
-                    trait_name,
-                )
-                .unwrap_or_else(empty)
-                .into(),
+                Box::new(
+                    TyPrimitive(chunk[..colon].iter().cloned().collect()).to_ty(),
+                ),
+                Some(
+                    parse_item(
+                        &mut Cursor::new(&chunk[colon + 1..]),
+                        Op::Dash,
+                        trait_name,
+                    )
+                    .unwrap_or_else(empty),
+                ),
             ));
         } else {
             let name = match resolve_at_refs(chunk) {
-                Ok(v) => v.into_iter().collect(),
-                Err(e) => e,
+                Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
+                    .unwrap_or_else(empty),
+                Err(e) => TyPrimitive(e).to_ty(),
             };
-            params.push((name, None));
+            params.push((Box::new(name), None));
         }
     }
     TyTypeParam { params, bindings }

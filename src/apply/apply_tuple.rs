@@ -2,7 +2,6 @@ use quote::ToTokens;
 
 use crate::apply::{Apply, check_expand_limit, err_ty, err_ty_at};
 use crate::ast::*;
-use crate::parse::parse_primitive;
 use proc_macro2::Span;
 
 /// `N..M` / `N..=M`: calls f for every length n in the range, packing results into a list.
@@ -55,9 +54,8 @@ fn pow_empty(n: usize) -> Ty {
     }
     let g = take_group();
     let params = fresh_params(g, n);
-    let param_names = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
     let tp = TyTypeParam {
-        params: param_names.into_iter().map(|n| (n, None)).collect(),
+        params: params.clone().into_iter().map(|p| (Box::new(p), None)).collect(),
         bindings: vec![],
     }
     .to_ty();
@@ -76,13 +74,12 @@ fn pow_single(template: Ty, n: usize) -> Ty {
         }
         let g = take_group();
         let params = fresh_params(g, n);
-        let param_names =
-            params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
-        let bound_tokens = tp.params[0].0.clone().into_iter().collect::<Vec<_>>();
+        let bound_ty = *tp.params[0].0.clone();
         return TyTypeParam {
-            params: param_names
+            params: params
+                .clone()
                 .into_iter()
-                .map(|n| (n, parse_primitive(&bound_tokens, None).into()))
+                .map(|p| (Box::new(p), Some(bound_ty.clone())))
                 .collect(),
             bindings: vec![],
         }
@@ -137,7 +134,9 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                 let params = tp
                     .params
                     .iter()
-                    .map(|(_, bound)| (name.clone(), bound.clone()))
+                    .map(|(_, bound)| {
+                        (Box::new(TyPrimitive(name.clone()).to_ty()), bound.clone())
+                    })
                     .collect();
                 param_decls.push(TyTypeParam { params, bindings: vec![] });
                 tuple_elems.push(TyPrimitive(name).to_ty().with_span(elem_span));

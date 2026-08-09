@@ -3,7 +3,8 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 
 pub(crate) fn params_to_tokens(base: &TokenStream, tp: &TyTypeParam) -> TokenStream {
-    let mut all = tp.params.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
+    let mut all =
+        tp.params.iter().map(|(name, _)| name.to_token_stream()).collect::<Vec<_>>();
     for (name, value) in &tp.bindings {
         all.push(quote!(#name = #value));
     }
@@ -16,13 +17,13 @@ pub(crate) fn params_to_tokens(base: &TokenStream, tp: &TyTypeParam) -> TokenStr
 
 /// Renders a single generic declaration: `name: bound` (with bound) or bare `name`.
 /// This file's `TyTypeParam` rendering is also reused by codegen's impl generics.
-pub(crate) fn render_param(name: &TokenStream, bound: Option<&Ty>) -> TokenStream {
+pub(crate) fn render_param(name: &impl ToTokens, bound: Option<&Ty>) -> TokenStream {
     match bound {
         Some(b) => {
             let b_tokens = b.to_token_stream();
             quote!(#name: #b_tokens)
         }
-        None => name.clone(),
+        None => name.to_token_stream(),
     }
 }
 

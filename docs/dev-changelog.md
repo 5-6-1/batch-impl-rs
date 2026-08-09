@@ -46,27 +46,28 @@
   combinations with trait segments (`Conv<bool> Pair^*(A,B)` → `Pair<A<B>>`)
   and with trailing code blocks (`Pair^*(A,B) {body}` → `Pair<*const (A,B)>`
   via the rest-parse path).
-- **Where splats flatten now** (two expansion points, both in codegen):
+- **Where splats flatten now** (single expansion point, codegen):
   - `expand_splat_elems` (Ty structure): splat elements inside `TyTuple`
     flatten with fresh declarations hoisted — `(A, *(B,C))` → `(A,B,C)`,
     `(*(()^3))` → `<P0,P1,P2>(P0,P1,P2)`. Runs before `hoist_type_params`.
-  - `expand_splats` (token level): a `*` punct directly followed by a
-    `(...)`/`[...]` group in the impl header expands to the group's
-    comma-separated elements — `T<*(A,B)>` → `T<A,B>`,
-    `Map<*(K,V)>` → `Map<K,V>` (nested splats recurse). Bodies never pass
-    through it, so `a * b` inside a fn stays multiplication; `*const T` /
-    `*mut T` (a `*` followed by an ident) stay raw pointers.
+  - Generic-arg and trait-arg splats flatten in the same pass via
+    `expand_tp` (TyTypeParam params are now `Box<Ty>`, so splats stay
+    structural): `T<*(A,B)>` → `T<A,B>`, `Map<*(K,V)>` → `Map<K,V>`
+    (nested splats recurse), `Conv<*(A,B)> X` → `impl Conv<A,B> for X`
+    (trait-path splats expand in `extract_impl_parts`, where the trait
+    args are rendered). The former token-level `expand_splats` pass is
+    gone — bodies never pass through any expander, so `a * b` inside a fn
+    stays multiplication; `*const T` / `*mut T` stay raw pointers.
   - Spec-list splats (`[*(A),*(B)]`, `*[Vec,Box]^T`) still flatten in the
     expand phase (`TyKind::Splat` → `Expand::Many`) — that is impl-list
     generation, not type-structure expansion.
-  - Generic-arg splats (`Foo<*(a,b)>`) need no parser special case — the
-    chunk falls through the default path, survives as a single `*(a,b)`
-    arg and expands at render via `expand_splats` — `Foo<*(a,b)>` →
-    `Foo<a,b>` (the dedicated Splat-arg branch and `contains_generator`
-    were deleted; ui `gen_splat_arg` removed). A generator splat there
-    (`Foo<*(()^N)>` / `<*()^3>`) survives as a raw arg and rustc reports
-    the missing declaration — acknowledged oddity, no dedicated
-    diagnostic.
+  - Generic-arg splats need no parser special case — the chunk falls
+    through the default path, survives as a single `*(a,b)` arg and
+    expands structurally (`expand_tp`) — `Foo<*(a,b)>` → `Foo<a,b>` (the
+    dedicated Splat-arg branch and `contains_generator` were deleted; ui
+    `gen_splat_arg` removed). A generator splat there (`Foo<*(()^N)>` /
+    `<*()^3>`) survives as a raw arg and rustc reports the missing
+    declaration — acknowledged oddity, no dedicated diagnostic.
   - **Container rule** (`parse_group`): a group whose content is a lone
     splat parses as the container holding the splat as one element —
     `(*(a,b))` = `( *(a,b) )` (tuple), `[*(a,b)]` = `[ *(a,b) ]` (array);
@@ -77,10 +78,10 @@
     transparent group, `[a]` a slice.
   - **Where-predicate constraint**: a bare splat as a predicate subject
     (`where{*(A,B): Trait}`) is rejected in codegen with a clear message —
-    a predicate is a constraint, not a parameter list, so `expand_splats`
-    would emit illegal `A, B: Trait`. Tuple predicates (`(*(A,B)): Trait`)
-    and splats inside a predicate (`X: Trait<*(A,B)>`) stay legal (ui
-    `where_splat_bad`).
+    a predicate is a constraint, not a parameter list, so a structural
+    expander would emit illegal `A, B: Trait`. Tuple predicates
+    (`(*(A,B)): Trait`) and splats inside a predicate
+    (`X: Trait<*(A,B)>`) stay legal (ui `where_splat_bad`).
 - **Splat survival unchanged**: `Pair^[*(A),*(B)]^2` still repeats each
   element (`[Pair<A,A>, Pair<B,B>]`); splat pow (`*(A,B)^2` Cartesian) and
   left-splat append/distribute (`*[...]^T`, `*(...)^T`) keep working in
@@ -88,6 +89,17 @@
 - `TySplat::Tuple` renders as `*(A,B)` (was `(*(A,B))`) — the outer parens
   were only needed by the old parse-time consumption; the codegen expander
   matches the bare marker.
+- **`TyTypeParam` is fully Ty-typed now**: `params` is `Vec<(Box<Ty>,
+  Option<Ty>)>` and `bindings` `Vec<(Box<Ty>, Box<Ty>)>` — every element is
+  a `Ty`, with non-type tokens (parameter names, `const N`, lifetimes,
+  numeric const args, binding names) riding in a `TyPrimitive` wrapper. This
+  makes generic args structural: `T<Map<K,V>>` stays
+  `TyGeneric(T, [TyGeneric(Map, [K,V])])`, splat args (`T<*(A,B)>`) survive
+  as `TySplat` and flatten in codegen (`expand_tp`), and `@N` still resolves
+  before parse. Render / extraction / apply treat params uniformly as
+  structured types; the declaration-vs-argument distinction still lives in
+  the render function used (`params_to_tokens` vs
+  `params_to_tokens_no_base`).
 - `consume_splats` (parse-time splat flattening in `parse_group`) deleted;
   `(a, *(b,c))` and `(*(a,b))` now keep their splat until codegen.
 - Tests: existing splat suite (SplatArgs / SplatConcat / SplatGen /

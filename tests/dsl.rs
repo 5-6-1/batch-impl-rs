@@ -1983,6 +1983,21 @@ pub trait Conv<T>: Sized {
     fn conv(_value: T) -> Self;
 }
 
+// Trait-path splat args: `Conv2<*(A,B)> Pair` — a splat as a trait generic
+// arg expands in codegen to its elements: `Conv2<A, B>`.
+struct SplatPair2;
+#[batch_impl(Conv2<*(SplatA, SplatB)> SplatPair2 #conv2{SplatPair2})]
+trait Conv2<T, U>: Sized {
+    fn conv2(_value: T, _other: U) -> Self;
+}
+fn assert_cv2<T: Conv2<SplatA, SplatB>>() {}
+
+#[test]
+fn trait_path_splat() {
+    assert_cv2::<SplatPair2>();
+    let _ = <SplatPair2 as Conv2<SplatA, SplatB>>::conv2(SplatA, SplatB);
+}
+
 // Nested generic-arg splat: `Map<*(K,V)>` — a splat as one generic arg
 // expands in codegen to its elements: `Map<K,V>`.
 struct SplatMap<K, V>(K, V);

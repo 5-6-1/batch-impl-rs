@@ -1,5 +1,4 @@
 use proc_macro2::{Span, TokenStream};
-use quote::ToTokens;
 use std::cell::Cell;
 
 #[derive(Clone, Debug)]
@@ -54,24 +53,32 @@ pub(crate) struct TyGeneric(pub(crate) Box<Ty>, pub(crate) TyTypeParam);
 pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
 /// `<T: Clone, U, Item=V>` generic parameter list: positional params (with optional
 /// bounds) + associated type bindings.
+///
+/// Every element is a `Ty` — non-type tokens (parameter names, `const N`,
+/// lifetimes, numeric const args, binding names) ride in a `TyPrimitive`
+/// wrapper, so render / traversal / apply treat params uniformly as
+/// structured types. The same shape serves both **declarations**
+/// (`<T: Bound>`, no base) and **arguments** (`T<A>`, base present) — the
+/// distinction lives in the render function used
+/// (`params_to_tokens` vs `params_to_tokens_no_base`).
 #[derive(Clone, Debug)]
 pub(crate) struct TyTypeParam {
-    pub(crate) params: Vec<(TokenStream, Option<Ty>)>,
-    pub(crate) bindings: Vec<(TokenStream, TokenStream)>,
+    pub(crate) params: Vec<(Box<Ty>, Option<Ty>)>,
+    pub(crate) bindings: Vec<(Box<Ty>, Box<Ty>)>,
 }
 
 impl TyTypeParam {
     /// Constructs a single unbound param (`U` in `T^U` becomes `<U>`)
     pub(crate) fn single(arg: &Ty) -> Self {
         TyTypeParam {
-            params: vec![(arg.to_token_stream(), None)],
+            params: vec![(Box::new(arg.clone()), None)],
             bindings: vec![],
         }
     }
 
     /// Appends an unbound param (`B` in `T<A>^B` appends to `<A,B>`)
     pub(crate) fn push_arg(&mut self, arg: &Ty) {
-        self.params.push((arg.to_token_stream(), None));
+        self.params.push((Box::new(arg.clone()), None));
     }
 
     /// Merges another param list (the `<B,C>` in `T<A>^<B,C>` has its
