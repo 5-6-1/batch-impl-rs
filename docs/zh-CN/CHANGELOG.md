@@ -4,6 +4,17 @@
 
 ## 未发布
 
+### splat 存续：数组元素保持 splat 到消费
+
+数组/列表元素若是 splat，不再 parse 时摊平——splat 活到右操作数 apply 或 codegen 摊平。这让 splat 幂驱动重复位置：
+
+```rust
+#[batch_impl(Pair^[*(SplatA),*(SplatB)]^2)]
+// → impl Pair<SplatA, SplatA> + impl Pair<SplatB, SplatB>
+```
+
+有右操作数时，保持的 splat 走自身语义（`*[...]` 分发、`*(...)` 追加、`^N` 重复/笛卡尔）；无右操作数时，数组目标照常摊平（`[a, *[b,c]]` = `[a,b,c]`）。要纯分发请写裸列表（`[A,B,C]^Vec`）。
+
 ### trait 泛型实参：具体实参替换进指令 body
 
 spec 级 trait 段带具体实参时，现在会把 trait 的泛型参数替换进指令抄写的 body：

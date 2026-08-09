@@ -7,6 +7,22 @@
 
 ## Unreleased
 
+### Splat survival: array elements keep their splat until consumption
+
+Array/list elements that are splats are no longer flattened at parse time —
+a splat lives until a right operand applies or codegen flattens it. This
+makes the splat pow drive repeated positions:
+
+```rust
+#[batch_impl(Pair^[*(SplatA),*(SplatB)]^2)]
+// → impl Pair<SplatA, SplatA> + impl Pair<SplatB, SplatB>
+```
+
+With a right operand, a kept splat follows its own semantics (`*[...]`
+distributes, `*(...)` appends, `^N` repeats/Cartesians); without one,
+array targets flatten as before (`[a, *[b,c]]` = `[a,b,c]`). Use a bare
+list (`[A,B,C]^Vec`) for plain distribution.
+
 ### Trait generic args: concrete args substitute into directive bodies
 
 A spec-level trait segment with concrete args now substitutes the trait's
