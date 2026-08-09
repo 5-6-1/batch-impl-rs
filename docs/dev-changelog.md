@@ -45,10 +45,12 @@
   arrays/slices (`[u8]`, `[u8; 3]`) and no-right-operand targets
   (`[a, *[b,c]]` = `[a,b,c]`) are unchanged (codegen flattens at the end).
   With a right operand, a kept splat element follows its own splat
-  semantics — `*[...]` distributes (`[A, *[B,C]]^Vec` =
-  `[A<Vec>, B<Vec>, C<Vec>]`), `*(...)` appends (`[A, *(B,C)]^Vec` =
-  `[A<Vec>, B, C, Vec]`), `^N` repeats/Cartesians — matching standalone
-  splat behavior; use a bare list `[A,B,C]^Vec` for plain distribution.
+  semantics (matching standalone splats): `[A,B,C]^D` = `[A^D, B^D, C^D]`
+  (bare list: distribute), `[A,*(B,C)]^D` = `[A^D, *(B,C,D)]` =
+  `[A^D, B, C, D]` (tuple splat: append), `[A,*[B,C]]^D` =
+  `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]` (array splat: distribute),
+  `[*(A)]^2` = `[*(A,A)]` = `[A, A]` (pow: repeat). Use a bare list
+  `[A,B,C]^D` for plain distribution.
   Tuples still flatten splats at parse (unchanged scope). Test: dsl
   `SplatSurvival`.
 - **Not diagnosed (by design)**: a *function* generic param colliding with

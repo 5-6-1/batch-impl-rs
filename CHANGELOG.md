@@ -18,10 +18,13 @@ makes the splat pow drive repeated positions:
 // → impl Pair<SplatA, SplatA> + impl Pair<SplatB, SplatB>
 ```
 
-With a right operand, a kept splat follows its own semantics (`*[...]`
-distributes, `*(...)` appends, `^N` repeats/Cartesians); without one,
-array targets flatten as before (`[a, *[b,c]]` = `[a,b,c]`). Use a bare
-list (`[A,B,C]^Vec`) for plain distribution.
+With a right operand, a kept splat follows its own semantics: `[A,B,C]^D`
+= `[A^D, B^D, C^D]` (bare list distributes), `[A,*(B,C)]^D` =
+`[A^D, *(B,C,D)]` = `[A^D, B, C, D]` (tuple splat appends),
+`[A,*[B,C]]^D` = `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]` (array splat
+distributes). Without one, array targets flatten as before
+(`[a, *[b,c]]` = `[a,b,c]`). Use a bare list (`[A,B,C]^D`) for plain
+distribution.
 
 ### Trait generic args: concrete args substitute into directive bodies
 
