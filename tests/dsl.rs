@@ -1989,11 +1989,11 @@ struct SplatMap<K, V>(K, V);
 #[batch_impl(SplatMap<*(SplatA, SplatB)>)]
 trait SplatGenericArg {}
 
-// Unified container rule: a group whose content is a lone splat
-// (`(*(a,b))` / `(*[a,b])` / `[*(a,b)]` / `[*[a,b]]`) auto-becomes the
-// matching container — `(*(a,b))` ≡ `(*(a,b),)` ≡ `(a,b)`,
-// `[*(a,b)]` ≡ `[*(a,b),]` ≡ `[a,b]` (impl-list / dispatch). One code
-// path (parse_list), no special case.
+// Container rule: a group whose content is a lone splat parses as the
+// matching container holding the splat as one element — `(*(a,b))` =
+// `( *(a,b) )` (tuple), `[*(a,b)]` = `[ *(a,b) ]` (array); the splat element
+// expands only in codegen, so the rendered result is `(a, b)` / `[a, b]`.
+// `(*(a,b))` ≡ `(*(a,b),)` on one code path.
 struct SplatOne<X>(X);
 #[batch_impl(SplatOne^(*(SplatA, SplatB)))]
 trait SplatTupArg {}

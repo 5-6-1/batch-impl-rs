@@ -151,11 +151,12 @@ bracket drives the left-operand semantics** — `*[A,B]^T` distributes
 list, mirrors `TyTuple`). Generic args `Foo<*(a,b)>` = `Foo<a,b>` (multi-arg,
 one impl — distinct from `Foo<[a,b]>` dispatch).
 
-**Unified container rule**: a group whose content is a lone splat
-auto-becomes the matching container — `(*(a,b))` ≡ `(*(a,b),)` ≡ `(a,b)`
-(tuple), `[*(a,b)]` ≡ `[*(a,b),]` ≡ `[a,b]` (impl-list / dispatch); same for
-the array-splat forms `(*[a,b])` → `(a,b)` and `[*[a,b]]` → `[a,b]`. One
-code path, no special case: `(a)` stays a transparent group, `[a]` a slice.
+**Container rule**: a `(...)` / `[...]` group whose content is a lone splat
+parses as the matching container holding the splat as one element —
+`(*(a,b))` is a tuple `( *(a,b) )`, `[*(a,b)]` an array `[ *(a,b) ]`. The
+splat element stays whole (splat survival) and expands only in codegen, so
+the rendered result is `(a, b)` / `[a, b]` (impl-list / dispatch). `(a)`
+stays a transparent group, `[a]` a slice.
 
 **Legal positions**: a splat is a *parameter-position list* — it expands
 wherever a list of elements is expected: generic args (`Foo<*(a,b)>`),
