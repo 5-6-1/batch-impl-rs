@@ -4,9 +4,9 @@
 
 use crate::apply::check_expand_limit;
 use crate::ast::types::{
-    Ty, TyArray, TyFn, TyGeneric, TyGroup, TyKind, TyPrimitiveArray, TyTuple,
-    TyTypeParam, TyWithAttr, TyWithCode, TyWithPrefix, TyWithTrait, TyWithType,
-    TyWithWhere,
+    Ty, TyArray, TyFn, TyGeneric, TyGroup, TyKind, TyParams, TyPrimitiveArray,
+    TyTuple, TyTypeParam, TyWithAttr, TyWithCode, TyWithPrefix, TyWithTrait,
+    TyWithType, TyWithWhere,
 };
 
 pub(crate) enum Expand {
@@ -57,6 +57,25 @@ fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
         let (mut es, d) = splat_expand(e);
         flat.append(&mut es);
         decl = merge_decls(decl, d);
+    }
+    (flat, decl)
+}
+
+/// Flatten top-level splat params (`T<*(A,B)>` → `T<A,B>`) without recursing
+/// into non-splat names; returns flat params + any hoisted declaration.
+/// Shared by `expand_tp` (structure level, recurses afterwards) and
+/// `extract_impl_parts` (trait args, rendered to tokens).
+pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypeParam>) {
+    let mut flat = vec![];
+    let mut decl = None;
+    for (name, bound) in params {
+        if matches!(name.kind, TyKind::Splat(_)) {
+            let (es, d) = splat_expand(*name);
+            decl = merge_decls(decl, d);
+            flat.extend(es.into_iter().map(|e| (Box::new(e), None)));
+        } else {
+            flat.push((name, bound));
+        }
     }
     (flat, decl)
 }

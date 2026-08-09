@@ -61,9 +61,13 @@ pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
 /// (`<T: Bound>`, no base) and **arguments** (`T<A>`, base present) — the
 /// distinction lives in the render function used
 /// (`params_to_tokens` vs `params_to_tokens_no_base`).
+/// The positional-param list type shared by `TyTypeParam` and the splat
+/// flattener (`flat_splat_params`) — named so signatures stay readable.
+pub(crate) type TyParams = Vec<(Box<Ty>, Option<Ty>)>;
+
 #[derive(Clone, Debug)]
 pub(crate) struct TyTypeParam {
-    pub(crate) params: Vec<(Box<Ty>, Option<Ty>)>,
+    pub(crate) params: TyParams,
     pub(crate) bindings: Vec<(Box<Ty>, Box<Ty>)>,
 }
 

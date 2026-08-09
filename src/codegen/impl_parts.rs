@@ -69,19 +69,14 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
         }
         TyKind::WithTrait(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            // Trait generic args may carry splats (`Conv<*(A,B)>`) — expand
-            // each arg to its flat elements before rendering (token-level:
-            // `trait_generic_names` is `TokenStream` past this point).
-            for (name, _bound) in wt.0.1.params {
-                if matches!(name.kind, TyKind::Splat(_)) {
-                    let (es, _decl) = splat_expand(*name);
-                    parts
-                        .trait_generic_names
-                        .extend(es.into_iter().map(|e| e.to_token_stream()));
-                } else {
-                    parts.trait_generic_names.push(name.to_token_stream());
-                }
-            }
+            // Trait generic args may carry splats (`Conv<*(A,B)>`) — flatten
+            // them before rendering (token-level: `trait_generic_names` is
+            // `TokenStream` past this point). Declarations from `*()^N` are
+            // dropped here (rare; rustc reports the missing declaration).
+            let (flat, _decl) = flat_splat_params(wt.0.1.params);
+            parts
+                .trait_generic_names
+                .extend(flat.into_iter().map(|(n, _)| n.to_token_stream()));
             parts.associated_types.extend(
                 wt.0.1
                     .bindings

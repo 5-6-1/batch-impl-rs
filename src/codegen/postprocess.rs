@@ -154,25 +154,22 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
     }
 }
 
-/// Expand splat params inside a `TyTypeParam` (generic args / trait args): a
-/// `TySplat` param becomes its flat elements; every other param (name / bound
-/// / binding value) recurses through [`expand_splat_elems`]. Fresh
-/// declarations hoisted out of `*()^N` splats are returned for the caller to
-/// wrap in `TyWithType` (a `TyGeneric`/`TyTrait` cannot carry them itself).
+/// Expand splat params inside a `TyTypeParam` (generic args / trait args):
+/// top-level splat params flatten via [`flat_splat_params`], then every
+/// remaining param (name / bound / binding value) recurses through
+/// [`expand_splat_elems`]. Fresh declarations hoisted out of `*()^N` splats
+/// are returned for the caller to wrap in `TyWithType` (a `TyGeneric` /
+/// `TyTrait` cannot carry them itself).
 fn expand_tp(tp: TyTypeParam) -> (TyTypeParam, Option<TyTypeParam>) {
-    let mut params = vec![];
-    let mut decl = None;
-    for (name, bound) in tp.params {
-        if matches!(name.kind, TyKind::Splat(_)) {
-            let (es, d) = splat_expand(*name);
-            decl = merge_decls(decl, d);
-            params.extend(es.into_iter().map(|e| (Box::new(e), None)));
-        } else {
+    let (flat, decl) = flat_splat_params(tp.params);
+    let params = flat
+        .into_iter()
+        .map(|(name, bound)| {
             let name = expand_splat_elems(*name);
             let bound = bound.map(expand_splat_elems);
-            params.push((Box::new(name), bound));
-        }
-    }
+            (Box::new(name), bound)
+        })
+        .collect();
     let bindings = tp
         .bindings
         .into_iter()

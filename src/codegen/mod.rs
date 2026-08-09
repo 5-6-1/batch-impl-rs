@@ -105,8 +105,10 @@ pub(crate) fn generate_impl(
 
     // Tuple-level splat expansion (Ty structure): `(A, *(B,C))` → `(A,B,C)`,
     // with fresh declarations from `*()^N` hoisted. Runs before hoisting so
-    // the lifted decl feeds into the impl generics. (Generic-arg splats like
-    // `T<*(A,B)>` are token-level, expanded at render — see `expand_splats`.)
+    // the lifted decl feeds into the impl generics. Generic-arg splats
+    // (`T<*(A,B)>`) are structural (`TySplat` in `Box<Ty>` params) and expand
+    // inside the same pass via `expand_tp`; trait-path splats (`Conv<*(A,B)>`)
+    // expand in `extract_impl_parts` where the trait args are rendered.
     parts.target_type = expand_splat_elems(parts.target_type);
 
     // hoist nested `WithType` (fresh generics) out of the target type, preventing `<A>` leaks
