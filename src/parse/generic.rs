@@ -3,6 +3,7 @@
 //! Provides matching and parsing of `<...>` generic parameters plus related helpers.
 
 use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+
 use quote::{ToTokens, quote};
 
 use crate::ast::*;
@@ -91,30 +92,20 @@ pub(crate) fn parse_angle_bracket_contents(
         if chunk.is_empty() {
             continue;
         }
-        // Splat arg: `Foo<*(a,b)>` / `Foo<*[a,b]>` flattens into multiple
-        // generic args (`Foo<a,b>`, one impl) — distinct from `Foo<[a,b]>`
-        // which dispatches. A flattened generator's declaration cannot live
-        // in a `TyTypeParam`, so it errors (the compile_error! token renders
-        // in the impl header).
+        // Splat arg: `Foo<*(a,b)>` / `Foo<*[a,b]>` — kept WHOLE as a single
+        // generic arg (`Foo<*(a,b)>`, one impl); the codegen postprocess
+        // (`expand_splats`) flattens it into its elements (`Foo<a,b>`), per
+        // the splat-survival principle (parse/apply/expand never flatten
+        // `*()`/`*[]`). A generator splat (`Foo<*(()^N)>`) errors — its
+        // fresh declaration has nowhere to live inside a `TyTypeParam` (a
+        // compile_error! token renders in the impl header).
         if let [TokenTree::Punct(star), TokenTree::Group(g)] = chunk
             && star.as_char() == '*'
             && matches!(g.delimiter(), Delimiter::Bracket | Delimiter::Parenthesis)
         {
-            let inner = g.stream().into_iter().collect::<Vec<TokenTree>>();
-            let mut flat = vec![];
-            let mut decl = None;
-            for c in split_at_depth0(&inner, ',') {
-                if c.is_empty() {
-                    continue;
-                }
-                let (mut es, d) = splat_expand(
-                    parse_item(&mut Cursor::new(c), Op::Dash, trait_name)
-                        .unwrap_or_else(empty),
-                );
-                flat.append(&mut es);
-                decl = merge_decls(decl, d);
-            }
-            if decl.is_some() {
+            let ty = parse_item(&mut Cursor::new(chunk), Op::Dash, trait_name)
+                .unwrap_or_else(empty);
+            if contains_generator(&ty) {
                 // No `;` here — a semicolon after `compile_error!` is illegal
                 // inside a generic-arg list; the bare invocation still emits
                 // the targeted error when rustc expands it in type position.
@@ -129,15 +120,13 @@ pub(crate) fn parse_angle_bracket_contents(
                 params.push((err, None));
                 continue;
             }
-            for e in flat {
-                let name = match resolve_at_refs(
-                    &e.to_token_stream().into_iter().collect::<Vec<_>>(),
-                ) {
-                    Ok(v) => v.into_iter().collect(),
-                    Err(e) => e,
-                };
-                params.push((name, None));
-            }
+            let name = match resolve_at_refs(
+                &ty.to_token_stream().into_iter().collect::<Vec<_>>(),
+            ) {
+                Ok(v) => v.into_iter().collect(),
+                Err(e) => e,
+            };
+            params.push((name, None));
             continue;
         }
         // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
@@ -186,4 +175,26 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
 /// Empty token node (fallback for unwrap_or_else)
 pub(crate) fn empty() -> Ty {
     TyPrimitive(quote![]).to_ty()
+}
+
+/// Whether a Ty contains a fresh-generator declaration (`WithType` from
+/// `()^N`) anywhere — used to reject generator splats inside generic args
+/// (their declaration has nowhere to live in a `TyTypeParam`). Splat
+/// elements are not children of `map_children` (the Splat arm keeps the
+/// node), so they are recursed manually.
+fn contains_generator(ty: &Ty) -> bool {
+    if matches!(ty.kind, TyKind::WithType(_)) {
+        return true;
+    }
+    if let TyKind::Splat(s) = &ty.kind {
+        return s.elems().iter().any(contains_generator);
+    }
+    let mut found = false;
+    ty.clone().map_children(&mut |child| {
+        if contains_generator(&child) {
+            found = true;
+        }
+        child
+    });
+    found
 }

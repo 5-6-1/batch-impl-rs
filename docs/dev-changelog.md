@@ -59,6 +59,12 @@
   - Spec-list splats (`[*(A),*(B)]`, `*[Vec,Box]^T`) still flatten in the
     expand phase (`TyKind::Splat` → `Expand::Many`) — that is impl-list
     generation, not type-structure expansion.
+  - Generic-arg splats (`Foo<*(a,b)>`) are also kept whole by the parser
+    (`parse/generic.rs` no longer `splat_expand`s them into multiple args);
+    they survive as a single `*(a,b)` arg and expand at render via
+    `expand_splats` — `Foo<*(a,b)>` → `Foo<a,b>`. A generator splat there
+    (`Foo<*(()^N)>`) still errors (its fresh declaration has nowhere to
+    live in a `TyTypeParam`), now detected by `contains_generator`.
 - **Splat survival unchanged**: `Pair^[*(A),*(B)]^2` still repeats each
   element (`[Pair<A,A>, Pair<B,B>]`); splat pow (`*(A,B)^2` Cartesian) and
   left-splat append/distribute (`*[...]^T`, `*(...)^T`) keep working in
