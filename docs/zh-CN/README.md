@@ -131,7 +131,8 @@ trait Describe2 { fn describe(&self) -> String; }
 - **三个入口**：`#[batch_impl]`（含 trait）/ `#[batch_impl_only]`（只出 impl）/
   `batch_trait!`（对已声明 trait 批量生成，支持多段）
 - **示例**：`examples/quickstart.rs`（特性 demo）、`examples/simplify.rs`
-  （29 个 impl ≈ 15 行 DSL 的真实场景）
+  （29 个 impl ≈ 15 行 DSL 的真实场景）、`examples/typeclass.rs`
+  （类型类风格：`Num`/`UNum`/`INum`/`FNum` 层级 + `Frac<T, U>` 的 36 个 `From<bool>` impl）
 - **开发者**：内部架构见 `docs/architecture.md`，开发变更记录见
   `docs/dev-changelog.md`
 
