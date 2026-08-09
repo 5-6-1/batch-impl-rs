@@ -1,0 +1,7 @@
+error: batch-impl: bound args (`T: Clone`) are only valid on a trait path or in a generic declaration (`<T: Clone> Foo`) — a concrete type's args are a plain type list
+ --> tests/ui/concrete_bound.rs:7:1
+  |
+7 | #[batch_impl(Wrap<u8: Clone>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -139,7 +139,11 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
 
     if let Some((base, args, rest)) = parse_generic(tokens) {
         let args_vec = args.into_iter().collect::<Vec<TokenTree>>();
-        let params = parse_angle_bracket_contents(&args_vec, trait_name);
+        let params = parse_angle_bracket_contents(
+            &args_vec,
+            trait_name,
+            is_trait_base(&base, trait_name),
+        );
         let generic = if is_trait_base(&base, trait_name) {
             TyTrait(base.iter().cloned().collect(), params).into()
         } else {
@@ -161,7 +165,7 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
 
     if let Some((args, rest)) = parse_type_params(tokens) {
         let args_vec = args.into_iter().collect::<Vec<_>>();
-        let params = parse_angle_bracket_contents(&args_vec, trait_name);
+        let params = parse_angle_bracket_contents(&args_vec, trait_name, true);
         let params = params.into();
         return if rest.is_empty() {
             params

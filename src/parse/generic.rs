@@ -9,7 +9,7 @@ use quote::quote;
 use crate::ast::*;
 use crate::parse::parse_item;
 use crate::parse::resolve_at_refs;
-use crate::util::{Cursor, is_single_colon, scan_stop};
+use crate::util::{Cursor, compile_error_ty, is_single_colon, scan_stop};
 
 // ============================================================
 // Angle brackets and generic parameters
@@ -84,8 +84,13 @@ fn find_colon_at_depth0(tokens: &[TokenTree]) -> Option<usize> {
 
 /// Parse `<T: Clone, U, Item=V>` contents: parameter list + associated-type bindings
 pub(crate) fn parse_angle_bracket_contents(
-    tokens: &[TokenTree], trait_name: Option<&Ident>,
+    tokens: &[TokenTree], trait_name: Option<&Ident>, allow_special: bool,
 ) -> TyTypeParam {
+    // `allow_special`: bindings (`Item = u32`) and bounds (`T: Clone`) are
+    // valid only on a trait path (`Conv<Item = u32> X`) or in a generic
+    // declaration (`<T: Clone> Foo`) — a concrete type's args are a plain
+    // type list, so `=`/`:` there is a usage error (previously the bound was
+    // silently dropped and a struct binding rendered invalid code).
     let mut params = vec![];
     let mut bindings = vec![];
     for chunk in split_at_depth0(tokens, ',') {
@@ -104,32 +109,80 @@ pub(crate) fn parse_angle_bracket_contents(
         // A resolution error yields a `compile_error!` token stream that
         // surfaces when the impl header is rendered.
         if let Some(eq) = scan_stop(chunk, &['=']) {
-            let name_ty = TyPrimitive(chunk[..eq].iter().cloned().collect()).to_ty();
-            let value = match resolve_at_refs(&chunk[eq + 1..]) {
-                Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
-                    .unwrap_or_else(empty),
-                Err(e) => TyPrimitive(e).to_ty(),
-            };
-            bindings.push((Box::new(name_ty), Box::new(value)));
+            if allow_special {
+                let name_ty =
+                    TyPrimitive(chunk[..eq].iter().cloned().collect()).to_ty();
+                let value = match resolve_at_refs(&chunk[eq + 1..]) {
+                    Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
+                        .unwrap_or_else(empty),
+                    Err(e) => TyPrimitive(e).to_ty(),
+                };
+                bindings.push((Box::new(name_ty), Box::new(value)));
+            } else {
+                params.push((
+                    Box::new(
+                        TyPrimitive(compile_error_ty(
+                            "batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a generic declaration — a concrete type's args are a plain type list",
+                            chunk[eq].span(),
+                        ))
+                        .to_ty(),
+                    ),
+                    None,
+                ));
+            }
         } else if let Some(colon) = find_colon_at_depth0(chunk) {
-            params.push((
-                Box::new(
-                    TyPrimitive(chunk[..colon].iter().cloned().collect()).to_ty(),
-                ),
-                Some(
-                    parse_item(
-                        &mut Cursor::new(&chunk[colon + 1..]),
-                        Op::Dash,
-                        trait_name,
-                    )
-                    .unwrap_or_else(empty),
-                ),
-            ));
+            if allow_special {
+                params.push((
+                    Box::new(
+                        TyPrimitive(
+                            chunk[..colon].iter().cloned().collect::<TokenStream>(),
+                        )
+                        .to_ty(),
+                    ),
+                    Some(
+                        parse_item(
+                            &mut Cursor::new(&chunk[colon + 1..]),
+                            Op::Dash,
+                            trait_name,
+                        )
+                        .unwrap_or_else(empty),
+                    ),
+                ));
+            } else {
+                params.push((
+                    Box::new(
+                        TyPrimitive(compile_error_ty(
+                            "batch-impl: bound args (`T: Clone`) are only valid on a trait path or in a generic declaration (`<T: Clone> Foo`) — a concrete type's args are a plain type list",
+                            chunk[colon].span(),
+                        ))
+                        .to_ty(),
+                    ),
+                    None,
+                ));
+            }
         } else {
-            let name = match resolve_at_refs(chunk) {
-                Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
-                    .unwrap_or_else(empty),
-                Err(e) => TyPrimitive(e).to_ty(),
+            let name = if matches!(
+                chunk.first(),
+                Some(TokenTree::Punct(p)) if p.as_char() == '@'
+            ) && matches!(chunk.get(1), Some(TokenTree::Literal(_)))
+                && chunk
+                    .iter()
+                    .any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '.'))
+            {
+                // `@N..M` range refs are where-predicate-only — reject them in
+                // args with a targeted message instead of leaking raw tokens.
+                let span = chunk[0].span();
+                TyPrimitive(compile_error_ty(
+                    "batch-impl: `@N..M` range references are only valid as a where-predicate subject",
+                    span,
+                ))
+                .to_ty()
+            } else {
+                match resolve_at_refs(chunk) {
+                    Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
+                        .unwrap_or_else(empty),
+                    Err(e) => TyPrimitive(e).to_ty(),
+                }
             };
             params.push((Box::new(name), None));
         }

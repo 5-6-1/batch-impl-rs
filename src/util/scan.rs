@@ -89,7 +89,12 @@ pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
         if matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char())) {
             let is_arrow_dash = is_joint_punct_at(tokens, index, '-')
                 && matches!(tokens.get(index + 1), Some(next) if is_punct(next, '>'));
-            if !is_arrow_dash {
+            // `..=` inclusive range: the second `=` is part of the range
+            // operator, not a binding separator (`Item = u32`).
+            let is_range_inclusive = is_punct(token, '=')
+                && index > 0
+                && matches!(tokens.get(index - 1), Some(prev) if is_punct(prev, '.'));
+            if !is_arrow_dash && !is_range_inclusive {
                 return index.into();
             }
         }

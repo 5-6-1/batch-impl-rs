@@ -91,6 +91,11 @@ fn ui() {
     t.compile_fail("tests/ui/star_misuse.rs");
     t.compile_fail("tests/ui/where_splat_bad.rs");
 
+    // concrete-type args reject bindings/bounds (trait paths and generic
+    // declarations are their only valid homes)
+    t.compile_fail("tests/ui/concrete_binding.rs");
+    t.compile_fail("tests/ui/concrete_bound.rs");
+
     // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");
 }

@@ -87,6 +87,20 @@
     path (`lone_splat` gates the parse_list path; the former per-delimiter
     `TyKind::Splat` special-case branches were deleted). `(a)` stays a
     transparent group, `[a]` a slice.
+  - **Concrete-type args reject bindings/bounds** (user ruling: "if it has
+    `Item = u32` it's a trait"): `parse_angle_bracket_contents` gained an
+    `allow_special` gate — bindings (`Item = u32`) and bounds (`T: Clone`)
+    are valid only on a trait path (`Conv<Item = u32> X`) or in a generic
+    declaration (`<T: Clone> Foo`); a concrete type's args hitting `=`/`:`
+    now error with a targeted message (previously the bound was silently
+    dropped and a struct binding rendered invalid code). Added
+    `compile_error_ty` (type-position form without the trailing `;` — a
+    semicolon inside generic args is a syntax error). Two latent bugs fixed
+    along the way: `scan_stop` skips `..=` (the range operator's `=` is not
+    a binding separator — `Vec<@0..=2>` was being misread as a binding), and
+    `@N..M` range refs in type position now error with a targeted message
+    (where-predicate-only; ui `concrete_binding`/`concrete_bound`, and
+    `at_range_in_type` snapshot updated).
   - **Where-predicate constraint**: a bare splat as a predicate subject
     (`where{*(A,B): Trait}`) is rejected in codegen with a clear message —
     a predicate is a constraint, not a parameter list, so a structural

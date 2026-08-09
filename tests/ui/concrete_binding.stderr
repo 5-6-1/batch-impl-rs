@@ -1,0 +1,7 @@
+error: batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a generic declaration — a concrete type's args are a plain type list
+ --> tests/ui/concrete_binding.rs:9:1
+  |
+9 | #[batch_impl(Assoc<Item = u32>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
