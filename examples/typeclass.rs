@@ -8,6 +8,10 @@
 //!   (6 × 6 = 36 combos);
 //! - a spec-level trait segment with concrete args (`From<bool>`) substitutes
 //!   the trait param into directive-copied bodies (`fn from(value: bool)`).
+//!
+//! Order of the pieces follows the dependency chain: the data type (`Frac`)
+//! first, then the base class (`Num`), then the subclasses (`UNum`/`INum`/
+//! `FNum`) that build on it.
 
 // The point is generating the impls, not using every trait method — the
 // hierarchy exists to be filled by the DSL.
@@ -15,20 +19,7 @@
 
 use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 
-// --- trait hierarchy: a tiny numeric type class ---
-//
-// `Num` itself is defined by the `#[batch_impl]` below (the macro emits the
-// trait plus its impls); the subclasses are declared here and filled by
-// `batch_trait!`.
-
-/// Unsigned subclass (the `@u*` family).
-trait UNum: Num {}
-/// Signed/float subclass with a sign query.
-trait INum: Num {
-    fn positive(&self) -> bool;
-}
-/// Float subclass.
-trait FNum: INum {}
+// --- the data: a signed fraction ---
 
 /// A signed fraction: `positive` plus `num`/`denom` of two number types.
 struct Frac<T, U> {
@@ -37,11 +28,12 @@ struct Frac<T, U> {
     denom: U,
 }
 
-// --- `#[batch_impl]`: one spec per class ---
+// --- base class `Num`: defined and filled by `#[batch_impl]` ---
 
-// `@num` fills every built-in number; the `<T: UNum, U: UNum>` segment fills
-// the fraction — the `UNum` bound is satisfied by the `batch_trait!` impls
-// below (the class constraint closes the loop).
+// The macro emits the trait definition plus its impls. `@num` fills every
+// built-in number; the `<T: UNum, U: UNum>` segment fills the fraction —
+// the `UNum` bound is satisfied by the `batch_trait!` impls below (the
+// class constraint closes the loop).
 #[batch_impl(
     @num #from_bool{i.into()},
     <T: UNum, U: UNum> Frac<T, U> #from_bool{
@@ -55,6 +47,17 @@ struct Frac<T, U> {
 trait Num {
     fn from_bool(i: bool) -> Self;
 }
+
+// --- subclasses: declared here, filled by `batch_trait!` below ---
+
+/// Unsigned subclass (the `@u*` family).
+trait UNum: Num {}
+/// Signed/float subclass with a sign query.
+trait INum: Num {
+    fn positive(&self) -> bool;
+}
+/// Float subclass.
+trait FNum: INum {}
 
 // --- `batch_trait!`: multi-segment, one line per class ---
 
@@ -108,8 +111,7 @@ fn main() {
     assert!(<Frac<u8, u16> as INum>::positive(&f));
     assert!(<i32 as INum>::positive(&7i32));
     assert!(!<f32 as INum>::positive(&-1.5f32));
-    // `FNum` floats inherit `positive` from `INum` (call via INum); the
-    // bound asserts the `FNum` impls themselves exist
+    // `FNum` floats inherit `positive` from `INum` (call via INum)
     assert!(<f64 as INum>::positive(&0.5f64));
 
     println!("36 From<bool> impls + the Num/INum/FNum hierarchy all work");
