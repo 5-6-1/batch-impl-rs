@@ -23,6 +23,7 @@
   - **where 谓词约束**：裸 splat 作谓词主体（`where{*(A,B): Trait}`）在 codegen 明确拒绝——谓词是约束不是参数列表，结构展开器会产出非法的 `A, B: Trait`。元组谓词（`(*(A,B)): Trait`）与谓词内部 splat（`X: Trait<*(A,B)>`）保持合法（ui `where_splat_bad`）。
 - **splat 存续不变**：`Pair^[*(A),*(B)]^2` 仍重复每个元素（`[Pair<A,A>, Pair<B,B>]`）；splat 幂（`*(A,B)^2` 笛卡尔积）与左 splat 追加/分配（`*[...]^T`、`*(...)^T`）在 `TySplat::apply_help` 照常。
 - `TySplat::Tuple` 渲染改为 `*(A,B)`（原 `(*(A,B))`）——外括号只服务于旧的 parse 时消费；codegen 展开器匹配裸标记。
+- **`<>` 内的 generator 实参**：`flat_splat_params`（共享 splat 摊平器）现在也提升 `WithType`（fresh generator）实参——`()^N` 保持内层元组为单个实参（`T<()^2>` = `impl<P0,P1> T for T<(P0,P1)>`）、splat 重包（`*()^N`）则摊平（`T<*()^2>` = `impl<P0,P1> T for T<P0,P1>`）。此前 `Pair<()^2>` / `Pair<*()^2>` 把声明漏进实参导致编译失败。测试：dsl `gen_args_in_angle`。
 - **`TyTypeParam` 全面 Ty 化**：`params` 改为 `Vec<(Box<Ty>, Option<Ty>)>`、`bindings` 改为 `Vec<(Box<Ty>, Box<Ty>)>`——每个元素都是 `Ty`，非类型 token（参数名、`const N`、生命周期、数字 const 实参、绑定名）统一用 `TyPrimitive` 包裹。泛型实参因此结构化：`T<Map<K,V>>` 保持 `TyGeneric(T, [TyGeneric(Map, [K,V])])`、splat 实参（`T<*(A,B)>`）以 `TySplat` 存活并在 codegen（`expand_tp`）摊平、`@N` 仍在 parse 前解析。渲染/提取/apply 对 params 统一按结构化类型处理；声明与实参的区分仍在所用的渲染函数（`params_to_tokens` vs `params_to_tokens_no_base`）。
 - 删除 `consume_splats`（parse 时摊平 splat 的 `parse_group` 逻辑）；`(a, *(b,c))` 与 `(*(a,b))` 现在保持 splat 直到 codegen。
 - 测试：现有 splat 套件（SplatArgs / SplatConcat / SplatGen / SplatGenFlat / SplatSurvival / SplatLeft / 尾逗号 / 中间空 / 幂等）全部原样通过；新增 dsl `SplatGenericArg`（`SplatMap<*(A,B)>` → `SplatMap<A,B>`）与 `assert_cv`（trait 段 + 右 splat）覆盖延迟展开路径。

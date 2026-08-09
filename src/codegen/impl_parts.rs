@@ -69,10 +69,11 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
         }
         TyKind::WithTrait(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            // Trait generic args may carry splats (`Conv<*(A,B)>`) — flatten
-            // them before rendering (token-level: `trait_generic_names` is
-            // `TokenStream` past this point). Declarations from `*()^N` are
-            // dropped here (rare; rustc reports the missing declaration).
+            // Trait generic args may carry splats (`Conv<*(A,B)>`) and
+            // generators (`Conv<()^2>`) — flatten them before rendering
+            // (token-level: `trait_generic_names` is `TokenStream` past this
+            // point). Declarations are dropped here (rare; rustc reports the
+            // missing declaration).
             let (flat, _decl) = flat_splat_params(wt.0.1.params);
             parts
                 .trait_generic_names

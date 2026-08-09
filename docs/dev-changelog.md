@@ -89,6 +89,13 @@
 - `TySplat::Tuple` renders as `*(A,B)` (was `(*(A,B))`) — the outer parens
   were only needed by the old parse-time consumption; the codegen expander
   matches the bare marker.
+- **Generator args in `<>`**: `flat_splat_params` (the shared splat
+  flattener) now also hoists `WithType` (fresh-generator) params — `()^N`
+  keeps its inner tuple as one arg (`T<()^2>` = `impl<P0,P1> T for
+  T<(P0,P1)>`), while a splat re-wrap (`*()^N`) flattens (`T<*()^2>` =
+  `impl<P0,P1> T for T<P0,P1>`). Previously `Pair<()^2>` / `Pair<*()^2>`
+  leaked the declaration into the args and failed to compile. Tests: dsl
+  `gen_args_in_angle`.
 - **`TyTypeParam` is fully Ty-typed now**: `params` is `Vec<(Box<Ty>,
   Option<Ty>)>` and `bindings` `Vec<(Box<Ty>, Box<Ty>)>` — every element is
   a `Ty`, with non-type tokens (parameter names, `const N`, lifetimes,

@@ -1998,6 +1998,27 @@ fn trait_path_splat() {
     let _ = <SplatPair2 as Conv2<SplatA, SplatB>>::conv2(SplatA, SplatB);
 }
 
+// Generator args in `<>`: `()^2` hoists fresh decls and keeps the tuple as
+// one arg — `GenWrap<()^2>` = `impl<P0,P1> T for GenWrap<(P0,P1)>`; `*()^2`
+// flattens instead — `GenPair2<*()^2>` = `impl<P0,P1> T for GenPair2<P0,P1>`.
+struct GenWrap<X>(X);
+struct GenPair2<A, B>(A, B);
+#[batch_impl(GenWrap<()^2>)]
+trait GenTupleArg {}
+#[batch_impl(GenPair2<*()^2>)]
+trait GenSplatArg {}
+
+fn assert_gt<T: GenTupleArg>() {}
+fn assert_gs<T: GenSplatArg>() {}
+
+#[test]
+fn gen_args_in_angle() {
+    assert_gt::<GenWrap<(u8, u16)>>();
+    assert_gs::<GenPair2<u8, u16>>();
+    let _ = GenWrap((0u8, 0u16));
+    let _ = GenPair2(0u8, 0u16);
+}
+
 // Nested generic-arg splat: `Map<*(K,V)>` — a splat as one generic arg
 // expands in codegen to its elements: `Map<K,V>`.
 struct SplatMap<K, V>(K, V);

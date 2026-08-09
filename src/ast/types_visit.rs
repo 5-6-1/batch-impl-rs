@@ -61,20 +61,38 @@ fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
     (flat, decl)
 }
 
-/// Flatten top-level splat params (`T<*(A,B)>` → `T<A,B>`) without recursing
-/// into non-splat names; returns flat params + any hoisted declaration.
+/// Flatten top-level splat params (`T<*(A,B)>` → `T<A,B>`) and hoist
+/// generator declarations (`T<()^2>` = `<A,B>T<(A,B)>`) without recursing
+/// into ordinary names; returns flat params + any hoisted declaration.
 /// Shared by `expand_tp` (structure level, recurses afterwards) and
 /// `extract_impl_parts` (trait args, rendered to tokens).
 pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypeParam>) {
     let mut flat = vec![];
     let mut decl = None;
     for (name, bound) in params {
-        if matches!(name.kind, TyKind::Splat(_)) {
-            let (es, d) = splat_expand(*name);
-            decl = merge_decls(decl, d);
-            flat.extend(es.into_iter().map(|e| (Box::new(e), None)));
-        } else {
-            flat.push((name, bound));
+        match name.kind {
+            // `*(A,B)` param → its flat elements
+            TyKind::Splat(_) => {
+                let (es, d) = splat_expand(*name);
+                decl = merge_decls(decl, d);
+                flat.extend(es.into_iter().map(|e| (Box::new(e), None)));
+            }
+            // generator param (`()^N`) → hoist the fresh declaration; the
+            // inner tuple stays the arg (`T<()^2>` = `<A,B>T<(A,B)>`), but a
+            // splat re-wrap (`*()^N` → `<A,B>T<A,B>`) flattens further.
+            TyKind::WithType(wt) => {
+                decl = merge_decls(decl, Some(wt.0));
+                let inner = *wt.1;
+                match inner.kind {
+                    TyKind::Splat(_) => {
+                        let (es, d) = splat_expand(inner);
+                        decl = merge_decls(decl, d);
+                        flat.extend(es.into_iter().map(|e| (Box::new(e), None)));
+                    }
+                    _ => flat.push((Box::new(inner), bound)),
+                }
+            }
+            _ => flat.push((name, bound)),
         }
     }
     (flat, decl)
