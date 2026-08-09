@@ -65,6 +65,14 @@
     `expand_splats` — `Foo<*(a,b)>` → `Foo<a,b>`. A generator splat there
     (`Foo<*(()^N)>`) still errors (its fresh declaration has nowhere to
     live in a `TyTypeParam`), now detected by `contains_generator`.
+  - **Unified container rule** (`parse_group`): a group whose content is a
+    lone splat is a list, not a special case — `(*(a,b))` ≡ `(*(a,b),)` ≡
+    `(a,b)` (tuple), `[*(a,b)]` ≡ `[*(a,b),]` ≡ `[a,b]` (impl-list /
+    dispatch), same for array-splat forms (`(*[a,b])` → `(a,b)`,
+    `[*[a,b]]` → `[a,b]`). The former per-delimiter `TyKind::Splat`
+    special-case branches were deleted; `lone_splat` gates the parse_list
+    path, so the tail-comma forms and the bare forms share one code path.
+    `(a)` stays a transparent group, `[a]` a slice.
 - **Splat survival unchanged**: `Pair^[*(A),*(B)]^2` still repeats each
   element (`[Pair<A,A>, Pair<B,B>]`); splat pow (`*(A,B)^2` Cartesian) and
   left-splat append/distribute (`*[...]^T`, `*(...)^T`) keep working in

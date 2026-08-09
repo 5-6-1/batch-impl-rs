@@ -151,6 +151,12 @@ bracket drives the left-operand semantics** — `*[A,B]^T` distributes
 list, mirrors `TyTuple`). Generic args `Foo<*(a,b)>` = `Foo<a,b>` (multi-arg,
 one impl — distinct from `Foo<[a,b]>` dispatch).
 
+**Unified container rule**: a group whose content is a lone splat
+auto-becomes the matching container — `(*(a,b))` ≡ `(*(a,b),)` ≡ `(a,b)`
+(tuple), `[*(a,b)]` ≡ `[*(a,b),]` ≡ `[a,b]` (impl-list / dispatch); same for
+the array-splat forms `(*[a,b])` → `(a,b)` and `[*[a,b]]` → `[a,b]`. One
+code path, no special case: `(a)` stays a transparent group, `[a]` a slice.
+
 Two rules: `T^*(A,B,...)` ≡ `T-A-B-...` (right splat = flat argument append —
 equivalent to the `-` chain, regardless of source bracket); left splat by
 source — `*[A,B]^T` = `*[A^T,B^T]` (distribution; composing `X^*[A,B]^T` =

@@ -3,7 +3,7 @@ use crate::ast::*;
 use crate::parse::generic::empty;
 use crate::parse::{parse_item, parse_primitive};
 use crate::util::{Cursor, contains_punct};
-use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
 
 /// `#[...]` attribute parsing
 pub(crate) fn parse_attribute(
@@ -126,6 +126,24 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
 }
 
 /// Group parsing: `(A,B)` tuple / `(A)` group / `[A,B]` list / `[A; N]` array / `[A]` slice /
+/// Whether a group's content is a **lone splat**: exactly a `*` punct
+/// followed by a `(...)` / `[...]` group (`(*(a,b))`, `[*(a,b)]`,
+/// `(*[a,b])`, `[*[a,b]]`). Such a group is a list whose content is the
+/// splat — the group auto-becomes the matching container (tuple for `()`,
+/// array for `[]`), unifying `(*(a,b))` ≡ `(*(a,b),)` and
+/// `[*(a,b)]` ≡ `[*(a,b),]` on one code path.
+fn lone_splat(contents: &[TokenTree]) -> bool {
+    matches!(
+        contents,
+        [TokenTree::Punct(p), TokenTree::Group(g)]
+            if p.as_char() == '*'
+                && matches!(
+                    g.delimiter(),
+                    Delimiter::Parenthesis | Delimiter::Bracket
+                )
+    )
+}
+
 /// `{...}` code block
 pub(crate) fn parse_group(
     group: &proc_macro2::Group, trait_name: Option<&Ident>,
@@ -133,7 +151,16 @@ pub(crate) fn parse_group(
     let contents = group.stream().into_iter().collect::<Vec<_>>();
     match group.delimiter() {
         delimiter![()] => {
-            if contents.is_empty() || contains_punct(&contents, ',') {
+            // Unified rule: a group whose content is empty, comma-separated,
+            // or a **lone splat** (`(*(a,b))` / `(*[a,b])`) is a list —
+            // the splat is the list's content and the group auto-becomes the
+            // matching container (tuple). `(*(a,b))` ≡ `(*(a,b),)` ≡ `(a,b)`
+            // — one code path, no special case. Non-splat single-element
+            // groups (`(a)`) stay transparent groups (`TyGroup`).
+            if contents.is_empty()
+                || contains_punct(&contents, ',')
+                || lone_splat(&contents)
+            {
                 // Splat elements are KEPT (splat survival: parse never
                 // flattens `*()`/`*[]` — `(a, *(b,c))` stays a tuple with a
                 // splat element; codegen expands it into `(a, b, c)`).
@@ -144,23 +171,16 @@ pub(crate) fn parse_group(
                 let inner =
                     parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)
                         .unwrap_or_else(empty);
-                // Group → tuple: a single-element group whose content is a
-                // splat stays a tuple holding the splat (`(*(a,b))` keeps
-                // `*(a,b)`; codegen expands it into `(a, b)`).
-                if matches!(inner.kind, TyKind::Splat(_)) {
-                    // A lone splat in a single-element group keeps the splat
-                    // as the tuple's element (codegen expands it into the
-                    // tuple's elements): `(*(a,b))` → `(a, b)`.
-                    TyTuple(vec![inner]).to_ty().with_span(group.span())
-                } else {
-                    TyGroup(Box::new(inner)).to_ty().with_span(group.span())
-                }
+                TyGroup(Box::new(inner)).to_ty().with_span(group.span())
             }
         }
         delimiter![[]] => {
-            // With a comma it is a list; otherwise `;` (Op::Semi) distinguishes arrays from slices.
-            // Empty `[]` is the array/slice builder base `(None, None)`.
-            if contains_punct(&contents, ',') {
+            // With a comma it is a list; a **lone splat** (`[*(a,b)]` /
+            // `[*[a,b]]`) is also a list — the splat auto-becomes the
+            // array's content (`[*(a,b)]` ≡ `[*(a,b),]` ≡ `[a,b]` as
+            // impl-list / dispatch). `;` (Op::Semi) distinguishes arrays
+            // from slices; empty `[]` is the array/slice builder base.
+            if contains_punct(&contents, ',') || lone_splat(&contents) {
                 // Splat elements are KEPT (not consumed here) — a splat lives
                 // until consumption (apply-right / codegen), per the splat
                 // survival principle: `[*(A),*(B)]^2` repeats each element
@@ -180,11 +200,6 @@ pub(crate) fn parse_group(
                     TyPrimitiveArray(element.into(), length.into())
                         .to_ty()
                         .with_span(group.span())
-                } else if matches!(element.kind, TyKind::Splat(_)) {
-                    // `[*(a,b)]` — a lone splat at the slice position (no
-                    // comma) is kept as a splat element (splat survival;
-                    // it flattens when consumed).
-                    TyArray(vec![element]).to_ty().with_span(group.span())
                 } else {
                     TyPrimitiveArray(element.into(), None)
                         .to_ty()

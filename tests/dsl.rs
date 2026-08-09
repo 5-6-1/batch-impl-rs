@@ -1989,6 +1989,23 @@ struct SplatMap<K, V>(K, V);
 #[batch_impl(SplatMap<*(SplatA, SplatB)>)]
 trait SplatGenericArg {}
 
+// Unified container rule: a group whose content is a lone splat
+// (`(*(a,b))` / `(*[a,b])` / `[*(a,b)]` / `[*[a,b]]`) auto-becomes the
+// matching container — `(*(a,b))` ≡ `(*(a,b),)` ≡ `(a,b)`,
+// `[*(a,b)]` ≡ `[*(a,b),]` ≡ `[a,b]` (impl-list / dispatch). One code
+// path (parse_list), no special case.
+struct SplatOne<X>(X);
+#[batch_impl(SplatOne^(*(SplatA, SplatB)))]
+trait SplatTupArg {}
+#[batch_impl(SplatOne^(*(SplatA, SplatB),))]
+trait SplatTupArgT {}
+#[batch_impl((*(SplatA, SplatB)))]
+trait SplatTupLone {}
+#[batch_impl((*[SplatA, SplatB]))]
+trait SplatTupArr {}
+#[batch_impl((*()))]
+trait SplatTupEmpty {}
+
 // Splat survival: array elements keep their splat until consumption —
 // `[*(A),*(B)]^2` repeats each element (`[*(A,A),*(B,B)]`), so the splat
 // pow drives both generic positions: `Pair^[*(SplatA),*(SplatB)]^2` =
@@ -2017,6 +2034,16 @@ fn splat_scenarios() {
     assert_cv::<Pair<SplatA, SplatB>>();
     fn assert_ga<T: SplatGenericArg>() {}
     assert_ga::<SplatMap<SplatA, SplatB>>();
+    fn assert_tu<T: SplatTupArg>() {}
+    assert_tu::<SplatOne<(SplatA, SplatB)>>();
+    fn assert_tut<T: SplatTupArgT>() {}
+    assert_tut::<SplatOne<(SplatA, SplatB)>>();
+    fn assert_tl<T: SplatTupLone>() {}
+    assert_tl::<(SplatA, SplatB)>();
+    fn assert_tar<T: SplatTupArr>() {}
+    assert_tar::<(SplatA, SplatB)>();
+    fn assert_te<T: SplatTupEmpty>() {}
+    assert_te::<()>();
     fn assert_s<T: SplatSurvival>() {}
     assert_s::<Pair<SplatA, SplatA>>();
     assert_s::<Pair<SplatB, SplatB>>();

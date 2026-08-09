@@ -19,6 +19,7 @@
   - `expand_splats`（token 层）：impl 头部里 `*` Punct 后紧跟 `(...)`/`[...]` 组 → 展开成组的逗号分隔元素——`T<*(A,B)>` → `T<A,B>`、`Map<*(K,V)>` → `Map<K,V>`（嵌套递归）。body 不经过它，fn 里的 `a * b` 保持乘法；`*const T` / `*mut T`（`*` 后跟 Ident）保持原始指针。
   - spec 列表位置的 splat（`[*(A),*(B)]`、`*[Vec,Box]^T`）仍在 expand 阶段摊平（`TyKind::Splat` → `Expand::Many`）——那是 impl 列表生成，不是类型结构展开。
   - 泛型实参里的 splat（`Foo<*(a,b)>`）也由 parse 保持整体（`parse/generic.rs` 不再 `splat_expand` 成多个实参）——作为单个 `*(a,b)` 实参存活，渲染时经 `expand_splats` 展开——`Foo<*(a,b)>` → `Foo<a,b>`。generator splat 在这里（`Foo<*(()^N)>`）仍报错（fresh 声明在 `TyTypeParam` 里无处安放），现在由 `contains_generator` 检测。
+  - **统一容器规则**（`parse_group`）：组内是孤立 splat 就是列表、不是特例——`(*(a,b))` ≡ `(*(a,b),)` ≡ `(a,b)`（元组）、`[*(a,b)]` ≡ `[*(a,b),]` ≡ `[a,b]`（impl 列表/分发），数组 splat 形式同理（`(*[a,b])` → `(a,b)`、`[*[a,b]]` → `[a,b]`）。原先按定界符分的 `TyKind::Splat` 特判分支已删；`lone_splat` 门控 parse_list 路径——尾逗号形式与裸形式共用一条代码路径。`(a)` 保持透明组、`[a]` 是切片。
 - **splat 存续不变**：`Pair^[*(A),*(B)]^2` 仍重复每个元素（`[Pair<A,A>, Pair<B,B>]`）；splat 幂（`*(A,B)^2` 笛卡尔积）与左 splat 追加/分配（`*[...]^T`、`*(...)^T`）在 `TySplat::apply_help` 照常。
 - `TySplat::Tuple` 渲染改为 `*(A,B)`（原 `(*(A,B))`）——外括号只服务于旧的 parse 时消费；codegen 展开器匹配裸标记。
 - 删除 `consume_splats`（parse 时摊平 splat 的 `parse_group` 逻辑）；`(a, *(b,c))` 与 `(*(a,b))` 现在保持 splat 直到 codegen。
