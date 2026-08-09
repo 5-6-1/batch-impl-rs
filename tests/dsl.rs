@@ -1998,6 +1998,27 @@ fn trait_path_splat() {
     let _ = <SplatPair2 as Conv2<SplatA, SplatB>>::conv2(SplatA, SplatB);
 }
 
+// Splat power as a generic arg: `Frac<*(*@u*)^2>` distributes the pow's
+// Cartesian result (`[*(u8,u8), ...]`) into one impl per pair — 36 total.
+// The literal `T<[A,B]>` array path is parse-time (`has_array_arg`); pow
+// results enter params as a `TyArray` and distribute in `expand`.
+struct SplatPow<T, U>(T, U);
+#[batch_impl(SplatPow<*(*@u*)^2>)]
+trait SplatPowArg {}
+#[batch_impl(SplatPow<*(@u*)^2>)]
+trait SplatPowArg2 {}
+fn assert_pow<T: SplatPowArg>() {}
+fn assert_pow2<T: SplatPowArg2>() {}
+
+#[test]
+fn splat_pow_arg() {
+    assert_pow::<SplatPow<u8, u8>>();
+    assert_pow::<SplatPow<u8, u16>>();
+    assert_pow::<SplatPow<usize, usize>>();
+    assert_pow2::<SplatPow<u16, u8>>();
+    assert_pow2::<SplatPow<usize, u128>>();
+}
+
 // Generator args in `<>`: `()^2` hoists fresh decls and keeps the tuple as
 // one arg — `GenWrap<()^2>` = `impl<P0,P1> T for GenWrap<(P0,P1)>`; `*()^2`
 // flattens instead — `GenPair2<*()^2>` = `impl<P0,P1> T for GenPair2<P0,P1>`.

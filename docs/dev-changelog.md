@@ -68,6 +68,12 @@
     `gen_splat_arg` removed). A generator splat there (`Foo<*(()^N)>` /
     `<*()^3>`) survives as a raw arg and rustc reports the missing
     declaration — acknowledged oddity, no dedicated diagnostic.
+  - **Splat pow inside generic args** (`Frac<*(*@u*)^2>`): the pow result
+    (`TyArray([*(u8,u8), ...])`) enters params and distributes in `expand`'s
+    generic branch — one impl per pair (36 total, equivalent to the
+    right-splat chain `Frac^*(*@u*)^2`); literal `T<[A,B]>` arrays still
+    distribute at parse time (`has_array_arg`), so the two paths never
+    double-distribute (dsl `splat_pow_arg`).
   - **Container rule** (`parse_group`): a group whose content is a lone
     splat parses as the container holding the splat as one element —
     `(*(a,b))` = `( *(a,b) )` (tuple), `[*(a,b)]` = `[ *(a,b) ]` (array);

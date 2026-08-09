@@ -81,7 +81,7 @@ batch_trait! {
 // The dummy trait is discarded (only its signatures are read).
 #[batch_impl_only(
     From<bool>
-    Frac^*(*@u*)^2
+    Frac<*(*@u*)^2>
     #from{
         Frac {
             positive: true,

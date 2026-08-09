@@ -310,6 +310,61 @@ impl Ty {
                 )
             }
             TyKind::Group(g) => (*g.0).expand(),
+            TyKind::Generic(g) => {
+                // Array args distribute like a list — `T<[A,B]>` → `[T<A>, T<B>]`
+                // (Cartesian across multiple arrays). A literal `T<[A,B]>` is
+                // already split by the parse-time `has_array_arg` path; this
+                // catches array args produced by splat powers
+                // (`*(*@u*)^2` → `[*(u8,u8), ...]`) that enter params as a
+                // `TyArray`.
+                if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_)))
+                {
+                    let mut combos: Vec<TyParams> = vec![vec![]];
+                    for (name, bound) in &g.1.params {
+                        let candidates: TyParams = match &name.kind {
+                            TyKind::Array(a) => {
+                                a.0.iter()
+                                    .map(|e| (Box::new(e.clone()), bound.clone()))
+                                    .collect()
+                            }
+                            _ => vec![(name.clone(), bound.clone())],
+                        };
+                        let mut next =
+                            Vec::with_capacity(combos.len() * candidates.len());
+                        for ex in &combos {
+                            for c in &candidates {
+                                let mut combo = ex.clone();
+                                combo.push(c.clone());
+                                next.push(combo);
+                            }
+                        }
+                        combos = next;
+                    }
+                    if let Some(e) =
+                        check_expand_limit("generic array distribution", combos.len())
+                    {
+                        return e.expand();
+                    }
+                    Expand::Many(
+                        combos
+                            .into_iter()
+                            .map(|params| {
+                                TyGeneric(
+                                    g.0.clone(),
+                                    TyTypeParam {
+                                        params,
+                                        bindings: g.1.bindings.clone(),
+                                    },
+                                )
+                                .to_ty()
+                                .with_span(span)
+                            })
+                            .collect(),
+                    )
+                } else {
+                    Expand::Leaf(Ty { span, kind: TyKind::Generic(g) })
+                }
+            }
             other => Expand::Leaf(Ty { span, kind: other }),
         }
     }

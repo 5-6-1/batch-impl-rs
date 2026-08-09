@@ -96,7 +96,10 @@ angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..
   **元组 splat 的 `^N` 幂把每个笛卡尔组合包回 splat**——`*(A,B)^2` =
   `[*(A,A),*(A,B),*(B,A),*(B,B)]`——右 splat 链把组合摊平进容器
   （`X^*(*@u*)^2` = `X<u8,u8>`/`X<u8,u16>`/...——`X<@u*,@u*>` 的重复列表
-  简写；`*(A,B)^2` 单独作目标摊平成重复，E0119）。
+  简写；`*(A,B)^2` 单独作目标摊平成重复，E0119）。**泛型实参内的 splat 幂**
+  （`Frac<*(*@u*)^2>`）——幂结果（`TyArray([*(u8,u8), ...])`）进入 params 后
+  在 `expand` 的 Generic 分支分发成逐对 impl（36 个，与右 splat 链等价）；
+  字面数组实参（`T<[A,B]>`）仍走 parse 时 `has_array_arg` 路径，两条路径不重复。
   HRTB binder（`for<'a>`）天然排除；const 泛型实参 / 数组长度经 `visit_expr`
   收集。`impl_names` 中 `const N` 归一如 `N` 以匹配引用检查。
 
