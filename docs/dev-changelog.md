@@ -35,6 +35,17 @@
   `Pair<A<B>>` — plain right-splats without a trait segment are fine (dsl
   `SplatArgs`). Not yet fixed; the trait-substitution tests/docs use a list
   `[Pair<A, A>, Pair<B, B>]` instead.
+- **Splat survival (array elements)**: array/list elements that are splats
+  are now KEPT until consumption instead of being flattened at parse time
+  (`parse_atom.rs` no longer calls `consume_splats` for `[...]` lists or a
+  lone `[*(...)]` element) — a splat lives until apply-right or codegen, so
+  `[*(A),*(B)]^2` repeats each element (`[*(A,A),*(B,B)]`) and
+  `Pair^[*(SplatA),*(SplatB)]^2` = `[Pair<SplatA,SplatA>,
+  Pair<SplatB,SplatB>]` (splat pow drives both generic positions). Bare
+  arrays/slices (`[u8]`, `[u8; 3]`) and no-right-operand targets
+  (`[a, *[b,c]]` = `[a,b,c]`) are unchanged (codegen flattens at the end).
+  Tuples still flatten splats at parse (unchanged scope). Test: dsl
+  `SplatSurvival`.
 - **Not diagnosed (by design)**: a *function* generic param colliding with
   the substituted trait arg (`fn foo<U>(_: T)` inside `impl<U> A<U>`) is
   Rust's own generic-shadowing ban — `E0403` already points at both `U`s

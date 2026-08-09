@@ -1975,6 +1975,13 @@ trait SplatLeft {}
 #[batch_impl(Pair^*(SplatD, SplatE))]
 trait SplatArgs {}
 
+// Splat survival: array elements keep their splat until consumption —
+// `[*(A),*(B)]^2` repeats each element (`[*(A,A),*(B,B)]`), so the splat
+// pow drives both generic positions: `Pair^[*(SplatA),*(SplatB)]^2` =
+// `[Pair<SplatA,SplatA>, Pair<SplatB,SplatB>]`.
+#[batch_impl(Pair^[*(SplatA),*(SplatB)]^2)]
+trait SplatSurvival {}
+
 #[test]
 fn splat_scenarios() {
     fn assert_t<T: SplatArr>() {}
@@ -1992,6 +1999,9 @@ fn splat_scenarios() {
     assert_l::<Box<SplatF>>();
     fn assert_args<T: SplatArgs>() {}
     assert_args::<Pair<SplatD, SplatE>>();
+    fn assert_s<T: SplatSurvival>() {}
+    assert_s::<Pair<SplatA, SplatA>>();
+    assert_s::<Pair<SplatB, SplatB>>();
 }
 
 // nested splat is idempotent; empty splat is a no-op

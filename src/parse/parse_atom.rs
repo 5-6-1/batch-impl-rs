@@ -167,15 +167,12 @@ pub(crate) fn parse_group(
             // With a comma it is a list; otherwise `;` (Op::Semi) distinguishes arrays from slices.
             // Empty `[]` is the array/slice builder base `(None, None)`.
             if contains_punct(&contents, ',') {
-                let (flat, decl) =
-                    consume_splats(parse_list(&contents, Op::Comma, trait_name));
-                let arr = TyArray(flat).to_ty().with_span(group.span());
-                match decl {
-                    Some(d) => {
-                        TyWithType(d, arr.into()).to_ty().with_span(group.span())
-                    }
-                    None => arr,
-                }
+                // Splat elements are KEPT (not consumed here) — a splat lives
+                // until consumption (apply-right / codegen), per the splat
+                // survival principle: `[*(A),*(B)]^2` repeats each element
+                // (`[*(A,A),*(B,B)]`) instead of flattening to bare types.
+                let flat = parse_list(&contents, Op::Comma, trait_name);
+                TyArray(flat).to_ty().with_span(group.span())
             } else if contents.is_empty() {
                 TyPrimitiveArray(None, None).to_ty().with_span(group.span())
             } else {
@@ -191,16 +188,9 @@ pub(crate) fn parse_group(
                         .with_span(group.span())
                 } else if matches!(element.kind, TyKind::Splat(_)) {
                     // `[*(a,b)]` — a lone splat at the slice position (no
-                    // comma) flattens into a list, matching `(*(a,b))` →
-                    // `(a,b)` (syntax parity between `[]` and `()`).
-                    let (flat, decl) = consume_splats(vec![element]);
-                    let arr = TyArray(flat).to_ty().with_span(group.span());
-                    match decl {
-                        Some(d) => {
-                            TyWithType(d, arr.into()).to_ty().with_span(group.span())
-                        }
-                        None => arr,
-                    }
+                    // comma) is kept as a splat element (splat survival;
+                    // it flattens when consumed).
+                    TyArray(vec![element]).to_ty().with_span(group.span())
                 } else {
                     TyPrimitiveArray(element.into(), None)
                         .to_ty()
