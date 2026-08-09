@@ -188,6 +188,28 @@ pub(crate) fn generate_impl(
     // where-predicate macro-meta replacement (`@N` → impl generic N)
     let mut where_resolved = vec![];
     for pred in &parts.where_clauses {
+        // A bare splat as a predicate subject has no defined semantics
+        // (`*(A,B): Trait` would expand to `A, B: Trait` — a predicate is a
+        // constraint, not a parameter list). Reject with a clear message;
+        // splats inside a predicate (`X: Trait<*(A,B)>`) and tuple
+        // predicates (`(*(A,B)): Trait`) are fine — they expand legally.
+        let head = pred.clone().into_iter().collect::<Vec<_>>();
+        if matches!(head.as_slice(),
+            [TokenTree::Punct(p), TokenTree::Group(g), ..]
+            if p.as_char() == '*'
+                && matches!(
+                    g.delimiter(),
+                    proc_macro2::Delimiter::Parenthesis
+                        | proc_macro2::Delimiter::Bracket
+                )
+        ) {
+            errs.push(compile_err!(
+                "batch-impl: a bare splat cannot be a where-predicate subject \
+                 (`*(A,B): Trait`); wrap it in a tuple (`(*(A,B)): Trait`) or \
+                 write separate predicates"
+            ));
+            continue;
+        }
         match resolve_where_at(pred, &impl_name_streams) {
             Ok(p) => where_resolved.push(p),
             Err(e) => errs.push(e),

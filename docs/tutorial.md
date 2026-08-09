@@ -157,6 +157,15 @@ auto-becomes the matching container — `(*(a,b))` ≡ `(*(a,b),)` ≡ `(a,b)`
 the array-splat forms `(*[a,b])` → `(a,b)` and `[*[a,b]]` → `[a,b]`. One
 code path, no special case: `(a)` stays a transparent group, `[a]` a slice.
 
+**Legal positions**: a splat is a *parameter-position list* — it expands
+wherever a list of elements is expected: generic args (`Foo<*(a,b)>`),
+tuple / array elements (`(a, *(b,c))`, `[*(a),*(b)]`), generic declarations
+(`<*(A,B)>`), fn parameters (`fn(*(A,B))`), and spec lists (`[*(a,b)]`). A
+bare splat as a **where-predicate subject** has no defined semantics
+(`*(A,B): Trait` would expand to `A, B: Trait`) and is rejected with a clear
+error — wrap it in a tuple (`(*(A,B)): Trait`) or write separate
+predicates; splats *inside* a predicate (`X: Trait<*(A,B)>`) are fine.
+
 Two rules: `T^*(A,B,...)` ≡ `T-A-B-...` (right splat = flat argument append —
 equivalent to the `-` chain, regardless of source bracket); left splat by
 source — `*[A,B]^T` = `*[A^T,B^T]` (distribution; composing `X^*[A,B]^T` =

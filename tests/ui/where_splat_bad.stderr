@@ -1,0 +1,7 @@
+error: batch-impl: a bare splat cannot be a where-predicate subject (`*(A,B): Trait`); wrap it in a tuple (`(*(A,B)): Trait`) or write separate predicates
+ --> tests/ui/where_splat_bad.rs:8:1
+  |
+8 | #[batch_impl(u8 where{*(A, B): Clone})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

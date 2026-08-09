@@ -73,6 +73,12 @@
     special-case branches were deleted; `lone_splat` gates the parse_list
     path, so the tail-comma forms and the bare forms share one code path.
     `(a)` stays a transparent group, `[a]` a slice.
+  - **Where-predicate constraint**: a bare splat as a predicate subject
+    (`where{*(A,B): Trait}`) is rejected in codegen with a clear message —
+    a predicate is a constraint, not a parameter list, so `expand_splats`
+    would emit illegal `A, B: Trait`. Tuple predicates (`(*(A,B)): Trait`)
+    and splats inside a predicate (`X: Trait<*(A,B)>`) stay legal (ui
+    `where_splat_bad`).
 - **Splat survival unchanged**: `Pair^[*(A),*(B)]^2` still repeats each
   element (`[Pair<A,A>, Pair<B,B>]`); splat pow (`*(A,B)^2` Cartesian) and
   left-splat append/distribute (`*[...]^T`, `*(...)^T`) keep working in
