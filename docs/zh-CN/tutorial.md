@@ -73,6 +73,7 @@ spec 的骨架：
 
 ```rust
 # use batch_impl::batch_impl;
+# use std::collections::HashMap;
 #[batch_impl(Box^Vec^u32, HashMap<u8>^String)]
 trait T {}
 // → impl T for Box<Vec<u32>> {}
@@ -122,15 +123,16 @@ trait V {}
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(
-    [usize { fn name() -> &'static str { "usize" } },
-     isize { fn name() -> &'static str { "isize" } }]
-    { fn zero() -> Self { 0 } }
+    [usize { fn name(&self) -> &'static str { "usize" } },
+     isize { fn name(&self) -> &'static str { "isize" } },
+     f32  { fn name(&self) -> &'static str { "f32" } }]
+    { fn zero() -> Self { Default::default() } }
 )]
 trait Zero {
     fn zero() -> Self;
-    fn name() -> &'static str;
+    fn name(&self) -> &'static str;
 }
-// → impl Zero for usize { fn zero() -> Self { 0 } fn name() -> &'static str { "usize" } }
+// → 每个 impl：独立 fn name + 共享 fn zero——不同方法共存
 // → impl Zero for isize { fn zero() -> Self { 0 } fn name() -> &'static str { "isize" } }
 ```
 
@@ -237,9 +239,9 @@ trait ArrayLen {}
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(A<>)]
+#[batch_impl(A<> Vec<u8>)]
 trait A<T: Clone, const N: usize> {}
-// → impl<T: Clone, const N: usize> A for A<T, N> {}
+// → impl<T: Clone, const N: usize> A<T, N> for Vec<u8> {}
 ```
 
 ### 5.3 实参：多实参、嵌套、绑定
@@ -248,12 +250,13 @@ trait A<T: Clone, const N: usize> {}
 # use batch_impl::batch_impl;
 struct Map<K, V>(K, V);
 struct A; struct B; struct C;
+struct Wrap<X>(X);
 #[batch_impl(Map<A, B>)]                 // 多实参
 trait M1 {}
 #[batch_impl(Map<Map<A, B>, C>)]         // 嵌套结构保留（TyGeneric 嵌套）
 trait M2 {}
-#[batch_impl(Assoc<Item = u8>)]          // 关联类型绑定
-trait M3 { type Item; }
+#[batch_impl(Conv<u8, Item = u8> Wrap<u8>)]  // 关联类型绑定（trait 路径）
+trait Conv<T> { type Item; }
 ```
 
 ### 5.4 `<>` 内的操作（0.7.0 可编程化）
@@ -291,7 +294,7 @@ trait 泛型参数与 spec 实参同名时，bound 自动继承；改名则明�
 trait B2 {}
 // → impl<T> B2 for Box<T> where Box<T>: Clone {}
 
-#[batch_impl(<T> Foo<T>)]  // T 未声明 → 报错（不是静默）
+#[batch_impl(<T> Foo<U>)]  // 改名（U ≠ T）→ 明确报错（不是静默）
 trait Foo<T> {}
 ```
 
@@ -408,12 +411,11 @@ trait Len { fn len(&self) -> usize; }
 
 未知指令 `#name(args){body}` 成为顶层宏调用——`{! m!{(arg1){arg2} trait_def}}` 形式把宏调用提升到顶层输出（示例用 crate 自带的测试宏 `batch_preprocess_test`；宏参数里的 `trait_def` 提供签名，外部需已有同名 trait）：
 
-```rust
+```rust,ignore
 # use batch_impl::batch_impl;
 # use batch_impl::batch_preprocess_test;
-# trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 #[batch_impl(u16 {! batch_preprocess_test!{(add,inc){*self += 3} trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }}})]
-trait AddInc {}
+trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 ```
 
 ## 8. where 子句
@@ -463,6 +465,7 @@ trait TuplePow {}
 
 ```rust
 # use batch_impl::batch_impl;
+# use std::rc::Rc;
 #[batch_impl([Box, Rc]^[u8, u16])]
 trait Matrix {}
 // → impl Matrix for Box<u8> {} / Box<u16> / Rc<u8> / Rc<u16>（4 项）
@@ -507,6 +510,7 @@ trait Slices {}
 ```rust
 # use batch_impl::batch_impl_only;
 # struct Wrapper<T>(T);
+# trait Conv<T> { fn conv() -> T; }
 #[batch_impl_only(Conv<bool> Wrapper<bool> #conv{false})]
 trait Conv<T> { fn conv() -> T; }
 // → impl Conv<bool> for Wrapper<bool> { fn conv() -> bool { false } }（trait 不重发）
@@ -535,4 +539,5 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **泛型改名不继承**：trait 泛型参数改名 = 明确报错，绝不静默
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
 - **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
+- **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径与泛型声明——定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path"）
 

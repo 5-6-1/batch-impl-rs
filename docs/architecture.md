@@ -87,6 +87,7 @@ The DSL consists of two (future three) **mutually non-penetrating syntax domains
 - **Same token, separate domains, distinct meanings**: `-` is an apply link in the type domain (`HashMap-K-V` = `HashMap<K, V>`) and an exclusion marker in the directive domain (`#fill(@all,-foo)`) — the two domains never enter each other's parsing, so the semantics never conflict;
 - **Domain boundaries are module boundaries**: type-domain parsing (`parse_item` precedence climbing) never recurses into directive arguments; directive preprocessing (`expand_tokens`) only expands `#` directives and does not interpret DSL operators; `@` constants (`preprocess/consts.rs`) only do lexical substitution and enter no domain;
 - **Uniform pass-through guards**: the contents of `ident![...]` macro bodies and `#[...]` attributes are arbitrary Rust; the four recursive entries (`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`) never enter them, and the decision converges in `scan::bracket_is_passthrough` (in 0.5.7 a missing guard caused `#name` directives inside `#[...]` to be wrongly expanded).
+- **Generic-arg domain split**: bindings (`Item = u32`) and bounds (`T: Clone`) are valid only on a trait path (`Conv<Item = u32> X`) or in a generic declaration (`<T: Clone> Foo`) — a concrete type's args are a plain type list, so `=`/`:` there errors with a targeted message (`parse_angle_bracket_contents`' `allow_special` gate; previously the bound was silently dropped and a struct binding rendered invalid code).
 
 ### Attachment Semantics
 

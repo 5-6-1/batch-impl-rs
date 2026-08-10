@@ -164,7 +164,7 @@
   the user renames; no postprocess check is added (language-level rule,
   rustc's diagnostic is already precise).
 
-## 0.7.0 (2026-08-08)
+## 0.7.0 (2026-08-10)
 
 ### Core restructure: codegen split + fresh-name protocol unification
 
@@ -1170,4 +1170,5 @@
 
 `684 (0.-1) → 1961 (0.0) → ≈2153 (0.1.1) → 3197 (0.2) → 1628 (0.3.0 initial version)`
 `→ ≈1586 (0.3.0 final version, five files) → 4400 (0.6)`
+
 

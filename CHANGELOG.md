@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.7.0 (2026-08-10)
 
 ### Splat expansion deferred to codegen (bugfix + clarification)
 
@@ -73,8 +73,6 @@ path (`Conv<Item = u32> X`) or in a generic declaration (`<T: Clone> Foo`).
 A concrete type's args (`struct Assoc<T>` with `Assoc<Item = u32>`) now
 error with a targeted message instead of silently dropping the bound or
 rendering invalid code.
-
-## 0.7.0 (2026-08-08)
 
 ### Splat: `*` prefix flattening
 

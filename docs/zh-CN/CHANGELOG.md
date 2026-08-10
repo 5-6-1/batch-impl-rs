@@ -2,7 +2,7 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## 未发布
+## 0.7.0 (2026-08-10)
 
 ### splat 展开延迟到 codegen（bug 修复 + 语义明确）
 
@@ -46,8 +46,6 @@ pub trait From<T>: Sized { fn from(value: T) -> Self; }
 ### 具体类型实参拒绝 binding/bound
 
 binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<Item = u32> X`）与泛型声明（`<T: Clone> Foo`）。具体类型的实参（`struct Assoc<T>` 配 `Assoc<Item = u32>`）现在报定向错误——此前 bound 被静默丢弃、struct binding 渲染非法代码。
-
-## 0.7.0 (2026-08-08)
 
 ### splat：`*` 前缀展开
 

@@ -125,6 +125,10 @@ DSL 由两个（未来三个）**互不渗透的语法域**组成，各域记号
   四个递归入口（`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`）一律不进入，
   判定收敛在 `scan::bracket_is_passthrough`（0.5.7 曾因一处守卫缺失误展开
   `#[...]` 内的 `#name` 指令）。
+- **泛型实参的域分裂**：binding（`Item = u32`）与 bound（`T: Clone`）只属
+  trait 路径（`Conv<Item = u32> X`）与泛型声明（`<T: Clone> Foo`）——具体
+  类型的实参是纯类型列表，遇 `=`/`:` 报定向错误（`parse_angle_bracket_contents`
+  的 `allow_special` 门控；此前 bound 被静默丢弃、struct binding 渲染非法代码）。
 
 ### 附着语义
 
