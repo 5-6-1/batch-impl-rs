@@ -120,7 +120,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | 开放扩展                             | 不认识的 `#name(args){body}` 变为顶层宏调用：你的同名宏收到 `{spec}(args){body}trait` 并生成自己的 impl | §7 |
 | `@` 常量                             | 内置族 `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` 系/`@Cow` + batch_trait! 自定义（懒展开、链式引用） | §6 |
 | 泛型参数族                           | `@all_type_params` / `@all_const_params` / `@all_lifetimes`——泛型声明照抄 trait 形参（bound 走同名继承） | §6 |
-| 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`/`@g_i`/`@all_fresh`/`@N..M`）归宏元层 | §6 |
+| 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`/`@g_i`/`@all_fresh`/`@N..=M`）归宏元层 | §6 |
 | `where{...}`                         | 约束容器统一（`<>` 只留名字），blanket 约束并列合并 | §8 |
 | 元组生成                             | `()^3`、`(T,)^N`、笛卡尔积、范围            | §9 |
 | fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持                          | §10 |

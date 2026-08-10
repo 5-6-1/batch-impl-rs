@@ -67,7 +67,7 @@ spec 的骨架：
 | `[Box, Vec]^[T1, T2]`    | 笛卡尔积共 4 项                      |
 | `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>`           |
 
-> **注意**：`Box^Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box^Vec^u32`。
+> **注意**：`Box^Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box^Vec^u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
 
 > **操作数严格性**：`^`/`-`/`,` 两侧必须有操作数——`A^`、`^A`、`-A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
 
@@ -156,7 +156,7 @@ trait SplatConcat {}
 
 ### 4.2 左操作数：分配与追加
 
-左 splat 按来源括号分语义——`*[A,B]^T` **分配**（`*[A^T,B^T]`——集合，对标 `TyArray`）、`*(A,B)^T` **追加**（`*(A,B,...,T)`——列表，对标 `TyTuple`）：
+左 splat 按来源括号分语义——`*[A,B]^T` **分配**（`*[A^T,B^T]`——集合，对标 `TyArray`）、`*(A,B)^T` **追加**（`*(A,B,...,T)`——列表，对标 `TyTuple`）。`[]` 是**集合**、`()` 是**序列**——splat 只是保留来源括号的基础容器语义，**不是新规则**；`TySplat::Array`/`TySplat::Tuple` 镜像 `TyArray`/`TyTuple`：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -335,22 +335,36 @@ batch_trait! {
 
 > **限制**：`batch_trait!` **不支持 `#` 指令**（`#fill`/`#delegate`/`#blanket`/开放扩展）——指令需要 trait 定义作签名真相源，而 `batch_trait!` 是函数式宏、拿不到 trait 定义。需要指令时请改用 `#[batch_impl]` / `#[batch_impl_only]`。
 
-### 6.4 宏元层完整化：`@trait` / `@all` 系 / `@0`
 
-| 记号 | 含义 | 用途 |
+### 6.4 宏元层完整化：寻址代数 + 值类别
+
+`@` 的“位置引用”是一个**寻址代数**——不是并列记号：
+
+| 记号 | 派生关系 | 含义 |
 |---|---|---|
-| `@N` / `@g_i` | **位置**——宏生成泛型的第 N 位（含分组） | 引用 fresh 泛型名（`where{@0: Clone}`） |
-| `@trait` | **身份**——当前 trait 名/路径（batch_trait 段级：逐段为本段名） | 跨段打包「泛型声明 + trait 名」 |
-| `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合 | `#fill(@all_required_methods, -foo)` 精确选中 |
-| `@Cow` 等自定义 | **打包**——类型 + 固有约束一体 | 复用"带约束的包装" |
+| `@g_i` | **原语**——组 g、位 i（跨数组分发稳定） | 寻址宏生成的泛型 |
+| `@N` | `@g_i` 在单 impl 内按文档序摊平的下标 | 引用 fresh 泛型名（`where{@0: Clone}`） |
+| `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个” |
+| `@N..=M` | 连续段 | 范围糖——`@0..=1` = `@0, @1` |
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(()^2 where{@0: Clone, @1: Copy})]
-trait PositionRef {}
-// → impl<P0, P1> PositionRef for (P0, P1) where P0: Clone, P1: Copy
-//   （()^2 生成 fresh，@0/@1 在 where 谓词中引用）
+#[batch_impl(()^2 where{@0..=1: Clone})]   // 范围糖：@0..=1 = @0, @1
+trait RangeSugar {}
+// → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
+
+#[batch_impl(()^3 where{@all_fresh: Copy})] // 全部 fresh 泛型
+trait AllFresh {}
+// → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 ```
+
+另一根轴（值类别）：
+
+| 记号 | 类别 | 用途 |
+|---|---|---|
+| `@trait` | **身份**——当前 trait 名/路径（batch_trait 段级） | 跨段打包「泛型声明 + trait 名」 |
+| `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合 | `#fill(@all_required_methods, -foo)` 精确选中 |
+| `@Cow` 等自定义 | **打包**——类型 + 固有约束一体 | 复用“带约束的包装” |
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
@@ -409,7 +423,7 @@ trait Len { fn len(&self) -> usize; }
 
 ### 7.5 开放扩展（顶层宏注入）
 
-未知指令 `#name(args){body}` 成为顶层宏调用——`{! m!{(arg1){arg2} trait_def}}` 形式把宏调用提升到顶层输出（示例用 crate 自带的测试宏 `batch_preprocess_test`；宏参数里的 `trait_def` 提供签名，外部需已有同名 trait）：
+未知指令 `#name(args){body}` 成为顶层宏调用——`{! m!{(arg1){arg2} trait_def}}` 形式把宏调用提升到顶层输出（示例用 crate 自带的测试宏 `batch_preprocess_test`；宏参数里的 `trait_def` 提供签名，外部需已有同名 trait）。**扩展点的交付物是协议形状本身**——batch-impl 不实现你的 codegen，只保证 `{spec}(args){body}trait_def` 四段输入到达你的同名宏：
 
 ```rust,ignore
 # use batch_impl::batch_impl;
@@ -440,7 +454,7 @@ trait T { fn tag(&self) -> &'static str; }
 
 ### 8.3 谓词继承与 `@N` 引用
 
-trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义），包进元组或分开写。
+trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..=M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义），包进元组或分开写。
 
 ## 9. 元组生成与矩阵
 

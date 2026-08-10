@@ -67,7 +67,7 @@ Precedence from low to high: `;` < `,` < `-` < `^`; `()` grouping sits above all
 | `[Box, Vec]^[T1, T2]`      | Cartesian product, 4 entries         |
 | `[HashMap<K>, Vec<K>]^V`   | `HashMap<K, V>, Vec<K, V>`           |
 
-> **Note**: `Box^Vec-u32` is wrong (it parses as `Box<Vec, u32>`); write `Box^Vec^u32` instead.
+> **Note**: `Box^Vec-u32` is wrong (it parses as `Box<Vec, u32>`); write `Box^Vec^u32` instead. When you miswrite it, rustc's E0107 error prints the rendered `Box<Vec, u32>` verbatim — the mistake is self-evident.
 
 > **Operand strictness**: both sides of `^`/`-`/`,` must have operands — `A^`, `^A`, `-A`, `,A`, `A,,B` all report `compile_error!`; only **trailing commas** (`A,` / `[A, B,]`) are allowed, and `()`/`[]` brackets are real tokens, not empty operands. `;` stays lenient as a `batch_trait!` section boundary.
 
@@ -154,6 +154,8 @@ trait U {}
 ```
 
 ### 4.2 Left operand: distribute vs append
+
+`[]` is a **set** and `()` is a **sequence** — splat just mirrors the source bracket, so `*[A,B]^T` distributes (each element applies `T`, keeping set semantics) and `*(A,B)^T` appends (keeping list semantics). This is not a new rule; it preserves the underlying container's behavior, and `TySplat::Array`/`TySplat::Tuple` mirror `TyArray`/`TyTuple`.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -330,20 +332,35 @@ batch_trait! {
 
 ### 6.4 The complete macro-meta layer: `@trait` / `@all` family / `@0`
 
-| Notation | Meaning | Use |
+### 6.4 The complete macro-meta layer: an addressing algebra + value classes
+
+`@`'s positional references form an **addressing algebra** — not a flat list of notations:
+
+| Notation | Derivation | Meaning |
 |---|---|---|
-| `@N` / `@g_i` | **position** — the Nth macro-generated generic (with grouping) | reference fresh generic names (`where{@0: Clone}`) |
-| `@trait` | **identity** — the current trait name/path (section-level in batch_trait: each section's own name) | package "generic declaration + trait name" across sections |
-| `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` etc. custom | **package** — a type plus its inherent constraints | reuse a "constrained wrapper" |
+| `@g_i` | **primitive** — group g, slot i (stable across array distribution) | addresses a macro-generated generic |
+| `@N` | `@g_i` flattened by document order within one impl | references a fresh generic (`where{@0: Clone}`) |
+| `@all_fresh` | all fresh generics | range sugar — "every one" |
+| `@N..=M` | a contiguous run | range sugar — `@0..=1` = `@0, @1` |
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(()^2 where{@0: Clone, @1: Copy})]
-trait PositionRef {}
-// → impl<P0, P1> PositionRef for (P0, P1) where P0: Clone, P1: Copy
-//   （()^2 generates fresh params; @0/@1 reference them in where predicates）
+#[batch_impl(()^2 where{@0..=1: Clone})]   // range sugar: @0..=1 = @0, @1
+trait RangeSugar {}
+// → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
+
+#[batch_impl(()^3 where{@all_fresh: Copy})] // every fresh generic
+trait AllFresh {}
+// → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 ```
+
+On the other axis (value classes):
+
+| Notation | Class | Use |
+|---|---|---|
+| `@trait` | **identity** — the current trait name/path (section-level in batch_trait) | package "generic declaration + trait name" across sections |
+| `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
+| `@Cow` etc. custom | **package** — a type plus its inherent constraints | reuse a "constrained wrapper" |
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
@@ -392,7 +409,7 @@ impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
 
 ### 7.5 Open extension
 
-An unknown `#name(args){body}` becomes a top-level macro call — DSL fills the spec body, you write the rest:
+An unknown `#name(args){body}` becomes a top-level macro call — DSL fills the spec body, you write the rest. **The deliverable of this extension point is the protocol shape itself**: batch-impl does not implement your codegen, it only guarantees the four-part input `{spec}(args){body}trait_def` reaches your same-named macro.
 
 ```rust,ignore
 # use batch_impl::batch_impl;
