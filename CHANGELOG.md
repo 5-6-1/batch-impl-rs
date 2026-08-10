@@ -58,6 +58,22 @@ generates `impl From<bool> for Frac<u8, u8> { fn from(value: bool) { ... } }`
 × 36 — the `T` in the copied signature (and in your body code) is replaced
 with `bool`.
 
+### Splat power inside generic args
+
+`Frac<*(*@u*)^2>` now distributes the pow's Cartesian result into one impl
+per pair — 36 total, equivalent to the right-splat chain
+`Frac^*(*@u*)^2`. Array-arg distribution has a single authority: literals
+(`T<[A,B]>`), constants (`T<@u*>`) and pow results all reach params as a
+`TyArray` and distribute in `expand`.
+
+### Concrete-type args reject bindings/bounds
+
+Bindings (`Item = u32`) and bounds (`T: Clone`) are valid only on a trait
+path (`Conv<Item = u32> X`) or in a generic declaration (`<T: Clone> Foo`).
+A concrete type's args (`struct Assoc<T>` with `Assoc<Item = u32>`) now
+error with a targeted message instead of silently dropping the bound or
+rendering invalid code.
+
 ## 0.7.0 (2026-08-08)
 
 ### Splat: `*` prefix flattening

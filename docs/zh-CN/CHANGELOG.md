@@ -39,6 +39,14 @@ pub trait From<T>: Sized { fn from(value: T) -> Self; }
 
 生成 `impl From<bool> for Frac<u8, u8> { fn from(value: bool) { ... } }` × 36——抄写的签名（以及你 body 代码里）的 `T` 会被替换成 `bool`。
 
+### 泛型实参内的 splat 幂
+
+`Frac<*(*@u*)^2>` 现在把幂的笛卡尔结果分发成逐对 impl——36 个，与右 splat 链 `Frac^*(*@u*)^2` 等价。数组实参分发只有一个权威位置：字面（`T<[A,B]>`）、常量（`T<@u*>`）与幂结果全部进 params 成 `TyArray`，在 `expand` 统一分发。
+
+### 具体类型实参拒绝 binding/bound
+
+binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<Item = u32> X`）与泛型声明（`<T: Clone> Foo`）。具体类型的实参（`struct Assoc<T>` 配 `Assoc<Item = u32>`）现在报定向错误——此前 bound 被静默丢弃、struct binding 渲染非法代码。
+
 ## 0.7.0 (2026-08-08)
 
 ### splat：`*` 前缀展开
