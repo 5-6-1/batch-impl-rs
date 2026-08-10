@@ -106,19 +106,20 @@ trait Describe2 { fn describe(&self) -> String; }
 
 | Feature                                          | In one sentence                              | Tutorial chapter |
 |--------------------------------------------------|----------------------------------------------|------------------|
-| Side-by-side lists `[A, B]`                      | Implement for multiple types at once, body reused | Lists and body |
-| Splat `*` prefix                                | Flatten containers/generators into the enclosing list — in-list splice, `^` right-operand flat append, generic multi-arg; left operand `*[...]` distribute / `*(...)` append | Lists |
-| `^` / `-` operators                              | Right/left associativity of the same operation: nesting vs. accumulation | Operators |
-| Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | Generic automation |
-| Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | Associated types |
-| Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | Directive system |
-| Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | Directive system |
-| Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | Directive system |
-| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` customization (lazy expansion, chained references) | Constant system |
-| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..M`) belong to the macro-meta layer | Constant system |
-| `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | where clauses |
-| Tuple generation                                 | `()^3`, `(T,)^N`, Cartesian product, ranges  | Tuple generation |
-| fn types / unsafe / pointers / attributes        | Full support for type-level modifiers        | Modifiers |
+| Side-by-side lists `[A, B]`                      | Implement for multiple types at once, body reused | §3 |
+| Splat `*` prefix                                | Flatten containers/generators into the enclosing list — in-list splice, `^` right-operand flat append, generic multi-arg; left operand `*[...]` distribute / `*(...)` append | §4 |
+| `^` / `-` operators                              | Right/left associativity of the same operation: nesting vs. accumulation | §2 |
+| Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | §5 |
+| Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | §5.3 |
+| Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | §7 |
+| Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | §7 |
+| Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | §7 |
+| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` customization (lazy expansion, chained references) | §6 |
+| Generic parameter families                     | `@all_type_params` / `@all_const_params` / `@all_lifetimes` — generic declarations copy the trait's formal params (bounds via same-name inheritance) | §6 |
+| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..M`) belong to the macro-meta layer | §6 |
+| `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | §8 |
+| Tuple generation                                 | `()^3`, `(T,)^N`, Cartesian product, ranges  | §9 |
+| fn types / unsafe / pointers / attributes        | Full support for type-level modifiers        | §10 |
 
 ## Next steps
 

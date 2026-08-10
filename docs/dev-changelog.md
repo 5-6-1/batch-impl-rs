@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.7.0 (2026-08-10)
 
 ### Trait generic args substitute in directive bodies + codegen postprocess layer
 
@@ -163,8 +163,6 @@
   (the spec's `<U>` and the fn's `<U>`). The macro emits legal code once
   the user renames; no postprocess check is added (language-level rule,
   rustc's diagnostic is already precise).
-
-## 0.7.0 (2026-08-10)
 
 ### Core restructure: codegen split + fresh-name protocol unification
 
@@ -1170,5 +1168,6 @@
 
 `684 (0.-1) → 1961 (0.0) → ≈2153 (0.1.1) → 3197 (0.2) → 1628 (0.3.0 initial version)`
 `→ ≈1586 (0.3.0 final version, five files) → 4400 (0.6)`
+
 
 

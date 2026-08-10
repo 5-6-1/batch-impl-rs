@@ -2,7 +2,7 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 未发布
+## 0.7.0 (2026-08-10)
 
 ### trait 泛型实参替换进指令 body + codegen 后处理层
 
@@ -31,8 +31,6 @@
 - 测试：现有 splat 套件（SplatArgs / SplatConcat / SplatGen / SplatGenFlat / SplatSurvival / SplatLeft / 尾逗号 / 中间空 / 幂等）全部原样通过；新增 dsl `SplatGenericArg`（`SplatMap<*(A,B)>` → `SplatMap<A,B>`）与 `assert_cv`（trait 段 + 右 splat）覆盖延迟展开路径。
 - **splat 存续（数组元素）**：数组/列表元素若是 splat，现在**保持到消费**而非 parse 时摊平（`parse_atom.rs` 不再对 `[...]` 列表或孤立 `[*(...)]` 元素调 `consume_splats`）——splat 活到 apply 右操作数或 codegen，所以 `[*(A),*(B)]^2` 会重复每个元素（`[*(A,A),*(B,B)]`），`Pair^[*(SplatA),*(SplatB)]^2` = `[Pair<SplatA,SplatA>, Pair<SplatB,SplatB>]`（splat 幂驱动两个泛型位）。裸数组/切片（`[u8]`、`[u8; 3]`）与无右操作数的目标（`[a, *[b,c]]` = `[a,b,c]`）不变（codegen 末尾摊平）。**有右操作数时**，保持的 splat 元素走自身 splat 语义（与独立 splat 一致）：`[A,B,C]^D` = `[A^D, B^D, C^D]`（裸列表：分发）、`[A,*(B,C)]^D` = `[A^D, *(B,C,D)]` = `[A^D, B, C, D]`（元组 splat：追加）、`[A,*[B,C]]^D` = `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]`（数组 splat：分发）、`[*(A)]^2` = `[*(A,A)]` = `[A, A]`（幂：重复）。要纯分发请写裸列表 `[A,B,C]^D`。元组仍在 parse 时摊平 splat（本次范围外）。测试：dsl `SplatSurvival`。
 - **不诊断（刻意）**：fn 泛型参数与被替换的 trait 实参重名（`impl<U> A<U>` 里的 `fn foo<U>(_: T)`）是 Rust 自身的泛型遮蔽禁令——`E0403` 已经同时指向两个 `U`（spec 的 `<U>` 与 fn 的 `<U>`）。用户改名后宏输出合法代码；不加后处理检查（语言级规则，rustc 的诊断已足够精确）。
-
-## 0.7.0 (2026-08-10)
 
 ### 核心重组：codegen 拆分 + fresh 名协议统一
 
@@ -380,8 +378,8 @@
   count_leaves + fresh 系列；
 - 新 `types_visit.rs`（159）：Expand 枚举 + expand_wrapped/expand_rebuild +
   `Ty::map_children` + `Ty::expand`（遍历归一处）；
-- 新 `types_from.rs`（65）：`impl_from_for_ty!` 宏（子类型 → TyKind/Ty/
-  Box<Ty> + to_ty）+ 18 变体调用列表；
+- 新 `types_from.rs`（77）：`impl_from_for_ty!` 宏（子类型 → TyKind/Ty/
+  Box<Ty> + to_ty）+ 19 变体调用列表（含 TyError）；
 - types_render.rs（169）保持；ast/mod.rs 聚合 re-export；
 - 验证：全绿。
 
