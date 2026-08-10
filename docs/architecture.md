@@ -74,7 +74,7 @@ generate_impl**
 
 ## Syntax-Domain Isolation
 
-The DSL consists of two (future three) **mutually non-penetrating syntax domains**; each domain is self-consistent in its tokens and independent in semantics:
+The DSL consists of three **mutually non-penetrating syntax domains**; each domain is self-consistent in its tokens and independent in semantics:
 
 | Domain | Tokens | Semantics | Parsed by |
 |----|------|------|----------|

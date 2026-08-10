@@ -349,8 +349,6 @@ batch_trait! {
 
 > **Limit**: `batch_trait!` **does not support `#` directives** (`#fill`/`#delegate`/`#blanket`/open extension) — directives need the trait definition as the signature source of truth, and `batch_trait!` is a function-like macro that never sees one. Use `#[batch_impl]` / `#[batch_impl_only]` when you need directives.
 
-### 6.4 The complete macro-meta layer: `@trait` / `@all` family / `@0`
-
 ### 6.4 The complete macro-meta layer: an addressing algebra + value classes
 
 `@`'s positional references form an **addressing algebra** — not a flat list of notations:
@@ -447,7 +445,7 @@ An unknown `#name(args){body}` becomes a top-level macro call — DSL fills the 
 ```rust,ignore
 # use batch_impl::batch_impl;
 # use batch_impl::batch_preprocess_test;
-#[batch_impl(u16 {! batch_preprocess_test!{(add,inc){*self+3} trait AddIncU16 {}}})]
+#[batch_impl(u16 {! batch_preprocess_test!{(add,inc){*self+3} trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }}})]
 trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 ```
 
