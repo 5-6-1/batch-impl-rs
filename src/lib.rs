@@ -90,7 +90,6 @@ pub fn batch_trait(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/batch_preprocess_test.md"))]
-#[doc(hidden)]
 #[proc_macro]
 pub fn batch_preprocess_test(
     input: proc_macro::TokenStream,

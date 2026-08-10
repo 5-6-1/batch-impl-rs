@@ -1,6 +1,7 @@
-//! `batch_preprocess_test!` — the test-only open-extension macro. Split from
-//! lib.rs so the crate-root entry points stay thin (proc-macro functions must
-//! live at the crate root, their implementations do not).
+//! `batch_preprocess_test!` — the reference implementation of the open-extension
+//! protocol (also used as the test consumer). Split from lib.rs so the crate-root
+//! entry points stay thin (proc-macro functions must live at the crate root,
+//! their implementations do not).
 
 use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;

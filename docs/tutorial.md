@@ -137,6 +137,25 @@ trait Tagged { fn zero() -> Self; fn name(&self) -> &'static str; }
 
 ## 4. splat `*` — the Flatten Operator (the protagonist of 0.7.0)
 
+The splat draws its intuition from Python's `*` unpacking — `[a, *b]` splices a list, `f(*args)` unfolds arguments. batch-impl's `*` is the same **single-layer unpack**: a splat splices a container/generator into the enclosing list, expanding exactly one level.
+
+| Python | batch-impl |
+|---|---|
+| `[a, *b]` | `[A, *[B, C]]` — splice a list into the outer list |
+| `f(*args)` | `T-*(A, B, C)` — unfold a generator into argument positions |
+| one level of unpack | `*((a,b),)` = one `(a,b)` impl (tuples stay intact) |
+
+**Motivation**: `*` compresses a nested generator into a multi-arg container. Instead of hand-writing `T-[A,B,C]-[A,B,C]-[A,B,C]` (27 combos of nested lists), one line gives the same 27 impls:
+
+```rust
+# use batch_impl::batch_impl;
+struct T<A, B, C>(A, B, C);   // 3-arg container
+struct A; struct B; struct C;
+#[batch_impl(T-*(A, B, C)^3)]  // splat-pow: unfold (A,B,C)^3 into three arg positions
+trait Matrix27 {}
+// → 27 impls: T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（same as T-[A,B,C]-[A,B,C]-[A,B,C]）
+```
+
 `*[...]` / `*(...)` splices a container/generator into the enclosing list. A splat stays a **whole unit** through parse/apply/expand and only flattens into its elements at codegen — one code path for every position.
 
 ### 4.1 In-list / in-tuple splicing
@@ -360,7 +379,7 @@ On the other axis (value classes):
 |---|---|---|
 | `@trait` | **identity** — the current trait name/path (section-level in batch_trait) | package "generic declaration + trait name" across sections |
 | `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` etc. custom | **package** — a type plus its inherent constraints | reuse a "constrained wrapper" |
+| `@Cow` etc. custom | **package** — a type plus its inherent constraints | reuse a "constrained wrapper" (see §7.4) |
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
@@ -405,6 +424,20 @@ trait MyLen { fn d_len(&self) -> usize; }
 trait NumOps { fn inc(&mut self); }
 impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
 // → impl NumOps for Box<u32> { fn inc(&mut self) { (**self).inc() } }（delegates to the wrapped u32）
+```
+
+#### `@Cow` — a constraint-carrying packing (the case study)
+
+`Cow<'_>`'s deref target is `T::Owned`, not `T` — the naive `(**self)` delegation can't pass type checking. `@Cow` packs `Cow<'_>` **plus** the inherent constraint predicates (`@0: ToOwned + ?Sized, @0::Owned: @trait`), making it blanket-usable. This is the demonstration that **a constant carries reuse value only when it carries constraints**:
+
+```rust
+# use batch_impl::batch_impl;
+# use std::borrow::Cow;
+#[batch_impl(#blanket(@all_methods){@Cow})]
+trait CowLen { fn clen(&self) -> usize; }
+impl CowLen for str { fn clen(&self) -> usize { self.len() } }
+impl CowLen for String { fn clen(&self) -> usize { self.len() } }
+// → impl CowLen for Cow<'_, str> ... / Cow<'_, String> ...（delegates via the packed predicates）
 ```
 
 ### 7.5 Open extension

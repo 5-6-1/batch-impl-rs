@@ -138,6 +138,25 @@ trait Zero {
 
 ## 4. splat `*`——摊平操作符（0.7.0 主角）
 
+splat 的直觉来自 Python 的 `*` 解包——`[a, *b]` 拼接列表、`f(*args)` 展开参数。batch-impl 的 `*` 是同样的**单层解包**：splat 把容器/生成器展开拼入外层列表，恰好展开一层。
+
+| Python | batch-impl |
+|---|---|
+| `[a, *b]` | `[A, *[B, C]]`——把列表拼入外层列表 |
+| `f(*args)` | `T-*(A, B, C)`——把生成器展开到参数位 |
+| 单层解包 | `*((a,b),)` = 一个 `(a,b)` impl（元组保持完整） |
+
+**动机**：`*` 把嵌套生成器压缩进多参容器。与其手写 `T-[A,B,C]-[A,B,C]-[A,B,C]`（27 组合的嵌套列表），一行得到同样 27 个 impl：
+
+```rust
+# use batch_impl::batch_impl;
+struct T<A, B, C>(A, B, C);   // 三参容器
+struct A; struct B; struct C;
+#[batch_impl(T-*(A, B, C)^3)]  // splat 幂：把 (A,B,C)^3 展开到三个参数位
+trait Matrix27 {}
+// → 27 个 impl：T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（与 T-[A,B,C]-[A,B,C]-[A,B,C] 相同）
+```
+
 `*` 前缀把容器/生成器**展开拼入**（扁平化）外层列表——它是"参数位置列表"的通用摊平标记，**全位置生效**。
 
 ### 4.1 列表 / 元组内拼入
@@ -364,7 +383,7 @@ trait AllFresh {}
 |---|---|---|
 | `@trait` | **身份**——当前 trait 名/路径（batch_trait 段级） | 跨段打包「泛型声明 + trait 名」 |
 | `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合 | `#fill(@all_required_methods, -foo)` 精确选中 |
-| `@Cow` 等自定义 | **打包**——类型 + 固有约束一体 | 复用“带约束的包装” |
+| `@Cow` 等自定义 | **打包**——类型 + 固有约束一体 | 复用“带约束的包装”（见 §7.4） |
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
@@ -421,9 +440,23 @@ trait Len { fn len(&self) -> usize; }
 // → impl<T: Len> Len for Box<T> { fn len(&self) -> usize { (**self).len() } }
 ```
 
+#### `@Cow`——携带约束的打包（示范案例）
+
+`Cow<'_>` 的 deref 目标是 `T::Owned` 而非 `T`——朴素 `(**self)` 委托过不了类型检查。`@Cow` 把 `Cow<'_>` **连同**固有约束谓词（`@0: ToOwned + ?Sized, @0::Owned: @trait`）打包，让 blanket 可用。这就是“常量只有携带约束才有复用价值”的示范：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::borrow::Cow;
+#[batch_impl(#blanket(@all_methods){@Cow})]
+trait CowLen { fn clen(&self) -> usize; }
+impl CowLen for str { fn clen(&self) -> usize { self.len() } }
+impl CowLen for String { fn clen(&self) -> usize { self.len() } }
+// → impl CowLen for Cow<'_, str> ... / Cow<'_, String> ...（经由打包的谓词委托）
+```
+
 ### 7.5 开放扩展（顶层宏注入）
 
-未知指令 `#name(args){body}` 成为顶层宏调用——`{! m!{(arg1){arg2} trait_def}}` 形式把宏调用提升到顶层输出（示例用 crate 自带的测试宏 `batch_preprocess_test`；宏参数里的 `trait_def` 提供签名，外部需已有同名 trait）。**扩展点的交付物是协议形状本身**——batch-impl 不实现你的 codegen，只保证 `{spec}(args){body}trait_def` 四段输入到达你的同名宏：
+未知指令 `#name(args){body}` 成为顶层宏调用——`{! m!{(arg1){arg2} trait_def}}` 形式把宏调用提升到顶层输出（示例用 crate 自带的**参考实现宏** `batch_preprocess_test`；宏参数里的 `trait_def` 提供签名，外部需已有同名 trait）。**扩展点的交付物是协议形状本身**——batch-impl 不实现你的 codegen，只保证 `{spec}(args){body}trait_def` 四段输入到达你的同名宏：
 
 ```rust,ignore
 # use batch_impl::batch_impl;

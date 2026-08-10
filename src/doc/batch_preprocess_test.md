@@ -1,4 +1,4 @@
-Test-only open-extension macro (function-like): `name!{ {spec}(method name list){body} trait T {...} }`.
+Reference open-extension macro — the reference implementation of the open-extension protocol (also the test consumer) (function-like): `name!{ {spec}(method name list){body} trait T {...} }`.
 
 Parses the spec body (first Brace group — the target type), the method name list,
 the body, and the trait definition from the macro input. In the **top-level form**
