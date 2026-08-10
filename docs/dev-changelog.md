@@ -621,8 +621,8 @@
   count_leaves + the fresh family;
 - New `types_visit.rs` (159): the Expand enum + expand_wrapped/expand_rebuild +
   `Ty::map_children` + `Ty::expand` (traversal unified in one place);
-- New `types_from.rs` (65): the `impl_from_for_ty!` macro (subtypes → TyKind/Ty/
-  Box<Ty> + to_ty) + the 18-variant call list;
+- New `types_from.rs` (77): the `impl_from_for_ty!` macro (subtypes → TyKind/Ty/
+  Box<Ty> + to_ty) + the 19-variant call list (incl. TyError);
 - types_render.rs (169) kept; ast/mod.rs aggregates the re-exports;
 - Verified: all green.
 
