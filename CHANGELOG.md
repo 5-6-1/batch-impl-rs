@@ -5,6 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.7.1 (2026-08-10)
+
+- (in development)
+
 ## 0.7.0 (2026-08-10)
 
 ### Splat expansion deferred to codegen (bugfix + clarification)

@@ -1,6 +1,6 @@
 ﻿# batch-impl
 
-**v0.7.0** (2026-08-10) — 0.6.7 released; 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists, `*[...]` distribute / `*(...)` append as left operand), array distribution propagation (nested `[A,B]` Cartesian products), generator fresh-declaration fix, splat power inside generic args (`Frac<*(*@u*)^2>` = 36 impls), concrete-type args reject bindings/bounds, `#fill` single-item preference (`#name{...}`).
+**v0.7.1** (2026-08-10) — 0.7.0 released: the **splat** `*` prefix (flatten containers/generators into lists, `*[...]` distribute / `*(...)` append as left operand), array distribution propagation (nested `[A,B]` Cartesian products), generator fresh-declaration fix, splat power inside generic args (`Frac<*(*@u*)^2>` = 36 impls), concrete-type args reject bindings/bounds, `#fill` single-item preference (`#name{...}`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -70,7 +70,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.7.0"
+batch-impl = "0.7.1"
 ```
 
 Requires Rust 2024 edition or newer.
