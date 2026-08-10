@@ -2,5 +2,6 @@
 **/*.rs.bk
 Cargo.lock
 .idea/
+.aiassistant/
 # One-off maintenance scripts (terminology fixes etc.) — not part of the crate
 /tools/
