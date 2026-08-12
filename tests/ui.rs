@@ -100,6 +100,10 @@ fn ui() {
     // primitive validates instead of rendering invalid Rust
     t.compile_fail("tests/ui/semi_in_spec.rs");
 
+    // adjacent type fragments without an operator (`A B`) — same fallback
+    // catches them instead of rendering invalid Rust
+    t.compile_fail("tests/ui/adjacent_types.rs");
+
     // fn types: trailing tokens after the parameter list error (a return
     // type is `-> B` or `-B`; re-applying after `->` errors)
     t.compile_fail("tests/ui/fn_return_reapply.rs");
