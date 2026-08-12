@@ -125,6 +125,8 @@ trait Describe2 { fn describe(&self) -> String; }
 | 元组生成                             | `()^3`、`(T,)^N`、笛卡尔积、范围            | §9 |
 | fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持                          | §10 |
 
+> **简写提示**：单方法 `#fill([foo]){body}` 等价于 `#foo{body}`；谓词 + 代码块 `where{谓词} {代码块}` 可裸写成 `where 谓词 {代码块}`（详见 §7.2 / §8.2）。
+
 ## 下一步
 
 - **完整教程**：`docs/tutorial.md`（渐进式从一行 impl 到高级矩阵组合）

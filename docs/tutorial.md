@@ -402,6 +402,8 @@ trait ToString { fn to_str(&self) -> &str; }
 trait Ops { fn add(&mut self, x: u8); fn add2(&mut self, x: u8); }
 ```
 
+> Filling a single method, `#fill([foo]){body}` is equivalent to the single-item directive `#foo{body}`, which is more concise.
+
 ### 7.3 `#delegate(methods){target}` — delegate calls
 
 ```rust
@@ -462,6 +464,8 @@ trait T {}
 ### 8.2 Bare `where predicate {code block}`
 
 Rust-style constraint/body separation (the `{...}` code block after the predicate is required):
+
+> Equivalently, `where{predicates} {code block}` (the §8.1 suffix + a chained body) can be written bare as `where predicates {code block}`, saving one `{}` layer.
 
 ```rust
 # use batch_impl::batch_impl;

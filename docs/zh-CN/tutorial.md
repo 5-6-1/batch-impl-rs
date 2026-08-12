@@ -416,6 +416,8 @@ trait Arith { fn add(&mut self, x: u8); fn sub(&mut self, x: u8); }
 trait Markers {}
 ```
 
+> 只填一个方法时，`#fill([foo]){body}` 与单 item 指令 `#foo{body}` 等价，后者更简洁。
+
 ### 7.3 `#delegate(methods){target}` — 委托调用
 
 ```rust
@@ -478,6 +480,8 @@ trait T {}
 ### 8.2 裸写 `where 谓词 {代码块}`
 
 约束与代码块分离的 Rust 风格写法（谓词后的 `{...}` 代码块必须存在）：
+
+> 等价地，`where{谓词} {代码块}`（§8.1 后缀 + 链式 body）也可以裸写成 `where 谓词 {代码块}`，省一层 `{}`。
 
 ```rust
 # use batch_impl::batch_impl;

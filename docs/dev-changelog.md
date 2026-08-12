@@ -14,6 +14,8 @@
 - **`generate_impl` 拆分**（codegen/mod + where_at + impl_parts）：impl 泛型名/继承提取共用，行为等价
 - **passthrough 一致性测试 + 探针转回归**：`bracket_is_passthrough` 四递归入口一致性 + 4 个新 ui fixture + adjacent_types
 - **Diagnostic hardening (extended)** (`parse::generic::primitive` + directive system): empty binding/bound values (`Item =` / `T:`), non-integer type literals (`1.5`/`"hi"`), non-integer range endpoints (`1..x`/`A..B`), malformed array lengths (`[u8; 3; 4]`/`[u8;]`), `+`/`?`/`.` at a type start, typo suggestions for unknown directives (Levenshtein ≤ 2, `#delgate`→`#delegate`), and a parse_group transparent-group guard — all targeted errors. **Known leftover**: an empty bound in a generic declaration / trait arg (`<T:>`) still loses its `:` during angle-collect (rustc E0425 fallback, see the ui `binding_bound_empty` comment)
+- **Structure**: directive dispatch (`expand_directive`/`expand_fill`/`expand_delegate`/`expand_single`/`expand_many`/`levenshtein`) moved from `preprocess/mod.rs` into `directives/dispatch.rs` — `preprocess/mod.rs` 412→179 lines, `directives/` is now the real directive-system entry
+- **Docs (equivalent shorthands)**: `#fill([foo]){body}` ≡ `#foo{body}`, `where{predicates} {code block}` ≡ bare `where predicates {code block}` — written into tutorial §7.2/§8.2 and the README feature table (measured: stable 1.97.1 has no proc-macro warning channel — `proc_macro_diagnostic` E0658 — so docs education chosen over runtime warnings)
 
 ## 0.7.0 (2026-08-10)
 

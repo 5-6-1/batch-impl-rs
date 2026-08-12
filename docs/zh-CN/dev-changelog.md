@@ -11,6 +11,8 @@
 - **`generate_impl` 拆分**（codegen/mod + where_at + impl_parts）：impl 泛型名/继承提取共用，行为等价
 - **passthrough 一致性测试 + 探针转回归**：`bracket_is_passthrough` 四递归入口一致性 + 4 个新 ui fixture + adjacent_types
 - **诊断加固扩展**（`parse::generic::primitive` + 指令系统）：binding `Item =` / bound `T:` 缺值、非整数类型字面量（`1.5`/`"hi"`）、range 端点非整数（`1..x`/`A..B`）、数组长度畸形（`[u8; 3; 4]`/`[u8;]`）、类型起始 `+`/`?`/`.`、未知指令拼写建议（Levenshtein ≤2，`#delgate`→`#delegate`）、parse_group 透明组防御——全部定向报错。**已知遗留**：泛型声明/trait 实参的空 bound `<T:>` 仍在 angle_collect 阶段丢 `:`（rustc E0425 兜底，见 ui `binding_bound_empty` 注释）
+- **结构优化**：指令分发（`expand_directive`/`expand_fill`/`expand_delegate`/`expand_single`/`expand_many`/`levenshtein`）从 `preprocess/mod.rs` 迁入 `directives/dispatch.rs`——`preprocess/mod.rs` 412→179 行，`directives/` 成为名副其实的指令系统入口
+- **文档教育（等价简写）**：`#fill([foo]){body}` ≡ `#foo{body}`、`where{谓词} {代码块}` ≡ 裸写 `where 谓词 {代码块}`——写入 tutorial §7.2/§8.2 与 README 特性表（实测 stable 1.97.1 无 proc-macro warning 通道 `proc_macro_diagnostic` E0658，故选文档教育而非运行时警告）
 
 ## 0.7.0 (2026-08-10)
 

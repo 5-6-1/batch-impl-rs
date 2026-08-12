@@ -121,6 +121,8 @@ trait Describe2 { fn describe(&self) -> String; }
 | Tuple generation                                 | `()^3`, `(T,)^N`, Cartesian product, ranges  | §9 |
 | fn types / unsafe / pointers / attributes        | Full support for type-level modifiers        | §10 |
 
+> **Shorthand**: a single method `#fill([foo]){body}` equals `#foo{body}`; predicates + code block `where{predicates} {code block}` can be written bare as `where predicates {code block}` (see §7.2 / §8.2).
+
 ## Next steps
 
 - **Full tutorial**: `docs/tutorial.md` (progressive, from a one-line impl to advanced matrix combinations)
