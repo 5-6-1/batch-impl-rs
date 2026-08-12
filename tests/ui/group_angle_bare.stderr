@@ -1,7 +1,7 @@
-error: expected type, found `2`
+error: batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,)^N`
  --> tests/ui/group_angle_bare.rs:5:1
   |
 5 | #[batch_impl((<u8>)^2 { fn tag(&self) {} })]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected type
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

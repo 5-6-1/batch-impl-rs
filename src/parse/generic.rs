@@ -6,10 +6,11 @@ use proc_macro2::{Ident, TokenStream, TokenTree};
 
 use quote::quote;
 
+use crate::apply::err_ty_at;
 use crate::ast::*;
 use crate::parse::parse_item;
 use crate::parse::resolve_at_refs;
-use crate::util::{Cursor, compile_error_ty, is_single_colon, scan_stop};
+use crate::util::{Cursor, compile_error_ty, is_punct, is_single_colon, scan_stop};
 
 // ============================================================
 // Angle brackets and generic parameters
@@ -198,6 +199,47 @@ pub(crate) fn parse_angle_bracket_contents(
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
     let span =
         tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site);
+    // Fallback validation: the passthrough swallows anything unrecognized, so
+    // a token with no legal role in a type position at depth 0 would
+    // otherwise be rendered into the impl header as invalid Rust with no
+    // batch-impl guidance (`;` is not a stop char below Op::Semi, so
+    // `A^B; C` used to render `A<B; C>` and `=`/`@`/`#` leftovers rode along
+    // verbatim). Each has a targeted diagnostic instead.
+    for (i, tt) in tokens.iter().enumerate() {
+        if let TokenTree::Punct(p) = tt {
+            // The `=` of `..=` is part of the range operator, not a binding
+            // (leftover after an earlier error must not cascade a second,
+            // confusing diagnostic).
+            let is_range_inclusive =
+                p.as_char() == '=' && i > 0 && is_punct(&tokens[i - 1], '.');
+            let msg = if is_range_inclusive {
+                None
+            } else {
+                match p.as_char() {
+                    ';' => Some(
+                        "batch-impl: `;` is not valid in a type (it is the `batch_trait!` \
+                         segment boundary; in `#[batch_impl]` specs are separated by `,`)",
+                    ),
+                    '=' => Some(
+                        "batch-impl: `=` is not valid in a type position (associated-type \
+                         bindings like `Item = u32` belong inside a trait path's `<...>`)",
+                    ),
+                    '@' => Some(
+                        "batch-impl: `@` inside a type (position references like `@0` must \
+                         start an operand, e.g. `T^@0`)",
+                    ),
+                    '#' => Some(
+                        "batch-impl: `#` inside a type (attributes belong at the spec start \
+                         as `#[...]^T`; directives are expanded before parsing)",
+                    ),
+                    _ => None,
+                }
+            };
+            if let Some(msg) = msg {
+                return err_ty_at(msg, p.span());
+            }
+        }
+    }
     TyPrimitive(tokens.iter().cloned().collect()).to_ty().with_span(span)
 }
 

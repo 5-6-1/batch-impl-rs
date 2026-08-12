@@ -1,4 +1,4 @@
-﻿//! Parsing layer: DSL precedence-climbing parser and angle-bracket generic parsing.
+//! Parsing layer: DSL precedence-climbing parser and angle-bracket generic parsing.
 
 mod chain;
 mod generic;
@@ -16,8 +16,6 @@ use crate::ast::fresh::at_ref_name;
 use crate::ast::*;
 use crate::util::compile_error_str;
 
-/// Parses an `@`-reference literal into its fresh name: `@N` → the swept
-/// name `_Param_{N}_BatchGen_` (pure construction); `@g_i` (a literal with an
 /// Resolves `@N` / `@g_i` position references inside a token chunk that is
 /// **not** parsed as a type (angle-group contents go through flat token
 /// splitting in `parse_type_params`, so `Box<@0>` would otherwise keep the

@@ -96,6 +96,22 @@ fn ui() {
     t.compile_fail("tests/ui/concrete_binding.rs");
     t.compile_fail("tests/ui/concrete_bound.rs");
 
+    // `;` / stray `=` / leftover `@` / `#` in a type position: the fallback
+    // primitive validates instead of rendering invalid Rust
+    t.compile_fail("tests/ui/semi_in_spec.rs");
+
+    // fn types: trailing tokens after the parameter list error (a return
+    // type is `-> B` or `-B`; re-applying after `->` errors)
+    t.compile_fail("tests/ui/fn_return_reapply.rs");
+
+    // #blanket: a method returning `Self` cannot be blanket-delegated
+    // (forwarding yields the inner type, not the wrapper's `Self`)
+    t.compile_fail("tests/ui/blanket_self_return.rs");
+
+    // where-predicate inheritance: a projection subject (`T::Item: Clone`)
+    // references `T` — renaming the impl generic errors with guidance
+    t.compile_fail("tests/ui/rename_where_projection.rs");
+
     // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");
 }

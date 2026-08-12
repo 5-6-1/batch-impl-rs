@@ -149,7 +149,7 @@ impl Ty {
     /// the node with its span preserved. Single exhaustive home for the
     /// "recurse into children" pattern — `hoist_type_params` and future
     /// rebuild-style traversals compose on top of it instead of re-matching
-    /// all 18 variants.
+    /// every `TyKind` variant.
     #[allow(clippy::redundant_closure)] // `&mut FnMut` cannot be moved into `.map(f)`
     pub(crate) fn map_children(self, f: &mut impl FnMut(Ty) -> Ty) -> Ty {
         let span = self.span;

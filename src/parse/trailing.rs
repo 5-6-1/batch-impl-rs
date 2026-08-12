@@ -1,4 +1,4 @@
-﻿//! Trailing `{body}` / `where{...}` split and wrapper attachment.
+//! Trailing `{body}` / `where{...}` split and wrapper attachment.
 
 use crate::ast::*;
 use crate::parse::parse_primitive;

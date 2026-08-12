@@ -3,9 +3,12 @@
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
+use std::collections::HashSet;
 
+use crate::TraitBounds;
 use crate::ast::*;
 use crate::parse::split_at_depth0;
+use crate::util::compile_err;
 
 /// Recursively extracts all parts an impl block needs from `Ty`.
 ///
@@ -184,4 +187,69 @@ pub(crate) fn hoist_type_params(
         other => Ty { span: ty.span, kind: other }
             .map_children(&mut |c| hoist_type_params(c, out)),
     }
+}
+
+/// Inherits trait generic bounds onto impl generic params **without a written
+/// bound** (same-name inheritance, positional match) and appends the trait's
+/// unmerged where predicates to the impl (after a reference check). Returns
+/// the collected errors; on any error the caller emits only the errors — no
+/// partial impl. Rules: see the `TraitBounds` docs.
+pub(crate) fn inherit_trait_bounds(
+    parts: &mut ImplParts, trait_bounds: &TraitBounds, trait_args: &[String],
+    impl_names: &HashSet<String>,
+) -> Vec<TokenStream> {
+    let mut errs = vec![];
+    for (name, bound) in &mut parts.impl_generics {
+        if bound.is_some() {
+            continue;
+        }
+        let key = name.to_string();
+        // where this param appears as a trait argument (absent = trait-unrelated, no inherit)
+        let Some(pos) = trait_args.iter().position(|a| a == &key) else {
+            continue;
+        };
+        let Some(tp) = trait_bounds.params.get(pos) else {
+            continue;
+        };
+        let Some(b) = &tp.bound else {
+            continue;
+        };
+        if tp.name != key {
+            errs.push(compile_err!(
+                "batch-impl: trait argument `{}` maps to parameter `{}` (bound `{}`); automatic \
+                 inheritance requires the same name; rename to `{}` or write the bound manually",
+                key,
+                tp.name,
+                b,
+                tp.name
+            ));
+            continue;
+        }
+        if let Some(r) = tp.refs.iter().find(|r| !impl_names.contains(*r)) {
+            errs.push(compile_err!(
+                "batch-impl: inherited bound `{}` references parameter `{}`, but the impl declares \
+                 no such name; declare `{}` or write the bound manually",
+                b,
+                r,
+                r
+            ));
+            continue;
+        }
+        *bound = Some(TyPrimitive(b.clone()).to_ty());
+    }
+    // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
+    for (pred, refs) in &trait_bounds.extra_predicates {
+        if let Some(r) = refs.iter().find(|r| !impl_names.contains(*r)) {
+            errs.push(compile_err!(
+                "batch-impl: inherited where predicate `{}` references parameter `{}`, \
+                 but the impl declares no such name; declare `{}` or hand-write the where clause",
+                pred,
+                r,
+                r
+            ));
+            continue;
+        }
+        parts.where_clauses.push(pred.clone());
+    }
+    errs
 }

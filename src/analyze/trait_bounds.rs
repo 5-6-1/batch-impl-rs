@@ -12,11 +12,13 @@
 //!   stored verbatim in [`TraitBounds::extra_predicates`], appended by codegen to the impl's
 //!   where clause — all predicate shapes covered, none dropped.
 //!
-//! Reference collection happens on the **syn AST** ([`syn::visit`]): single-segment paths
-//! (`T`) and generic args (the `T` in `Vec<T>`) are param reference positions; path segments
-//! after `::` (associated type names), binding names (the `Item` in `dyn Trait<Item = T>`),
-//! and HRTB binders (the `'a` in `for<'a>`) are naturally excluded — token-level scanning
-//! cannot tell these apart, the AST can.
+//! Reference collection happens on the **syn AST** ([`syn::visit`]): the
+//! first segment of a path (`T` in `T` / `T::Item` — a projection subject)
+//! and generic args (the `T` in `Vec<T>`) are param reference positions;
+//! path segments after `::` (associated type names), binding names (the
+//! `Item` in `dyn Trait<Item = T>`), and HRTB binders (the `'a` in
+//! `for<'a>`) are naturally excluded — token-level scanning cannot tell
+//! these apart, the AST can.
 
 use std::collections::HashSet;
 
@@ -294,11 +296,14 @@ impl<'ast> Visit<'ast> for Collector<'_> {
     }
 
     fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
-        // Single-segment path (`T`): the ident is the type name itself; colliding with a
-        // param name means a reference
+        // Single-segment path (`T`) or the FIRST segment of a longer path
+        // (`T::Item` — a projection subject; `T::Assoc` inside a bound): the
+        // leading ident is the type itself, so colliding with a param name
+        // means a reference. Segments after `::` (associated type names) are
+        // never collected; generic args (the `T` in `Vec<T>`) are visited by
+        // the default recursion.
         if node.qself.is_none()
             && let Some(seg) = node.path.segments.first()
-            && node.path.segments.len() == 1
             && matches!(&seg.arguments, syn::PathArguments::None)
             && self.type_const_names.contains(&seg.ident.to_string())
         {

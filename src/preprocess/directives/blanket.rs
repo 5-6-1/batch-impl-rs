@@ -7,7 +7,7 @@
 //! attachment semantics under "syntax-domain isolation" in architecture.md).
 
 use proc_macro2::{Group, TokenStream, TokenTree};
-use quote::quote;
+use quote::{ToTokens, quote};
 use syn::ItemTrait;
 
 use crate::ast::{fresh_param, take_group};
@@ -157,6 +157,22 @@ pub(crate) fn expand_blanket(
                 // impl carries the `t: Trait` bound.
                 syn::TraitItem::Fn(f) => {
                     let sig = f.sig.clone();
+                    // `Self` in the return type breaks delegation: the body
+                    // forwards the inner value (`(**self).m()` / `t::m()`),
+                    // whose return type is the inner `T`, but the impl's
+                    // `Self` is the wrapper — `fn new() -> Self` through
+                    // `Box` used to emit `t::new()` and fail with rustc's
+                    // E0308 at the generated impl. Report with guidance.
+                    if return_type_refs_self(&f.sig.output) {
+                        return Err(compile_err!(
+                            "batch-impl: #blanket method `{}::{}` returns/refers to \
+                             `Self` (bare or `Self::Assoc` projection); blanket delegation \
+                             forwards the inner type, which cannot match the wrapper's \
+                             `Self` — write a `#name{{...}}` body for this wrapper instead",
+                            trait_def.ident,
+                            name
+                        ));
+                    }
                     let call_args = collect_call_args(&sig).map_err(|pat| {
                         compile_err!(
                             "batch-impl: #blanket method `{}::{}` param `{}` cannot be \
@@ -205,6 +221,19 @@ pub(crate) fn expand_blanket(
         });
     }
     Ok(quote!(#(#spec_streams),*).into_iter().collect())
+}
+
+/// Whether a method's return type references `Self` (making blanket
+/// delegation unsound: the forwarded call returns the inner type, not the
+/// wrapper's `Self`).
+fn return_type_refs_self(output: &syn::ReturnType) -> bool {
+    match output {
+        syn::ReturnType::Default => false,
+        syn::ReturnType::Type(_, ty) => ty
+            .to_token_stream()
+            .into_iter()
+            .any(|tt| matches!(tt, TokenTree::Ident(id) if id == "Self")),
+    }
 }
 
 /// Whether a wrapper's main part contains the `@0` target marker (`@` +

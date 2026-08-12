@@ -5,7 +5,6 @@
 //! - [`mod`](self): expands `#` directives (fill/delegate/blanket/open extension);
 //! - [`where_process`]: rewrites bare `where` predicates;
 //! - [`empty_generics`]: copies `A<>`;
-//! - [`helpers`]: directive-argument parsing helpers.
 //!
 //! The passes are called by the entry layer in a fixed order; `mod.rs`
 //! aggregates the re-exports, referenced as `crate::preprocess::X`.
@@ -64,7 +63,7 @@ use quote::quote;
 use syn::ItemTrait;
 use syn::parse::Parser;
 
-use crate::util::{bracket_is_passthrough, compile_err, compile_error_str, is_punct};
+use crate::util::{bracket_is_passthrough, compile_err, is_punct};
 
 // ============================================================
 // Directive preprocessing
@@ -308,4 +307,61 @@ fn expand_delegate(
         let body = quote! { (#target_stream) . #name ( #(#call_args),* ) };
         Ok(build_from_item_sig(item, Some(&sig), &body))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proc_macro2::TokenStream;
+
+    /// Inputs whose Bracket/Paren/Brace groups must be treated as
+    /// passthrough by every recursive entry point (`ident!{...}` /
+    /// `ident![...]` / `ident!(...)` macro bodies and `#[...]` attributes
+    /// contain arbitrary Rust — comparisons, `#name` directives, `@`
+    /// constants, `;` — none of which is DSL).
+    fn passthrough_inputs() -> Vec<&'static str> {
+        vec![
+            "m![a < b]",
+            "m!(a < b)",
+            "m![#foo{1}]",
+            "#[a < b]",
+            "#[#zzz{1}]",
+            "m![@u*]",
+            "m![where a b]",
+            "m![a; b]",
+        ]
+    }
+
+    /// All four recursive entries (angle_collect / expand_consts /
+    /// expand_tokens / where_process) must agree on passthrough: none of
+    /// them enters a macro body or attribute (regression guard for 0.5.7,
+    /// where a missing `#[...]` guard let `#name` directives inside an
+    /// attribute be wrongly expanded).
+    #[test]
+    fn passthrough_guard_consistency() {
+        let trait_def: syn::ItemTrait = syn::parse_quote!(
+            trait T {
+                fn m(&self) -> u32;
+            }
+        );
+        let trait_full_path = quote!(T);
+        let ctx = ConstCtx::Trait { user_table: &UserConsts::new() };
+        for s in passthrough_inputs() {
+            let v = s.parse::<TokenStream>().unwrap().into_iter().collect::<Vec<_>>();
+            assert!(angle_collect(&v).is_ok(), "angle_collect: {s}");
+            assert!(expand_consts(&v, ctx).is_ok(), "expand_consts: {s}");
+            assert!(
+                expand_tokens(&v, &trait_def, &trait_full_path).is_ok(),
+                "expand_tokens: {s}"
+            );
+            assert!(where_process(&v).is_ok(), "where_process: {s}");
+        }
+        // Control: WITHOUT the `!`/`#` marker the same content IS entered and
+        // errors (proves the test distinguishes passthrough from recursion).
+        let bare = "(a < b)".parse::<TokenStream>().unwrap();
+        assert!(
+            angle_collect(&bare.into_iter().collect::<Vec<_>>()).is_err(),
+            "plain paren groups are entered, not passed through"
+        );
+    }
 }

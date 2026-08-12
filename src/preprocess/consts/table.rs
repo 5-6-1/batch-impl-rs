@@ -23,8 +23,7 @@ use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::preprocess::consts::ctx::{ConstCtx, UserConsts};
-use crate::util::{bracket_is_passthrough, is_punct};
-use crate::util::{compile_err, compile_error_str};
+use crate::util::{bracket_is_passthrough, compile_err, is_punct};
 
 /// Built-in name families: `@name` → list of type identifiers.
 pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
@@ -125,26 +124,14 @@ pub(crate) fn expand_consts(
     expand_consts_at(tokens, ctx, 0)
 }
 
-/// Builds the standard nesting-depth error (span from the first token).
-pub(crate) fn depth_err(tokens: &[TokenTree]) -> TokenStream {
-    let sp = tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
-    compile_error_str(
-        &format!(
-            "batch-impl: nesting depth exceeds {} levels (perhaps an accidental extra bracket)",
-            crate::preprocess::angle::MAX_NEST_DEPTH
-        ),
-        sp,
-    )
-}
-
 /// Recursive core of [`expand_consts`] with a nesting guard (mirrors
 /// `angle_collect`'s `MAX_NEST_DEPTH` — an accidental extra bracket must
 /// error out instead of overflowing the stack).
 fn expand_consts_at(
     tokens: &[TokenTree], ctx: ConstCtx, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
-    if depth > crate::preprocess::angle::MAX_NEST_DEPTH {
-        return Err(depth_err(tokens));
+    if depth > crate::util::MAX_NEST_DEPTH {
+        return Err(crate::util::depth_err(tokens, ""));
     }
     let mut result = vec![];
     let mut i = 0;
@@ -176,8 +163,8 @@ fn expand_consts_at(
                     // recursion-entry check runs after `stream()`/collect, so
                     // check the next level here to fail before touching the
                     // subtree.
-                    if depth + 1 > crate::preprocess::angle::MAX_NEST_DEPTH {
-                        return Err(depth_err(&tokens[i..i + 1]));
+                    if depth + 1 > crate::util::MAX_NEST_DEPTH {
+                        return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
                     }
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     result.push(

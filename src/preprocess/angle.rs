@@ -13,14 +13,6 @@ use proc_macro2::{Group, TokenStream, TokenTree};
 use crate::util::compile_error_str;
 use crate::util::{bracket_is_passthrough, is_arrow};
 
-/// Maximum recursion depth (aligned with v0.1's 128 levels).
-///
-/// Nested groups (`[[[...]]]`) and nested `<>` (`Vec<Vec<...>>`) are handled
-/// recursively via [`angle_collect`]; deep nesting overflows the compiler stack
-/// (measured STATUS_STACK_OVERFLOW at 30000 levels) — the entry counter
-/// intercepts this, and valid DSL (group nesting ≤ 5) is completely unaffected.
-pub(crate) const MAX_NEST_DEPTH: usize = 128;
-
 /// Entry transformation: a single pass flattens None groups and pairs `<...>`.
 ///
 /// - `Brace` groups (passthrough code) are not entered;
@@ -40,16 +32,8 @@ pub(crate) fn angle_collect(
 fn angle_collect_at(
     tokens: &[TokenTree], depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
-    if depth > MAX_NEST_DEPTH {
-        let sp =
-            tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
-        return Err(compile_error_str(
-            &format!(
-                "batch-impl: nesting depth exceeds {} levels (perhaps an accidental extra bracket)",
-                MAX_NEST_DEPTH
-            ),
-            sp,
-        ));
+    if depth > crate::util::MAX_NEST_DEPTH {
+        return Err(crate::util::depth_err(tokens, ""));
     }
     let mut out = vec![];
     let mut i = 0;
@@ -197,6 +181,7 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::MAX_NEST_DEPTH;
     use proc_macro2::TokenStream as TS2;
 
     /// Roundtrip of entry collect + exit restore: `<...>` is paired into

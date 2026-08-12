@@ -2237,7 +2237,7 @@ fn splat_pow() {
 
 // Splat expands ONE layer: tuples are types and stay intact — `*((a,b),)`
 // is one tuple impl, and `*(a,b,(c,d))` keeps `(c,d)` as a single element.
-#[batch_impl(*((SplatA, SplatB),))]
+#[batch_impl(*((SplatA, SplatB)))]
 trait SplatTupleKeep {}
 
 #[batch_impl(*(SplatA, SplatB, (SplatC, SplatD)))]
@@ -2284,7 +2284,7 @@ trait Conv<T>: Sized {
 
 #[batch_impl_only(
     Conv<bool>
-    [Pair<SplatA, SplatA>, Pair<SplatB, SplatB>]
+    Pair<[*(SplatA)^2,*(SplatB)^2]>
     #conv{unimplemented!()}
 )]
 pub trait Conv<T>: Sized {
@@ -2317,4 +2317,35 @@ fn trait_generic_args_to_impl_generic() {
         let _ = <T as GenU<u8>>::foo;
     }
     assert_gu::<()>();
+}
+
+// ============================================================
+// #delegate with a typed receiver (`self: Box<Self>`): the receiver is
+// skipped when collecting call arguments — only the remaining params are
+// forwarded, so `(self.0).f(x)` calls `Inner::f(self: Box<Self>, x)` with
+// the single positional arg `x`.
+// ============================================================
+struct DelegateInner;
+impl DelegateInner {
+    // The boxed receiver is the point of this test (typed-receiver
+    // delegation); it is never deref'd by design.
+    #[allow(clippy::boxed_local)]
+    fn f(self: Box<Self>, x: u32) -> u32 {
+        x
+    }
+}
+
+struct WrapInner(Box<DelegateInner>);
+
+#[batch_impl(WrapInner #delegate(f){self.0})]
+trait TypedReceiver {
+    fn f(self: Box<Self>, x: u32) -> u32;
+}
+
+#[test]
+fn delegate_typed_receiver() {
+    let w = Box::new(WrapInner(Box::new(DelegateInner)));
+    // Compiles only if `self` was not forwarded as a positional argument
+    // (a stray `(self.0).f(self, x)` would be a type error).
+    assert_eq!(w.f(42), 42);
 }

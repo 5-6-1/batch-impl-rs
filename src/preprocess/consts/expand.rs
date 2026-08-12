@@ -215,17 +215,8 @@ fn check_value_refs_at(
     tokens: &[TokenTree], table: &std::collections::HashMap<String, Vec<TokenTree>>,
     def_name: &str, depth: usize,
 ) -> Result<(), TokenStream> {
-    if depth > crate::preprocess::angle::MAX_NEST_DEPTH {
-        let sp =
-            tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
-        return Err(compile_error_str(
-            &format!(
-                "batch-impl: nesting depth exceeds {} levels in a constant \
-                 value (perhaps an accidental extra bracket)",
-                crate::preprocess::angle::MAX_NEST_DEPTH
-            ),
-            sp,
-        ));
+    if depth > crate::util::MAX_NEST_DEPTH {
+        return Err(crate::util::depth_err(tokens, " in a constant value"));
     }
     let mut i = 0;
     while i < tokens.len() {
@@ -271,14 +262,10 @@ fn check_value_refs_at(
             TokenTree::Group(g) => {
                 // Guard before materializing the group's stream (same
                 // rationale as expand_consts_at).
-                if depth + 1 > crate::preprocess::angle::MAX_NEST_DEPTH {
-                    return Err(compile_error_str(
-                        &format!(
-                            "batch-impl: nesting depth exceeds {} levels in a \
-                             constant value (perhaps an accidental extra bracket)",
-                            crate::preprocess::angle::MAX_NEST_DEPTH
-                        ),
-                        tokens[i].span(),
+                if depth + 1 > crate::util::MAX_NEST_DEPTH {
+                    return Err(crate::util::depth_err(
+                        &tokens[i..i + 1],
+                        " in a constant value",
                     ));
                 }
                 check_value_refs_at(

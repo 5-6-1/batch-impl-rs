@@ -17,6 +17,46 @@ use crate::util::{compile_err, compile_error_str};
 /// segment-level replacement for batch_trait!) and never reaches here.
 /// Blanket-wrapped where is pre-resolved; only user where predicates are
 /// handled here.
+/// Resolves every where predicate of an impl: rejects a bare splat subject
+/// and expands the `@` position references (`@N` / `@g_i` / `@all_fresh` /
+/// `@N..M`) against `impl_name_streams`. All errors are collected and
+/// returned at once (the caller emits only the errors — no partial impl).
+pub(crate) fn resolve_where_predicates(
+    where_clauses: &[TokenStream], impl_name_streams: &[TokenStream],
+) -> Result<Vec<TokenStream>, Vec<TokenStream>> {
+    let mut where_resolved = vec![];
+    let mut errs = vec![];
+    for pred in where_clauses {
+        // A bare splat as a predicate subject has no defined semantics
+        // (`*(A,B): Trait` would expand to `A, B: Trait` — a predicate is a
+        // constraint, not a parameter list). Reject with a clear message;
+        // splats inside a predicate (`X: Trait<*(A,B)>`) and tuple
+        // predicates (`(*(A,B)): Trait`) are fine — they expand legally.
+        let head = pred.clone().into_iter().collect::<Vec<_>>();
+        if matches!(head.as_slice(),
+            [TokenTree::Punct(p), TokenTree::Group(g), ..]
+            if p.as_char() == '*'
+                && matches!(
+                    g.delimiter(),
+                    proc_macro2::Delimiter::Parenthesis
+                        | proc_macro2::Delimiter::Bracket
+                )
+        ) {
+            errs.push(compile_err!(
+                "batch-impl: a bare splat cannot be a where-predicate subject \
+                 (`*(A,B): Trait`); wrap it in a tuple (`(*(A,B)): Trait`) or \
+                 write separate predicates"
+            ));
+            continue;
+        }
+        match resolve_where_at(pred, impl_name_streams) {
+            Ok(p) => where_resolved.push(p),
+            Err(e) => errs.push(e),
+        }
+    }
+    if errs.is_empty() { Ok(where_resolved) } else { Err(errs) }
+}
+
 pub(crate) fn resolve_where_at(
     pred: &TokenStream, impl_names: &[TokenStream],
 ) -> Result<TokenStream, TokenStream> {

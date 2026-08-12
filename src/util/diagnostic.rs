@@ -31,9 +31,14 @@ pub(crate) fn compile_error_ty(msg: &str, span: Span) -> TokenStream {
 }
 
 /// `compile_err!("msg {}", x)` → `compile_error_str(&format!(...), call_site)`.
+/// Self-contained via `$crate` / `::proc_macro2` (definition-site paths), so
+/// use sites need no `compile_error_str` import.
 macro_rules! compile_err {
     ($($t:tt)*) => {
-        compile_error_str(&format!($($t)*), proc_macro2::Span::call_site())
+        $crate::util::compile_error_str(
+            &format!($($t)*),
+            ::proc_macro2::Span::call_site(),
+        )
     };
 }
 pub(crate) use compile_err;
@@ -43,7 +48,7 @@ pub(crate) use compile_err;
 /// `@` reference, directive argument group, `Ty::span`).
 macro_rules! compile_err_at {
     ($span:expr, $($t:tt)*) => {
-        compile_error_str(&format!($($t)*), $span)
+        $crate::util::compile_error_str(&format!($($t)*), $span)
     };
 }
 pub(crate) use compile_err_at;

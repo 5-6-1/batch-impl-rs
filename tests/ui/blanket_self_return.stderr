@@ -1,0 +1,7 @@
+error: batch-impl: #blanket method `NewT::new` returns/refers to `Self` (bare or `Self::Assoc` projection); blanket delegation forwards the inner type, which cannot match the wrapper's `Self` — write a `#name{...}` body for this wrapper instead
+ --> tests/ui/blanket_self_return.rs:6:1
+  |
+6 | #[batch_impl(#blanket(@all_static_methods){Box})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,5 @@
+error: batch-impl: the `fn` type already has a return type; cannot apply again
+ --> tests/ui/fn_return_reapply.rs:5:14
+  |
+5 | #[batch_impl(fn(A) -> B - C)]
+  |              ^^

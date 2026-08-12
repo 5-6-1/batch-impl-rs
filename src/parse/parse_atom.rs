@@ -44,6 +44,16 @@ pub(crate) fn parse_function(
     while let Some(parameter) = parse_item(&mut cursor, Op::Comma, trait_name) {
         parameters.push(parameter);
     }
+    // Leftover tokens inside the parameter group (e.g. `fn(A; B)` — the `;`
+    // is not a Comma stop char) were not consumed by the parameter loop;
+    // reject instead of silently dropping them.
+    if !cursor.at_end() {
+        return err_ty_at(
+            "batch-impl: unexpected tokens in the `fn` parameter list",
+            cursor.span(),
+        )
+        .into();
+    }
 
     let return_type = match rest {
         [TokenTree::Punct(dash), TokenTree::Punct(arrow), return_tokens @ ..]
@@ -54,7 +64,17 @@ pub(crate) fn parse_function(
         {
             parse_primitive(return_tokens, trait_name).into()
         }
-        _ => None,
+        // Anything else after the parameter list is not part of the fn type:
+        // reject instead of silently dropping (`fn(A) B` / `fn(A)->`).
+        [] => None,
+        _ => {
+            return err_ty_at(
+                "batch-impl: unexpected tokens after the `fn` parameter list \
+                 (a return type is written `fn(A) -> B` or `fn(A)-B`)",
+                rest[0].span(),
+            )
+            .into();
+        }
     };
     TyFn(parameters.into(), return_type, false).to_ty().with_span(fn_span).into()
 }
@@ -169,6 +189,18 @@ pub(crate) fn parse_group(
                 TyTuple(parse_list(&contents, Op::Comma, trait_name))
                     .to_ty()
                     .with_span(group.span())
+            } else if matches!(contents.as_slice(), [TokenTree::Group(g)]
+                if g.delimiter() == delimiter![<>])
+            {
+                // `(<T: Bound>)` — the tuple-generator declaration form needs
+                // the trailing comma (`(<T: Bound>,)^N`); without it the
+                // declaration would leak into the type position and render
+                // `<T: Bound> N` (rustc "expected type, found `N`").
+                err_ty_at(
+                    "batch-impl: a generic declaration `<...>` inside `(...)` needs \
+                     the trailing-comma tuple form `(<T: Bound>,)^N`",
+                    contents[0].span(),
+                )
             } else {
                 let inner =
                     parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)

@@ -6,6 +6,14 @@ error: batch-impl: trait argument `X` maps to parameter `T` (bound `IntoIterator
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
+error: batch-impl: inherited where predicate `T :: Item : Clone` references parameter `T`, but the impl declares no such name; declare `T` or hand-write the where clause
+ --> tests/ui/rename_where.rs:6:1
+  |
+6 | #[batch_impl(<X> A<X> ())]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
 error: batch-impl: inherited where predicate `'a : 'b` references parameter `'a`, but the impl declares no such name; declare `'a` or hand-write the where clause
   --> tests/ui/rename_where.rs:14:1
    |

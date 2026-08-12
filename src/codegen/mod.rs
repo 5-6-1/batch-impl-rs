@@ -20,7 +20,7 @@ pub(crate) use where_at::*;
 use crate::TraitBounds;
 use crate::ast::types_render::render_param;
 use crate::ast::*;
-use crate::util::{compile_err, compile_error_str};
+use crate::util::compile_error_str;
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
 use std::collections::HashSet;
@@ -115,15 +115,11 @@ pub(crate) fn generate_impl(
     let mut nested_params = vec![];
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
-    // inherit trait generic bounds: same-name inheritance vs. mismatch errors; see trait_bounds docs
-    let mut errs = vec![];
-    let trait_args = parts
-        .trait_generic_names
-        .iter()
-        .map(|n| n.to_string())
-        .collect::<Vec<String>>();
-    // const params are named `const N` in the parse layer (the keyword is needed to
-    // render `const N: usize`); normalize to `N` to match trait args and where-predicate refs
+
+    // Impl generic names, normalized for const params (`const N` in the parse
+    // layer — the keyword is needed to render `const N: usize`; bare `N` here
+    // to match trait args and where-predicate refs). Shared by bound
+    // inheritance and where-predicate resolution.
     let impl_name_streams = parts
         .impl_generics
         .iter()
@@ -135,93 +131,36 @@ pub(crate) fn generate_impl(
         .collect::<Vec<TokenStream>>();
     let impl_names =
         impl_name_streams.iter().map(|n| n.to_string()).collect::<HashSet<String>>();
-    for (name, bound) in &mut parts.impl_generics {
-        if bound.is_some() {
-            continue;
-        }
-        let key = name.to_string();
-        // where this param appears as a trait argument (absent = trait-unrelated, no inherit)
-        let Some(pos) = trait_args.iter().position(|a| a == &key) else {
-            continue;
+    let trait_args = parts
+        .trait_generic_names
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<String>>();
+
+    // inherit trait generic bounds: same-name inheritance vs. mismatch errors; see trait_bounds docs
+    let mut errs =
+        inherit_trait_bounds(&mut parts, trait_bounds, &trait_args, &impl_names);
+    // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
+    let where_resolved =
+        match resolve_where_predicates(&parts.where_clauses, &impl_name_streams) {
+            Ok(ws) => ws,
+            Err(es) => {
+                errs.extend(es);
+                vec![]
+            }
         };
-        let Some(tp) = trait_bounds.params.get(pos) else {
-            continue;
-        };
-        let Some(b) = &tp.bound else {
-            continue;
-        };
-        if tp.name != key {
-            errs.push(compile_err!(
-                "batch-impl: trait argument `{}` maps to parameter `{}` (bound `{}`); automatic \
-                 inheritance requires the same name; rename to `{}` or write the bound manually",
-                key,
-                tp.name,
-                b,
-                tp.name
-            ));
-            continue;
-        }
-        if let Some(r) = tp.refs.iter().find(|r| !impl_names.contains(*r)) {
-            errs.push(compile_err!(
-                "batch-impl: inherited bound `{}` references parameter `{}`, but the impl declares \
-                 no such name; declare `{}` or write the bound manually",
-                b,
-                r,
-                r
-            ));
-            continue;
-        }
-        *bound = Some(TyPrimitive(b.clone()).to_ty());
-    }
-    // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
-    for (pred, refs) in &trait_bounds.extra_predicates {
-        if let Some(r) = refs.iter().find(|r| !impl_names.contains(*r)) {
-            errs.push(compile_err!(
-                "batch-impl: inherited where predicate `{}` references parameter `{}`, \
-                 but the impl declares no such name; declare `{}` or hand-write the where clause",
-                pred,
-                r,
-                r
-            ));
-            continue;
-        }
-        parts.where_clauses.push(pred.clone());
-    }
-    // where-predicate macro-meta replacement (`@N` → impl generic N)
-    let mut where_resolved = vec![];
-    for pred in &parts.where_clauses {
-        // A bare splat as a predicate subject has no defined semantics
-        // (`*(A,B): Trait` would expand to `A, B: Trait` — a predicate is a
-        // constraint, not a parameter list). Reject with a clear message;
-        // splats inside a predicate (`X: Trait<*(A,B)>`) and tuple
-        // predicates (`(*(A,B)): Trait`) are fine — they expand legally.
-        let head = pred.clone().into_iter().collect::<Vec<_>>();
-        if matches!(head.as_slice(),
-            [TokenTree::Punct(p), TokenTree::Group(g), ..]
-            if p.as_char() == '*'
-                && matches!(
-                    g.delimiter(),
-                    proc_macro2::Delimiter::Parenthesis
-                        | proc_macro2::Delimiter::Bracket
-                )
-        ) {
-            errs.push(compile_err!(
-                "batch-impl: a bare splat cannot be a where-predicate subject \
-                 (`*(A,B): Trait`); wrap it in a tuple (`(*(A,B)): Trait`) or \
-                 write separate predicates"
-            ));
-            continue;
-        }
-        match resolve_where_at(pred, &impl_name_streams) {
-            Ok(p) => where_resolved.push(p),
-            Err(e) => errs.push(e),
-        }
-    }
     if !errs.is_empty() {
         return errs.into_iter().collect();
     }
-    let parts = parts; // only where_resolved is used afterwards; parts is no longer mutated
+    render_impl(parts, where_resolved, trait_name, is_unsafe_trait)
+}
 
+/// Renders the final `impl<...> Trait<...> for Target where ... { ... }`
+/// block from the extracted parts (bounds inherited, `@` refs resolved).
+fn render_impl(
+    parts: ImplParts, where_resolved: Vec<TokenStream>, trait_name: &TokenStream,
+    is_unsafe_trait: bool,
+) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
 

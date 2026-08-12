@@ -9,13 +9,13 @@ pub(crate) struct TyArray(pub(crate) Vec<Ty>);
 pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
 #[derive(Clone, Debug)]
 /// `*[...]` / `*(...)` — splat: flatten a container's elements into the
-/// enclosing tuple/array/`^` argument list. Parse-time intermediate: consumed
-/// by container collection and apply, so the final AST never contains it.
-/// The variant mirrors the source bracket and drives the **left-operand**
-/// semantics: `TySplat::Array` distributes `^T` (`*[A^T,B^T]` — set, mirrors
-/// `TyArray`), `TySplat::Tuple` appends (`*(A,B,...,T)` — list, mirrors
-/// `TyTuple`). Right operands and container collection always flatten
-/// regardless of variant.
+/// enclosing tuple/array/`^` argument list. The variant mirrors the source
+/// bracket and drives the **left-operand** semantics: `TySplat::Array`
+/// distributes `^T` (`*[A^T,B^T]` — set, mirrors `TyArray`), `TySplat::Tuple`
+/// appends (`*(A,B,...,T)` — list, mirrors `TyTuple`). A splat survives as a
+/// **whole unit** through parse/apply/expand (splat survival) and flattens
+/// only in the codegen postprocess (`expand_splat_elems`); right operands
+/// and container collection flatten regardless of variant.
 pub(crate) enum TySplat {
     Tuple(TyTuple),
     Array(TyArray),
