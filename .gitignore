@@ -5,3 +5,6 @@ Cargo.lock
 .aiassistant/
 # One-off maintenance scripts (terminology fixes etc.) — not part of the crate
 /tools/
+# Reasonix assistant tooling — not part of the crate
+.reasonix/
+reasonix.toml
