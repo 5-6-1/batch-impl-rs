@@ -587,4 +587,8 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
 - **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
 - **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径与泛型声明——定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path"）
+- **相邻类型缺少操作符**：`A B` / `Vec<T>U` / `[A B]`——报 "missing `^` / `-` / `,`"（不渲染非法 Rust）
+- **类型位置的 `;`/`=`/`@`/`#` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断）
+- **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `-B`）
+- **blanket 方法返回 `Self`**：`#blanket` 无法委托返回 `Self`/`Self::Assoc` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`
 

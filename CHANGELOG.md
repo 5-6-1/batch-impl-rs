@@ -7,7 +7,7 @@
 
 ## 0.7.1 (2026-08-10)
 
-- (in development)
+- Diagnostics hardening: stray `;`/`=`/`@`/`#` in a type position, adjacent types without an operator (`A B`), trailing tokens after an `fn` parameter list, and blanket methods returning `Self`/`Self::Assoc` now error with targeted messages instead of rendering invalid Rust
 
 ## 0.7.0 (2026-08-10)
 

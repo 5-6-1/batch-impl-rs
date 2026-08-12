@@ -538,3 +538,7 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
 - **Empty range** (`@u16..u8`): "no impls generated for empty range"
 - **`=`/`:` in concrete-type args**: bindings/bounds are trait-path/declaration-only — targeted error (`Assoc<Item = u32>` with a struct reports "binding args are only valid on a trait path")
+- **Adjacent types without an operator**: `A B` / `Vec<T>U` / `[A B]` — "missing `^` / `-` / `,`" instead of rendering invalid Rust
+- **Stray `;`/`=`/`@`/`#` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic)
+- **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `-B`)
+- **Blanket method returns `Self`**: `#blanket` cannot delegate a method returning `Self`/`Self::Assoc` (forwarding yields the inner type, not the wrapper's `Self`) — error with a `#name{...}` suggestion

@@ -7,7 +7,12 @@
 
 ## 0.7.1 (2026-08-10)
 
-- (in development)
+- **Fallback validation**（`parse::generic::primitive`）：stray `;`/`=`/`@`/`#` 与相邻类型片段（`A B`/`Vec<T>U`/`[A B]`）定向报错——不再渲染非法 Rust；排除路径/range/泛型/fn/dyn/lifetime 名（不误伤 `Vec<u32>`/`a::b`/`0..3`/`dyn Trait`/`&'a T`）
+- **`parse_function` at_end**：fn 参数列表后残留 + `(<T: Bound>)` 元组生成器声明处理
+- **blanket 返回 `Self`/`Self::Assoc` 拒绝**：朴素 `(**self)` 委托匹配不上 wrapper 的 `Self`——定向报错并建议 `#name{...}`
+- **`MAX_NEST_DEPTH` 上移 util + `depth_err` 合并**：三处递归 walker 统一到 `util::MAX_NEST_DEPTH` + 统一构造诊断
+- **`generate_impl` 拆分**（codegen/mod + where_at + impl_parts）：impl 泛型名/继承提取共用，行为等价
+- **passthrough 一致性测试 + 探针转回归**：`bracket_is_passthrough` 四递归入口一致性 + 4 个新 ui fixture + adjacent_types
 
 ## 0.7.0 (2026-08-10)
 
