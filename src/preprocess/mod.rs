@@ -2,7 +2,7 @@
 //!
 //! - [`angle`]: pairs `<>` into angle groups (entry transformation);
 //! - [`consts`]: expands `@` constants (macro-meta layer, lexical substitution);
-//! - [`mod`](self): expands `#` directives (fill/delegate/blanket/open extension);
+//! - [`directives`]: expands `#` directives (fill/delegate/blanket/open extension);
 //! - [`where_process`]: rewrites bare `where` predicates;
 //! - [`empty_generics`]: copies `A<>`;
 //!
@@ -58,12 +58,10 @@ pub(crate) use directives::*;
 pub(crate) use empty_generics::*;
 pub(crate) use where_process::*;
 
-use proc_macro2::{Group, Ident, TokenStream, TokenTree};
-use quote::quote;
+use proc_macro2::{Group, TokenStream, TokenTree};
 use syn::ItemTrait;
-use syn::parse::Parser;
 
-use crate::util::{bracket_is_passthrough, compile_err, is_punct};
+use crate::util::{bracket_is_passthrough, is_punct};
 
 // ============================================================
 // Directive preprocessing
@@ -76,24 +74,10 @@ use crate::util::{bracket_is_passthrough, compile_err, is_punct};
 /// definition to read method signatures). `batch_trait!` does not call this
 /// function (no trait definition available).
 ///
-/// ## Directive syntax
-///
-/// | Directive | Syntax | Effect |
-/// |-----------|--------|--------|
-/// | single item | `#name{body}` | `{fn method(sig) { body }}` or `{const NAME: Type = body;}` or `{type Name = body;}` |
-/// | fill | `#fill(args){body}` | `{fn m1(sig){body} fn m2(sig){body} ...}` |
-/// | delegate | `#delegate(args){target}` | `{fn m1(sig){(target).m1(args)} ...}` |
-/// | blanket | `#blanket(args){wrapper list}` | multiple complete specs (see [`expand_blanket`]) |
-///
-/// Expansion output: existing directives produce exactly one `{...}` group
-/// (attachable to a type or standalone as a spec); `#blanket` produces
-/// multiple specs that can only stand alone (self-contained
-/// generics/target/delegation; see the attachment semantics under
-/// "syntax-domain isolation" in architecture.md).
-///
-/// `@all` in `args` means all items of the trait (fn + const + type),
-/// `@all_methods` only Fn methods, `@all_constants` only consts, `@all_types`
-/// only types.
+/// The directive syntax table and the dispatch itself live in
+/// [`directives::expand_directive`]; this function only owns the token scan:
+/// on `#name(...)` it delegates to the directive system, and it recurses only
+/// into `[...]` (Bracket) groups.
 ///
 /// ## Recursion rules
 ///
@@ -136,228 +120,11 @@ pub(crate) fn expand_tokens(
     Ok(result)
 }
 
-/// Dispatches to the expansion functions; output contract in [`expand_tokens`].
-fn expand_directive(
-    name: &Ident, tokens: &[TokenTree], i: usize, trait_def: &ItemTrait,
-    trait_full_path: &TokenStream,
-) -> Result<(Vec<TokenTree>, usize), TokenStream> {
-    if let Some(TokenTree::Group(args)) = tokens.get(i + 2) {
-        match args.delimiter() {
-            delimiter![{}] => {
-                // `#name{body}` — the item name directly followed by
-                // `{body}` (works for fn / const / type). A name within edit
-                // distance 2 of a built-in directive is a typo (`#delgate{}`).
-                let name_str = name.to_string();
-                for builtin in ["fill", "delegate", "blanket"] {
-                    if levenshtein(&name_str, builtin) <= 2 {
-                        return Err(compile_err!(
-                            "batch-impl: unknown directive `#{}` — did you mean `#{}`?",
-                            name,
-                            builtin
-                        ));
-                    }
-                }
-                expand_single(name, args, trait_def).map(|tt| (vec![tt], 3))
-            }
-            _ => {
-                // `#cmd(args){body}` — name + parenthesized args + {body}
-                let Some(TokenTree::Group(body)) = tokens.get(i + 3) else {
-                    return Err(compile_err!(
-                        "`#{}` must be followed by `(args)` or `[args]` + \
-                         `{{body}}` (or directly `{{body}}`)",
-                        name
-                    ));
-                };
-                if body.delimiter() != delimiter![{}] {
-                    return Err(compile_err!(
-                        "`#{}` must be followed by `(args)` or `[args]` + \
-                         `{{body}}` (or directly `{{body}}`)",
-                        name
-                    ));
-                }
-                let consumed = 4;
-                match name.to_string().as_str() {
-                    "fill" => expand_fill(args, body, trait_def)
-                        .map(|tt| (vec![tt], consumed)),
-                    "delegate" => expand_delegate(args, body, trait_def)
-                        .map(|tt| (vec![tt], consumed)),
-                    "blanket" => {
-                        expand_blanket(args, body, trait_def, trait_full_path)
-                            .map(|v| (v, consumed))
-                    }
-                    // Open extension: `#name(args){body}` → a **top-level**
-                    // macro call `{ ! name!{(args){body} trait_def} }` — the
-                    // `!` prefix marks top-level emission: codegen strips it,
-                    // prepends the spec body (target + preceding blocks,
-                    // merged in chain order) to the macro input, and emits
-                    // the call at top level (no impl generated). The macro
-                    // receives `{spec}(args){body} trait` and generates
-                    // arbitrary items (the same lineage as `#fill`/`#delegate`
-                    // — the "read trait → generate" logic is the user's).
-                    _ => {
-                        // Typo guard: an open-extension name within edit
-                        // distance 2 of a built-in directive is very likely a
-                        // typo (`#delgate`/`#blanlet`). Farther names stay
-                        // open extensions (your own same-named macro).
-                        let name_str = name.to_string();
-                        for builtin in ["fill", "delegate", "blanket"] {
-                            if levenshtein(&name_str, builtin) <= 2 {
-                                return Err(compile_err!(
-                                    "batch-impl: unknown directive `#{}` — did you mean `#{}`?",
-                                    name,
-                                    builtin
-                                ));
-                            }
-                        }
-                        let inner = quote! {
-                            #name ! { #args #body #trait_def }
-                        };
-                        Ok((
-                            vec![Group::new(delimiter![{}], quote!(! #inner)).into()],
-                            consumed,
-                        ))
-                    }
-                }
-            }
-        }
-    } else {
-        Err(compile_err!(
-            "`#{}` must be followed by `(args)` / `[args]` or a code \
-             block `{{body}}`",
-            name
-        ))
-    }
-}
-
-/// `#name{body}` expands to an implementation body matching that item type
-/// (see the table above).
-///
-/// Looks up the item by `name` in the trait definition; `build_from_item`
-/// emits the output automatically by item type.
-fn expand_single(
-    method_name: &Ident, body: &Group, trait_def: &ItemTrait,
-) -> Result<TokenTree, TokenStream> {
-    let item = get_trait_item(trait_def, method_name)?;
-    Ok(Group::new(delimiter![{}], build_from_item(item, &body.stream())).into())
-}
-
-/// Common skeleton for multi-item directive expansion: parse the method-name
-/// list → build an implementation per item → pack into a `{...}` group.
-/// `build` builds the implementation body per item (may error, e.g. a non-fn
-/// item / destructuring params in `#delegate`).
-fn expand_many(
-    args_group: &Group, trait_def: &ItemTrait,
-    build: impl Fn(&Ident, &syn::TraitItem) -> Result<TokenStream, TokenStream>,
-) -> Result<TokenTree, TokenStream> {
-    let method_names = parse_names_from_tokens(
-        &args_group.stream().into_iter().collect::<Vec<_>>(),
-        trait_def,
-    )?;
-    let mut methods = TokenStream::new();
-    for name in &method_names {
-        let item = get_trait_item(trait_def, name)?;
-        methods.extend(build(name, item)?);
-    }
-    Ok(Group::new(delimiter![{}], methods).into())
-}
-
-/// `#fill(args){body}` → `{fn m1(sig){body} fn m2(sig){body} ...}`
-///
-/// `args` is a comma-separated item-name list, or `@all` (meaning all items).
-/// Supports three item kinds: fn, const, type.
-/// For each item, the signature/type is read from the trait definition and
-/// `body` is used as the implementation.
-fn expand_fill(
-    args_group: &Group, body: &Group, trait_def: &ItemTrait,
-) -> Result<TokenTree, TokenStream> {
-    let body_stream = body.stream();
-    expand_many(args_group, trait_def, |_name, item| {
-        Ok(build_from_item(item, &body_stream))
-    })
-}
-
-/// `#delegate(args){target}` → `{fn m1(sig){(target).m1(params)} ...}`
-///
-/// Generates a delegation call per method: skips the `self` argument and
-/// forwards the remaining arguments as-is. Non-identifier parameter patterns
-/// (`_`, tuple patterns like `(a, b)` — legal when the trait method has a
-/// default body — or any other pattern) are renamed to `arg0`, `arg1`, ...
-/// in both the copied signature and the delegation call, so they can be
-/// forwarded by name.
-fn expand_delegate(
-    args_group: &Group, target: &Group, trait_def: &ItemTrait,
-) -> Result<TokenTree, TokenStream> {
-    let target_stream = target.stream();
-    expand_many(args_group, trait_def, |name, item| {
-        let syn::TraitItem::Fn(f) = item else {
-            return Err(compile_err!(
-                "batch-impl: #delegate only works on methods; `{}` in trait \
-                 `{}` is not a method",
-                trait_def.ident,
-                name
-            ));
-        };
-        let mut sig = f.sig.clone();
-        // Only patterns that cannot be used directly as an expression need
-        // renaming: `_` has no binding, `ref x` / guards / `x @ pat` are
-        // pattern-only tokens (checked recursively, so `(ref x, y)` is
-        // caught too). Everything else keeps its pattern — its token stream
-        // works as an expression in the call (`(a, b)` binds `a`/`b`, and
-        // `(a, b)` rebuilds the tuple). Parsed via syn (`arg{i}` is always a
-        // valid identifier pattern).
-        let mut arg_idx = 0usize;
-        for input in &mut sig.inputs {
-            if let syn::FnArg::Typed(pat_type) = input
-                && !pat_is_forwardable(&pat_type.pat)
-            {
-                pat_type.pat = syn::Pat::parse_single
-                    .parse_str(&format!("arg{}", arg_idx))
-                    .expect(
-                        "generated arg names are always valid identifier patterns",
-                    )
-                    .into();
-                arg_idx += 1;
-            }
-        }
-        let call_args = collect_call_args(&sig).map_err(|pat| {
-            compile_err!(
-                "batch-impl: #delegate method `{}::{}` param `{}` cannot be \
-                 forwarded (unsupported parameter pattern); please rename it \
-                 to a plain identifier",
-                trait_def.ident,
-                name,
-                pat
-            )
-        })?;
-        let body = quote! { (#target_stream) . #name ( #(#call_args),* ) };
-        Ok(build_from_item_sig(item, Some(&sig), &body))
-    })
-}
-
-/// Edit distance between two strings — the typo guard for open-extension
-/// directive names (a name within distance 2 of `fill`/`delegate`/`blanket`
-/// is very likely a typo, not a user macro).
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut dp: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.iter().enumerate() {
-        let mut prev = dp[0];
-        dp[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let cur = dp[j + 1];
-            dp[j + 1] =
-                if ca == cb { prev } else { 1 + prev.min(dp[j + 1]).min(dp[j]) };
-            prev = cur;
-        }
-    }
-    dp[b.len()]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use proc_macro2::TokenStream;
+    use quote::quote;
 
     /// Inputs whose Bracket/Paren/Brace groups must be treated as
     /// passthrough by every recursive entry point (`ident!{...}` /
