@@ -116,6 +116,12 @@ fn ui() {
     // references `T` — renaming the impl generic errors with guidance
     t.compile_fail("tests/ui/rename_where_projection.rs");
 
+    // remaining silent-drop / raw-passthrough guards (see dev-changelog)
+    t.compile_fail("tests/ui/binding_bound_empty.rs");
+    t.compile_fail("tests/ui/literal_and_range.rs");
+    t.compile_fail("tests/ui/array_and_punct.rs");
+    t.compile_fail("tests/ui/directive_typo.rs");
+
     // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");
 }

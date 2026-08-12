@@ -1,0 +1,36 @@
+error: batch-impl: binding `Item =` missing a value (write `Item = u32`)
+ --> tests/ui/binding_bound_empty.rs:6:1
+  |
+6 | #[batch_impl(Conv<Item =>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0782]: expected a type, found a trait
+ --> tests/ui/binding_bound_empty.rs:6:1
+  |
+6 | #[batch_impl(Conv<Item =>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: alternatively use a blanket implementation to implement `Conv` for all types that also implement `#[batch_impl(Conv<Item =>)]`
+  |
+6 - #[batch_impl(Conv<Item =>)]
+6 + U<U: #[batch_impl(Conv<Item =>)]>
+  |
+
+error[E0107]: missing generics for trait `Conv`
+ --> tests/ui/binding_bound_empty.rs:7:7
+  |
+7 | trait Conv<T> {
+  |       ^^^^ expected 1 generic argument
+  |
+note: trait defined here, with 1 generic parameter: `T`
+ --> tests/ui/binding_bound_empty.rs:7:7
+  |
+7 | trait Conv<T> {
+  |       ^^^^ -
+help: add missing generic argument
+  |
+7 | trait Conv<T><T> {
+  |           +++

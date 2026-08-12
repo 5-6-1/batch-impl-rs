@@ -591,4 +591,10 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **类型位置的 `;`/`=`/`@`/`#` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断）
 - **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `-B`）
 - **blanket 方法返回 `Self`**：`#blanket` 无法委托返回 `Self`/`Self::Assoc` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`
+- **binding/bound 缺值**：`Conv<Item =>` / `Conv<T:> X`——报 "missing a value" / "missing a bound"
+- **非整数类型字面量**：`1.5` / `"hi"` / `'a'`——类型位置只能是整数（usize）
+- **range 端点非整数**：`1..x` / `A..B`——报 "needs integer endpoints"
+- **数组长度畸形**：`[u8; 3; 4]` / `[u8;]`——报 "missing or malformed"
+- **类型起始 `+`/`?`/`.`**：`+A` / `?Sized` / `.foo`——报 "not valid at the start of a type"
+- **未知指令拼写建议**：`#delgate` / `#blanlet`——报 "did you mean `#delegate`?"（开放扩展名距离 >2 不报）
 

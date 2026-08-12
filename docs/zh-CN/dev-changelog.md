@@ -10,6 +10,7 @@
 - **`MAX_NEST_DEPTH` 上移 util + `depth_err` 合并**：三处递归 walker 统一到 `util::MAX_NEST_DEPTH` + 统一构造诊断
 - **`generate_impl` 拆分**（codegen/mod + where_at + impl_parts）：impl 泛型名/继承提取共用，行为等价
 - **passthrough 一致性测试 + 探针转回归**：`bracket_is_passthrough` 四递归入口一致性 + 4 个新 ui fixture + adjacent_types
+- **诊断加固扩展**（`parse::generic::primitive` + 指令系统）：binding `Item =` / bound `T:` 缺值、非整数类型字面量（`1.5`/`"hi"`）、range 端点非整数（`1..x`/`A..B`）、数组长度畸形（`[u8; 3; 4]`/`[u8;]`）、类型起始 `+`/`?`/`.`、未知指令拼写建议（Levenshtein ≤2，`#delgate`→`#delegate`）、parse_group 透明组防御——全部定向报错。**已知遗留**：泛型声明/trait 实参的空 bound `<T:>` 仍在 angle_collect 阶段丢 `:`（rustc E0425 兜底，见 ui `binding_bound_empty` 注释）
 
 ## 0.7.0 (2026-08-10)
 

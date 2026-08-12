@@ -128,9 +128,17 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     {
         return None;
     }
-    let start = start.to_string().parse::<usize>().ok()?;
     let span = tokens[0].span();
-    let (inclusive, end) = match rest {
+    let start = match start.to_string().parse::<usize>() {
+        Ok(n) => n,
+        Err(_) => {
+            return Some(err_ty_at(
+                "batch-impl: range start must be an integer",
+                span,
+            ));
+        }
+    };
+    let (inclusive, end_lit) = match rest {
         [TokenTree::Literal(end)] => (false, end),
         [TokenTree::Punct(eq), TokenTree::Literal(end)]
             if eq.as_char() == '=' && second_dot.spacing() == Spacing::Joint =>
@@ -139,10 +147,16 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
         }
         _ => return None,
     };
-    TyRange { start, end: end.to_string().parse().ok()?, inclusive }
-        .to_ty()
-        .with_span(span)
-        .into()
+    let end = match end_lit.to_string().parse::<usize>() {
+        Ok(n) => n,
+        Err(_) => {
+            return Some(err_ty_at(
+                "batch-impl: range end must be an integer",
+                end_lit.span(),
+            ));
+        }
+    };
+    TyRange { start, end, inclusive }.to_ty().with_span(span).into()
 }
 
 /// Group parsing: `(A,B)` tuple / `(A)` group / `[A,B]` list / `[A; N]` array / `[A]` slice /
@@ -230,8 +244,19 @@ pub(crate) fn parse_group(
                     .unwrap_or_else(empty);
                 if cursor.is_punct(';') {
                     cursor.bump();
+                    let length_tokens = cursor.take_rest();
+                    if length_tokens.is_empty()
+                        || length_tokens.iter().any(|t| {
+                            matches!(t, TokenTree::Punct(p) if p.as_char() == ';' || p.as_char() == ',')
+                        })
+                    {
+                        return err_ty_at(
+                            "batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`)",
+                            group.span(),
+                        );
+                    }
                     let length =
-                        cursor.take_rest().iter().cloned().collect::<TokenStream>();
+                        length_tokens.iter().cloned().collect::<TokenStream>();
                     TyPrimitiveArray(element.into(), length.into())
                         .to_ty()
                         .with_span(group.span())
@@ -245,7 +270,14 @@ pub(crate) fn parse_group(
         delimiter![{}] => TyWithCode(None, TyCodeBlock(group.stream()))
             .to_ty()
             .with_span(group.span()),
-        _ => empty(),
+        // A transparent (None) group here is unexpected — angle_collect flattens
+        // real None groups and parse_primary routes `<>` groups away. Reaching
+        // this arm means a macro-expansion produced an unpaired transparent
+        // group, whose contents must not be silently dropped.
+        _ => err_ty_at(
+            "batch-impl: unexpected transparent group in a type position (angle-collect should have flattened it)",
+            group.span(),
+        ),
     }
 }
 

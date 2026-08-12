@@ -2,7 +2,7 @@
 //!
 //! Provides matching and parsing of `<...>` generic parameters plus related helpers.
 
-use proc_macro2::{Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
 
 use quote::quote;
 
@@ -114,6 +114,11 @@ pub(crate) fn parse_angle_bracket_contents(
                 let name_ty =
                     TyPrimitive(chunk[..eq].iter().cloned().collect()).to_ty();
                 let value = match resolve_at_refs(&chunk[eq + 1..]) {
+                    Ok(v) if v.is_empty() => TyPrimitive(compile_error_ty(
+                        "batch-impl: binding `Item =` missing a value (write `Item = u32`)",
+                        chunk[eq].span(),
+                    ))
+                    .to_ty(),
                     Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
                         .unwrap_or_else(empty),
                     Err(e) => TyPrimitive(e).to_ty(),
@@ -141,12 +146,20 @@ pub(crate) fn parse_angle_bracket_contents(
                         .to_ty(),
                     ),
                     Some(
-                        parse_item(
-                            &mut Cursor::new(&chunk[colon + 1..]),
-                            Op::Dash,
-                            trait_name,
-                        )
-                        .unwrap_or_else(empty),
+                        if chunk[colon + 1..].is_empty() {
+                            TyPrimitive(compile_error_ty(
+                                "batch-impl: bound `T:` missing a bound (write `T: Clone`)",
+                                chunk[colon].span(),
+                            ))
+                            .to_ty()
+                        } else {
+                            parse_item(
+                                &mut Cursor::new(&chunk[colon + 1..]),
+                                Op::Dash,
+                                trait_name,
+                            )
+                            .unwrap_or_else(empty)
+                        },
                     ),
                 ));
             } else {
@@ -240,6 +253,31 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
             }
         }
     }
+    // A `.` in a type position that parse_range did not consume means the
+    // range endpoints were not integer literals (`1..x`, `A..B`) — report
+    // instead of passing through to rustc's "expected type". (A float like
+    // `.5` is a single Literal, not a `.` Punct, so it is not caught here.)
+    if tokens.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '.')) {
+        return err_ty_at(
+            "batch-impl: a range (`..`/`..=`) in a type position needs integer endpoints (e.g. `0..=3`)",
+            tokens[0].span(),
+        );
+    }
+    // `+`/`?`/`.` are only invalid at the *start* of a type (`dyn Trait + Send`
+    // and `T: Clone + 'a` use them legally in the middle). A `.` only counts
+    // as a lone punctuation when Alone — a Joint `.` heads `..`/`..=` (range
+    // syntax). `!` (never) and `::` (absolute path) may be valid, so they are
+    // left to rustc.
+    if let Some(TokenTree::Punct(p)) = tokens.first()
+        && (matches!(p.as_char(), '+' | '?')
+            || (p.as_char() == '.' && p.spacing() == Spacing::Alone))
+    {
+        return err_ty_at(
+            "batch-impl: `+`/`?`/`.` is not valid at the start of a type \
+             (`+`/`?` belong in bounds; a type cannot start with `.`)",
+            p.span(),
+        );
+    }
     // Adjacent type fragments without an operator (`A B`, `Vec<T>U`, `[A B]`)
     // would otherwise render as invalid Rust with no guidance. Only true
     // adjacent Ident/Literal/Group pairs trigger; paths (`a::b`) and ranges
@@ -253,10 +291,16 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
         let is_lifetime_name =
             matches!(prev, Some(TokenTree::Punct(p)) if p.as_char() == '\'');
         let prev_is_fragment = prev.is_some_and(|p| {
-            matches!(p, TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_))
+            matches!(
+                p,
+                TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_)
+            )
         }) && !prev_is_lifetime_name;
         let is_fragment = !is_lifetime_name
-            && matches!(tt, TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_));
+            && matches!(
+                tt,
+                TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_)
+            );
         // `fn`/`unsafe`/`dyn` may head an fn type or trait object
         // (`fn(A)->B` / `unsafe fn(A)` / `dyn Trait + Send`) — parse_function
         // and the dyn path own those; reaching primitive is an anomaly, not

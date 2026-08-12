@@ -7,7 +7,7 @@
 
 ## 0.7.1 (2026-08-10)
 
-- Diagnostics hardening: stray `;`/`=`/`@`/`#` in a type position, adjacent types without an operator (`A B`), trailing tokens after an `fn` parameter list, and blanket methods returning `Self`/`Self::Assoc` now error with targeted messages instead of rendering invalid Rust
+- Diagnostics hardening: stray `;`/`=`/`@`/`#` in a type position, adjacent types without an operator (`A B`), empty binding/bound values, non-integer type literals, non-integer range endpoints, malformed array lengths, `+`/`?`/`.` at a type start, trailing tokens after an `fn` parameter list, blanket methods returning `Self`/`Self::Assoc`, and typo suggestions for unknown directives now error with targeted messages instead of rendering invalid Rust or surfacing raw rustc errors
 
 ## 0.7.0 (2026-08-10)
 

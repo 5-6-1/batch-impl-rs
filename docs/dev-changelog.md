@@ -13,6 +13,7 @@
 - **`MAX_NEST_DEPTH` 上移 util + `depth_err` 合并**：三处递归 walker 统一到 `util::MAX_NEST_DEPTH` + 统一构造诊断
 - **`generate_impl` 拆分**（codegen/mod + where_at + impl_parts）：impl 泛型名/继承提取共用，行为等价
 - **passthrough 一致性测试 + 探针转回归**：`bracket_is_passthrough` 四递归入口一致性 + 4 个新 ui fixture + adjacent_types
+- **Diagnostic hardening (extended)** (`parse::generic::primitive` + directive system): empty binding/bound values (`Item =` / `T:`), non-integer type literals (`1.5`/`"hi"`), non-integer range endpoints (`1..x`/`A..B`), malformed array lengths (`[u8; 3; 4]`/`[u8;]`), `+`/`?`/`.` at a type start, typo suggestions for unknown directives (Levenshtein ≤ 2, `#delgate`→`#delegate`), and a parse_group transparent-group guard — all targeted errors. **Known leftover**: an empty bound in a generic declaration / trait arg (`<T:>`) still loses its `:` during angle-collect (rustc E0425 fallback, see the ui `binding_bound_empty` comment)
 
 ## 0.7.0 (2026-08-10)
 

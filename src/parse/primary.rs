@@ -123,10 +123,16 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
         return range;
     }
 
-    if let [TokenTree::Literal(literal)] = tokens
-        && let Ok(number) = literal.to_string().parse()
-    {
-        return TyNum(number).into();
+    if let [TokenTree::Literal(literal)] = tokens {
+        match literal.to_string().parse::<usize>() {
+            Ok(number) => return TyNum(number).into(),
+            Err(_) => {
+                return err_ty_at(
+                    "batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types",
+                    literal.span(),
+                );
+            }
+        }
     }
 
     // An angle-bracket group (`delimiter![<>]`) is a generic list; must go through

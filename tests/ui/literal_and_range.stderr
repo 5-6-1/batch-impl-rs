@@ -1,0 +1,11 @@
+error: batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types
+ --> tests/ui/literal_and_range.rs:4:14
+  |
+4 | #[batch_impl(1.5)]
+  |              ^^^
+
+error: batch-impl: a range (`..`/`..=`) in a type position needs integer endpoints (e.g. `0..=3`)
+ --> tests/ui/literal_and_range.rs:7:14
+  |
+7 | #[batch_impl(1..x)]
+  |              ^

@@ -542,3 +542,9 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Stray `;`/`=`/`@`/`#` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic)
 - **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `-B`)
 - **Blanket method returns `Self`**: `#blanket` cannot delegate a method returning `Self`/`Self::Assoc` (forwarding yields the inner type, not the wrapper's `Self`) — error with a `#name{...}` suggestion
+- **Empty binding/bound value**: `Conv<Item =>` / `Conv<T:> X` — "missing a value" / "missing a bound"
+- **Non-integer type literal**: `1.5` / `"hi"` / `'a'` — only an integer (usize) is a type
+- **Non-integer range endpoint**: `1..x` / `A..B` — "needs integer endpoints"
+- **Malformed array length**: `[u8; 3; 4]` / `[u8;]` — "missing or malformed"
+- **`+`/`?`/`.` at a type start**: `+A` / `?Sized` / `.foo` — "not valid at the start of a type"
+- **Unknown-directive typo suggestion**: `#delgate` / `#blanlet` — "did you mean `#delegate`?" (open-extension names farther than 2 stay silent)
