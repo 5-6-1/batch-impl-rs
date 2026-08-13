@@ -2,7 +2,7 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## 0.7.1 (2026-08-10)
+## 0.7.1 (2026-08-13)
 
 - 诊断加固：类型位置的 `;`/`=`/`@`/`#` 残留、相邻类型缺少操作符（`A B`）、binding/bound 缺值、非整数类型字面量、range 端点非整数、数组长度畸形、类型起始 `+`/`?`/`.`、fn 参数列表后残留、blanket 返回 `Self`/`Self::Assoc` 的方法、未知指令拼写建议——全部定向报错而非渲染非法 Rust 或抛 rustc 裸错
 
@@ -611,6 +611,7 @@ v0.3.0 是从零开始的完全重写。公开 API 和 DSL 语法与 v0.2.x 保�
 - 泛型支持：impl 泛型（含 const）、trait 泛型、生命周期、泛型继承
 - `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)` 
 - 中文错误提示，`compile_error!` 而非 panic
+
 
 
 

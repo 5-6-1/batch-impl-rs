@@ -97,7 +97,8 @@ fn pow_single(template: Ty, n: usize) -> Ty {
 }
 
 /// `(A,B,..)^N`: N-way Cartesian product, choosing one of all elements per position.
-/// The product count is checked after each round (`elems^N` can far exceed [`MAX_EXPAND`]).
+/// The product count is checked once after expansion (`elems^N` can far exceed
+/// [`MAX_EXPAND`]).
 fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
     let dims: Vec<Vec<Ty>> = std::iter::repeat_n(elems, n).collect();
     let combos = cartesian(&dims);

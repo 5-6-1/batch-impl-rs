@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.7.1 (2026-08-10)
+## 0.7.1 (2026-08-13)
 
 - Diagnostics hardening: stray `;`/`=`/`@`/`#` in a type position, adjacent types without an operator (`A B`), empty binding/bound values, non-integer type literals, non-integer range endpoints, malformed array lengths, `+`/`?`/`.` at a type start, trailing tokens after an `fn` parameter list, blanket methods returning `Self`/`Self::Assoc`, and typo suggestions for unknown directives now error with targeted messages instead of rendering invalid Rust or surfacing raw rustc errors
 
@@ -665,6 +665,7 @@ Feature list:
 - Generic support: impl generics (incl. const), trait generics, lifetimes, generic inheritance
 - `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)`
 - Chinese-language error messages, `compile_error!` instead of panic
+
 
 
 

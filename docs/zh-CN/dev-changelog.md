@@ -2,7 +2,7 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.7.1 (2026-08-10)
+## 0.7.1 (2026-08-13)
 
 - **兜底校验**（`parse::generic::primitive`）：类型位置的 `;`/`=`/`@`/`#` 残留与相邻类型片段（`A B`/`Vec<T>U`/`[A B]`）定向报错——不再渲染非法 Rust；排除路径/range/泛型/fn/dyn/lifetime 名（不误伤 `Vec<u32>`/`a::b`/`0..3`/`dyn Trait`/`&'a T`）
 - **`parse_function` 尾部**：fn 参数列表后残留 + `(<T: Bound>)` 元组生成器声明处理
@@ -13,6 +13,12 @@
 - **诊断加固扩展**（`parse::generic::primitive` + 指令系统）：binding `Item =` / bound `T:` 缺值、非整数类型字面量（`1.5`/`"hi"`）、range 端点非整数（`1..x`/`A..B`）、数组长度畸形（`[u8; 3; 4]`/`[u8;]`）、类型起始 `+`/`?`/`.`、未知指令拼写建议（Levenshtein ≤2，`#delgate`→`#delegate`）、parse_group 透明组防御——全部定向报错。**已知遗留**：泛型声明/trait 实参的空 bound `<T:>` 仍在 angle_collect 阶段丢 `:`（rustc E0425 兜底，见 ui `binding_bound_empty` 注释）
 - **结构优化**：指令分发（`expand_directive`/`expand_fill`/`expand_delegate`/`expand_single`/`expand_many`/`levenshtein`）从 `preprocess/mod.rs` 迁入 `directives/dispatch.rs`——`preprocess/mod.rs` 412→179 行，`directives/` 成为名副其实的指令系统入口
 - **文档教育（等价简写）**：`#fill([foo]){body}` ≡ `#foo{body}`、`where{谓词} {代码块}` ≡ 裸写 `where 谓词 {代码块}`——写入 tutorial §7.2/§8.2 与 README 特性表（实测 stable 1.97.1 无 proc-macro warning 通道 `proc_macro_diagnostic` E0658，故选文档教育而非运行时警告）
+- **单一真相源去重（P0）**：笛卡尔积算法三份（`apply::apply_tuple::pow_cartesian` + `ast::types_visit` 的 Tuple/Generic 臂）统一到 `util::cartesian<T>` 泛型函数——N 维笛卡尔积单一权威，改限流/算法不再漏一处
+- **链式 `.into()`（P1）**：13 处 `Box::new(x)`/`Some(x.into())` 使用处改 `.into()`（`From<T> for Box<Ty>` / `From<Ty> for Option<Box<Ty>>` 早已铺好；定义处仍用 `Box::new` 防递归）
+- **FP 累加器（P2）**：5 处 `for`+`push` 累加器改 `fold`/`map`/`from_fn`（`render_impl`/`instantiate_combo`/`parse_list`/`fold_splat_elems`/`expand_splat_elems`）；`flat_splat_params` 分支复杂保留 `for`（fold 反而更乱，简洁优先）
+- **长函数拆分（P3）**：`resolve_where_at` 抽 `emit_fresh_predicates` + `parse_fresh_range`；`primitive` 抽 4 个 `validate_*`；`parse_group` 抽 `parse_array_group`；`try_expand_at` 保持现状（已纯链式短路，拆分只增样板）
+- **拼写守卫去重**：`check_builtin_typo` 抽 Levenshtein 守卫×2（同一文件两处逐字相同）
+- **横向合并核实**：审计建议的 `generic_param_names`×4、`@` 引用×5、`range`×2 经逐条核实**语义各异、不合并**（如 blanket 需完整 `const N: usize` 声明而 `generic_param_names` 只给裸名——强行复用会 E0747）——"长得像"≠"语义相同"，不能为统一而统一
 
 ## 0.7.0 (2026-08-10)
 
@@ -1260,5 +1266,6 @@
 
 `684 (0.-1) → 1961 (0.0) → ≈2153 (0.1.1) → 3197 (0.2) → 1628 (0.3.0 初版)`
 `→ ≈1586 (0.3.0 正式版，五文件) → 4400 (0.6)`
+
 
 

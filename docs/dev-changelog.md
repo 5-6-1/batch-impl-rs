@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.7.1 (2026-08-10)
+## 0.7.1 (2026-08-13)
 
 - **Fallback validation**（`parse::generic::primitive`）：stray `;`/`=`/`@`/`#` 与相邻类型片段（`A B`/`Vec<T>U`/`[A B]`）定向报错——不再渲染非法 Rust；排除路径/range/泛型/fn/dyn/lifetime 名（不误伤 `Vec<u32>`/`a::b`/`0..3`/`dyn Trait`/`&'a T`）
 - **`parse_function` at_end**：fn 参数列表后残留 + `(<T: Bound>)` 元组生成器声明处理
@@ -16,6 +16,12 @@
 - **Diagnostic hardening (extended)** (`parse::generic::primitive` + directive system): empty binding/bound values (`Item =` / `T:`), non-integer type literals (`1.5`/`"hi"`), non-integer range endpoints (`1..x`/`A..B`), malformed array lengths (`[u8; 3; 4]`/`[u8;]`), `+`/`?`/`.` at a type start, typo suggestions for unknown directives (Levenshtein ≤ 2, `#delgate`→`#delegate`), and a parse_group transparent-group guard — all targeted errors. **Known leftover**: an empty bound in a generic declaration / trait arg (`<T:>`) still loses its `:` during angle-collect (rustc E0425 fallback, see the ui `binding_bound_empty` comment)
 - **Structure**: directive dispatch (`expand_directive`/`expand_fill`/`expand_delegate`/`expand_single`/`expand_many`/`levenshtein`) moved from `preprocess/mod.rs` into `directives/dispatch.rs` — `preprocess/mod.rs` 412→179 lines, `directives/` is now the real directive-system entry
 - **Docs (equivalent shorthands)**: `#fill([foo]){body}` ≡ `#foo{body}`, `where{predicates} {code block}` ≡ bare `where predicates {code block}` — written into tutorial §7.2/§8.2 and the README feature table (measured: stable 1.97.1 has no proc-macro warning channel — `proc_macro_diagnostic` E0658 — so docs education chosen over runtime warnings)
+- **Single-source dedup (P0)**: the Cartesian-product algorithm lived in three copies (`apply::apply_tuple::pow_cartesian` + the Tuple/Generic arms of `ast::types_visit`) — unified into a generic `util::cartesian<T>`, one authority for N-way Cartesian expansion
+- **Chained `.into()` (P1)**: 13 usage-site `Box::new(x)` / `Some(x.into())` wrappers became `.into()` (`From<T> for Box<Ty>` / `From<Ty> for Option<Box<Ty>>` already exist; the definition site keeps `Box::new` to avoid recursion)
+- **FP accumulators (P2)**: 5 `for`+`push` accumulators became `fold`/`map`/`from_fn` (`render_impl`/`instantiate_combo`/`parse_list`/`fold_splat_elems`/`expand_splat_elems`); `flat_splat_params` keeps its `for` (a fold closure would be longer — conciseness wins)
+- **Long-function split (P3)**: `resolve_where_at` extracted `emit_fresh_predicates` + `parse_fresh_range`; `primitive` extracted 4 `validate_*`; `parse_group` extracted `parse_array_group`; `try_expand_at` left as-is (already pure chained short-circuit — splitting only adds boilerplate)
+- **Typo-guard dedup**: `check_builtin_typo` extracted the Levenshtein guard (two verbatim copies in one file)
+- **Merge-verification outcome**: the audit's suggested `generic_param_names`×4, `@`-reference×5 and `range`×2 were each verified and **not merged — different semantics** (e.g. blanket needs the full `const N: usize` declaration while `generic_param_names` yields bare names — a naive reuse would E0747) — "looks alike" ≠ "same semantics"; don't unify for its own sake
 
 ## 0.7.0 (2026-08-10)
 
@@ -1180,6 +1186,7 @@
 
 `684 (0.-1) → 1961 (0.0) → ≈2153 (0.1.1) → 3197 (0.2) → 1628 (0.3.0 initial version)`
 `→ ≈1586 (0.3.0 final version, five files) → 4400 (0.6)`
+
 
 
 
