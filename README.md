@@ -1,6 +1,6 @@
-﻿# batch-impl
+# batch-impl
 
-**v0.7.2** (2026-08-13) — 0.7.1 released: targeted diagnostics for stray `;`/`=`/`@`/`#`, adjacent types, empty bindings/bounds and typo suggestions (no more raw rustc errors); 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists, `*[...]` distribute / `*(...)` append as left operand), array distribution propagation (nested `[A,B]` Cartesian products), generator fresh-declaration fix, splat power inside generic args (`Frac<*(*@u*)^2>` = 36 impls), concrete-type args reject bindings/bounds, `#fill` single-item preference (`#name{...}`).
+**v0.7.2** (2026-08-14) — 0.7.2 released: user-language diagnostics (no reserved-name leaks), `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver fix, open-extension protocol convergence, syntax-freeze commitment, attribute-macro custom `@` constants; 0.7.1 released: targeted diagnostics for stray `;`/`=`/`@`/`#`, adjacent types, empty bindings/bounds and typo suggestions (no more raw rustc errors); 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists, `*[...]` distribute / `*(...)` append as left operand), array distribution propagation (nested `[A,B]` Cartesian products), generator fresh-declaration fix, splat power inside generic args (`Frac<*(*@u*)^2>` = 36 impls), concrete-type args reject bindings/bounds, `#fill` single-item preference (`#name{...}`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -114,7 +114,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | §7 |
 | Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | §7 |
 | Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | §7 |
-| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` customization (lazy expansion, chained references) | §6 |
+| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + custom leading `@name=value;` sections (all three entries, lazy expansion, chained references) | §6 |
 | Generic parameter families                     | `@all_type_params` / `@all_const_params` / `@all_lifetimes` — generic declarations copy the trait's formal params (bounds via same-name inheritance) | §6 |
 | Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..=M`) belong to the macro-meta layer | §6 |
 | `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | §8 |
@@ -123,10 +123,15 @@ trait Describe2 { fn describe(&self) -> String; }
 
 > **Shorthand**: a single method `#fill([foo]){body}` equals `#foo{body}`; predicates + code block `where{predicates} {code block}` can be written bare as `where predicates {code block}` (see §7.2 / §8.2).
 
+## Syntax-freeze commitment (0.7.2)
+
+The semantics of every existing token are **final** — `^`/`-`, `[]`/`()`/`<>`, `where`, the `#` directives, the `@` constants, and the splat will not change behavior again. Future releases only **add** (new directives / constants / tools), refine diagnostics, and polish docs; any change to existing semantics is a deliberate breaking release (the `@N` stability commitment, now extended to the whole surface). `@g_i` / `@all_fresh` / `@N..M` are power-user tier (tutorial §6.4) — start from `@u*` / `@all_methods` / `@0`.
+
 ## Next steps
 
 - **Full tutorial**: `docs/tutorial.md` (progressive, from a one-line impl to advanced matrix combinations)
 - **Three entry points**: `#[batch_impl]` (includes the trait) / `#[batch_impl_only]` (impls only) / `batch_trait!` (batch-generate for an already declared trait, multi-section support)
+- **Expansion preview**: `batch_preview!` (wrap the `#[batch_impl(...)] trait` input and read the real expansion, impl by impl, plus `^`/`-` associativity miswrite notes)
 - **Examples**: `examples/quickstart.rs` (feature demo), `examples/simplify.rs` (a real scenario with 29 impls ≈ 15 lines of DSL), `examples/typeclass.rs` (type-class style: a `Num`/`UNum`/`INum`/`FNum` hierarchy + 36 `From<bool>` impls for `Frac<T, U>`)
 - **Developers**: internal architecture in `docs/architecture.md`, development changelog in `docs/dev-changelog.md`
 

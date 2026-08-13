@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.7.2** — 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`()^N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
+**v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros, and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`()^N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
@@ -333,9 +333,9 @@ trait BoxRc {}
 
 Constant values are stored as **verbatim tokens**; reference sites splice and expand recursively — a value can be a DSL expression (`@uints=@uint`) or a chained reference (`@a=@b`). Cycles/forward references are rejected at definition (preventing infinite recursion); a bare range endpoint reference (`@a=@u8` without `..`) errors at definition.
 
-### 6.3 batch_trait! custom constant sections
+### 6.3 Custom constant sections (all three entries)
 
-A leading `@name=value;` section in `batch_trait!` defines constants reused across sections:
+A leading `@name=value;` section defines reusable constants (0.7.2: `#[batch_impl]` / `#[batch_impl_only]` support it too; values may chain references and embed DSL expressions):
 
 ```rust
 # use batch_impl::batch_trait;
@@ -347,6 +347,13 @@ batch_trait! {
 }
 ```
 
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl(@small = [u8, u16]; @wrap = [Box, Rc]^@small; @wrap)]
+trait AttrConsts {}
+```
+
 > **Limit**: `batch_trait!` **does not support `#` directives** (`#fill`/`#delegate`/`#blanket`/open extension) — directives need the trait definition as the signature source of truth, and `batch_trait!` is a function-like macro that never sees one. Use `#[batch_impl]` / `#[batch_impl_only]` when you need directives.
 
 ### 6.4 The complete macro-meta layer: an addressing algebra + value classes
@@ -355,10 +362,12 @@ batch_trait! {
 
 | Notation | Derivation | Meaning |
 |---|---|---|
-| `@g_i` | **primitive** — group g, slot i (stable across array distribution) | addresses a macro-generated generic |
+| `@g_i` | **primitive** — group g, slot i (stable across array distribution) | addresses a macro-generated generic (groups/slots number from 0; dangling refs are targeted errors) |
 | `@N` | `@g_i` flattened by document order within one impl | references a fresh generic (`where{@0: Clone}`) |
 | `@all_fresh` | all fresh generics | range sugar — "every one" |
 | `@N..=M` | a contiguous run | range sugar — `@0..=1` = `@0, @1` |
+
+> **Power-user tier**: `@g_i` / `@all_fresh` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. The whole DSL surface is frozen since 0.7.2 (see README); these notations will not change semantics again.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -426,6 +435,8 @@ impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
 // → impl NumOps for Box<u32> { fn inc(&mut self) { (**self).inc() } }（delegates to the wrapped u32）
 ```
 
+> **By-value receivers**: `fn consume(self)` forwards as `(*self).consume()` — a by-value `self` IS the wrapper, one deref fewer (`&self` methods use `(**self)`: through the reference, then the wrapper). Moving out cannot type-check for shared wrappers (`&`/`Rc`); the generated impls carry a `#[doc]` note (proc macros have no stable warning channel, E0658). Skip such methods with `@all_ref_methods` (the trait default stays) or hand-write `#name{...}`.
+
 #### `@Cow` — a constraint-carrying packing (the case study)
 
 `Cow<'_>`'s deref target is `T::Owned`, not `T` — the naive `(**self)` delegation can't pass type checking. `@Cow` packs `Cow<'_>` **plus** the inherent constraint predicates (`@0: ToOwned + ?Sized, @0::Owned: @trait`), making it blanket-usable. This is the demonstration that **a constant carries reuse value only when it carries constraints**:
@@ -450,6 +461,8 @@ An unknown `#name(args){body}` becomes a top-level macro call — DSL fills the 
 #[batch_impl(u16 {! batch_preprocess_test!{(add,inc){*self+3} trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }}})]
 trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 ```
+
+> **The protocol has converged to one shape**: the legacy **in-impl form** `T {m!{...}}` (no `!`, the call lands in the impl body as associated items) is **deprecated** since 0.7.2 (kept for compatibility — no warning channel exists, so the deprecation lives in the docs). Write new extensions against the top-level `{! m!{...}}` four-segment protocol `{spec}(args){body} trait` only.
 
 ## 8. `where` Clauses
 
@@ -537,6 +550,7 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Missing operand**: `A^` / `^A` / `,A` — `compile_error!` with a clear message
 - **Unknown `@` constant**: lists the built-in names (`@u*`/`@i*`/`@f*`/`@scalar`/`@num` + range families)
 - **Constant cycle/forward reference**: rejected at definition (prevents infinite recursion)
+- **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count / `@2_0` group missing — targeted errors in user language, no reserved `_Param_*_BatchGen_` names leaked (and no raw rustc E0412 either)
 - **Splat as a where-predicate subject**: explicitly rejected (`A, B: Trait` has no defined semantics)
 - **Generic rename breaks inheritance**: renaming a trait generic param = explicit error, never silent
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
