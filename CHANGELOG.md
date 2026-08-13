@@ -7,7 +7,13 @@
 
 ## 0.7.2 (2026-08-14)
 
-- (in development)
+- Diagnostics in user language: out-of-range / dangling `@N`/`@g_i` references no longer leak the reserved `_Param_*_BatchGen_` names — where predicates and target type / trait args report uniformly in user language (previously a dangling reference in a type position leaked the internal name as a raw rustc E0412)
+- **`batch_preview!`**: the DSL-aware expansion preview — wrap the exact `#[batch_impl(...)] trait` input and the preview reports every generated impl through the diagnostic channel (the real pipeline); preview-only guidance: a known 1-arity container rendered with 2+ args (`Box<Vec, u32>`) is the shape of a `^`/`-` associativity miswrite (`A^B-C` = `A-B-C`), with the nesting rewrite suggested (`Box^Vec^u32`); the compiler path never guesses
+- **Generator-splat declaration hoisting in trait args**: `Conv<*()^2> X` now generates `impl<P0,P1> Conv<P0,P1> for X` (previously the declaration was dropped → raw rustc E0412 exposing the fresh names), the same rule as the generic-arg position; a generator in the generic-declaration position (`<*()^3>` / `<*(()^3)>`) is now a targeted error (the fresh declarations have no carrier) instead of rendering `impl <<P0,..> *(P0,..)>` garbage
+- **`#blanket` by-value receiver fix + doc note**: `fn consume(self)` forwards with one deref fewer — a by-value `self` IS the wrapper, previously the uniform `**self` dereferenced the inner type one layer too deep (E0614); `(*self).consume()` now type-checks for movable wrappers like `Box` (moving out of shared wrappers like `&`/`Rc` still cannot — the generated impls carry a `#[doc]` note: prefer `@all_ref_methods` or hand-write `#name{...}`; proc macros have no stable warning channel E0658, the doc channel costs nothing at compile time)
+- **Open-extension protocol convergence**: the top-level `{! m!{...}}` form is the only recommended shape, the in-impl `T {m!{...}}` (no `!`, associated items) is deprecated and kept for compatibility — no warning channel exists, so the convergence lives in the docs (tutorial §7.5 / crate docs / architecture)
+- **Syntax-freeze commitment**: the semantics of every existing token are final (new README section + architecture extension guidelines + tutorial §6.4 power-user tier) — future releases only add, refine diagnostics, and polish docs; changing existing semantics is a deliberate breaking release
+- **Attribute-macro custom `@` constants**: `#[batch_impl]` / `#[batch_impl_only]` support the same leading `@name=value;` constant section as `batch_trait!` (lazy expansion, chained references, cycle/forward-reference rejection); a definition outside the leading position is a targeted error
 
 ## 0.7.1 (2026-08-13)
 

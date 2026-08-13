@@ -1,6 +1,6 @@
 # batch-impl Internal Architecture
 
-**v0.7.2** — 0.7.1 released: targeted diagnostics + single-source Cartesian product (`util::cartesian`) + directive dispatch moved into `directives/`; 0.7.0: the **splat** `*` prefix (`TySplat{Tuple,Array}` enum mirroring the source bracket, full delegation to `TyTuple`/`TyArray` apply + re-wrap), array distribution propagation, parse-layer split into `chain`/`primary`/`trailing`; 0.6.x: preprocessing order `@ <> # where`, complete macro-meta layer, `@N` fresh references, receiver filtering, blanket delegation, span diagnostics.
+**v0.7.2** — 0.7.2 released: user-language `@` diagnostics + `batch_preview!` + trait-arg generator-splat hoisting + `#blanket` by-value fix; 0.7.1 released: targeted diagnostics + single-source Cartesian product (`util::cartesian`) + directive dispatch moved into `directives/`; 0.7.0: the **splat** `*` prefix (`TySplat{Tuple,Array}` enum mirroring the source bracket, full delegation to `TyTuple`/`TyArray` apply + re-wrap), array distribution propagation, parse-layer split into `chain`/`primary`/`trailing`; 0.6.x: preprocessing order `@ <> # where`, complete macro-meta layer, `@N` fresh references, receiver filtering, blanket delegation, span diagnostics.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
