@@ -41,18 +41,8 @@ pub(crate) fn expand_directive(
         match args.delimiter() {
             delimiter![{}] => {
                 // `#name{body}` — the item name directly followed by
-                // `{body}` (works for fn / const / type). A name within edit
-                // distance 2 of a built-in directive is a typo (`#delgate{}`).
-                let name_str = name.to_string();
-                for builtin in ["fill", "delegate", "blanket"] {
-                    if levenshtein(&name_str, builtin) <= 2 {
-                        return Err(compile_err!(
-                            "batch-impl: unknown directive `#{}` — did you mean `#{}`?",
-                            name,
-                            builtin
-                        ));
-                    }
-                }
+                // `{body}` (works for fn / const / type).
+                check_builtin_typo(name)?;
                 expand_single(name, args, trait_def).map(|tt| (vec![tt], 3))
             }
             _ => {
@@ -91,20 +81,7 @@ pub(crate) fn expand_directive(
                     // arbitrary items (the same lineage as `#fill`/`#delegate`
                     // — the "read trait → generate" logic is the user's).
                     _ => {
-                        // Typo guard: an open-extension name within edit
-                        // distance 2 of a built-in directive is very likely a
-                        // typo (`#delgate`/`#blanlet`). Farther names stay
-                        // open extensions (your own same-named macro).
-                        let name_str = name.to_string();
-                        for builtin in ["fill", "delegate", "blanket"] {
-                            if levenshtein(&name_str, builtin) <= 2 {
-                                return Err(compile_err!(
-                                    "batch-impl: unknown directive `#{}` — did you mean `#{}`?",
-                                    name,
-                                    builtin
-                                ));
-                            }
-                        }
+                        check_builtin_typo(name)?;
                         let inner = quote! {
                             #name ! { #args #body #trait_def }
                         };
@@ -228,6 +205,23 @@ fn expand_delegate(
         let body = quote! { (#target_stream) . #name ( #(#call_args),* ) };
         Ok(build_from_item_sig(item, Some(&sig), &body))
     })
+}
+
+/// Typo guard: an open-extension name within edit distance 2 of a built-in
+/// directive is very likely a typo (`#delgate`/`#blanlet`). Farther names
+/// stay open extensions (your own same-named macro).
+fn check_builtin_typo(name: &Ident) -> Result<(), TokenStream> {
+    let name_str = name.to_string();
+    for builtin in ["fill", "delegate", "blanket"] {
+        if levenshtein(&name_str, builtin) <= 2 {
+            return Err(compile_err!(
+                "batch-impl: unknown directive `#{}` — did you mean `#{}`?",
+                name,
+                builtin
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Edit distance between two strings — the typo guard for open-extension
