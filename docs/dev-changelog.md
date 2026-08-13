@@ -5,6 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.7.2 (2026-08-14)
+
+- (in development)
+
 ## 0.7.1 (2026-08-13)
 
 - **Fallback validation**（`parse::generic::primitive`）：stray `;`/`=`/`@`/`#` 与相邻类型片段（`A B`/`Vec<T>U`/`[A B]`）定向报错——不再渲染非法 Rust；排除路径/range/泛型/fn/dyn/lifetime 名（不误伤 `Vec<u32>`/`a::b`/`0..3`/`dyn Trait`/`&'a T`）
