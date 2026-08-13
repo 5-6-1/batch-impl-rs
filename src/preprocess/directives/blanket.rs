@@ -83,6 +83,10 @@ pub(crate) fn expand_blanket(
     // const/lifetime as-is (`const N: usize` needs the full declaration; a
     // bare name `N` is E0747), + fresh T; all bounds (trait param inline
     // bounds + `T: Trait` + trait where) go into where.
+    // Full const/lifetime declarations (`const N: usize` needs the full form;
+    // a bare name `N` is E0747) + fresh T; all bounds (trait param inline
+    // bounds + `T: Trait` + trait where) go into where. Note this is NOT the
+    // same as `generic_param_names` (which yields bare names for matching).
     let impl_names: Vec<TokenStream> = generics
         .params
         .iter()

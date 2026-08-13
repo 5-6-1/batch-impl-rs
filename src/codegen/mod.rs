@@ -188,10 +188,11 @@ fn render_impl(
     let target = &parts.target_type;
 
     // impl body: associated types + user body
-    let mut body_tokens = vec![];
-    for (name, value) in &parts.associated_types {
-        body_tokens.push(quote!(type #name = #value;));
-    }
+    let mut body_tokens: Vec<TokenStream> = parts
+        .associated_types
+        .iter()
+        .map(|(name, value)| quote!(type #name = #value;))
+        .collect();
     if let Some(body) = &parts.body {
         body_tokens.push(body.clone());
     }

@@ -75,17 +75,17 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
     let Ty { span, kind } = ty;
     match kind {
         TyKind::Tuple(t) => {
-            let mut flat = vec![];
-            let mut decl = None;
-            for e in t.0 {
-                if matches!(e.kind, TyKind::Splat(_)) {
-                    let (mut es, d) = splat_expand(e);
-                    flat.append(&mut es);
-                    decl = merge_decls(decl, d);
-                } else {
-                    flat.push(expand_splat_elems(e));
-                }
-            }
+            let (flat, decl) =
+                t.0.into_iter().fold((vec![], None), |(mut flat, decl), e| {
+                    if matches!(e.kind, TyKind::Splat(_)) {
+                        let (mut es, d) = splat_expand(e);
+                        flat.append(&mut es);
+                        (flat, merge_decls(decl, d))
+                    } else {
+                        flat.push(expand_splat_elems(e));
+                        (flat, decl)
+                    }
+                });
             let tuple = TyTuple(flat).to_ty().with_span(span);
             match decl {
                 Some(d) => TyWithType(d, tuple.into()).to_ty().with_span(span),
@@ -96,7 +96,7 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
             TyGroup(Box::new(expand_splat_elems(*g.0))).to_ty().with_span(span)
         }
         TyKind::WithCode(wc) => {
-            let inner = wc.0.map(|e| Box::new(expand_splat_elems(*e)));
+            let inner = wc.0.map(|e| expand_splat_elems(*e).into());
             TyWithCode(inner, wc.1).to_ty().with_span(span)
         }
         TyKind::WithType(wt) => TyWithType(wt.0, Box::new(expand_splat_elems(*wt.1)))
@@ -119,15 +119,15 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
             }
         }
         TyKind::WithWhere(ww) => {
-            let inner = ww.0.map(|e| Box::new(expand_splat_elems(*e)));
+            let inner = ww.0.map(|e| expand_splat_elems(*e).into());
             TyWithWhere(inner, ww.1).to_ty().with_span(span)
         }
         TyKind::WithPrefix(wp) => {
-            let inner = wp.1.map(|e| Box::new(expand_splat_elems(*e)));
+            let inner = wp.1.map(|e| expand_splat_elems(*e).into());
             TyWithPrefix(wp.0, inner).to_ty().with_span(span)
         }
         TyKind::WithAttr(wa) => {
-            let inner = wa.1.map(|e| Box::new(expand_splat_elems(*e)));
+            let inner = wa.1.map(|e| expand_splat_elems(*e).into());
             TyWithAttr(wa.0, inner).to_ty().with_span(span)
         }
         TyKind::Generic(g) => {

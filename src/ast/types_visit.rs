@@ -8,6 +8,7 @@ use crate::ast::types::{
     TyTuple, TyTypeParam, TyWithAttr, TyWithCode, TyWithPrefix, TyWithTrait,
     TyWithType, TyWithWhere,
 };
+use crate::util::cartesian;
 
 pub(crate) enum Expand {
     Leaf(Ty),
@@ -51,14 +52,11 @@ pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
 }
 
 fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
-    let mut flat = vec![];
-    let mut decl = None;
-    for e in elems {
+    elems.into_iter().fold((vec![], None), |(mut flat, decl), e| {
         let (mut es, d) = splat_expand(e);
         flat.append(&mut es);
-        decl = merge_decls(decl, d);
-    }
-    (flat, decl)
+        (flat, merge_decls(decl, d))
+    })
 }
 
 /// Flatten top-level splat params (`T<*(A,B)>` → `T<A,B>`) and hoist
@@ -75,7 +73,7 @@ pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypePar
             TyKind::Splat(_) => {
                 let (es, d) = splat_expand(*name);
                 decl = merge_decls(decl, d);
-                flat.extend(es.into_iter().map(|e| (Box::new(e), None)));
+                flat.extend(es.into_iter().map(|e| (e.into(), None)));
             }
             // generator param (`()^N`) → hoist the fresh declaration; the
             // inner tuple stays the arg (`T<()^2>` = `<A,B>T<(A,B)>`), but a
@@ -87,9 +85,9 @@ pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypePar
                     TyKind::Splat(_) => {
                         let (es, d) = splat_expand(inner);
                         decl = merge_decls(decl, d);
-                        flat.extend(es.into_iter().map(|e| (Box::new(e), None)));
+                        flat.extend(es.into_iter().map(|e| (e.into(), None)));
                     }
-                    _ => flat.push((Box::new(inner), bound)),
+                    _ => flat.push((inner.into(), bound)),
                 }
             }
             _ => flat.push((name, bound)),
@@ -122,9 +120,9 @@ where
     match inner {
         Some(i) => match i.expand() {
             Expand::Many(v) => {
-                Expand::Many(v.into_iter().map(|e| make(Some(e.into()))).collect())
+                Expand::Many(v.into_iter().map(|e| make(e.into())).collect())
             }
-            Expand::Leaf(l) => Expand::Leaf(make(Some(l.into()))),
+            Expand::Leaf(l) => Expand::Leaf(make(l.into())),
         },
         None => Expand::Leaf(make(None)),
     }
@@ -235,23 +233,14 @@ impl Ty {
                 // distribution, which also covers pow_cartesian outputs
                 // nested in outer tuples). Pure tuples stay a Leaf.
                 if t.0.iter().any(|e| matches!(e.kind, TyKind::Array(_))) {
-                    let mut combos: Vec<Vec<Ty>> = vec![vec![]];
-                    for e in &t.0 {
-                        let candidates = match &e.kind {
-                            TyKind::Array(a) => a.0.clone(),
-                            _ => vec![e.clone()],
-                        };
-                        let mut next =
-                            Vec::with_capacity(combos.len() * candidates.len());
-                        for ex in &combos {
-                            for c in &candidates {
-                                let mut combo = ex.clone();
-                                combo.push(c.clone());
-                                next.push(combo);
-                            }
-                        }
-                        combos = next;
-                    }
+                    let dims: Vec<Vec<Ty>> =
+                        t.0.iter()
+                            .map(|e| match &e.kind {
+                                TyKind::Array(a) => a.0.clone(),
+                                _ => vec![e.clone()],
+                            })
+                            .collect();
+                    let combos = cartesian(&dims);
                     if let Some(e) =
                         check_expand_limit("tuple list distribution", combos.len())
                     {
@@ -319,27 +308,19 @@ impl Ty {
                 // params as a `TyArray` and distribute here.
                 if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_)))
                 {
-                    let mut combos: Vec<TyParams> = vec![vec![]];
-                    for (name, bound) in &g.1.params {
-                        let candidates: TyParams = match &name.kind {
-                            TyKind::Array(a) => {
-                                a.0.iter()
-                                    .map(|e| (Box::new(e.clone()), bound.clone()))
-                                    .collect()
-                            }
-                            _ => vec![(name.clone(), bound.clone())],
-                        };
-                        let mut next =
-                            Vec::with_capacity(combos.len() * candidates.len());
-                        for ex in &combos {
-                            for c in &candidates {
-                                let mut combo = ex.clone();
-                                combo.push(c.clone());
-                                next.push(combo);
-                            }
-                        }
-                        combos = next;
-                    }
+                    let dims: Vec<TyParams> =
+                        g.1.params
+                            .iter()
+                            .map(|(name, bound)| match &name.kind {
+                                TyKind::Array(a) => {
+                                    a.0.iter()
+                                        .map(|e| (e.clone().into(), bound.clone()))
+                                        .collect()
+                                }
+                                _ => vec![(name.clone(), bound.clone())],
+                            })
+                            .collect();
+                    let combos = cartesian(&dims);
                     if let Some(e) =
                         check_expand_limit("generic array distribution", combos.len())
                     {

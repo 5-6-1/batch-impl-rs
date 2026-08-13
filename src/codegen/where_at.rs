@@ -93,14 +93,7 @@ pub(crate) fn resolve_where_at(
                         ));
                     }
                     let tail = tokens[i + 2..].to_vec();
-                    let comma = TokenTree::Punct(Punct::new(',', Spacing::Alone));
-                    for (k, &name) in fresh_sorted.iter().enumerate() {
-                        if k > 0 {
-                            out.push(comma.clone());
-                        }
-                        out.extend(name.clone());
-                        out.extend(tail.iter().cloned());
-                    }
+                    emit_fresh_predicates(&mut out, &fresh_sorted, &tail);
                     i = tokens.len();
                     continue;
                 }
@@ -113,64 +106,13 @@ pub(crate) fn resolve_where_at(
                         && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
                         && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
                     {
-                        let inclusive = matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=');
-                        let end_idx = if inclusive { i + 5 } else { i + 4 };
-                        let Some(TokenTree::Literal(end_lit)) = tokens.get(end_idx)
-                        else {
-                            return Err(compile_error_str(
-                                "batch-impl: a `@N..M` range in a where predicate must end with a number (e.g. `@0..=2`)",
-                                tokens[i].span(),
-                            ));
-                        };
-                        let Ok(end) = end_lit.to_string().parse::<usize>() else {
-                            return Err(compile_error_str(
-                                "batch-impl: a `@N..M` range in a where predicate must end with a number (e.g. `@0..=2`)",
-                                end_lit.span(),
-                            ));
-                        };
-                        let count = if inclusive {
-                            end.saturating_sub(start) + 1
-                        } else {
-                            end.saturating_sub(start)
-                        };
-                        if count == 0 {
-                            return Err(compile_err!(
-                                "batch-impl: `@{}..{}` is an empty range (start \
-                                 not below end); no predicates will be generated",
-                                start,
-                                end
-                            ));
-                        }
-                        if end >= fresh_sorted.len() || start > end {
-                            return Err(compile_err!(
-                                "batch-impl: `@{}..{}` out of range in a where \
-                                 predicate (impl has {} fresh generics, numbered \
-                                 from 0 in document order)",
-                                start,
-                                end,
-                                fresh_sorted.len()
-                            ));
-                        }
-                        if count > MAX_EXPAND {
-                            return Err(compile_err!(
-                                "batch-impl: `@{}..{}` expands to {} predicates (max {})",
-                                start,
-                                end,
-                                count,
-                                MAX_EXPAND
-                            ));
-                        }
-                        let tail = tokens[end_idx + 1..].to_vec();
-                        let comma = TokenTree::Punct(Punct::new(',', Spacing::Alone));
-                        for (offset, &name) in
-                            fresh_sorted[start..start + count].iter().enumerate()
-                        {
-                            if offset > 0 {
-                                out.push(comma.clone());
-                            }
-                            out.extend(name.clone());
-                            out.extend(tail.iter().cloned());
-                        }
+                        let (count, _end_idx, tail) =
+                            parse_fresh_range(&tokens, i, start, fresh_sorted.len())?;
+                        emit_fresh_predicates(
+                            &mut out,
+                            &fresh_sorted[start..start + count],
+                            &tail,
+                        );
                         i = tokens.len();
                         continue;
                     }
@@ -239,6 +181,78 @@ pub(crate) fn resolve_where_at(
         }
     }
     Ok(out.into_iter().collect())
+}
+
+/// Emits `name0 tail, name1 tail, ...` (comma-separated) into `out` — the
+/// single authority for the fresh-predicate emission shared by `@all_fresh`
+/// and the `@N..M` range form.
+fn emit_fresh_predicates(
+    out: &mut Vec<TokenTree>, names: &[&TokenStream], tail: &[TokenTree],
+) {
+    let comma = TokenTree::Punct(Punct::new(',', Spacing::Alone));
+    for (k, &name) in names.iter().enumerate() {
+        if k > 0 {
+            out.push(comma.clone());
+        }
+        out.extend(name.clone());
+        out.extend(tail.iter().cloned());
+    }
+}
+
+/// Parse the `@N..M` / `@N..=M` fresh-range subject (the `@N` and the `..`/
+/// `..=` are already confirmed by the caller). Returns `(count, end_idx, tail)`
+/// — `count` fresh names starting at `start`, the predicate tail after the
+/// range, and the token index just past the range. All range checks (empty /
+/// out-of-range / over `MAX_EXPAND`) error here.
+fn parse_fresh_range(
+    tokens: &[TokenTree], i: usize, start: usize, fresh_len: usize,
+) -> Result<(usize, usize, Vec<TokenTree>), TokenStream> {
+    let inclusive =
+        matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=');
+    let end_idx = if inclusive { i + 5 } else { i + 4 };
+    let Some(TokenTree::Literal(end_lit)) = tokens.get(end_idx) else {
+        return Err(compile_error_str(
+            "batch-impl: a `@N..M` range in a where predicate must end with a number (e.g. `@0..=2`)",
+            tokens[i].span(),
+        ));
+    };
+    let Ok(end) = end_lit.to_string().parse::<usize>() else {
+        return Err(compile_error_str(
+            "batch-impl: a `@N..M` range in a where predicate must end with a number (e.g. `@0..=2`)",
+            end_lit.span(),
+        ));
+    };
+    let count = if inclusive {
+        end.saturating_sub(start) + 1
+    } else {
+        end.saturating_sub(start)
+    };
+    if count == 0 {
+        return Err(compile_err!(
+            "batch-impl: `@{}..{}` is an empty range (start not below end); no predicates will be generated",
+            start,
+            end
+        ));
+    }
+    if end >= fresh_len || start > end {
+        return Err(compile_err!(
+            "batch-impl: `@{}..{}` out of range in a where predicate (impl has {} fresh generics, numbered from 0 in document order)",
+            start,
+            end,
+            fresh_len
+        ));
+    }
+    if count > MAX_EXPAND {
+        return Err(compile_err!(
+            "batch-impl: `@{}..{}` expands to {} predicates (max {})",
+            start,
+            end,
+            count,
+            MAX_EXPAND
+        ));
+    }
+    let tail = tokens[end_idx + 1..].to_vec();
+    Ok((count, end_idx, tail))
 }
 
 #[cfg(test)]

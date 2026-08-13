@@ -74,15 +74,12 @@ pub(crate) struct TyTypeParam {
 impl TyTypeParam {
     /// Constructs a single unbound param (`U` in `T^U` becomes `<U>`)
     pub(crate) fn single(arg: &Ty) -> Self {
-        TyTypeParam {
-            params: vec![(Box::new(arg.clone()), None)],
-            bindings: vec![],
-        }
+        TyTypeParam { params: vec![(arg.clone().into(), None)], bindings: vec![] }
     }
 
     /// Appends an unbound param (`B` in `T<A>^B` appends to `<A,B>`)
     pub(crate) fn push_arg(&mut self, arg: &Ty) {
-        self.params.push((Box::new(arg.clone()), None));
+        self.params.push((arg.clone().into(), None));
     }
 
     /// Merges another param list (the `<B,C>` in `T<A>^<B,C>` has its

@@ -2,6 +2,7 @@ use quote::ToTokens;
 
 use crate::apply::{Apply, check_expand_limit, err_ty, err_ty_at};
 use crate::ast::*;
+use crate::util::cartesian;
 use proc_macro2::Span;
 
 /// `N..M` / `N..=M`: calls f for every length n in the range, packing results into a list.
@@ -55,7 +56,7 @@ fn pow_empty(n: usize) -> Ty {
     let g = take_group();
     let params = fresh_params(g, n);
     let tp = TyTypeParam {
-        params: params.clone().into_iter().map(|p| (Box::new(p), None)).collect(),
+        params: params.clone().into_iter().map(|p| (p.into(), None)).collect(),
         bindings: vec![],
     }
     .to_ty();
@@ -79,7 +80,7 @@ fn pow_single(template: Ty, n: usize) -> Ty {
             params: params
                 .clone()
                 .into_iter()
-                .map(|p| (Box::new(p), Some(bound_ty.clone())))
+                .map(|p| (p.into(), Some(bound_ty.clone())))
                 .collect(),
             bindings: vec![],
         }
@@ -98,20 +99,10 @@ fn pow_single(template: Ty, n: usize) -> Ty {
 /// `(A,B,..)^N`: N-way Cartesian product, choosing one of all elements per position.
 /// The product count is checked after each round (`elems^N` can far exceed [`MAX_EXPAND`]).
 fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
-    let mut combos = vec![vec![]];
-    for _ in 0..n {
-        let mut next = vec![];
-        for existing in &combos {
-            for elem in &elems {
-                let mut extended = existing.clone();
-                extended.push(elem.clone());
-                next.push(extended);
-            }
-        }
-        if let Some(e) = check_expand_limit("tuple Cartesian product", next.len()) {
-            return e;
-        }
-        combos = next;
+    let dims: Vec<Vec<Ty>> = std::iter::repeat_n(elems, n).collect();
+    let combos = cartesian(&dims);
+    if let Some(e) = check_expand_limit("tuple Cartesian product", combos.len()) {
+        return e;
     }
     TyArray(combos.into_iter().map(instantiate_combo).collect()).into()
 }
@@ -135,7 +126,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                     .params
                     .iter()
                     .map(|(_, bound)| {
-                        (Box::new(TyPrimitive(name.clone()).to_ty()), bound.clone())
+                        (TyPrimitive(name.clone()).to_ty().into(), bound.clone())
                     })
                     .collect();
                 param_decls.push(TyTypeParam { params, bindings: vec![] });
@@ -148,10 +139,13 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     if param_decls.is_empty() {
         return tuple;
     }
-    let mut merged = TyTypeParam { params: vec![], bindings: vec![] };
-    for tp in param_decls {
-        merged.extend(tp);
-    }
+    let merged = param_decls.into_iter().fold(
+        TyTypeParam { params: vec![], bindings: vec![] },
+        |mut acc, tp| {
+            acc.extend(tp);
+            acc
+        },
+    );
     merged.to_ty().apply(tuple)
 }
 

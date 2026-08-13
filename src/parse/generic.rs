@@ -208,21 +208,36 @@ pub(crate) fn parse_angle_bracket_contents(
 // Fallbacks
 // ============================================================
 
-/// Wrap a token sequence as a Primitive passthrough node (any unrecognized type lands here)
+/// Wrap a token sequence as a Primitive passthrough node (any unrecognized
+/// type lands here). Four guards run first — each returns a targeted
+/// diagnostic for a token with no legal role in a type position at depth 0 —
+/// so the passthrough never renders invalid Rust without guidance.
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
     let span =
         tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site);
-    // Fallback validation: the passthrough swallows anything unrecognized, so
-    // a token with no legal role in a type position at depth 0 would
-    // otherwise be rendered into the impl header as invalid Rust with no
-    // batch-impl guidance (`;` is not a stop char below Op::Semi, so
-    // `A^B; C` used to render `A<B; C>` and `=`/`@`/`#` leftovers rode along
-    // verbatim). Each has a targeted diagnostic instead.
+    if let Some(e) = validate_stray_punct(tokens) {
+        return e;
+    }
+    if let Some(e) = validate_range(tokens) {
+        return e;
+    }
+    if let Some(e) = validate_start_punct(tokens) {
+        return e;
+    }
+    if let Some(e) = validate_adjacent(tokens) {
+        return e;
+    }
+    TyPrimitive(tokens.iter().cloned().collect()).to_ty().with_span(span)
+}
+
+/// `;`/`=`/`@`/`#` at depth 0 in a type position are always invalid — `;` is
+/// the `batch_trait!` segment boundary; `=`/`@`/`#` have no legal role in a
+/// type (they belong inside `<...>` or before parsing). The `=` of `..=` is
+/// part of the range operator, not a binding, so a leftover after an earlier
+/// error must not cascade a second diagnostic.
+fn validate_stray_punct(tokens: &[TokenTree]) -> Option<Ty> {
     for (i, tt) in tokens.iter().enumerate() {
         if let TokenTree::Punct(p) = tt {
-            // The `=` of `..=` is part of the range operator, not a binding
-            // (leftover after an earlier error must not cascade a second,
-            // confusing diagnostic).
             let is_range_inclusive =
                 p.as_char() == '=' && i > 0 && is_punct(&tokens[i - 1], '.');
             let msg = if is_range_inclusive {
@@ -249,42 +264,53 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
                 }
             };
             if let Some(msg) = msg {
-                return err_ty_at(msg, p.span());
+                return Some(err_ty_at(msg, p.span()));
             }
         }
     }
-    // A `.` in a type position that parse_range did not consume means the
-    // range endpoints were not integer literals (`1..x`, `A..B`) — report
-    // instead of passing through to rustc's "expected type". (A float like
-    // `.5` is a single Literal, not a `.` Punct, so it is not caught here.)
+    None
+}
+
+/// A `.` in a type position that `parse_range` did not consume means the
+/// range endpoints were not integer literals (`1..x`, `A..B`) — report
+/// instead of passing through to rustc's "expected type". (A float like
+/// `.5` is a single Literal, not a `.` Punct, so it is not caught here.)
+fn validate_range(tokens: &[TokenTree]) -> Option<Ty> {
     if tokens.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '.')) {
-        return err_ty_at(
+        return Some(err_ty_at(
             "batch-impl: a range (`..`/`..=`) in a type position needs integer endpoints (e.g. `0..=3`)",
             tokens[0].span(),
-        );
+        ));
     }
-    // `+`/`?`/`.` are only invalid at the *start* of a type (`dyn Trait + Send`
-    // and `T: Clone + 'a` use them legally in the middle). A `.` only counts
-    // as a lone punctuation when Alone — a Joint `.` heads `..`/`..=` (range
-    // syntax). `!` (never) and `::` (absolute path) may be valid, so they are
-    // left to rustc.
+    None
+}
+
+/// `+`/`?`/`.` are only invalid at the *start* of a type (`dyn Trait + Send`
+/// and `T: Clone + 'a` use them legally in the middle). A `.` only counts as
+/// a lone punctuation when Alone — a Joint `.` heads `..`/`..=` (range
+/// syntax). `!` (never) and `::` (absolute path) may be valid, left to rustc.
+fn validate_start_punct(tokens: &[TokenTree]) -> Option<Ty> {
     if let Some(TokenTree::Punct(p)) = tokens.first()
         && (matches!(p.as_char(), '+' | '?')
             || (p.as_char() == '.' && p.spacing() == Spacing::Alone))
     {
-        return err_ty_at(
+        return Some(err_ty_at(
             "batch-impl: `+`/`?`/`.` is not valid at the start of a type \
              (`+`/`?` belong in bounds; a type cannot start with `.`)",
             p.span(),
-        );
+        ));
     }
-    // Adjacent type fragments without an operator (`A B`, `Vec<T>U`, `[A B]`)
-    // would otherwise render as invalid Rust with no guidance. Only true
-    // adjacent Ident/Literal/Group pairs trigger; paths (`a::b`) and ranges
-    // (`0..3`) carry a punct between the fragments, and generic application
-    // (`Vec<u32>`) is an Ident directly followed by a `<>` group — all
-    // excluded. Lifetime names (`'a` tokenizes as `'` + `a`) and trait-object
-    // heads (`dyn`) are not type fragments.
+    None
+}
+
+/// Adjacent type fragments without an operator (`A B`, `Vec<T>U`, `[A B]`)
+/// would otherwise render as invalid Rust with no guidance. Only true adjacent
+/// Ident/Literal/Group pairs trigger; paths (`a::b`) and ranges (`0..3`) carry
+/// a punct between the fragments, and generic application (`Vec<u32>`) is an
+/// Ident directly followed by a `<>`/`()` group — all excluded. Lifetime names
+/// (`'a` tokenizes as `'` + `a`) and trait-object heads (`dyn`) are not type
+/// fragments.
+fn validate_adjacent(tokens: &[TokenTree]) -> Option<Ty> {
     let mut prev: Option<&TokenTree> = None;
     let mut prev_is_lifetime_name = false;
     for tt in tokens {
@@ -319,15 +345,15 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
         );
         let generic_app = after_ident && group_is_generic_or_call;
         if prev_is_fragment && is_fragment && !fn_head && !generic_app {
-            return err_ty_at(
+            return Some(err_ty_at(
                 "batch-impl: adjacent types without an operator (missing `^` / `-` / `,`)",
                 tt.span(),
-            );
+            ));
         }
         prev = Some(tt);
         prev_is_lifetime_name = is_lifetime_name;
     }
-    TyPrimitive(tokens.iter().cloned().collect()).to_ty().with_span(span)
+    None
 }
 
 /// Empty token node (fallback for unwrap_or_else)

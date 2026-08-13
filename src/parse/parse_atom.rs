@@ -222,51 +222,7 @@ pub(crate) fn parse_group(
                 TyGroup(Box::new(inner)).to_ty().with_span(group.span())
             }
         }
-        delimiter![[]] => {
-            // With a comma it is a list; a **lone splat** (`[*(a,b)]` /
-            // `[*[a,b]]`) also parses as an array holding the splat as one
-            // element (`TyArray([splat])`) — the splat element survives and
-            // expands at consumption (spec-list / dispatch), so `[*(a,b)]`
-            // ≡ `[*(a,b),]`. `;` (Op::Semi) distinguishes arrays from
-            // slices; empty `[]` is the array/slice builder base.
-            if contains_punct(&contents, ',') || lone_splat(&contents) {
-                // Splat elements are KEPT (not consumed here) — a splat lives
-                // until consumption (apply-right / codegen), per the splat
-                // survival principle: `[*(A),*(B)]^2` repeats each element
-                // (`[*(A,A),*(B,B)]`) instead of flattening to bare types.
-                let flat = parse_list(&contents, Op::Comma, trait_name);
-                TyArray(flat).to_ty().with_span(group.span())
-            } else if contents.is_empty() {
-                TyPrimitiveArray(None, None).to_ty().with_span(group.span())
-            } else {
-                let mut cursor = Cursor::new(&contents);
-                let element = parse_item(&mut cursor, Op::Semi, trait_name)
-                    .unwrap_or_else(empty);
-                if cursor.is_punct(';') {
-                    cursor.bump();
-                    let length_tokens = cursor.take_rest();
-                    if length_tokens.is_empty()
-                        || length_tokens.iter().any(|t| {
-                            matches!(t, TokenTree::Punct(p) if p.as_char() == ';' || p.as_char() == ',')
-                        })
-                    {
-                        return err_ty_at(
-                            "batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`)",
-                            group.span(),
-                        );
-                    }
-                    let length =
-                        length_tokens.iter().cloned().collect::<TokenStream>();
-                    TyPrimitiveArray(element.into(), length.into())
-                        .to_ty()
-                        .with_span(group.span())
-                } else {
-                    TyPrimitiveArray(element.into(), None)
-                        .to_ty()
-                        .with_span(group.span())
-                }
-            }
-        }
+        delimiter![[]] => parse_array_group(&contents, group.span(), trait_name),
         delimiter![{}] => TyWithCode(None, TyCodeBlock(group.stream()))
             .to_ty()
             .with_span(group.span()),
@@ -281,6 +237,45 @@ pub(crate) fn parse_group(
     }
 }
 
+/// `[...]` group: comma → list (`TyArray`), empty → array/slice builder base,
+/// else array/slice via the `;` separator (`[T]` slice / `[T; N]` fixed
+/// length). A lone splat (`[*(a,b)]`) parses as an array holding the splat as
+/// one element — the splat survives and expands at consumption (spec-list /
+/// dispatch), so `[*(a,b)]` ≡ `[*(a,b),]`; `[*(A),*(B)]^2` repeats each
+/// element (`[*(A,A),*(B,B)]`) instead of flattening to bare types.
+fn parse_array_group(
+    contents: &[TokenTree], span: proc_macro2::Span, trait_name: Option<&Ident>,
+) -> Ty {
+    if contains_punct(contents, ',') || lone_splat(contents) {
+        let flat = parse_list(contents, Op::Comma, trait_name);
+        TyArray(flat).to_ty().with_span(span)
+    } else if contents.is_empty() {
+        TyPrimitiveArray(None, None).to_ty().with_span(span)
+    } else {
+        let mut cursor = Cursor::new(contents);
+        let element =
+            parse_item(&mut cursor, Op::Semi, trait_name).unwrap_or_else(empty);
+        if cursor.is_punct(';') {
+            cursor.bump();
+            let length_tokens = cursor.take_rest();
+            if length_tokens.is_empty()
+                || length_tokens.iter().any(|t| {
+                    matches!(t, TokenTree::Punct(p) if p.as_char() == ';' || p.as_char() == ',')
+                })
+            {
+                return err_ty_at(
+                    "batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`)",
+                    span,
+                );
+            }
+            let length = length_tokens.iter().cloned().collect::<TokenStream>();
+            TyPrimitiveArray(element.into(), length.into()).to_ty().with_span(span)
+        } else {
+            TyPrimitiveArray(element.into(), None).to_ty().with_span(span)
+        }
+    }
+}
+
 /// Parse a list by looping at the given level (stops when `parse_item` returns None)
 pub(crate) fn parse_list(
     tokens: &[TokenTree], level: Op, trait_name: Option<&Ident>,
@@ -291,8 +286,8 @@ pub(crate) fn parse_list(
     if cursor.is_punct(',') {
         items.push(err_ty("batch-impl: a list cannot start with `,`"));
     }
-    while let Some(item) = parse_item(&mut cursor, level, trait_name) {
-        items.push(item);
-    }
+    items.extend(std::iter::from_fn(|| {
+        parse_item(&mut cursor, level, trait_name)
+    }));
     items
 }
