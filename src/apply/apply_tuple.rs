@@ -213,9 +213,16 @@ impl Apply for TyFn {
 }
 
 impl Apply for TyWithAttr {
-    /// `#[attr]^T` => `#[attr] T` (attaches the attribute to the type)
+    /// `#[attr]^T` => `#[attr] T` (attaches the attribute to the type);
+    /// with an inner already attached, the operator applies to the inner
+    /// (`#[attr] Box^u8` = `#[attr] Box<u8>` — 0.7.2 fix: the inner was
+    /// silently replaced).
     fn apply_help(self, o: Ty, span: Span) -> Ty {
-        TyWithAttr(self.0, o.into()).to_ty().with_span(span)
+        let inner = match self.1 {
+            Some(t) => t.apply(o),
+            None => o,
+        };
+        TyWithAttr(self.0, inner.into()).to_ty().with_span(span)
     }
 }
 

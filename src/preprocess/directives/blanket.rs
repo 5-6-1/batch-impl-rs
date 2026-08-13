@@ -125,10 +125,40 @@ pub(crate) fn expand_blanket(
         quote!(#t as #trait_full_path < #(#param_names),*>)
     };
 
+    // By-value receiver methods (`fn consume(self)`): the deref forward
+    // moves the inner value out of the wrapper, which only type-checks for
+    // Copy-ish targets — and never for `&` wrappers. Warnings have no
+    // stable channel (proc_macro_diagnostic is E0658), so the guidance rides
+    // a `#[doc]` note on every generated impl: visible in rustdoc / IDE
+    // hover, zero compile risk.
+    let by_value = method_names
+        .iter()
+        .filter_map(|name| {
+            get_trait_item(trait_def, name).ok().and_then(|item| match item {
+                syn::TraitItem::Fn(f)
+                    if matches!(
+                        f.sig.receiver().map(|r| &r.kind),
+                        Some(syn::ReceiverKind::Value | syn::ReceiverKind::Typed(..))
+                    ) =>
+                {
+                    (name.to_string()).into()
+                }
+                _ => None,
+            })
+        })
+        .collect::<Vec<_>>();
+    let doc_note = if by_value.is_empty() {
+        quote!()
+    } else {
+        let names = by_value.join(", ");
+        let note = format!(
+            "batch-impl: by-value method(s) `{}` forwarded via deref — the forward moves the inner value out of the wrapper, so shared wrappers (`&`, `Rc`) cannot type-check; select `@all_ref_methods` to keep the trait default or hand-write them with `#name{{..}}` if rustc rejects the impl",
+            names
+        );
+        quote!(#[doc = #note])
+    };
     let mut spec_streams = vec![];
     for wrapper in &wrappers {
-        let star = "*".repeat(wrapper.depth + 1);
-        let self_ty: TokenStream = format!("{}self", star).parse().unwrap();
         // Wrapper where predicates: `@0` → target generic name; merged into
         // where (zero-analysis parallel merge)
         let wrapper_preds = match &wrapper.where_preds {
@@ -187,6 +217,25 @@ pub(crate) fn expand_blanket(
                     let body = if f.sig.receiver().is_none() {
                         quote! { #t :: #name ( #(#call_args),* ) }
                     } else {
+                        // `&self`/`&mut self` reach the inner through the
+                        // reference AND the wrapper layers (`**self` =
+                        // depth + 1 derefs); a by-value `self` IS the
+                        // wrapper, so one deref fewer (`*self` = depth
+                        // derefs — 0.7.2 fix: the extra star dereferenced the
+                        // inner type, E0614).
+                        let derefs = if matches!(
+                            f.sig.receiver().map(|r| &r.kind),
+                            Some(
+                                syn::ReceiverKind::Value
+                                    | syn::ReceiverKind::Typed(..)
+                            )
+                        ) {
+                            wrapper.depth
+                        } else {
+                            wrapper.depth + 1
+                        };
+                        let self_ty: TokenStream =
+                            format!("{}self", "*".repeat(derefs)).parse().unwrap();
                         quote! { (#self_ty) . #name ( #(#call_args),* ) }
                     };
                     methods.extend(build_from_item(item, &body));
@@ -221,7 +270,7 @@ pub(crate) fn expand_blanket(
             quote!(#wrapper_ty ^ #t)
         };
         spec_streams.push(quote! {
-            #impl_generics #trait_part #target #where_part { #methods }
+            #doc_note #impl_generics #trait_part #target #where_part { #methods }
         });
     }
     Ok(quote!(#(#spec_streams),*).into_iter().collect())

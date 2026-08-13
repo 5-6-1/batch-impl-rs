@@ -1249,6 +1249,43 @@ fn lazy_const_and_generic_blanket() {
     let _: <&u32 as Foo<u32>>::Item = 8u8; // type projection
 }
 
+// #blanket with a by-value receiver: the generated impls carry a #[doc]
+// note (warnings have no stable channel) — generation and type-checking are
+// unchanged; Box's `**self` move-out type-checks here, `&` wrappers would not.
+#[batch_impl(#blanket(@all_methods){Box})]
+trait ConsumeAll {
+    fn consume(self);
+    fn len(&self) -> usize;
+}
+
+impl ConsumeAll for u8 {
+    fn consume(self) {}
+    fn len(&self) -> usize {
+        1
+    }
+}
+
+#[test]
+fn blanket_by_value_receiver() {
+    fn _c<T: ConsumeAll>(_: &T) {}
+    _c(&Box::new(0u8));
+    assert_eq!(Box::new(7u8).len(), 1);
+    Box::new(9u8).consume(); // by-value forward: `(*self).consume()` moves out of the Box
+}
+
+// `#[attr]` followed by an operator chain (not `^`-joined at the spec
+// level): the attr's `apply` keeps an already-attached inner and applies
+// the operator to it (`#[attr] Box^u8` = `#[attr] Box<u8>` — 0.7.2 fix:
+// the inner was silently replaced).
+#[batch_impl(#[allow(dead_code)] Box^u8)]
+trait AttrChain {}
+
+#[test]
+fn attr_wrapper_chain() {
+    fn _c<T: AttrChain>(_: &T) {}
+    _c(&Box::new(0u8));
+}
+
 // ============================================================
 // 38. Review additions: lazy-expansion value forms + full blanket generic trait forms
 //     (values embedding range-family references / bare list values / lists embedding

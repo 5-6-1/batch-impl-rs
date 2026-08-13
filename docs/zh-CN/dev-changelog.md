@@ -10,6 +10,8 @@
 - **driver/entry 重构**：`parse_batch_trait_entry` 抽出 `collect_spec_leaves`（parse/expand/错误聚合单一真相源，三入口与预览共用）；`expand_attr_macro` 抽出 `prepare_attr_expansion` → `PreparedAttr`（预处理一次性，渲染延后）；行为等价，测试全绿
 - **trait 实参生成器 splat 声明提升**（`codegen/impl_parts.rs`）：`extract_impl_parts` 的 WithTrait 分支此前丢弃 `flat_splat_params` 返回的声明（"Declarations are dropped here"）——`Conv<*()^2> X` 以 E0412 裸错泄露 fresh 名；现在声明并入 impl 泛型，与泛型实参位置同一规则；`parse/generic.rs` 的过时 "acknowledged oddity" 注释同步修正（实测 `Foo<*(()^N)>` 早在结构层 refactor 后已工作）
 - **泛型声明位置生成器定向报错**（`parse/primary.rs` + `ast/types_visit.rs::contains_generator`）：`<*()^N>` / `<*(()^N)>` 的 fresh 声明无载体（声明位置本身就是载体），此前渲染 `impl <<P0,..> *(P0,..)>` 垃圾——parse 层定向报错并建议 `T^()^2`；dsl 新增 gen_splat_trait_args_hoist（trait 实参提升 + `*(()^3)` 括号形式）+ ui fixture decl_generator_splat
+- **`#blanket` 按值接收者修复 + doc 提示**（`directives/blanket.rs`）：委托体 deref 数按接收者种类分派——`&self`/`&mut self` 走 depth+1（`**self`，穿透引用+包装层），按值 `self` 本身就是包装、走 depth（`*self`）——此前统一 `**self` 对按值方法多解引用内部类型（E0614，Box 探针实证）；doc 提示保留：按值方法移出共享包装（`&`/`Rc`）不可过检查，选中集非空时每 spec 注入 `#[doc]`（attr 走既有 `WithAttr` → `ImplParts.attrs` 通道，零新机制）；dsl 新增 blanket_by_value_receiver（`Box::new(9u8).consume()` 真实演练按值转发）
+- **`TyWithAttr::apply` 内层保持修复**（`apply/apply_tuple.rs`）：`#[attr]` 已有内层时运算符作用于内层（`#[attr] Box^u8` = `#[attr] Box<u8>`），此前 `TyWithAttr(self.0, o.into())` 静默替换内层——`#[doc]` 注入暴露的既有 bug；dsl 新增 attr_wrapper_chain 回归
 
 ## 0.7.1 (2026-08-13)
 

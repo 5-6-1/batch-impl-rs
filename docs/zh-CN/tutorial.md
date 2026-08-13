@@ -442,6 +442,8 @@ trait Len { fn len(&self) -> usize; }
 // → impl<T: Len> Len for Box<T> { fn len(&self) -> usize { (**self).len() } }
 ```
 
+> **按值接收者**：`fn consume(self)` 的委托体是 `(*self).consume()`——按值 `self` 本身就是包装，少一层 deref（`&self` 方法才是 `(**self)`，穿透引用再穿包装）。移出语义对共享包装（`&`/`Rc`）不可过类型检查，生成物会带一条 `#[doc]` 提示（proc macro 无稳定 warning 通道，E0658）；跳过这类方法用 `@all_ref_methods`（保留 trait 默认），或手写 `#name{...}`。
+
 #### `@Cow`——携带约束的打包（示范案例）
 
 `Cow<'_>` 的 deref 目标是 `T::Owned` 而非 `T`——朴素 `(**self)` 委托过不了类型检查。`@Cow` 把 `Cow<'_>` **连同**固有约束谓词（`@0: ToOwned + ?Sized, @0::Owned: @trait`）打包，让 blanket 可用。这就是“常量只有携带约束才有复用价值”的示范：
