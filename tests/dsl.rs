@@ -2058,6 +2058,28 @@ fn gen_args_in_angle() {
     let _ = GenPair2(0u8, 0u16);
 }
 
+// Generator splats in trait args hoist their fresh declarations into the
+// impl generics (`Conv<*()^2> X` = `impl<P0,P1> Conv<P0,P1> for X`) —
+// the trait-arg position follows the generic-arg rule (0.7.2; previously the
+// declaration was dropped and rustc reported E0412 on the fresh names).
+struct GenConvPair<A, B>(A, B);
+#[batch_impl(GenConv<*()^2> GenConvPair<u8, u16>)]
+trait GenConv<T, U> {}
+
+// The parenthesized form `*(()^3)` behaves like the bare `*()^3`.
+struct GenTrio<A, B, C>(A, B, C);
+#[batch_impl(GenTrio<*(()^3)>)]
+trait GenSplatArg3 {}
+
+fn assert_gc<T: GenConv<u8, u16>>() {}
+fn assert_g3<T: GenSplatArg3>() {}
+
+#[test]
+fn gen_splat_trait_args_hoist() {
+    assert_gc::<GenConvPair<u8, u16>>();
+    assert_g3::<GenTrio<u8, u16, u32>>();
+}
+
 // Nested generic-arg splat: `Map<*(K,V)>` — a splat as one generic arg
 // expands in codegen to its elements: `Map<K,V>`.
 struct SplatMap<K, V>(K, V);

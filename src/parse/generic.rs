@@ -100,11 +100,10 @@ pub(crate) fn parse_angle_bracket_contents(
         }
         // Splat args need no special case: `Foo<*(a,b)>` falls through to
         // the default path below, which keeps the `*(a,b)` token as one
-        // generic arg — the codegen postprocess (`expand_splats`) flattens
-        // it into `Foo<a,b>` at render. A generator splat there
-        // (`Foo<*(()^N)>`) also survives as a raw arg (rustc reports the
-        // missing declaration) — acknowledged as an oddity, not worth a
-        // dedicated diagnostic.
+        // generic arg — the codegen postprocess flattens it into `Foo<a,b>`
+        // at render. A generator splat there (`Foo<*(()^N)>`) hoists its
+        // fresh declaration out of the args (flat_splat_params) — same rule
+        // as the trait-arg position (0.7.2).
         // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
         // types (flat token splitting) — resolve them to fresh names here.
         // A resolution error yields a `compile_error!` token stream that

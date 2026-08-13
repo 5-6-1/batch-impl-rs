@@ -172,6 +172,18 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
     if let Some((args, rest)) = parse_type_params(tokens) {
         let args_vec = args.into_iter().collect::<Vec<_>>();
         let params = parse_angle_bracket_contents(&args_vec, trait_name, true);
+        // The declaration position cannot carry a generator (`<*()^N>` /
+        // `<*(()^N)>`): the fresh declarations have no carrier — the
+        // declaration itself is the carrier. Reject instead of rendering the
+        // fresh tuple as a parameter name.
+        if contains_generator(&params) {
+            return err_ty_at(
+                "batch-impl: a generic declaration cannot contain a generator \
+                 (`<*()^N>` / `<*(()^N)>`) — the fresh declarations have no \
+                 carrier; write the generator in the type position (e.g. `T^()^2`)",
+                tokens[0].span(),
+            );
+        }
         let params = params.into();
         return if rest.is_empty() {
             params

@@ -75,12 +75,18 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             // Trait generic args may carry splats (`Conv<*(A,B)>`) and
             // generators (`Conv<()^2>`) — flatten them before rendering
             // (token-level: `trait_generic_names` is `TokenStream` past this
-            // point). Declarations are dropped here (rare; rustc reports the
-            // missing declaration).
-            let (flat, _decl) = flat_splat_params(wt.0.1.params);
+            // point). A hoisted fresh declaration joins the impl generics
+            // (the names it carries must be declared for the impl to
+            // compile) — the same rule as the generic-arg position.
+            let (flat, decl) = flat_splat_params(wt.0.1.params);
             parts
                 .trait_generic_names
                 .extend(flat.into_iter().map(|(n, _)| n.to_token_stream()));
+            if let Some(d) = decl {
+                parts.impl_generics.extend(
+                    d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b)),
+                );
+            }
             parts.associated_types.extend(
                 wt.0.1
                     .bindings

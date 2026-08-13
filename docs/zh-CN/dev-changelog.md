@@ -8,6 +8,8 @@
 - **测试**：dsl 新增 at_refs_in_target_type（`(()^2)^Box<@0>` / `@0_1` 正向，锁校验不误伤）；2 个新 ui fixture（at_num_in_type / at_group_in_type）锁用户语言措辞
 - **`batch_preview!` 展开预览**（`entry/preview.rs`）：真实管线（`prepare_attr_expansion` + `collect_spec_leaves` 共享 refactor，预览与三个入口同一预处理/解析路径）→ 逐 impl 渲染进 `compile_error!` 诊断通道（唯一稳定终端通道）——trait + impl 每项一行，DSL 错误原样呈现；预览独有 `^`/`-` 结合性误写提示（`ONE_ARITY_CONTAINERS` 一元容器表 + 目标类型递归收集，`Box<Vec, u32>` → 建议 `Box^Vec^u32` 并附恒等式 `A^B-C` = `A-B-C`）；编译器路径零启发式
 - **driver/entry 重构**：`parse_batch_trait_entry` 抽出 `collect_spec_leaves`（parse/expand/错误聚合单一真相源，三入口与预览共用）；`expand_attr_macro` 抽出 `prepare_attr_expansion` → `PreparedAttr`（预处理一次性，渲染延后）；行为等价，测试全绿
+- **trait 实参生成器 splat 声明提升**（`codegen/impl_parts.rs`）：`extract_impl_parts` 的 WithTrait 分支此前丢弃 `flat_splat_params` 返回的声明（"Declarations are dropped here"）——`Conv<*()^2> X` 以 E0412 裸错泄露 fresh 名；现在声明并入 impl 泛型，与泛型实参位置同一规则；`parse/generic.rs` 的过时 "acknowledged oddity" 注释同步修正（实测 `Foo<*(()^N)>` 早在结构层 refactor 后已工作）
+- **泛型声明位置生成器定向报错**（`parse/primary.rs` + `ast/types_visit.rs::contains_generator`）：`<*()^N>` / `<*(()^N)>` 的 fresh 声明无载体（声明位置本身就是载体），此前渲染 `impl <<P0,..> *(P0,..)>` 垃圾——parse 层定向报错并建议 `T^()^2`；dsl 新增 gen_splat_trait_args_hoist（trait 实参提升 + `*(()^3)` 括号形式）+ ui fixture decl_generator_splat
 
 ## 0.7.1 (2026-08-13)
 

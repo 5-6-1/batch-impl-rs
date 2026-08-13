@@ -97,9 +97,10 @@ fn ui() {
     t.compile_fail("tests/ui/generic_family_batch_trait.rs");
 
     // splat: a bare `*` that is neither a splat nor a raw pointer errors;
-    // a generator splat as a generic argument errors (fresh decl has nowhere to live)
+    // a generator in the generic-declaration position has no carrier
     t.compile_fail("tests/ui/star_misuse.rs");
     t.compile_fail("tests/ui/where_splat_bad.rs");
+    t.compile_fail("tests/ui/decl_generator_splat.rs");
 
     // concrete-type args reject bindings/bounds (trait paths and generic
     // declarations are their only valid homes)
