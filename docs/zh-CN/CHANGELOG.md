@@ -9,6 +9,7 @@
 - **trait 实参中的生成器 splat 声明提升**：`Conv<*()^2> X` 现在生成 `impl<P0,P1> Conv<P0,P1> for X`（此前声明被丢弃 → rustc E0412 裸错暴露 fresh 名），与泛型实参位置同一规则；泛型声明位置的生成器（`<*()^3>` / `<*(()^3)>`）改为定向报错（fresh 声明无载体），不再渲染 `impl <<P0,..> *(P0,..)>` 垃圾代码
 - **`#blanket` 按值接收者修复 + doc 提示**：`fn consume(self)` 的委托体 deref 少一层——按值 `self` 本身就是包装，此前统一 `**self` 多解引用了一层内部类型（E0614）；现在 `(*self).consume()` 对 `Box` 等可移动包装正常通过（`&`/`Rc` 等共享包装移出仍不可过，生成的 impl 携带 `#[doc]` 提示：建议 `@all_ref_methods` 或 `#name{...}`；proc macro 无稳定 warning 通道 E0658，doc 通道零编译风险）
 - **开放扩展协议收敛**：顶层 `{! m!{...}}` 为唯一推荐形态，内嵌 `T {m!{...}}`（无 `!`，输出关联项）标注弃用、保留兼容——proc macro 无 warning 通道，收敛落在文档层（tutorial §7.5 / crate 文档 / architecture）
+- **语法面冻结承诺**：全部既有记号语义视为 final（README 新增承诺节 + architecture 扩展准则 + tutorial §6.4 power-user tier 标注）——后续只做加法、诊断精化与文档，改动既有语义即刻意破坏性发布
 
 ## 0.7.1 (2026-08-13)
 

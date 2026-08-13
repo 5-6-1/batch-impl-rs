@@ -366,6 +366,8 @@ batch_trait! {
 | `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个” |
 | `@N..=M` | 连续段 | 范围糖——`@0..=1` = `@0, @1` |
 
+> **Power-user tier**：`@g_i` / `@all_fresh` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。自 0.7.2 起整个 DSL 语法面冻结（见 README），这些记号的语义不再变化。
+
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(()^2 where{@0..=1: Clone})]   // 范围糖：@0..=1 = @0, @1

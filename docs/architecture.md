@@ -98,6 +98,8 @@ Directive expansion output falls into two kinds: **single-group output** (`#name
 
 New syntax may only **extend existing mechanisms within existing domains** (e.g. adding set-difference to the `^`/`-` family, new directives to the directive domain, new constants to the macro-meta layer); it must not reuse tokens across domains or change the in-domain semantics of existing tokens. Both `@` bindings and `#blanket` follow this guideline: the former is a pure lexical substitution at the macro-meta layer, and the latter is the automated form of `#delegate` within the directive domain.
 
+**Syntax freeze (0.7.2)**: the semantics of every existing token are final — future releases only add (new directives / constants / tools), refine diagnostics, and polish docs; any change to existing semantics is a deliberate breaking release (the `@N` stability commitment, now extended to the whole surface).
+
 ### Completing the Macro-Meta Layer: `@` Is the Only Macro-Meta Token
 
 - **`#` now has only one format: a directive name**: all `#all` family range markers have been migrated to the macro-meta layer (the `@all` family) — selection (which items to pick) is a macro-meta-layer operation, while the action (fill body / delegate / blanket) is the directive — `#fill(@all)` / `#fill(@all, -[a,b])`;
