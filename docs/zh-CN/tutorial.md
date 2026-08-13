@@ -469,6 +469,8 @@ impl CowLen for String { fn clen(&self) -> usize { self.len() } }
 trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 ```
 
+> **协议已收敛为单一形态**：旧的**内嵌形态** `T {m!{...}}`（无 `!`，宏调用留在 impl body、输出关联项）自 0.7.2 起标注**弃用**（保留兼容，proc macro 无 warning 通道故为文档层面收敛）——新扩展一律按顶层 `{! m!{...}}` 四段协议 `{spec}(args){body} trait` 编写。
+
 ## 8. where 子句
 
 ### 8.1 `where{...}` 后缀

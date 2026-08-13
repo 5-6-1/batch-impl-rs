@@ -2,9 +2,10 @@ Reference open-extension macro — the reference implementation of the open-exte
 
 Parses the spec body (first Brace group — the target type), the method name list,
 the body, and the trait definition from the macro input. In the **top-level form**
-(4 segments) it emits a full `impl Trait for {spec}`; in the legacy in-impl form
-(3 segments, no spec group) it emits `fn signature { body }` per method (reusing
-the trait signature) — equivalent to handing the `#fill` implementation to the user.
+(4 segments) it emits a full `impl Trait for {spec}`; the **deprecated** in-impl
+form (3 segments, no spec group — kept only for compatibility) emits
+`fn signature { body }` per method (reusing the trait signature) — equivalent to
+handing the `#fill` implementation to the user.
 
 Used to verify open instruction extension: `#name(args){body}` expands to
 `{ ! name!{(args){body} trait ...} }`, the `!` marking top-level emission —

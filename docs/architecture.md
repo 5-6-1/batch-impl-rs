@@ -92,7 +92,7 @@ The DSL consists of three **mutually non-penetrating syntax domains**; each doma
 
 ### Attachment Semantics
 
-Directive expansion output falls into two kinds: **single-group output** (`#name`/`#fill`/`#delegate`/the `{...}` group of an open extension) can attach to a type (`T {body}`) or stand alone as a spec; **multi-token output** (the complete spec segments of `#blanket`) is self-contained with its generics/target/delegation and can only stand alone as a spec — attaching it is meaningless.
+Directive expansion output falls into two kinds: **single-group output** (`#name`/`#fill`/`#delegate`/the `{...}` group of an open extension) can attach to a type (`T {body}`) or stand alone as a spec; **multi-token output** (the complete spec segments of `#blanket`) is self-contained with its generics/target/delegation and can only stand alone as a spec — attaching it is meaningless. The open extension itself is **top-level only** since 0.6.7: `{! m!{...}}` prepends the spec body and emits the macro call at top level; the legacy in-impl form `T {m!{...}}` (no `!`, associated items) is deprecated since 0.7.2 and kept for compatibility.
 
 ### Extension Guidelines
 

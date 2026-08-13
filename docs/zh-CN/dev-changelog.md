@@ -12,6 +12,7 @@
 - **泛型声明位置生成器定向报错**（`parse/primary.rs` + `ast/types_visit.rs::contains_generator`）：`<*()^N>` / `<*(()^N)>` 的 fresh 声明无载体（声明位置本身就是载体），此前渲染 `impl <<P0,..> *(P0,..)>` 垃圾——parse 层定向报错并建议 `T^()^2`；dsl 新增 gen_splat_trait_args_hoist（trait 实参提升 + `*(()^3)` 括号形式）+ ui fixture decl_generator_splat
 - **`#blanket` 按值接收者修复 + doc 提示**（`directives/blanket.rs`）：委托体 deref 数按接收者种类分派——`&self`/`&mut self` 走 depth+1（`**self`，穿透引用+包装层），按值 `self` 本身就是包装、走 depth（`*self`）——此前统一 `**self` 对按值方法多解引用内部类型（E0614，Box 探针实证）；doc 提示保留：按值方法移出共享包装（`&`/`Rc`）不可过检查，选中集非空时每 spec 注入 `#[doc]`（attr 走既有 `WithAttr` → `ImplParts.attrs` 通道，零新机制）；dsl 新增 blanket_by_value_receiver（`Box::new(9u8).consume()` 真实演练按值转发）
 - **`TyWithAttr::apply` 内层保持修复**（`apply/apply_tuple.rs`）：`#[attr]` 已有内层时运算符作用于内层（`#[attr] Box^u8` = `#[attr] Box<u8>`），此前 `TyWithAttr(self.0, o.into())` 静默替换内层——`#[doc]` 注入暴露的既有 bug；dsl 新增 attr_wrapper_chain 回归
+- **开放扩展协议收敛（文档）**：内嵌形态 `T {m!{...}}`（无 `!`，输出关联项）标注弃用、保留兼容，顶层 `{! m!{...}}` 四段协议为唯一推荐——tutorial §7.5 加收敛注、`directive_open.md`/`batch_preprocess_test.md` crate 文档同步、architecture 附着语义节补"仅顶层"
 
 ## 0.7.1 (2026-08-13)
 
