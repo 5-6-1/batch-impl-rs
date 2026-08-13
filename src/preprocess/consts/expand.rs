@@ -45,26 +45,21 @@ pub(crate) fn try_expand_at(
     };
     let name_str = name.to_string();
     // Definition segments: `@name=...` are consumed only during
-    // `collect_user_consts`'s leading collection; appearing here, the
-    // diagnostic differs by context — user_table != None = wrong position,
-    // None = custom not supported.
+    // `collect_user_consts`'s leading collection; reaching here means a
+    // wrong position (after a spec) — one message for both entries (0.7.2:
+    // attribute macros support the leading section too).
     if let Some(TokenTree::Punct(eq)) = tokens.get(2)
         && eq.as_char() == '='
     {
-        let msg = if ctx.user_table().is_some() {
-            format!(
-                "batch-impl: constant definition `@{}=...` must appear before all \
-                 `batch_trait!` trait segments (only the leading position can \
-                 define)",
+        return Err(compile_error_str(
+            &format!(
+                "batch-impl: constant definition `@{}=...` must appear before \
+                 all specs (only the leading position can define; end each \
+                 definition with `;`)",
                 name_str
-            )
-        } else {
-            "batch-impl: `#[batch_impl]` / `#[batch_impl_only]` do not support \
-             custom constant definitions; custom constants are supported only \
-             by `batch_trait!` (leading `@name=value;` segment)"
-                .to_string()
-        };
-        return Err(compile_error_str(&msg, tokens[0].span()));
+            ),
+            tokens[0].span(),
+        ));
     }
     // Range family: `@` Ident `..` Ident (`..` is Joint '.' + any '.';
     // optional `=`)
@@ -183,12 +178,8 @@ pub(crate) fn try_expand_at(
              `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` `@f32..f64`\
              {}",
                 lookup,
-                if ctx.user_table().is_some() {
-                    "; batch_trait! user constants must be defined before the \
-                 reference (defining them later has no effect)"
-                } else {
-                    ""
-                }
+                "; user constants must be defined before the reference \
+                 (defining them later has no effect)"
             ))
         }
     }

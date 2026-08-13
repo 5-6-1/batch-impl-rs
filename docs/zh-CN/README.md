@@ -118,7 +118,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | 指令系统 `#name`/`#fill`/`#delegate` | 签名自动抄、body 批量填、委托调用           | §7 |
 | 覆盖式委托 `#blanket`                | 包装矩阵一行生成委托 impl（任意包装 + `:N`、泛型 trait、assoc 投影、包装 where 谓词、静态方法经 `t` 转发） | §7 |
 | 开放扩展                             | 不认识的 `#name(args){body}` 变为顶层宏调用：你的同名宏收到 `{spec}(args){body}trait` 并生成自己的 impl | §7 |
-| `@` 常量                             | 内置族 `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` 系/`@Cow` + batch_trait! 自定义（懒展开、链式引用） | §6 |
+| `@` 常量                             | 内置族 `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` 系/`@Cow` + 自定义前导段 `@name=value;`（三个入口通用，懒展开、链式引用） | §6 |
 | 泛型参数族                           | `@all_type_params` / `@all_const_params` / `@all_lifetimes`——泛型声明照抄 trait 形参（bound 走同名继承） | §6 |
 | 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`/`@g_i`/`@all_fresh`/`@N..=M`）归宏元层 | §6 |
 | `where{...}`                         | 约束容器统一（`<>` 只留名字），blanket 约束并列合并 | §8 |

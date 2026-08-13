@@ -1286,6 +1286,21 @@ fn attr_wrapper_chain() {
     _c(&Box::new(0u8));
 }
 
+// 0.7.2: `#[batch_impl]` / `#[batch_impl_only]` support the leading
+// `@name=value;` constant section (the same rule as batch_trait!) —
+// chained references and DSL expressions in values included.
+#[batch_impl(@small = [u8, u16]; @wrap = [Box, Rc]^@small; @wrap)]
+trait AttrConsts {}
+
+#[test]
+fn attr_custom_consts() {
+    fn _c<T: AttrConsts>(_: &T) {}
+    _c(&Box::new(0u8));
+    _c(&Box::new(0u16));
+    _c(&Rc::new(0u8));
+    _c(&Rc::new(0u16));
+}
+
 // ============================================================
 // 38. Review additions: lazy-expansion value forms + full blanket generic trait forms
 //     (values embedding range-family references / bare list values / lists embedding

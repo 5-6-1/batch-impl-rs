@@ -1,0 +1,7 @@
+error: batch-impl: constant definition `@x=...` must appear before all specs (only the leading position can define; end each definition with `;`)
+ --> tests/ui/const_def_position.rs:5:1
+  |
+5 | #[batch_impl(u8, @x = [u16]; @x)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

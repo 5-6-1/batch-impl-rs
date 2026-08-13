@@ -14,6 +14,7 @@
 - **`TyWithAttr::apply` 内层保持修复**（`apply/apply_tuple.rs`）：`#[attr]` 已有内层时运算符作用于内层（`#[attr] Box^u8` = `#[attr] Box<u8>`），此前 `TyWithAttr(self.0, o.into())` 静默替换内层——`#[doc]` 注入暴露的既有 bug；dsl 新增 attr_wrapper_chain 回归
 - **开放扩展协议收敛（文档）**：内嵌形态 `T {m!{...}}`（无 `!`，输出关联项）标注弃用、保留兼容，顶层 `{! m!{...}}` 四段协议为唯一推荐——tutorial §7.5 加收敛注、`directive_open.md`/`batch_preprocess_test.md` crate 文档同步、architecture 附着语义节补"仅顶层"
 - **语法面冻结承诺（文档）**：`@N` 稳定性承诺推广为整个语法面——README 新增"语法面冻结承诺（0.7.2 起）"节、architecture 扩展准则节补冻结条款、tutorial §6.4 将 `@g_i`/`@all_fresh`/`@N..M` 标注为 power-user tier；后续版本只加法/诊断/文档，改动既有语义 = 刻意破坏性发布
+- **属性宏自定义 `@` 常量**（`consts/ctx.rs` + `entry/mod.rs`）：`ConstCtx::Attribute` 增 `user_table` 字段——`prepare_attr_expansion` 在路径前缀解析后调用 `collect_user_consts` 收集前导 `@name=value;`（与 `batch_trait!` 同一规则/同一校验：保留名、内建冲突、循环、前向引用）；`try_expand_at` 定义分支消息统一（两入口都有用户表后不再分支）；未知常量消息统一带"定义须先于引用"后缀（const_unknown.stderr 更新）；dsl 新增 attr_custom_consts（链式引用 + DSL 表达式值）+ ui 新增 const_def_position（非前导定义报错）
 
 ## 0.7.1 (2026-08-13)
 

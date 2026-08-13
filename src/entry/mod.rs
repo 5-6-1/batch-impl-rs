@@ -141,6 +141,11 @@ pub(crate) fn prepare_attr_expansion(
         None => (quote![#trait_name], trait_name.clone(), attr_vec.clone()),
     };
 
+    // User constant definitions (`@name=value;`) lead the spec list — the
+    // same leading-position rule as batch_trait! (0.7.2: attribute macros
+    // support the section too).
+    let (rest_tokens, user_consts) =
+        crate::preprocess::collect_user_consts(&rest_tokens)?;
     // Outermost macro-meta layer: `@` constant expansion (pure lexical substitution)
     // precedes `<>` pairing — output may contain flat `<...>` (e.g. `@map = HashMap<u32, String>`
     // values) that angle_collect must pair uniformly; reversed, `Vec<@inner>`'s
@@ -151,6 +156,7 @@ pub(crate) fn prepare_attr_expansion(
         crate::preprocess::ConstCtx::Attribute {
             trait_def: &trait_item,
             trait_full_path: &trait_full_path,
+            user_table: &user_consts,
         },
     )?;
     // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)

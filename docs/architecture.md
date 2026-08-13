@@ -28,7 +28,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   ├── preprocess/           preprocessing layer (token rewriter, one pass per file; mod.rs aggregates re-exports)
   │   ├── mod.rs            the delimiter! delimiter-spelling macro + the pipeline: angle_collect → expand_consts → expand_tokens (#name directive expansion) → where_process
   │   ├── directives/       the `#` directive system: #fill / #delegate / #blanket + open extension (name_list / trait_items / delegate_args / blanket / blanket_wrappers)
-  │   ├── consts/           the `@` constant system: built-in type families (@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 ranges) + batch_trait! custom definition sections + where selectors (@all_fresh / @N..M pass-through) (table / expand / ctx)
+  │   ├── consts/           the `@` constant system: built-in type families (@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 ranges) + custom leading definition sections `@name=value;` (all three entries) + where selectors (@all_fresh / @N..M pass-through) (table / expand / ctx)
   │   ├── empty_generics.rs `A<>` verbatim-copy expansion (parameter rendering uses the merged bound)
   │   ├── where_process.rs  bare-where rewrite: `where predicates {body}` → legacy `where{predicates}`
   │   └── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth

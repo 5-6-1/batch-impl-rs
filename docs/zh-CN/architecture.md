@@ -28,7 +28,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   ├── preprocess/           预处理层（token 重写器，一个趟一个文件；mod.rs 聚合 re-export）
   │   ├── mod.rs            delimiter! 分隔符拼写宏 + 管线：angle_collect → expand_consts → expand_tokens（#name 指令展开）→ where_process
   │   ├── directives/       `#` 指令系统：#fill / #delegate / #blanket + 开放扩展（name_list / trait_items / delegate_args / blanket / blanket_wrappers）
-  │   ├── consts/           `@` 常量系统：内置类型族（@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 范围）+ batch_trait! 自定义定义段 + where 选择器（@all_fresh / @N..M 放行）（table / expand / ctx）
+  │   ├── consts/           `@` 常量系统：内置类型族（@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 范围）+ 自定义前导定义段 `@name=value;`（三个入口通用）+ where 选择器（@all_fresh / @N..M 放行）（table / expand / ctx）
   │   ├── empty_generics.rs `A<>` 照抄展开（形参渲染用合并后的 bound）
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
   │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度

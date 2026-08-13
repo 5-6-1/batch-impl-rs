@@ -65,6 +65,8 @@ fn ui() {
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
     // at the definition by `check_value_refs`
     t.compile_fail("tests/ui/const_bare_endpoint.rs");
+    // a definition after the first spec is not a leading definition
+    t.compile_fail("tests/ui/const_def_position.rs");
     t.compile_fail("tests/ui/at_group_out_of_range.rs");
     // @N / @g_i in the target type: dangling references error at the DSL
     // layer instead of leaking the reserved _Param_*_BatchGen_ name via E0412

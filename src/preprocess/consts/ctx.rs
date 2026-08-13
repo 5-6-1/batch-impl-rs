@@ -25,6 +25,7 @@ pub(crate) enum ConstCtx<'a> {
     Attribute {
         trait_def: &'a syn::ItemTrait,
         trait_full_path: &'a TokenStream,
+        user_table: &'a UserConsts,
     },
     Trait {
         user_table: &'a UserConsts,
@@ -34,12 +35,12 @@ pub(crate) enum ConstCtx<'a> {
 pub(crate) type UserConsts = HashMap<String, Vec<TokenTree>>;
 
 impl<'a> ConstCtx<'a> {
-    /// User constant table (only `batch_trait!` has one; attribute macros do
-    /// not support custom definitions).
+    /// User constant table (both entries collect a leading `@name=value;`
+    /// section; 0.7.2: attribute macros support custom definitions).
     pub(crate) fn user_table(&self) -> Option<&'a UserConsts> {
         match self {
-            &ConstCtx::Trait { user_table } => user_table.into(),
-            ConstCtx::Attribute { .. } => None,
+            &ConstCtx::Trait { user_table }
+            | &ConstCtx::Attribute { user_table, .. } => user_table.into(),
         }
     }
 

@@ -338,9 +338,9 @@ trait BoxRc {}
 
 常量值存**原样 token**，引用处拼接并递归展开——值可以是 DSL 运算值（`@uints=@uint`），也可以链式引用（`@a=@b`）。定义处拦截循环/前向引用（防无限递归）；裸范围端点引用（`@a=@u8` 无 `..`）定义处报错。
 
-### 6.3 batch_trait! 自定义常量段
+### 6.3 自定义常量段（三个入口通用）
 
-`batch_trait!` 前导 `@name=值;` 段定义跨段复用的常量：
+前导 `@name=值;` 段定义复用的常量（0.7.2 起 `#[batch_impl]` / `#[batch_impl_only]` 同样支持；值可含链式引用与 DSL 表达式）：
 
 ```rust
 # use batch_impl::batch_trait;
@@ -350,6 +350,13 @@ batch_trait! {
     A: @uints;
     B: <T> B<T> Vec<T>;
 }
+```
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl(@small = [u8, u16]; @wrap = [Box, Rc]^@small; @wrap)]
+trait AttrConsts {}
 ```
 
 > **限制**：`batch_trait!` **不支持 `#` 指令**（`#fill`/`#delegate`/`#blanket`/开放扩展）——指令需要 trait 定义作签名真相源，而 `batch_trait!` 是函数式宏、拿不到 trait 定义。需要指令时请改用 `#[batch_impl]` / `#[batch_impl_only]`。
