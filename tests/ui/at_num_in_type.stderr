@@ -1,0 +1,7 @@
+error: batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name)
+ --> tests/ui/at_num_in_type.rs:6:1
+  |
+6 | #[batch_impl((()^2)^Box<@5>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

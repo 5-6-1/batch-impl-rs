@@ -43,7 +43,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── impl_parts.rs     ImplParts 结构 + TyKind 变体遍历（extract / hoist）
   │   ├── postprocess.rs    ImplParts 上的 trait 泛型替换（`From<bool>`：指令 body 里 `value: T` → `value: bool`）
   │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
-  │   ├── fresh.rs          fresh 名清扫（`_Param_{g}_{i}_` → 每个 impl 的 `_Param_0..N_`）
+  │   ├── fresh.rs          fresh 名清扫（`_Param_{g}_{i}_` → 每个 impl 的 `_Param_0..N_`）+ `@N`/`@g_i` 引用校验（目标类型 / trait 实参）
   │   └── where_at.rs       `@` where 谓词解析（`@N`/`@g_i`/`@all_fresh`/`@N..M`）
   └── testing/              测试基建（cfg(test)）
       └── fuzz.rs           proptest：随机 token 喂真实宏入口（expand_attr_macro），承诺不 panic

@@ -66,6 +66,10 @@ fn ui() {
     // at the definition by `check_value_refs`
     t.compile_fail("tests/ui/const_bare_endpoint.rs");
     t.compile_fail("tests/ui/at_group_out_of_range.rs");
+    // @N / @g_i in the target type: dangling references error at the DSL
+    // layer instead of leaking the reserved _Param_*_BatchGen_ name via E0412
+    t.compile_fail("tests/ui/at_num_in_type.rs");
+    t.compile_fail("tests/ui/at_group_in_type.rs");
     t.compile_fail("tests/ui/top_level_block_not_last.rs");
     t.compile_fail("tests/ui/top_level_manual_not_last.rs");
     t.compile_fail("tests/ui/at_range_in_type.rs");

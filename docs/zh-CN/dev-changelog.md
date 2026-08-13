@@ -4,7 +4,8 @@
 
 ## 0.7.2 (2026-08-14)
 
-- （开发中）
+- **@ 引用诊断用户化 + 类型位置校验**（`codegen/fresh.rs` + `where_at.rs`）：`@g_i` 越界报错移除 `_Param_{g}_{i}_BatchGen_` 协议名泄露，显示文本 `@{}_{}` 由解析出的 (g, pos) 推导（单一真相源，措辞无法漂移）；新增 `validate_at_refs`——目标类型/trait 实参中悬空的 `@N`（编号 < fresh 数）与 `@g_i`（组成员）此前穿透 sweep 以保留名泄露为 rustc E0412 裸错，现在按 impl 声明的 fresh 泛型集合统一校验，与 where 侧同一规则；`at_group_out_of_range`/`at_num_out_of_range` 两个构造器为 where 与类型位置共用
+- **测试**：dsl 新增 at_refs_in_target_type（`(()^2)^Box<@0>` / `@0_1` 正向，锁校验不误伤）；2 个新 ui fixture（at_num_in_type / at_group_in_type）锁用户语言措辞
 
 ## 0.7.1 (2026-08-13)
 

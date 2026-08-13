@@ -149,6 +149,15 @@ pub(crate) fn generate_impl(
                 vec![]
             }
         };
+    // `@N` / `@g_i` in the target type / trait args (where predicates are
+    // validated by resolve_where_predicates): a dangling reference would leak
+    // the reserved `_Param_*_BatchGen_` name into rustc's E0412 output —
+    // validate here and report in user language.
+    errs.extend(validate_at_refs(
+        &parts.target_type,
+        &parts.trait_generic_names,
+        &impl_name_streams,
+    ));
     if !errs.is_empty() {
         return errs.into_iter().collect();
     }

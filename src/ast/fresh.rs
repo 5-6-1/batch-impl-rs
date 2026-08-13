@@ -56,6 +56,13 @@ pub(crate) fn parse_grouped_fresh(s: &str) -> Option<(usize, usize)> {
     Some((g.parse().ok()?, i.parse().ok()?))
 }
 
+/// Parses the single-numbered `_Param_{n}_BatchGen_` form
+/// (constructed from `@N` references); `None` for any other ident.
+pub(crate) fn parse_numbered_fresh(s: &str) -> Option<usize> {
+    let rest = s.strip_prefix(FRESH_PREFIX)?.strip_suffix(FRESH_SUFFIX)?;
+    rest.parse().ok()
+}
+
 /// Whether an identifier matches the reserved fresh pattern
 /// (`_Param_*_BatchGen_`, grouped or single-numbered).
 pub(crate) fn is_fresh_name(s: &str) -> bool {

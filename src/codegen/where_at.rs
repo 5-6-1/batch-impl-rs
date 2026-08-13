@@ -4,6 +4,7 @@
 
 use proc_macro2::{Punct, Spacing, TokenStream, TokenTree};
 
+use super::{at_group_out_of_range, at_num_out_of_range};
 use crate::ast::{MAX_EXPAND, parse_grouped_fresh};
 use crate::util::{compile_err, compile_error_str};
 
@@ -121,13 +122,10 @@ pub(crate) fn resolve_where_at(
                         // after (group, position) sorting — the same order the
                         // sweeper renumbers to `_Param_0..N_BatchGen_`.
                         let Some(&name) = fresh_sorted.get(idx) else {
-                            return Err(compile_err!(
-                                "batch-impl: `@{}` out of range in a where predicate \
-                                 (impl has {} fresh generics, numbered from 0 in \
-                                 document order; user-written params are addressed \
-                                 by name)",
+                            return Err(at_num_out_of_range(
                                 idx,
-                                fresh_sorted.len()
+                                fresh_sorted.len(),
+                                tokens[i].span(),
                             ));
                         };
                         out.extend(name.clone());
@@ -148,14 +146,10 @@ pub(crate) fn resolve_where_at(
                         let Some(name) =
                             impl_names.iter().find(|n| n.to_string() == target)
                         else {
-                            return Err(compile_err!(
-                                "batch-impl: `@{}` in a where predicate — this \
-                                 impl has no group {} position {} (grouped \
-                                 fresh names are `_Param_{{g}}_{{i}}_BatchGen_`; \
-                                 use `@N` for the impl's document-order fresh)",
-                                s,
+                            return Err(at_group_out_of_range(
                                 g,
-                                pos
+                                pos,
+                                tokens[i].span(),
                             ));
                         };
                         out.extend(name.clone());

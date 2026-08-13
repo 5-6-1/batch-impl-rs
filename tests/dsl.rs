@@ -1571,6 +1571,24 @@ fn where_position_refs() {
     assert_eq!(v.an(), 1);
 }
 
+// `@N` / `@g_i` in the target type: `(()^2)^Box<@0>` appends the boxed
+// reference to the generated tuple, so the reference lands in the target type
+// and must match a generated generic (dangling ones error in user language —
+// ui fixtures `at_num_in_type` / `at_group_in_type`).
+#[batch_impl((()^2)^Box<@0> where{@1: Clone})]
+trait AtNumInType {}
+
+#[batch_impl((()^2)^Box<@0_1>)]
+trait AtGroupInType {}
+
+#[test]
+fn at_refs_in_target_type() {
+    fn check_num<T: AtNumInType>() {}
+    check_num::<(u8, u16, Box<u8>)>();
+    fn check_group<T: AtGroupInType>() {}
+    check_group::<(u8, u16, Box<u16>)>();
+}
+
 // ============================================================
 // 34. batch_trait! segment-level @trait: reusing a "generic declaration + trait name" bundle
 //     across segments (@trait inside constant values is replaced per segment with that

@@ -1,11 +1,15 @@
-//! Fresh-name sweeping: renumbers grouped fresh names
-//! (`_Param_{g}_{i}_BatchGen_`) to `_Param_0..N_BatchGen_` per impl so `@N`
-//! is a pure construction. The naming protocol itself lives in
-//! `crate::ast::fresh`.
+//! Fresh-name sweeping and `@` reference validation: renumbers
+//! grouped fresh names (`_Param_{g}_{i}_BatchGen_`) to `_Param_0..N_BatchGen_`
+//! per impl so `@N` is a pure construction, and validates `@N` / `@g_i`
+//! references that survived into the target type / trait args (the where-
+//! predicate positions are validated by `resolve_where_at`). The naming
+//! protocol itself lives in `crate::ast::fresh`.
 
-use proc_macro2::{Group, Ident, TokenStream, TokenTree};
+use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
+use quote::ToTokens;
 
-use crate::ast::parse_grouped_fresh;
+use crate::ast::{Ty, parse_grouped_fresh, parse_numbered_fresh};
+use crate::util::compile_error_str;
 
 /// Sweeps grouped fresh names (`_Param_{g}_{i}_BatchGen_`) in a rendered
 /// impl: renumbers them by (group, position) order to `_Param_0..N_BatchGen_`
@@ -75,4 +79,90 @@ pub(crate) fn replace_grouped_fresh(
         }
     }
     out.into_iter().collect()
+}
+
+/// `@N` out of range: the impl has fewer fresh generics than the index.
+/// The single authority for this diagnostic — `resolve_where_at` (where
+/// predicates) and [`validate_at_refs`] (target type / trait args) share it,
+/// so the wording cannot drift apart.
+pub(crate) fn at_num_out_of_range(
+    n: usize, fresh_count: usize, span: Span,
+) -> TokenStream {
+    compile_error_str(
+        &format!(
+            "batch-impl: `@{}` is out of range — this impl has {} fresh \
+             generics (numbered from 0 in document order; user-written params \
+             are addressed by name)",
+            n, fresh_count,
+        ),
+        span,
+    )
+}
+
+/// `@g_i` references a group/position this impl never generated. The single
+/// authority for this diagnostic — shared by [`validate_at_refs`] and the
+/// where-predicate branch of `resolve_where_at`. The displayed `@{}_{}`
+/// form is derived from the parsed pair, so it can never drift from the
+/// values being reported.
+pub(crate) fn at_group_out_of_range(g: usize, pos: usize, span: Span) -> TokenStream {
+    compile_error_str(
+        &format!(
+            "batch-impl: `@{}_{}` does not match a generated generic — this impl \
+             has no group {} position {} (groups and positions number from 0); \
+             use `@N` for the N-th fresh generic in document order",
+            g, pos, g, pos,
+        ),
+        span,
+    )
+}
+
+/// Validates `@N` / `@g_i` references that survived into the target type or
+/// the trait args (where predicates are validated by `resolve_where_at`): a
+/// constructed fresh name not among the impl's declared generics is a dangling
+/// reference — report it in user language instead of leaking the reserved
+/// `_Param_*_BatchGen_` name into rustc's E0412 output.
+pub(crate) fn validate_at_refs(
+    target: &Ty, trait_args: &[TokenStream], impl_names: &[TokenStream],
+) -> Vec<TokenStream> {
+    let declared = impl_names
+        .iter()
+        .filter_map(|n| parse_grouped_fresh(&n.to_string()))
+        .collect::<std::collections::HashSet<_>>();
+    let tokens = std::iter::once(target.to_token_stream())
+        .chain(trait_args.iter().cloned())
+        .collect::<TokenStream>();
+    collect_dangling(tokens, &declared, declared.len())
+}
+
+/// Recursive token walk: a grouped name must be declared; a single-numbered
+/// `@N`-constructed name must be within the fresh count.
+fn collect_dangling(
+    tokens: TokenStream, declared: &std::collections::HashSet<(usize, usize)>,
+    fresh_count: usize,
+) -> Vec<TokenStream> {
+    tokens
+        .into_iter()
+        .flat_map(|tt| match tt {
+            TokenTree::Ident(id) => {
+                let s = id.to_string();
+                if let Some((g, pos)) = parse_grouped_fresh(&s) {
+                    (!declared.contains(&(g, pos)))
+                        .then(|| at_group_out_of_range(g, pos, id.span()))
+                        .into_iter()
+                        .collect()
+                } else if let Some(n) = parse_numbered_fresh(&s) {
+                    (n >= fresh_count)
+                        .then(|| at_num_out_of_range(n, fresh_count, id.span()))
+                        .into_iter()
+                        .collect()
+                } else {
+                    vec![]
+                }
+            }
+            TokenTree::Group(g) => {
+                collect_dangling(g.stream(), declared, fresh_count)
+            }
+            _ => vec![],
+        })
+        .collect()
 }
