@@ -99,6 +99,14 @@ pub fn batch_preprocess_test(
         .unwrap_or_else(Into::into)
 }
 
+#[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/batch_preview.md"))]
+#[proc_macro]
+pub fn batch_preview(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    entry::preview(input.into())
+        .map(proc_macro::TokenStream::from)
+        .unwrap_or_else(Into::into)
+}
+
 // ============================================================
 // Documentation placeholders for the DSL directive / macro-meta layers.
 //

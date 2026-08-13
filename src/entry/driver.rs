@@ -37,6 +37,37 @@ pub(crate) fn parse_batch_trait_entry(
     trait_last_ident: &Ident, is_unsafe_trait: bool, start_trait: Option<ItemTrait>,
     trait_bounds: &TraitBounds, trait_param_names: &[Ident],
 ) -> TokenStream {
+    let (tys, errors) = collect_spec_leaves(cursor, top_level, trait_last_ident);
+    if !errors.is_empty() {
+        return errors.into_iter().collect();
+    }
+    let mut impls = start_trait.map_or(quote![], |t| quote![#t]);
+    for t in tys {
+        impls.extend(generate_impl(
+            t,
+            trait_full_path,
+            is_unsafe_trait,
+            trait_bounds,
+            trait_param_names,
+        ));
+    }
+    impls
+}
+
+/// Parses the cursor into leaf `Ty`s (specs → worklist expansion → leaves)
+/// and aggregates every error. Shared by the three entries (via
+/// [`parse_batch_trait_entry`]) and the preview entry (`batch_preview!`
+/// inspects the leaves before generating) — the single authority for the
+/// parse/expand stage, so the two consumers cannot drift apart.
+///
+/// Error aggregation: collect every spec's error (recursing into nested
+/// wrappers — e.g. `Box<@0..=2>` carries the range error inside its
+/// type params) and report them all at once; the old behavior stopped at
+/// the first error, hiding later ones. When any error exists, the caller
+/// emits only the errors — no partial impls.
+pub(crate) fn collect_spec_leaves(
+    cursor: &mut Cursor, top_level: Op, trait_last_ident: &Ident,
+) -> (Vec<Ty>, Vec<TokenStream>) {
     let mut tys = vec![];
     // Leading comma (`#[batch_impl(,usize)]` / `A: ,usize`): the whole list starts with `,`.
     // With a streaming cursor, parse_item cannot tell a "leading comma" from a "separator
@@ -61,42 +92,21 @@ pub(crate) fn parse_batch_trait_entry(
             }
         }
     }
-    // Error aggregation: collect every spec's error (recursing into nested
-    // wrappers — e.g. `Box<@0..=2>` carries the range error inside its
-    // type params) and report them all at once; the old behavior stopped at
-    // the first error, hiding later ones. When any error exists, only the
-    // errors are emitted — no partial impls.
-    fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
-        if let Ty { kind: TyKind::Error(e), .. } = ty {
-            out.push(e.0.clone());
-        }
-        // Reuse map_children's exhaustive child list for the recursion
-        // (rebuild-style pass; children visited in the same order).
-        ty.clone().map_children(&mut |child| {
-            collect_errors(&child, out);
-            child
-        });
-    }
     let mut errors = vec![];
     for t in &tys {
         collect_errors(t, &mut errors);
     }
-    if !errors.is_empty() {
-        let mut out = TokenStream::new();
-        for e in errors {
-            out.extend(e);
-        }
-        return out;
+    (tys, errors)
+}
+
+fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
+    if let Ty { kind: TyKind::Error(e), .. } = ty {
+        out.push(e.0.clone());
     }
-    let mut impls = start_trait.map_or(quote![], |t| quote![#t]);
-    for t in tys {
-        impls.extend(generate_impl(
-            t,
-            trait_full_path,
-            is_unsafe_trait,
-            trait_bounds,
-            trait_param_names,
-        ));
-    }
-    impls
+    // Reuse map_children's exhaustive child list for the recursion
+    // (rebuild-style pass; children visited in the same order).
+    ty.clone().map_children(&mut |child| {
+        collect_errors(&child, out);
+        child
+    });
 }

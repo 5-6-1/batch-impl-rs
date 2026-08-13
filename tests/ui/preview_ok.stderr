@@ -1,0 +1,14 @@
+error: batch-impl preview: 2 impl(s) generated
+
+       #[batch_impl(usize, isize)] trait Pv {}
+       impl Pv for usize {}
+       impl Pv for isize {}
+ --> tests/ui/preview_ok.rs:5:1
+  |
+5 | / batch_preview! {
+6 | |     #[batch_impl(usize, isize)]
+7 | |     trait Pv {}
+8 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `batch_preview` (in Nightly builds, run with -Z macro-backtrace for more info)

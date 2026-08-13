@@ -1,4 +1,4 @@
-﻿# batch-impl
+# batch-impl
 
 **v0.7.2**（2026-08-13）——0.7.1 已发布：定向诊断（`;`/`=`/`@`/`#` 残留、相邻类型、binding/bound 缺值、拼写建议）取代 rustc 裸错；0.7.0：**splat** `*` 前缀（摊平容器/生成器到列表，左操作数 `*[...]` 分配 / `*(...)` 追加）、数组分发传播（嵌套 `[A,B]` 笛卡尔积）、生成器 fresh 声明修复、泛型实参内 splat 幂（`Frac<*(*@u*)^2>` = 36 impl）、具体类型实参拒绝 binding/bound、`#fill` 单元素推荐（`#name{...}`）。
 
@@ -132,6 +132,8 @@ trait Describe2 { fn describe(&self) -> String; }
 - **完整教程**：`docs/tutorial.md`（渐进式从一行 impl 到高级矩阵组合）
 - **三个入口**：`#[batch_impl]`（含 trait）/ `#[batch_impl_only]`（只出 impl）/
   `batch_trait!`（对已声明 trait 批量生成，支持多段）
+- **展开预览**：`batch_preview!`（把 `#[batch_impl(...)] trait` 原样包进去，逐 impl 展示真实展开 +
+  `^`/`-` 结合性误写提示）
 - **示例**：`examples/quickstart.rs`（特性 demo）、`examples/simplify.rs`
   （29 个 impl ≈ 15 行 DSL 的真实场景）、`examples/typeclass.rs`
   （类型类风格：`Num`/`UNum`/`INum`/`FNum` 层级 + `Frac<T, U>` 的 36 个 `From<bool>` impl）

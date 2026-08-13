@@ -1,0 +1,15 @@
+error: batch-impl preview: 1 impl(s) generated
+
+       #[batch_impl(Box^Vec-u32)] trait Pv2 {}
+       impl Pv2 for Box < Vec, u32 > {}
+
+       batch-impl note: `Box<Vec, u32>` has 2 args but `Box` takes 1 — `-` accumulates args side by side (`A^B-C` = `A-B-C` = `A<B, C>`); did you mean `Box^Vec^u32`?
+ --> tests/ui/preview_miswrite.rs:5:1
+  |
+5 | / batch_preview! {
+6 | |     #[batch_impl(Box^Vec-u32)]
+7 | |     trait Pv2 {}
+8 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `batch_preview` (in Nightly builds, run with -Z macro-backtrace for more info)

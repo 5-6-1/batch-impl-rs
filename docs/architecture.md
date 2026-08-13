@@ -11,6 +11,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   ├── entry/                entry and driver
   │   ├── mod.rs            entry implementation: expand_attr_macro / expand_batch_trait + the shared pipeline run_pipeline
   │   ├── driver.rs         shared driver: BFS over the parallel list → generate_impl per leaf
+  │   ├── preview.rs        batch_preview!: expansion through the diagnostic channel + `^`/`-` miswrite notes
   │   └── path_prefix.rs    external trait path prefix: #Path::to::Trait: state-machine parsing
   ├── analyze/              trait-definition semantic analysis
   │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST reference collection (where-predicate pass-through slots)

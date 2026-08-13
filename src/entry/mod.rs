@@ -30,7 +30,9 @@ use crate::entry::driver::parse_batch_trait_entry;
 pub(crate) mod driver;
 pub(crate) mod path_prefix;
 mod preprocess_test;
+mod preview;
 pub(crate) use preprocess_test::preprocess_test;
+pub(crate) use preview::preview;
 
 /// Common pipeline: DSL parse/expand → generate impl → restore angle brackets.
 ///
@@ -64,6 +66,37 @@ fn run_pipeline(
 pub(crate) fn expand_attr_macro(
     attr: TokenStream, trait_item: ItemTrait, include_trait: bool,
 ) -> Result<TokenStream, TokenStream> {
+    let p = prepare_attr_expansion(attr, trait_item, include_trait)?;
+    run_pipeline(
+        &p.expanded,
+        Op::Comma,
+        &p.trait_full_path,
+        &p.trait_last_ident,
+        p.is_unsafe,
+        p.start_trait,
+        &p.trait_bounds,
+        &p.trait_param_names,
+    )
+}
+
+/// The prepared state of an attribute-macro expansion: everything the shared
+/// pipeline needs (paired/expanded tokens + trait context), staged before the
+/// parse/expand stage. Extracted from [`expand_attr_macro`] so the preview
+/// entry (`batch_preview!`) runs the same preprocessing once and then
+/// collects leaves itself instead of rendering immediately.
+pub(crate) struct PreparedAttr {
+    pub(crate) trait_full_path: TokenStream,
+    pub(crate) trait_last_ident: Ident,
+    pub(crate) is_unsafe: bool,
+    pub(crate) start_trait: Option<ItemTrait>,
+    pub(crate) trait_bounds: TraitBounds,
+    pub(crate) trait_param_names: Vec<Ident>,
+    pub(crate) expanded: Vec<TokenTree>,
+}
+
+pub(crate) fn prepare_attr_expansion(
+    attr: TokenStream, trait_item: ItemTrait, include_trait: bool,
+) -> Result<PreparedAttr, TokenStream> {
     reset_fresh_counter();
     let trait_name = trait_item.ident.clone();
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
@@ -150,16 +183,15 @@ pub(crate) fn expand_attr_macro(
         })
         .collect::<Vec<_>>();
     let start_trait = if include_trait { trait_item.into() } else { None };
-    run_pipeline(
-        &expanded,
-        Op::Comma,
-        &trait_full_path,
-        &trait_last_ident,
+    Ok(PreparedAttr {
+        trait_full_path,
+        trait_last_ident,
         is_unsafe,
         start_trait,
-        &trait_bounds,
-        &trait_param_names,
-    )
+        trait_bounds,
+        trait_param_names,
+        expanded,
+    })
 }
 
 /// Segment-level `@trait` → this segment's full trait path (batch_trait!-specific; constant

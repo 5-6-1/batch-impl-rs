@@ -11,6 +11,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   ├── entry/                入口与驱动
   │   ├── mod.rs            入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
   │   ├── driver.rs         共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
+  │   ├── preview.rs        batch_preview!：诊断通道展开预览 + `^`/`-` 误写提示
   │   └── path_prefix.rs    外部 trait 路径前缀：#Path::to::Trait: 状态机解析
   ├── analyze/              trait 定义语义分析
   │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
