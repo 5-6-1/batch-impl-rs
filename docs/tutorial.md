@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.8.2** (unreleased) — variadic segments (`ident@..`) in `impl{...}` templates and repeat blocks (`@(...)..`) in bodies, see §8.4;
+**v0.8.2** (2026-08-19) — variadic segments (`ident@..`) in `impl{...}` templates and repeat blocks (`@(...)..`) in bodies, see §8.4;
 
 **v0.8.1** — the `where{...}` angle-pairing hotfix (see the CHANGELOG);
 

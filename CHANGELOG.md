@@ -5,12 +5,12 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.8.2 (unreleased)
+## 0.8.2 (2026-08-19)
 
 - **Where-predicate `@N` value references and `@N..` open ranges** — `@N` now resolves inside angle groups too (`Module<..., Scalar = @0::Scalar>` — the predicate tail and every group are scanned, mirroring `resolve_at_refs`), so an associated-type binding can reference another fresh's associated type (the alga2 tuple `Module` scalar-equality constraint); the `@N..` open range covers "from N to the last fresh" and is **empty** when N is past the end (an arity-1 impl contributes no "from the second element" predicate — no error); empty predicates (open ranges with nothing to emit, trailing-comma segments) are dropped from the where clause instead of emitting a dangling comma
 - **Variadic segments and repeat blocks (Ext 2)** — an `impl{...}` template can declare a variadic segment with `ident@..`: it covers every remaining tuple position from its own position onward, with names aligned to the leaf position (`(u8, A@..,)` on `(u8, u16, u32)` → `A1`, `A2`; `(A@..,)` on any arity → `A0..An`), same-level segments split the leaf evenly (uneven splits / duplicate prefixes error), and segments recurse into nested tuples. The body repeats with `@(...)..`: `@ident` is the i-th element's slot name (rewritten by the slot mapping afterwards), `@N` an index cursor expanding to `N + i` (the path prefix is written by the user), the block runs once per element of its driving segments (all referenced segments must be equal-length; a block's length comes from its inner `@ident` references, from a **declared driver** `@A(...)..` — the segment named right after `@`, enabling cursor-only bodies — or from the template's **unique segment** for a cursor-only block), nested blocks run independent rounds (Cartesian), and the block body's trailing `,` is the per-round separator (write no comma between side-by-side blocks). One spec now covers every tuple arity of a shape — the alga2-style `()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}` emits `impl<A0..An> Magma for (A0, ..., An) where A0: Magma, ...` for n = 1..4
 
-## 0.8.1 (unreleased)
+## 0.8.1 (2026-08-18)
 
 - **Fix: `where{...}` predicate groups are angle-paired** — a two-arg bound inside a `where{...}` block (`@all_fresh: Semiring<Additive, Multiplicative>`) used to be split at its depth-0 comma into a bad predicate, because the angle brackets stayed unpaired (Brace groups were passthrough). `angle_collect` now enters `where{...}` groups and pairs the `<...>` inside (code bodies stay passthrough); `render_angles` restores them. Reported from real use (alga2); a DSL end-to-end regression test locks the fix
 

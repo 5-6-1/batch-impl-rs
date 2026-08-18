@@ -2,7 +2,7 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.8.2 (unreleased)
+## 0.8.2 (2026-08-19)
 
 - **where 谓词 `@N` 值引用 + `@N..` 开放范围**（`codegen/where_at.rs`，alga2 真实使用报告——元组 `Module` 标量相等约束 `Module<Additive, Multiplicative, Scalar = @0::Scalar>`）：`resolve_where_at` 递归进组（与 `parse::resolve_at_refs` 同形——配对尖括号组内的 `@N` 现在解析），范围 / `@all_fresh` 的 tail 经 `resolve_tail` 先扫描再发射（每个发射的谓词独立解析自己的 `@N`）。新增 `@N..` 开放范围：从 N 到最后一个 fresh，N 越界时**为空**（不报错——arity 1 的 impl 不产生"从第二分量起"的谓词）。空谓词（开放范围无可发射项、尾逗号空段）从 where 子句丢弃（`resolve_where_predicates` 跳过空结果）——此前 arity 1 的 impl 输出 `where P0: M, ,`（悬空逗号，rustc 裸错）。where_at.rs 新增 5 个单元测试 + alga2 元组 Module 集成测试（`ext2_varseg.rs::tuple_module_shared_scalar`）
 - **变长段（`ident@..`）与 body 重复块（`@(...)..`）**（Ext 2，由 alga2 元组 `Magma` 驱动）：
