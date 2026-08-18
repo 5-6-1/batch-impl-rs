@@ -4,6 +4,7 @@
 
 ## 0.8.2 (unreleased)
 
+- **where 谓词 `@N` 值引用 + `@N..` 开放范围**（`codegen/where_at.rs`，alga2 真实使用报告——元组 `Module` 标量相等约束 `Module<Additive, Multiplicative, Scalar = @0::Scalar>`）：`resolve_where_at` 递归进组（与 `parse::resolve_at_refs` 同形——配对尖括号组内的 `@N` 现在解析），范围 / `@all_fresh` 的 tail 经 `resolve_tail` 先扫描再发射（每个发射的谓词独立解析自己的 `@N`）。新增 `@N..` 开放范围：从 N 到最后一个 fresh，N 越界时**为空**（不报错——arity 1 的 impl 不产生"从第二分量起"的谓词）。空谓词（开放范围无可发射项、尾逗号空段）从 where 子句丢弃（`resolve_where_predicates` 跳过空结果）——此前 arity 1 的 impl 输出 `where P0: M, ,`（悬空逗号，rustc 裸错）。where_at.rs 新增 5 个单元测试 + alga2 元组 Module 集成测试（`ext2_varseg.rs::tuple_module_shared_scalar`）
 - **变长段（`ident@..`）与 body 重复块（`@(...)..`）**（Ext 2，由 alga2 元组 `Magma` 驱动）：
   - `preprocess/varseg.rs`——新标记 pass 在 `expand_consts`（第一个进入 Brace 的阶段）之前运行：在 `impl{...}` 模板组内（经 `util::is_impl_template`），每个 `ident @ ..` 序列替换为占位 ident `__batch_varseg_{prefix}_{seq}`（seq 区分重复前缀，匹配阶段会拒绝）。其余 Brace 组全部透传——body 的 `@` 记号与顶层用户常量定义不受影响。两个入口都调用（`prepare_attr_expansion` / `expand_batch_trait`，均在 `expand_consts` 前）
   - `codegen/shape.rs`——`match_shape` 返回 `(Mapping, Vec<VarSeg>)`；元组分支识别占位元素并把剩余叶子位置**均分**给各段（无法均分报错；段名前缀重复报错；元组元素位置之外的占位符由裸 ident 分支报错）。每段绑定名字序列到叶子元素，名字**对齐叶子位置**（`(u8, A@..,)` 匹配 `(u8, u16, u32)` → `A1 := u16, A2 := u32`；同层多段均分；段递归进嵌套元组）

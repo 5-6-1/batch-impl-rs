@@ -366,6 +366,7 @@ batch_trait! {
 | `@N` | `@g_i` flattened by document order within one impl | references a fresh generic (`where{@0: Clone}`) |
 | `@all_fresh` | all fresh generics | range sugar — "every one" |
 | `@N..=M` | a contiguous run | range sugar — `@0..=1` = `@0, @1` |
+| `@N..` | an **open** run to the last fresh | range sugar — "from the second element on" (`@1..`); **empty** when N is past the end (an arity-1 impl contributes no such predicate, no error) |
 
 > **Power-user tier**: `@g_i` / `@all_fresh` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. The whole DSL surface is frozen since 0.7.2 (see README); these notations will not change semantics again.
 
@@ -378,7 +379,42 @@ trait RangeSugar {}
 #[batch_impl(()^3 where{@all_fresh: Copy})] // every fresh generic
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
+
+#[batch_impl(()^3 where{@1..: Copy})]       // open range: from index 1 on
+trait OpenRange {}
+// → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
+// (an arity-1 impl contributes no predicate — `@1..` is empty there)
 ```
+
+`@N` also resolves in **value positions** — the type after `:` may carry
+`@N` inside angle groups, e.g. an associated-type binding referencing
+another fresh's associated type (the alga2 tuple `Module` scalar-equality
+constraint):
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(
+    Module<(), ()> ()^1..=4 where{
+        @all_fresh: Module<(), (), Scalar: Copy>,
+        @1..: Module<(), (), Scalar = @0::Scalar>,
+    } impl{(A@..,)}
+    #Scalar{A0::Scalar}
+    #scale{( @(@A::scale(&self.@0, s),).. )}
+)]
+trait Module<Add, Mul> {
+    type Scalar;
+    fn scale(&self, s: Self::Scalar) -> Self;
+}
+// arity 2 → impl<P0,P1> Module<(), ()> for (P0,P1)
+//   where P0: Module<(), (), Scalar: Copy>, P1: Module<(), (), Scalar: Copy>,
+//         P1: Module<(), (), Scalar = P0::Scalar>
+```
+
+The shared-scalar pattern: every component from the second one on declares
+`Scalar = @0::Scalar` (the first component's scalar), with `@0` resolving to
+the first fresh's name. The `@1..` open range is exactly the "from the
+second component on" set — it shrinks with the tuple arity and disappears
+for arity 1.
 
 On the other axis (value classes):
 

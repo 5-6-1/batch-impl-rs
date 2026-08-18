@@ -369,6 +369,7 @@ batch_trait! {
 | `@N` | `@g_i` 在单 impl 内按文档序摊平的下标 | 引用 fresh 泛型名（`where{@0: Clone}`） |
 | `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个” |
 | `@N..=M` | 连续段 | 范围糖——`@0..=1` = `@0, @1` |
+| `@N..` | 到最后一个 fresh 的**开放**段 | 范围糖——“从第二个起”（`@1..`）；N 越界时**为空**（arity 1 的 impl 不产生此类谓词，不报错） |
 
 > **Power-user tier**：`@g_i` / `@all_fresh` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。自 0.7.2 起整个 DSL 语法面冻结（见 README），这些记号的语义不再变化。
 
@@ -381,7 +382,38 @@ trait RangeSugar {}
 #[batch_impl(()^3 where{@all_fresh: Copy})] // 全部 fresh 泛型
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
+
+#[batch_impl(()^3 where{@1..: Copy})]       // 开放范围：从下标 1 起
+trait OpenRange {}
+// → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
+// （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
 ```
+
+`@N` 在**值位置**同样解析——`:` 后的类型可在尖括号组内携带 `@N`，例如关联
+类型绑定引用另一个 fresh 的关联类型（alga2 元组 `Module` 标量相等约束）：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(
+    Module<(), ()> ()^1..=4 where{
+        @all_fresh: Module<(), (), Scalar: Copy>,
+        @1..: Module<(), (), Scalar = @0::Scalar>,
+    } impl{(A@..,)}
+    #Scalar{A0::Scalar}
+    #scale{( @(@A::scale(&self.@0, s),).. )}
+)]
+trait Module<Add, Mul> {
+    type Scalar;
+    fn scale(&self, s: Self::Scalar) -> Self;
+}
+// arity 2 → impl<P0,P1> Module<(), ()> for (P0,P1)
+//   where P0: Module<(), (), Scalar: Copy>, P1: Module<(), (), Scalar: Copy>,
+//         P1: Module<(), (), Scalar = P0::Scalar>
+```
+
+共享标量模式：从第二分量起每个分量声明 `Scalar = @0::Scalar`（第一分量的
+标量），`@0` 解析为第一个 fresh 的名字。`@1..` 开放范围正好是"从第二分量
+起"的集合——随元组 arity 收缩，arity 1 时消失。
 
 另一根轴（值类别）：
 

@@ -2,7 +2,7 @@
 //! / `@N..M` resolve against the impl's fresh generics (document order for
 //! `@N`, exact generating site for `@g_i`, batch forms for the rest).
 
-use proc_macro2::{Punct, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 
 use super::{at_group_out_of_range, at_num_out_of_range};
 use crate::ast::{MAX_EXPAND, parse_grouped_fresh};
@@ -51,7 +51,11 @@ pub(crate) fn resolve_where_predicates(
             continue;
         }
         match resolve_where_at(pred, impl_name_streams) {
-            Ok(p) => where_resolved.push(p),
+            // An empty result (a `@N..` open range with no fresh past N, or a
+            // trailing-comma empty segment) contributes no predicate — skip
+            // it instead of emitting a dangling comma into the where clause.
+            Ok(p) if !p.is_empty() => where_resolved.push(p),
+            Ok(_) => {}
             Err(e) => errs.push(e),
         }
     }
@@ -99,13 +103,37 @@ pub(crate) fn resolve_where_at(
                             MAX_EXPAND
                         ));
                     }
-                    let tail = tokens[i + 2..].to_vec();
+                    let tail = resolve_tail(&tokens[i + 2..], impl_names)?;
                     emit_fresh_predicates(&mut out, &fresh_sorted, &tail);
                     i = tokens.len();
                     continue;
                 }
                 Some(TokenTree::Literal(lit)) => {
                     let s = lit.to_string();
+                    // `@N..` open range: from N to the last fresh — empty
+                    // when N is past the end (legal: an arity-1 impl
+                    // contributes no "from the second element" predicate,
+                    // e.g. `@1..: Module<...>`).
+                    if let Ok(start) = s.parse::<usize>()
+                        && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                        && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                        && !matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=')
+                        && !matches!(tokens.get(i + 4), Some(TokenTree::Literal(_)))
+                    {
+                        let count = fresh_sorted.len().saturating_sub(start);
+                        if count > MAX_EXPAND {
+                            return Err(compile_err!(
+                                "batch-impl: `@{}..` expands to {} predicates (max {})",
+                                start,
+                                count,
+                                MAX_EXPAND
+                            ));
+                        }
+                        let tail = resolve_tail(&tokens[i + 4..], impl_names)?;
+                        emit_fresh_predicates(&mut out, &fresh_sorted[start..start + count], &tail);
+                        i = tokens.len();
+                        continue;
+                    }
                     // `@N..M` / `@N..=M`: a contiguous fresh range — each
                     // indexed fresh gets the predicate tail (comma-separated).
                     // Out of range or over MAX_EXPAND predicates errors.
@@ -115,6 +143,7 @@ pub(crate) fn resolve_where_at(
                     {
                         let (count, _end_idx, tail) =
                             parse_fresh_range(&tokens, i, start, fresh_sorted.len())?;
+                        let tail = resolve_tail(&tail, impl_names)?;
                         emit_fresh_predicates(&mut out, &fresh_sorted[start..start + count], &tail);
                         i = tokens.len();
                         continue;
@@ -164,12 +193,32 @@ pub(crate) fn resolve_where_at(
                     ));
                 }
             }
+        } else if let TokenTree::Group(g) = &tokens[i] {
+            // Recurse into groups (`Module<..., Scalar = @0::Scalar>` — the
+            // angle group is paired by angle_collect; `@N` inside it is a
+            // value reference that must resolve like the top level, mirroring
+            // `parse::resolve_at_refs`).
+            let inner = g.stream().into_iter().collect::<Vec<_>>();
+            let resolved = resolve_tail(&inner, impl_names)?;
+            let mut ng = Group::new(g.delimiter(), resolved.into_iter().collect());
+            ng.set_span(g.span());
+            out.push(TokenTree::Group(ng));
+            i += 1;
         } else {
             out.push(tokens[i].clone());
             i += 1;
         }
     }
     Ok(out.into_iter().collect())
+}
+
+/// Resolves the `@` references in a predicate tail (the type position after
+/// `:` — `@N` may appear inside angle groups, e.g. `Scalar = @0::Scalar`).
+fn resolve_tail(
+    tail: &[TokenTree], impl_names: &[TokenStream],
+) -> Result<Vec<TokenTree>, TokenStream> {
+    let ts = tail.iter().cloned().collect();
+    resolve_where_at(&ts, impl_names).map(|r| r.into_iter().collect())
 }
 
 /// Emits `name0 tail, name1 tail, ...` (comma-separated) into `out` — the
@@ -241,11 +290,79 @@ fn parse_fresh_range(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::analyze::extract_trait_bounds;
     use crate::ast::*;
     use crate::codegen::generate_impl;
+    use proc_macro2::Group;
     use quote::quote;
     use syn::parse_quote;
+
+    fn fresh_names(n: usize) -> Vec<TokenStream> {
+        (0..n).map(|i| format!("_Param_0_{}_BatchGen_", i).parse().unwrap()).collect()
+    }
+
+    fn resolve(s: &str, names: &[TokenStream]) -> String {
+        let pred: TokenStream = s.parse().unwrap();
+        resolve_where_at(&pred, names).unwrap().to_string()
+    }
+
+    #[test]
+    fn open_range_from_second() {
+        // `@1..` open range: every fresh from index 1 to the last one
+        let names = fresh_names(4);
+        assert_eq!(
+            resolve("@1.. : Bound", &names),
+            "_Param_0_1_BatchGen_ : Bound , _Param_0_2_BatchGen_ : Bound , \
+             _Param_0_3_BatchGen_ : Bound"
+        );
+    }
+
+    #[test]
+    fn open_range_empty_when_past_end() {
+        // arity 1: no "from the second element" predicate — the open range
+        // truncates to zero instead of erroring (alga2's `@1..` requirement)
+        let names = fresh_names(1);
+        assert_eq!(resolve("@1.. : Bound", &names), "");
+    }
+
+    #[test]
+    fn at_ref_inside_group_resolves() {
+        // angle_collect pairs `<>` into a None group; `@0` inside is a value
+        // reference and must resolve (recursion mirrors resolve_at_refs)
+        let names = fresh_names(2);
+        let inner: TokenStream = "Scalar = @0 :: Scalar".parse().unwrap();
+        let none = Group::new(proc_macro2::Delimiter::None, inner);
+        let pred = TokenStream::from(TokenTree::Group(none));
+        assert_eq!(
+            resolve_where_at(&pred, &names).unwrap().to_string(),
+            "Scalar = _Param_0_0_BatchGen_ :: Scalar"
+        );
+    }
+
+    #[test]
+    fn range_tail_value_ref() {
+        // the tail after a range subject is scanned for `@N` too (the
+        // alga2 scenario: `Scalar = @0::Scalar` inside the bound)
+        let names = fresh_names(3);
+        let out = resolve("@1.. : Module < Scalar = @0 :: Scalar >", &names);
+        assert_eq!(
+            out,
+            "_Param_0_1_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar > , \
+             _Param_0_2_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar >"
+        );
+    }
+
+    #[test]
+    fn closed_range_tail_value_ref() {
+        let names = fresh_names(3);
+        let out = resolve("@1..=2 : Module < Scalar = @0 :: Scalar >", &names);
+        assert_eq!(
+            out,
+            "_Param_0_1_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar > , \
+             _Param_0_2_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar >"
+        );
+    }
 
     /// `WhereArr<>` expansion: impl generics `[T, const N: usize]` (parse-layer name is
     /// `const N`; the keyword is needed to render), trait args `[T, N]`, predicate

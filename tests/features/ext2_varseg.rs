@@ -111,3 +111,39 @@ trait ShapeOne {
 fn single_element_segment_direct_name() {
     assert_eq!((7u8,).get(), 7);
 }
+
+// ------------------------------------------------------------
+// 6. alga2 tuple Module: the scalar of every component from the second one
+//    on must equal the first component's scalar — `@1..` open-range where
+//    predicates with a `Scalar = @0::Scalar` value reference inside the
+//    angle group (arity 1 contributes no such predicate).
+// ------------------------------------------------------------
+#[batch_impl(
+    Module<(), ()> ()^1..=4 where{
+        @all_fresh: Module<(), (), Scalar: Copy>,
+        @1..: Module<(), (), Scalar = @0::Scalar>,
+    } impl{(A@..,)}
+    #Scalar{A0::Scalar}
+    #scale{( @(@A::scale(&self.@0, s),).. )}
+)]
+trait Module<Add, Mul> {
+    type Scalar;
+    fn scale(&self, s: Self::Scalar) -> Self;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct S<T>(T);
+
+impl<T: Copy + std::ops::Mul<Output = T>> Module<(), ()> for S<T> {
+    type Scalar = T;
+    fn scale(&self, s: T) -> Self {
+        S(self.0 * s)
+    }
+}
+
+#[test]
+fn tuple_module_shared_scalar() {
+    assert_eq!((S(2u8),).scale(4u8), (S(8u8),));
+    assert_eq!((S(2u8), S(3u8)).scale(4u8), (S(8u8), S(12u8)));
+    assert_eq!((S(2u8), S(3u8), S(4u8)).scale(4u8), (S(8u8), S(12u8), S(16u8)));
+}
