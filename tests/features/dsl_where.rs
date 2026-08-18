@@ -115,3 +115,25 @@ fn where_bare_multi_clause() {
     fn check<T: MultiOrd<i32>>() {}
     check::<Vec<i32>>();
 }
+
+// ============================================================
+// 0.8.1 fix: `where{...}` predicate groups are angle-paired — a two-arg
+// bound (`Semi<Additive, Multiplicative>`) keeps its comma inside the angle
+// group, so the depth-0 predicate split cannot cut it into a bad predicate
+// (`Multiplicative> , @1: Clone` used to render invalid Rust).
+// ============================================================
+trait Semi<A, B> {}
+impl<A, B> Semi<A, B> for u8 {}
+struct Additive;
+struct Multiplicative;
+
+#[batch_impl(()^2 where{@0: Semi<Additive, Multiplicative>, @1: Clone} { fn n(&self) -> usize { 2 } })]
+trait TwoArgBound {
+    fn n(&self) -> usize;
+}
+
+#[test]
+fn where_two_arg_bound_not_split() {
+    let t = (1u8, 2u16);
+    assert_eq!(t.n(), 2);
+}

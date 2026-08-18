@@ -13,9 +13,22 @@ use proc_macro2::{Group, TokenStream, TokenTree};
 use crate::util::compile_error_str;
 use crate::util::{bracket_is_passthrough, is_arrow};
 
+/// `true` when `tokens[i]` is a Brace group directly preceded by the `where`
+/// keyword — the `where{...}` predicate suffix (DSL: its content is type
+/// constraints and must be angle-paired), as opposed to a code-block body
+/// (arbitrary Rust, passthrough).
+fn is_where_group(tokens: &[TokenTree], i: usize) -> bool {
+    i >= 1 && matches!(&tokens[i - 1], TokenTree::Ident(id) if id == "where")
+}
+
 /// Entry transformation: a single pass flattens None groups and pairs `<...>`.
 ///
-/// - `Brace` groups (passthrough code) are not entered;
+/// - `Brace` groups are not entered — **except** `where{...}` predicate
+///   groups, whose content is DSL (type constraints such as
+///   `Semiring<Additive, Multiplicative>`): pairing keeps the comma inside
+///   the angle group, so downstream predicate splitting cannot cut it
+///   (a two-arg bound like `@all_fresh: Semiring<Additive, Multiplicative>`
+///   used to be split at the depth-0 comma);
 /// - `Paren` groups (DSL tuples) recurse; `Bracket` groups (DSL lists) recurse,
 ///   but `ident![...]` macro bodies / `#[...]` attributes are **not entered**
 ///   (their content may be arbitrary Rust, including comparison `<`);
@@ -58,9 +71,21 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
                 }
                 i += 1;
             }
-            // Passthrough code (body): do not enter
-            TokenTree::Group(_) => {
-                out.push(tokens[i].clone());
+            // Passthrough code (body): do not enter — except `where{...}`
+            // predicate groups, whose content is DSL and must be paired
+            // (see `is_where_group`).
+            TokenTree::Group(g) if g.delimiter() == delimiter![{}] => {
+                if is_where_group(tokens, i) {
+                    let inner = g.stream().into_iter().collect::<Vec<_>>();
+                    let mut new_g = Group::new(
+                        delimiter![{}],
+                        angle_collect_at(&inner, depth + 1)?.into_iter().collect(),
+                    );
+                    new_g.set_span(g.span());
+                    out.push(new_g.into());
+                } else {
+                    out.push(tokens[i].clone());
+                }
                 i += 1;
             }
             // Flat `<`: pair to the matching `>` (the `>` of `->` does not
@@ -130,7 +155,8 @@ fn is_punct(token: &TokenTree, ch: char) -> bool {
 /// nested angle groups) → rebuild and recurse; `Brace` (passthrough code that
 /// `angle_collect` never entered → cannot contain angle groups) →
 /// **passthrough as-is, no rebuild** (keeps spans, avoiding impact on
-/// passthrough code and diagnostic mapping).
+/// passthrough code and diagnostic mapping); `where{...}` predicate groups
+/// (entered during pairing → may contain angle groups) → rebuild and recurse.
 pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
     let tokens = stream.into_iter().collect::<Vec<_>>();
     let mut out = TokenStream::new();
@@ -162,6 +188,17 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
                 // groups such as doc attributes get call_site spans, affecting
                 // span-based diagnostic mapping in clippy and others)
                 let mut new_g = Group::new(g.delimiter(), inner);
+                new_g.set_span(g.span());
+                out.extend([TokenTree::Group(new_g)]);
+            }
+            // `where{...}` predicate groups were entered during pairing and
+            // may contain angle groups → rebuild and recurse (spans restored
+            // like the Paren/Bracket rebuild above).
+            TokenTree::Group(g)
+                if g.delimiter() == delimiter![{}] && is_where_group(&tokens, i) =>
+            {
+                let inner = render_angles(g.stream());
+                let mut new_g = Group::new(delimiter![{}], inner);
                 new_g.set_span(g.span());
                 out.extend([TokenTree::Group(new_g)]);
             }
@@ -268,5 +305,41 @@ mod tests {
         // procmacro2_semver_exempt.
         assert_eq!(roundtrip("[Vec<T>, (U, W<X>)]"), "[Vec < T > , (U , W < X >)]");
         assert_eq!(roundtrip("{ a < b }"), "{ a < b }");
+    }
+
+    /// `where{...}` predicate groups are DSL, not code: `<>` inside must
+    /// pair (so a two-arg bound's comma stays inside the angle group and
+    /// downstream predicate splitting cannot cut it), and rendering restores
+    /// them. Plain code bodies stay passthrough (comparison `<` untouched).
+    #[test]
+    fn where_group_angles_pair() {
+        let ts = "where{@all_fresh: Semiring<Additive, Multiplicative>}".parse::<TS2>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        let collected = angle_collect(&v).unwrap();
+        let rendered = render_angles(collected.into_iter().collect());
+        assert_eq!(
+            rendered.to_string(),
+            "where { @ all_fresh : Semiring < Additive , Multiplicative > }"
+        );
+        // The classic single-arg predicate round-trips unchanged.
+        let ts = "where{@all_fresh: Semigroup<Additive>}".parse::<TS2>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        let collected = angle_collect(&v).unwrap();
+        let rendered = render_angles(collected.into_iter().collect());
+        assert_eq!(rendered.to_string(), "where { @ all_fresh : Semigroup < Additive > }");
+    }
+
+    /// A where-group followed by a code body: the body stays passthrough
+    /// (comparison `<` untouched) while the where predicates pair.
+    #[test]
+    fn where_group_then_body() {
+        let ts = "where{@all_fresh: Map<A, B>} { fn m() { if x < y {} } }".parse::<TS2>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        let collected = angle_collect(&v).unwrap();
+        let rendered = render_angles(collected.into_iter().collect());
+        assert_eq!(
+            rendered.to_string(),
+            "where { @ all_fresh : Map < A , B > } { fn m () { if x < y { } } }"
+        );
     }
 }
