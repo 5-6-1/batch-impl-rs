@@ -1,6 +1,8 @@
 # batch-impl 教程
 
-**v0.7.2**——0.7.2 加入 `batch_preview!` 展开预览、trait 实参生成器 splat 声明提升、`#blanket` 按值接收者转发、属性宏自定义 `@` 常量段与 `@` 诊断用户语言化；0.7.1 加入了定向诊断（残留/相邻/空值 token、拼写建议）取代 rustc 裸错；0.7.0 在既有骨架上加入了 **`*` 摊平操作符**，并把 `<>`/`()`/`[]` 从"被动语法"升级为"可编程结构"：泛型实参内部现在可以写 generator（`()^N`）、splat（`*(A,B)`）、常量族（`@u*`）、列表（`[A,B]`）、绑定（`Item=u32`）与嵌套类型。
+**v0.8.0**（unreleased）——教程暂无变化（仅风格与文档打底）；
+
+**v0.7.2**——0.7.2 加入 `batch_preview!` 展开预览、trait 实参生成器 splat 声明提升、`#blanket` 按值接收者转发、属性宏自定义 `@` 常量段（0.8.0 已回退）与 `@` 诊断用户语言化；0.7.1 加入了定向诊断（残留/相邻/空值 token、拼写建议）取代 rustc 裸错；0.7.0 在既有骨架上加入了 **`*` 摊平操作符**，并把 `<>`/`()`/`[]` 从"被动语法"升级为"可编程结构"：泛型实参内部现在可以写 generator（`()^N`）、splat（`*(A,B)`）、常量族（`@u*`）、列表（`[A,B]`）、绑定（`Item=u32`）与嵌套类型。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
@@ -338,9 +340,9 @@ trait BoxRc {}
 
 常量值存**原样 token**，引用处拼接并递归展开——值可以是 DSL 运算值（`@uints=@uint`），也可以链式引用（`@a=@b`）。定义处拦截循环/前向引用（防无限递归）；裸范围端点引用（`@a=@u8` 无 `..`）定义处报错。
 
-### 6.3 自定义常量段（三个入口通用）
+### 6.3 自定义常量段（仅 `batch_trait!`）
 
-前导 `@name=值;` 段定义复用的常量（0.7.2 起 `#[batch_impl]` / `#[batch_impl_only]` 同样支持；值可含链式引用与 DSL 表达式）：
+前导 `@name=值;` 段定义复用的常量（值可含链式引用与 DSL 表达式）。**`#[batch_impl]` / `#[batch_impl_only]` 不支持自定义常量**——0.7.2 误加的特性已在 0.8.0 回退；属性宏矩阵直接用 `^`/`-`/`*` 书写：
 
 ```rust
 # use batch_impl::batch_trait;
@@ -350,13 +352,6 @@ batch_trait! {
     A: @uints;
     B: <T> B<T> Vec<T>;
 }
-```
-
-```rust
-# use batch_impl::batch_impl;
-# use std::rc::Rc;
-#[batch_impl(@small = [u8, u16]; @wrap = [Box, Rc]^@small; @wrap)]
-trait AttrConsts {}
 ```
 
 > **限制**：`batch_trait!` **不支持 `#` 指令**（`#fill`/`#delegate`/`#blanket`/开放扩展）——指令需要 trait 定义作签名真相源，而 `batch_trait!` 是函数式宏、拿不到 trait 定义。需要指令时请改用 `#[batch_impl]` / `#[batch_impl_only]`。
@@ -505,6 +500,102 @@ trait T { fn tag(&self) -> &'static str; }
 ### 8.3 谓词继承与 `@N` 引用
 
 trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..=M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义），包进元组或分开写。
+
+### 8.4 `impl{...}` Self-part 形状模板（0.8.0，Ext 2）
+
+`where{...}` 与 `{body}` 之外的第三种尾随附件——Self-part 形状模板。
+三种附件**任意顺序**。块内是**标准 Rust 类型**（DSL 算子被拒绝）：与矩阵
+叶子目标类型**逐位匹配**——与目标同位置的 ident **相同** → 字面保留，
+**不同** → 绑定槽，替换进目标类型、where 谓词与 body。一个 body 适配所有叶子：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl([Box, Rc]^u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
+trait Make { fn mk(x: u32) -> Self; }
+// → impl Make for Box<u32> { fn mk(x: u32) -> Box<u32> { Box::new(x) } }
+// → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
+```
+
+- `impl{T}` + `i32` → `T := i32`（裸 ident 模板绑定整个叶子）；
+- `impl{Rc<T>}` + `Rc<i32>` → `T := i32`（`Rc` 相同 → 字面）；
+- `impl{Rc<T>}` + `Box<i32>` → `Rc := Box, T := i32`（base 不同 → 槽）；
+- 多个 `impl{...}` 合并为单一映射——同形冗余绑定合法、异形冲突报错
+  （`impl{X}` 绑定整个叶子、`impl{X<u32>}` 绑定 base → `InconsistentBinding`）；
+- 附件深度上限把 `impl{...}` 与另两类一并计数；
+- 模板内 `@trait` 在匹配前展开为 trait path。
+
+#### 模板匹配：哪些能绑定、哪些不能
+
+模板与叶子按**结构递归**匹配——每种 `syn::Type` 形态都被识别并递归：
+
+| 模板形态 | 行为 |
+|---|---|
+| `T`（裸 ident） | 绑定整个叶子子树 |
+| `Rc<T>` / `std::rc::Rc<T>`（路径，多段也可） | base/段 ident：相同→字面、不同→槽；泛型实参递归 |
+| `&A` / `&mut A` / `*const A` / `*mut A` | 引用/指针的生命周期与可变性只做结构比较；元素绑定 |
+| `[A]`（切片）、`(A, B, C)`（元组） | 逐位绑定元素 |
+| `[A; 3]`（定长数组，字面长度） | 长度逐字比较；元素绑定 |
+| `[A; N]`（定长数组，const 参数长度） | 长度**绑定**叶子长度（`N := 3`；body 可用 `N`） |
+| `Cow<'_, A>`（生命周期实参） | `'_'` 是**通配**，匹配任意生命周期；`'a` vs `'b` 逐字；类型实参照常绑定 |
+
+不能绑定（保持逐字比较——定向诊断而非静默误绑）：
+
+- **fn 指针 / trait 对象模板内部**（`fn(A) -> B`、`dyn A + Send`）：整体逐字比较，只有完全相同的模板能匹配自身；
+- **跨类实参绑定**（`Cow<'_, A>` 拆 1 实参的 `Box<u8>` 叶子；`Foo<A>` 拆 `Foo<3>`）：生命周期/const 实参不能绑定类型实参，arity 错位也无法对齐。改为每个形状族一个原型模板（下节）。
+
+#### 原型实现模式
+
+为**代表叶子**写一个正确实现，"相同→保留、不同→绑定"规则会自动适配矩阵中的每个叶子：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl([Box, Rc]^@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
+trait TMax { fn max() -> Self; }
+// → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
+// → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
+// → impl TMax for Rc<f64>  { fn max() -> Rc<f64>  { Rc::new(f64::MAX) } }
+```
+
+每个形状族需要自己的原型（`Cow<'_, u8>` 模板覆盖 Cow 族——`'_'` 通配匹配任意叶子生命周期）。一族一族合并在同一条属性里，可写成独立 spec，也可写成成对 + 列表级分发：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::borrow::Cow;
+# use std::rc::Rc;
+#[batch_impl(
+    [[Box, Rc] impl{Box<u8>},
+     Cow<'_> impl{Cow<'_, u8>}]^@num #tag{1}
+)]
+trait Tag { fn tag() -> usize; }
+// Box<u8>..Rc<f64> 由 Box<u8> 原型覆盖；Cow<'_, u8>..Cow<'_, f64> 由 Cow 原型覆盖
+// ——一条属性、两个形状族
+```
+
+### 8.5 ItemImpl 入口（0.8.0，Ext 1）
+
+`#[batch_impl]` 同样接受 **`impl` 块**：DSL 描述**形状模板 × 矩阵源**，每个
+矩阵叶子产出一个 impl，槽映射（与 `impl{...}` 相同的"相同→保留、不同→绑定"规则）
+重写 for-Type / where 谓词 / body。原始 impl（for-Type 含占位槽名）被 withhold：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+# trait Make { fn make() -> Self; }
+#[batch_impl(A<B> : [Box, Rc]^[usize, isize])]
+impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
+// → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
+// → ... × 4
+```
+
+- attr 语法：shape 形态 `A<B> : [Box,Rc]^[usize,isize]`（模板 `:` 矩阵）或直接形态
+  `<T> Box<T>`（泛型声明 + for-type，N = 1）；`;` 分隔多个 spec（`W:u8; W:u16`），
+  单 spec 为常见形态；
+- `@trait`（→ impl 的 trait path）允许在泛型声明 bound 与 where 谓词中；自定义
+  `@` 常量、`@N`/`@g_i` 引用与 `#` 指令在本入口拒绝；
+- impl 自带的泛型 / where 子句 / `unsafe` 保留；裸 where 谓词区域也以深度 0 `;`
+  或（ItemImpl 仅）流末尾终止。
 
 ## 9. 元组生成与矩阵
 

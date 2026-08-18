@@ -1,0 +1,7 @@
+error: batch-impl: binding slot `X` is bound to different subtrees across merged `impl{...}` templates (`Box` vs `Box < u32 >`)
+ --> tests/ui/impl_inconsistent_binding.rs:6:1
+  |
+6 | #[batch_impl(Box<u32> impl{X} impl{X<u32>})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

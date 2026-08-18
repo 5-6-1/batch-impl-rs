@@ -1,13 +1,16 @@
-//! # 场景演示：一个"数据检查"小库，29 个 impl，约 15 行 DSL
+//! # A small "data inspection" library: 29 impls from ~15 lines of DSL
 //!
-//! 手写这些 impl 需要 ~80 行：12 个数值类型各写一遍签名与 body、
-//! 4 个包装类型各写一遍 `(**self).xxx()` 委托、元组各长度手写泛型、
-//! fn/HashMap/指针/关联类型逐一实现……下面用 DSL 一键批量完成。
+//! Hand-writing these impls takes ~80 lines: the signature and body copied
+//! once per numeric type, four wrapper types each repeating the
+//! `(**self).xxx()` delegation, hand-written generics per tuple length,
+//! separate impls for fn/HashMap/pointers/associated types… The DSL below
+//! batches all of it.
 //!
-//! 特性覆盖：`[...]` 并列列表、共享 body、`^` 列表应用、`&`/`*const`/`*mut`
-//! 前缀、`where{...}` 约束、`#delegate` / `#fill` / `#name` 指令、
-//! 元组生成 `()^1..=4`、`-` 左结合、关联类型绑定 `Item=T`、
-//! `batch_impl` / `batch_impl_only` / `batch_trait!` 三个入口。
+//! Features covered: `[...]` side-by-side lists, shared body, `^` list
+//! application, `&`/`*const`/`*mut` prefixes, `where{...}` constraints,
+//! `#delegate` / `#fill` / `#name` directives, tuple generation `()^1..=4`,
+//! left-associative `-`, associated type bindings `Item=T`, and the three
+//! entry points `batch_impl` / `batch_impl_only` / `batch_trait!`.
 
 use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 use std::collections::HashMap;
@@ -15,9 +18,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 // ============================================================
-// 1. 12 个数值类型：`[...]` 列表 + 共享 body → 12 impl
+// 1. 12 numeric types: `[...]` list + shared body → 12 impls
 // ============================================================
-// `Self::default()` 对整型/浮点都是 0，一个 body 通吃全部数值类型。
+// `Self::default()` is 0 for both integers and floats, so one body covers
+// every numeric type.
 #[batch_impl(
     [u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64] {
         fn describe(&self) -> String { format!("num:{self}") }
@@ -30,13 +34,15 @@ trait Describe {
 }
 
 // ============================================================
-// 2. & / Box / Rc / Arc 委托内部值：`[&, Box, Rc, Arc]^T` → 4 impl
+// 2. & / Box / Rc / Arc delegate to the inner value: `[&, Box, Rc, Arc]^T` → 4 impls
 // ============================================================
-// 为什么能合并成一条？四个类型的 `self` 都是"指向包装的引用"：
-// - &T  ：self 是 &&T，`**self` = T
-// - Box：self 是 &Box<T>，`**self` = T
-// 所以委托体完全相同，`#delegate` 指令自动抄签名 + 生成 `(**self).method()`。
-// `&` 与 Box/Rc/Arc 一样只是列表元素，`^` 把它们一次性应用到 T。
+// Why does one line cover all four? `self` is a reference to the wrapper in
+// every case:
+// - &T  : self is &&T, `**self` = T
+// - Box: self is &Box<T>, `**self` = T
+// So the delegation body is identical; `#delegate` copies the signatures and
+// generates `(**self).method()`. `&` is just another list element, and `^`
+// applies each of them to T at once.
 #[batch_impl_only(
     <T: Describe> [&, Box, Rc, Arc]^T #delegate(describe, is_zero){**self}
 )]
@@ -46,7 +52,7 @@ trait Describe {
 }
 
 // ============================================================
-// 3. 元组生成：`()^1..=4` → 4 impl，各带独立泛型参数
+// 3. Tuple generation: `()^1..=4` → 4 impls, each with its own generics
 // ============================================================
 #[batch_impl(
     ()^1..=4 { fn describe(&self) -> &'static str { "tuple" } }
@@ -56,7 +62,7 @@ trait DescribeTuple {
 }
 
 // ============================================================
-// 4. `-` 操作符（左结合，累加参数）：fn 返回类型 / HashMap<K, V>
+// 4. The `-` operator (left-associative, accumulates args): fn return types / HashMap<K, V>
 // ============================================================
 #[batch_impl(fn(i32, u32)-String)]
 trait FnReturn {}
@@ -65,7 +71,7 @@ trait FnReturn {}
 trait KvMarker {}
 
 // ============================================================
-// 5. 关联类型绑定 `Item=T` + `#name{body}` 单 item（const）
+// 5. Associated type binding `Item=T` + `#name{body}` for a single item (const)
 // ============================================================
 #[batch_impl(
     <T> IterInfo<Item=T> Vec<T> {
@@ -83,7 +89,7 @@ trait HasMax {
 }
 
 // ============================================================
-// 6. `#fill(args){body}`：多方法共享同一 body
+// 6. `#fill(args){body}`: one body shared by several methods
 // ============================================================
 #[batch_impl(u8 #fill(name, kind){"u8"})]
 trait Kind {
@@ -92,13 +98,13 @@ trait Kind {
 }
 
 // ============================================================
-// 7. `batch_trait!`：对已声明 trait 批量生成，多段 + unsafe 段
+// 7. `batch_trait!`: batch impls for an already-declared trait, multi-segment + unsafe segment
 // ============================================================
 trait Multi {}
 
 /// # Safety
 ///
-/// 仅演示 `unsafe` 段语法；本身无安全不变量需要说明。
+/// Demo of the `unsafe` segment syntax only; no safety invariant to document.
 unsafe trait UnsafeMark {}
 
 batch_trait!(
@@ -107,40 +113,40 @@ batch_trait!(
 );
 
 // ============================================================
-// 8. 指针前缀 `*const` / `*mut`
+// 8. Pointer prefixes `*const` / `*mut`
 // ============================================================
 #[batch_impl(*const^u32, *mut^i32)]
 trait PtrMarker {}
 
 // ============================================================
-// 验证：29 个 impl（12 数值 + 4 包装 + 4 元组 + 2 fn/HashMap
-// + 3 Multi/Unsafe + 2 关联类型/const + 2 指针）
+// Verification: 29 impls (12 numeric + 4 wrappers + 4 tuples + 2 fn/HashMap
+// + 3 Multi/Unsafe + 2 assoc-type/const + 2 pointers)
 // ============================================================
 fn main() {
-    // 1. 数值
+    // 1. Numeric
     assert!(0u8.is_zero());
     assert_eq!(3i32.describe(), "num:3");
     assert!(0.0f64.is_zero());
 
-    // 2. 包装（同一套委托体）
+    // 2. Wrappers (same delegation body for all four)
     assert!(Box::new(0u32).is_zero());
     assert!(!Rc::new(5u32).is_zero());
     assert!(!Arc::new(5u32).is_zero());
     assert_eq!(7u64.describe(), "num:7");
     assert!(!Box::new(3i32).is_zero());
 
-    // 3. 元组
+    // 3. Tuples
     assert_eq!((1u8,).describe(), "tuple");
     assert_eq!((1u8, 2u16, 3u32, 4u64).describe(), "tuple");
 
-    // 4. fn 返回类型 / HashMap
+    // 4. fn return type / HashMap
     fn _f<T: FnReturn>(_: &T) {}
     fn _k<T: KvMarker>(_: &T) {}
     let fr: fn(i32, u32) -> String = |_, _| String::new();
     _f(&fr);
     _k(&HashMap::<u8, u16>::new());
 
-    // 5. 关联类型 + const
+    // 5. Associated type + const
     assert_eq!(vec![1u8, 2, 3].describe(), "vec:3");
     assert_eq!(<u8 as HasMax>::MAX, 255);
 
@@ -155,12 +161,12 @@ fn main() {
     _m(&0u16);
     _u(&0u32);
 
-    // 8. 指针
+    // 8. Pointers
     fn _p<T: PtrMarker>(_: &T) {}
     let c: *const u32 = &5u32;
     let m: *mut i32 = &mut 5i32;
     _p(&c);
     _p(&m);
 
-    println!("✔ 约 15 行 DSL → 29 个 impl，全部断言通过");
+    println!("✔ ~15 lines of DSL → 29 impls, all assertions pass");
 }

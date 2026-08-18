@@ -12,8 +12,8 @@ use syn::ItemTrait;
 
 use crate::ast::{fresh_param, take_group};
 use crate::preprocess::{
-    angle_collect, build_from_item, collect_call_args, get_trait_item,
-    parse_blanket_wrappers, parse_names_from_tokens,
+    angle_collect, build_from_item, collect_call_args, get_trait_item, parse_blanket_wrappers,
+    parse_names_from_tokens,
 };
 use crate::util::{compile_err, compile_error_str};
 
@@ -49,18 +49,15 @@ use crate::util::{compile_err, compile_error_str};
 /// on the wrapper's Deref/move capability, indistinguishable at macro
 /// expansion time — keep full pass-through + rustc fallback.
 pub(crate) fn expand_blanket(
-    args_group: &Group, body: &Group, trait_def: &ItemTrait,
-    trait_full_path: &TokenStream,
+    args_group: &Group, body: &Group, trait_def: &ItemTrait, trait_full_path: &TokenStream,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     // body is a Brace group (`angle_collect` does not enter), so flat `<...>`
     // such as `Cow<'_>` inside were not paired — do one pairing pass here
     // (body is an independent fragment; pairing is safe and side-effect-free).
     let body_tokens = angle_collect(&body.stream().into_iter().collect::<Vec<_>>())?;
     let wrappers = parse_blanket_wrappers(&body_tokens)?;
-    let method_names = parse_names_from_tokens(
-        &args_group.stream().into_iter().collect::<Vec<_>>(),
-        trait_def,
-    )?;
+    let method_names =
+        parse_names_from_tokens(&args_group.stream().into_iter().collect::<Vec<_>>(), trait_def)?;
     // Fresh generic: avoids clashing with other names (same mechanism as the
     // `()^N` tuple generic); group 0 position 0 — the blanket is the spec's
     // only fresh generator, and the codegen sweeper renumbers it to
@@ -176,11 +173,8 @@ pub(crate) fn expand_blanket(
             let wrapper_stream: TokenStream = wrapper_preds.into_iter().collect();
             where_streams.push(wrapper_stream);
         }
-        let where_part = if where_streams.is_empty() {
-            quote!()
-        } else {
-            quote!(where { #(#where_streams),* })
-        };
+        let where_part =
+            if where_streams.is_empty() { quote!() } else { quote!(where { #(#where_streams),* }) };
         let mut methods = TokenStream::new();
         for name in &method_names {
             let item = get_trait_item(trait_def, name)?;
@@ -211,7 +205,9 @@ pub(crate) fn expand_blanket(
                         compile_err!(
                             "batch-impl: #blanket method `{}::{}` param `{}` cannot be \
                              forwarded: only `self` and plain identifier patterns are supported",
-                            trait_def.ident, name, pat
+                            trait_def.ident,
+                            name,
+                            pat
                         )
                     })?;
                     let body = if f.sig.receiver().is_none() {
@@ -225,17 +221,24 @@ pub(crate) fn expand_blanket(
                         // inner type, E0614).
                         let derefs = if matches!(
                             f.sig.receiver().map(|r| &r.kind),
-                            Some(
-                                syn::ReceiverKind::Value
-                                    | syn::ReceiverKind::Typed(..)
-                            )
+                            Some(syn::ReceiverKind::Value | syn::ReceiverKind::Typed(..))
                         ) {
                             wrapper.depth
                         } else {
                             wrapper.depth + 1
                         };
-                        let self_ty: TokenStream =
-                            format!("{}self", "*".repeat(derefs)).parse().unwrap();
+                        // Build the deref chain structurally (no string
+                        // parsing — the no-panic promise): N `*` puncts
+                        // followed by `self`, always a valid expression.
+                        let stars: TokenStream = std::iter::repeat_n(
+                            TokenTree::Punct(proc_macro2::Punct::new(
+                                '*',
+                                proc_macro2::Spacing::Alone,
+                            )),
+                            derefs,
+                        )
+                        .collect();
+                        let self_ty: TokenStream = quote!(#stars self);
                         quote! { (#self_ty) . #name ( #(#call_args),* ) }
                     };
                     methods.extend(build_from_item(item, &body));
@@ -264,11 +267,8 @@ pub(crate) fn expand_blanket(
         // Without `@0` the wrapper is applied as `wrapper^T` (target appended
         // last) — the existing behavior.
         let wrapper_vec: Vec<_> = wrapper_ty.clone().into_iter().collect();
-        let target: TokenStream = if has_at0(&wrapper_vec) {
-            quote!(#wrapper_ty)
-        } else {
-            quote!(#wrapper_ty ^ #t)
-        };
+        let target: TokenStream =
+            if has_at0(&wrapper_vec) { quote!(#wrapper_ty) } else { quote!(#wrapper_ty ^ #t) };
         spec_streams.push(quote! {
             #doc_note #impl_generics #trait_part #target #where_part { #methods }
         });
@@ -298,9 +298,7 @@ fn has_at0(tokens: &[TokenTree]) -> bool {
         TokenTree::Punct(p) if p.as_char() == '@' => {
             matches!(v.get(i + 1), Some(TokenTree::Literal(l)) if l.to_string() == "0")
         }
-        TokenTree::Group(g) => {
-            has_at0(&g.stream().into_iter().collect::<Vec<_>>())
-        }
+        TokenTree::Group(g) => has_at0(&g.stream().into_iter().collect::<Vec<_>>()),
         _ => false,
     })
 }
@@ -335,11 +333,9 @@ fn resolve_target_predicates(
                     i += 2;
                 }
                 // `@0` / `@N`: keep as-is for codegen; other forms error
-                Some(TokenTree::Literal(lit))
-                    if lit.to_string().parse::<usize>().is_ok() =>
-                {
+                Some(TokenTree::Literal(lit)) if lit.to_string().parse::<usize>().is_ok() => {
                     out.push(preds[i].clone());
-                    out.push(preds[i + 1].clone());
+                    out.push(TokenTree::Literal(lit.clone()));
                     i += 2;
                 }
                 _ => {

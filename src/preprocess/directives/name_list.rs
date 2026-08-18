@@ -68,8 +68,7 @@ fn parse_name_tokens(
             // `-name` / `-[a,b]` / `-@all` (@all expands to a Bracket group
             // and takes the group branch): exclusion
             TokenTree::Punct(p) if p.as_char() == '-' => {
-                let (ids, consumed) =
-                    parse_minus_target(&tokens[i + 1..], trait_def, what)?;
+                let (ids, consumed) = parse_minus_target(&tokens[i + 1..], trait_def, what)?;
                 exclude.extend(ids);
                 i += 1 + consumed;
                 prev_was_comma = false;
@@ -94,10 +93,7 @@ fn parse_name_tokens(
             what
         ));
     }
-    let names = keep
-        .into_iter()
-        .filter(|id| !exclude.iter().any(|e| e == id))
-        .collect::<Vec<_>>();
+    let names = keep.into_iter().filter(|id| !exclude.iter().any(|e| e == id)).collect::<Vec<_>>();
     if names.is_empty() {
         return Err(compile_err!("batch-impl: {} cannot be empty", what));
     }
@@ -110,9 +106,7 @@ fn parse_minus_target(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
 ) -> Result<(Vec<Ident>, usize), TokenStream> {
     match tokens.first() {
-        Some(TokenTree::Ident(id)) => {
-            Ok((vec![Ident::new(&id.to_string(), id.span())], 1))
-        }
+        Some(TokenTree::Ident(id)) => Ok((vec![Ident::new(&id.to_string(), id.span())], 1)),
         Some(TokenTree::Group(g)) if g.delimiter() == delimiter![[]] => {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let ids = parse_name_tokens(&inner, trait_def, what)?;
@@ -139,5 +133,4 @@ pub(crate) enum ReceiverFilter {
 
 /// `all`-family marker → (include_fn, include_const, include_type, default
 /// filter, receiver filter).
-pub(crate) type AllMarkerSpec =
-    ((bool, bool, bool), Option<bool>, Option<ReceiverFilter>);
+pub(crate) type AllMarkerSpec = ((bool, bool, bool), Option<bool>, Option<ReceiverFilter>);

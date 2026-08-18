@@ -29,20 +29,14 @@ pub(crate) fn parse_generic(
             if i == 0 {
                 return None;
             }
-            return Some((
-                tokens[..i].to_vec(),
-                g.stream(),
-                tokens[i + 1..].to_vec(),
-            ));
+            return Some((tokens[..i].to_vec(), g.stream(), tokens[i + 1..].to_vec()));
         }
     }
     None
 }
 
 /// Parse a bare type-parameter list that starts with an angle-bracket group (`<'a, T: Clone>`).
-pub(crate) fn parse_type_params(
-    tokens: &[TokenTree],
-) -> Option<(TokenStream, Vec<TokenTree>)> {
+pub(crate) fn parse_type_params(tokens: &[TokenTree]) -> Option<(TokenStream, Vec<TokenTree>)> {
     let TokenTree::Group(g) = tokens.first()? else {
         return None;
     };
@@ -54,9 +48,8 @@ pub(crate) fn parse_type_params(
 
 /// Whether base ends with trait_name's ident (distinguishes `TraitName<T>` from plain generics)
 pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> bool {
-    trait_name.is_some_and(
-        |name| matches!(base.last(), Some(TokenTree::Ident(last)) if last == name),
-    )
+    trait_name
+        .is_some_and(|name| matches!(base.last(), Some(TokenTree::Ident(last)) if last == name))
 }
 
 /// Split by separator (angle brackets are already paired into opaque groups, so flat split)
@@ -65,9 +58,7 @@ pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> b
 /// `T: Two<A` / `B>`); if the macro ever generates generic-group contents containing angle
 /// brackets, they must be paired (`Group::new(delimiter![<>], ...)`) before insertion,
 /// never scattered as flat `<...>`.
-pub(crate) fn split_at_depth0(
-    tokens: &[TokenTree], separator: char,
-) -> Vec<&[TokenTree]> {
+pub(crate) fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[TokenTree]> {
     let mut chunks = vec![];
     let mut rest = tokens;
     while let Some(index) = scan_stop(rest, &[separator]) {
@@ -110,16 +101,16 @@ pub(crate) fn parse_angle_bracket_contents(
         // surfaces when the impl header is rendered.
         if let Some(eq) = scan_stop(chunk, &['=']) {
             if allow_special {
-                let name_ty =
-                    TyPrimitive(chunk[..eq].iter().cloned().collect()).to_ty();
+                let name_ty = TyPrimitive(chunk[..eq].iter().cloned().collect()).to_ty();
                 let value = match resolve_at_refs(&chunk[eq + 1..]) {
                     Ok(v) if v.is_empty() => TyPrimitive(compile_error_ty(
                         "batch-impl: binding `Item =` missing a value (write `Item = u32`)",
                         chunk[eq].span(),
                     ))
                     .to_ty(),
-                    Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
-                        .unwrap_or_else(empty),
+                    Ok(v) => {
+                        parse_item(&mut Cursor::new(&v), Op::Dash, trait_name).unwrap_or_else(empty)
+                    }
                     Err(e) => TyPrimitive(e).to_ty(),
                 };
                 bindings.push((Box::new(name_ty), Box::new(value)));
@@ -139,27 +130,19 @@ pub(crate) fn parse_angle_bracket_contents(
             if allow_special {
                 params.push((
                     Box::new(
-                        TyPrimitive(
-                            chunk[..colon].iter().cloned().collect::<TokenStream>(),
-                        )
-                        .to_ty(),
+                        TyPrimitive(chunk[..colon].iter().cloned().collect::<TokenStream>())
+                            .to_ty(),
                     ),
-                    Some(
-                        if chunk[colon + 1..].is_empty() {
-                            TyPrimitive(compile_error_ty(
-                                "batch-impl: bound `T:` missing a bound (write `T: Clone`)",
-                                chunk[colon].span(),
-                            ))
-                            .to_ty()
-                        } else {
-                            parse_item(
-                                &mut Cursor::new(&chunk[colon + 1..]),
-                                Op::Dash,
-                                trait_name,
-                            )
+                    Some(if chunk[colon + 1..].is_empty() {
+                        TyPrimitive(compile_error_ty(
+                            "batch-impl: bound `T:` missing a bound (write `T: Clone`)",
+                            chunk[colon].span(),
+                        ))
+                        .to_ty()
+                    } else {
+                        parse_item(&mut Cursor::new(&chunk[colon + 1..]), Op::Dash, trait_name)
                             .unwrap_or_else(empty)
-                        },
-                    ),
+                    }),
                 ));
             } else {
                 params.push((
@@ -178,9 +161,7 @@ pub(crate) fn parse_angle_bracket_contents(
                 chunk.first(),
                 Some(TokenTree::Punct(p)) if p.as_char() == '@'
             ) && matches!(chunk.get(1), Some(TokenTree::Literal(_)))
-                && chunk
-                    .iter()
-                    .any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '.'))
+                && chunk.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '.'))
             {
                 // `@N..M` range refs are where-predicate-only — reject them in
                 // args with a targeted message instead of leaking raw tokens.
@@ -192,8 +173,9 @@ pub(crate) fn parse_angle_bracket_contents(
                 .to_ty()
             } else {
                 match resolve_at_refs(chunk) {
-                    Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name)
-                        .unwrap_or_else(empty),
+                    Ok(v) => {
+                        parse_item(&mut Cursor::new(&v), Op::Dash, trait_name).unwrap_or_else(empty)
+                    }
                     Err(e) => TyPrimitive(e).to_ty(),
                 }
             };
@@ -212,8 +194,7 @@ pub(crate) fn parse_angle_bracket_contents(
 /// diagnostic for a token with no legal role in a type position at depth 0 —
 /// so the passthrough never renders invalid Rust without guidance.
 pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
-    let span =
-        tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site);
+    let span = tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site);
     if let Some(e) = validate_stray_punct(tokens) {
         return e;
     }
@@ -237,8 +218,7 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
 fn validate_stray_punct(tokens: &[TokenTree]) -> Option<Ty> {
     for (i, tt) in tokens.iter().enumerate() {
         if let TokenTree::Punct(p) = tt {
-            let is_range_inclusive =
-                p.as_char() == '=' && i > 0 && is_punct(&tokens[i - 1], '.');
+            let is_range_inclusive = p.as_char() == '=' && i > 0 && is_punct(&tokens[i - 1], '.');
             let msg = if is_range_inclusive {
                 None
             } else {
@@ -313,19 +293,12 @@ fn validate_adjacent(tokens: &[TokenTree]) -> Option<Ty> {
     let mut prev: Option<&TokenTree> = None;
     let mut prev_is_lifetime_name = false;
     for tt in tokens {
-        let is_lifetime_name =
-            matches!(prev, Some(TokenTree::Punct(p)) if p.as_char() == '\'');
+        let is_lifetime_name = matches!(prev, Some(TokenTree::Punct(p)) if p.as_char() == '\'');
         let prev_is_fragment = prev.is_some_and(|p| {
-            matches!(
-                p,
-                TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_)
-            )
+            matches!(p, TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_))
         }) && !prev_is_lifetime_name;
         let is_fragment = !is_lifetime_name
-            && matches!(
-                tt,
-                TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_)
-            );
+            && matches!(tt, TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_));
         // `fn`/`unsafe`/`dyn` may head an fn type or trait object
         // (`fn(A)->B` / `unsafe fn(A)` / `dyn Trait + Send`) — parse_function
         // and the dyn path own those; reaching primitive is an anomaly, not

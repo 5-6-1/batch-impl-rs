@@ -23,15 +23,11 @@ use crate::util::{bracket_is_passthrough, is_arrow};
 ///   participate); an orphaned (unpaired) one errors — this is invalid input,
 ///   and once reported, downstream (scan/where/path scanning) no longer needs
 ///   `<>` depth tracking.
-pub(crate) fn angle_collect(
-    tokens: &[TokenTree],
-) -> Result<Vec<TokenTree>, TokenStream> {
+pub(crate) fn angle_collect(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     angle_collect_at(tokens, 0)
 }
 
-fn angle_collect_at(
-    tokens: &[TokenTree], depth: usize,
-) -> Result<Vec<TokenTree>, TokenStream> {
+fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > crate::util::MAX_NEST_DEPTH {
         return Err(crate::util::depth_err(tokens, ""));
     }
@@ -197,13 +193,9 @@ mod tests {
     /// instead of overflowing the stack.
     #[test]
     fn angle_nesting_limit() {
-        let ts = format!(
-            "{}0{}",
-            "[".repeat(MAX_NEST_DEPTH + 1),
-            "]".repeat(MAX_NEST_DEPTH + 1)
-        )
-        .parse::<TS2>()
-        .unwrap();
+        let ts = format!("{}0{}", "[".repeat(MAX_NEST_DEPTH + 1), "]".repeat(MAX_NEST_DEPTH + 1))
+            .parse::<TS2>()
+            .unwrap();
         let v = ts.into_iter().collect::<Vec<_>>();
         let err = angle_collect(&v).unwrap_err().to_string();
         assert!(
@@ -216,10 +208,7 @@ mod tests {
     fn angle_roundtrip() {
         assert_eq!(roundtrip("Vec<T>"), "Vec < T >");
         assert_eq!(roundtrip("A<B<C>>"), "A < B < C > >");
-        assert_eq!(
-            roundtrip("Box<dyn Fn() + Send>"),
-            "Box < dyn Fn () + Send >"
-        );
+        assert_eq!(roundtrip("Box<dyn Fn() + Send>"), "Box < dyn Fn () + Send >");
         assert_eq!(roundtrip("<T: Clone> A<T>"), "< T : Clone > A < T >");
         assert_eq!(roundtrip("A<Item=T>"), "A < Item = T >");
         // the > of the -> arrow does not participate in pairing
@@ -277,10 +266,7 @@ mod tests {
         // Note: span preservation cannot be unit-tested — in fallback mode
         // `Span::mixed_site()` is call_site, and `Span::eq` is gated by
         // procmacro2_semver_exempt.
-        assert_eq!(
-            roundtrip("[Vec<T>, (U, W<X>)]"),
-            "[Vec < T > , (U , W < X >)]"
-        );
+        assert_eq!(roundtrip("[Vec<T>, (U, W<X>)]"), "[Vec < T > , (U , W < X >)]");
         assert_eq!(roundtrip("{ a < b }"), "{ a < b }");
     }
 }

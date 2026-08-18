@@ -1,0 +1,7 @@
+error: batch-impl: `impl{...}` template cannot destructure the target type (template `fn(A) -> B` does not match target `fn(u8) -> u16`)
+ --> tests/ui/impl_shape_fn_bound.rs:5:1
+  |
+5 | #[batch_impl(fn(u8) -> u16 impl{fn(A) -> B} { fn call(&self, x: u8) -> u16 { self(x) } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

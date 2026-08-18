@@ -15,9 +15,7 @@ use crate::util::compile_error_str;
 /// (target type + preceding blocks in chain order, rendered) and the macro
 /// call after the `!`. A `{!}` block must be the last block and there can
 /// be at most one.
-pub(crate) fn top_level_macro(
-    ty: &Ty,
-) -> Option<Result<(TokenStream, TokenStream), TokenStream>> {
+pub(crate) fn top_level_macro(ty: &Ty) -> Option<Result<(TokenStream, TokenStream), TokenStream>> {
     let mut body = vec![];
     let mut top: Option<TokenStream> = None;
     match walk_top_level(ty, &mut body, &mut top) {
@@ -37,9 +35,7 @@ pub(crate) fn walk_top_level(
                 if top.is_some() {
                     return Err(compile_error_str(
                         "batch-impl: at most one top-level `{! ...}` block per spec",
-                        tokens
-                            .first()
-                            .map_or_else(proc_macro2::Span::call_site, |t| t.span()),
+                        tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span()),
                     ));
                 }
                 *top = Some(tokens.into_iter().skip(1).collect());
@@ -61,9 +57,7 @@ pub(crate) fn walk_top_level(
                 if top.is_some() && !top_before {
                     return Err(compile_error_str(
                         "batch-impl: a `{! ...}` top-level block must be the last block",
-                        tokens
-                            .first()
-                            .map_or_else(proc_macro2::Span::call_site, |t| t.span()),
+                        tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span()),
                     ));
                 }
                 body.extend(code.0.clone());
@@ -83,9 +77,7 @@ pub(crate) fn render_ty_tokens(ty: &Ty) -> Vec<TokenTree> {
 /// input group: `name!{ (args){body} trait }` →
 /// `name!{ {spec} (args){body} trait }` (the spec group goes *inside* the
 /// macro input group, right after the opening delimiter).
-pub(crate) fn rewrite_macro_input(
-    mac: TokenStream, spec: TokenStream,
-) -> TokenStream {
+pub(crate) fn rewrite_macro_input(mac: TokenStream, spec: TokenStream) -> TokenStream {
     let tokens = mac.into_iter().collect::<Vec<TokenTree>>();
     let mut out: Vec<TokenTree> = Vec::with_capacity(tokens.len() + 1);
     let mut inserted = false;

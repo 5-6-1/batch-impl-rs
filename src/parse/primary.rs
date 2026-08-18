@@ -3,8 +3,7 @@
 use crate::apply::{err_ty, err_ty_at};
 use crate::ast::*;
 use crate::parse::generic::{
-    empty, is_trait_base, parse_angle_bracket_contents, parse_generic,
-    parse_type_params, primitive,
+    empty, is_trait_base, parse_angle_bracket_contents, parse_generic, parse_type_params, primitive,
 };
 use crate::parse::parse_atom::{
     parse_attribute, parse_function, parse_group, parse_prefix, parse_range,
@@ -15,16 +14,18 @@ use crate::parse::{parse_item, split_at_depth0};
 use crate::util::Cursor;
 use proc_macro2::{Delimiter, Ident, TokenTree};
 
-pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
+/// Primary type parsing: groups, generic args (incl. array dispatch), splats, prefixes.
+///
+/// `depth` counts chained type segments (see [`parse_primitive`]): every
+/// `parse_primitive(rest, depth + 1)` call below is one more applied unit,
+/// so flat chains like `<T><U>...X` or `Trait<A> Trait<B>... X` hit the
+/// 128-level guard instead of overflowing the downstream tree traversals.
+pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>, depth: usize) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
-        return attach_wrapper(
-            TyWithAttr(TyAttr(attr), None).into(),
-            rest,
-            trait_name,
-        );
+        return attach_wrapper(TyWithAttr(TyAttr(attr), None).into(), rest, trait_name, depth);
     }
 
-    if let Some(function) = parse_function(tokens, trait_name) {
+    if let Some(function) = parse_function(tokens, trait_name, depth) {
         return function;
     }
 
@@ -43,7 +44,7 @@ pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) ->
         //   any other type is almost certainly a forgotten `^` (unsafe^Vec<T>)
         if matches!(prefix, TyPrefix::Unsafe) && !rest.is_empty() {
             if matches!(rest.first(), Some(TokenTree::Ident(f)) if f == "fn") {
-                let inner = parse_primitive(rest, trait_name);
+                let inner = parse_primitive(rest, trait_name, depth + 1);
                 return match inner.kind {
                     TyKind::Fn(mut f) => {
                         f.2 = true;
@@ -58,8 +59,7 @@ pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) ->
 or act as a bare impl marker (e.g. `unsafe^T`)",
             );
         }
-        let inner =
-            attach_wrapper(TyWithPrefix(prefix, None).into(), rest, trait_name);
+        let inner = attach_wrapper(TyWithPrefix(prefix, None).into(), rest, trait_name, depth);
         return inner;
     }
 
@@ -71,10 +71,7 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
     // collection / apply), not here.
     if let [TokenTree::Punct(star), TokenTree::Group(group), rest @ ..] = tokens
         && star.as_char() == '*'
-        && matches!(
-            group.delimiter(),
-            Delimiter::Bracket | Delimiter::Parenthesis
-        )
+        && matches!(group.delimiter(), Delimiter::Bracket | Delimiter::Parenthesis)
     {
         let inner = group.stream().into_iter().collect::<Vec<TokenTree>>();
         let elems = if inner.is_empty() {
@@ -86,8 +83,7 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
                 // (empty splat elements are not elements at all).
                 .filter(|c| !c.is_empty())
                 .map(|c| {
-                    parse_item(&mut Cursor::new(c), Op::Dash, trait_name)
-                        .unwrap_or_else(empty)
+                    parse_item(&mut Cursor::new(c), Op::Dash, trait_name).unwrap_or_else(empty)
                 })
                 .collect()
         };
@@ -102,7 +98,7 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
         return if rest.is_empty() {
             splat
         } else {
-            splat.apply(parse_primitive(rest, trait_name))
+            splat.apply(parse_primitive(rest, trait_name, depth + 1))
         };
     }
 
@@ -145,11 +141,8 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
 
     if let Some((base, args, rest)) = parse_generic(tokens) {
         let args_vec = args.into_iter().collect::<Vec<TokenTree>>();
-        let params = parse_angle_bracket_contents(
-            &args_vec,
-            trait_name,
-            is_trait_base(&base, trait_name),
-        );
+        let params =
+            parse_angle_bracket_contents(&args_vec, trait_name, is_trait_base(&base, trait_name));
         let generic = if is_trait_base(&base, trait_name) {
             TyTrait(base.iter().cloned().collect(), params).into()
         } else {
@@ -165,7 +158,7 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
         return if rest.is_empty() {
             generic
         } else {
-            generic.apply(parse_primitive(&rest, trait_name))
+            generic.apply(parse_primitive(&rest, trait_name, depth + 1))
         };
     }
 
@@ -188,7 +181,7 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
         return if rest.is_empty() {
             params
         } else {
-            params.apply(parse_primitive(&rest, trait_name))
+            params.apply(parse_primitive(&rest, trait_name, depth + 1))
         };
     }
 

@@ -37,10 +37,7 @@ pub(crate) struct TyGroup(pub(crate) Box<Ty>);
 #[derive(Clone, Debug)]
 /// `[]` (seed) / `[T]` (slice) / `[T; N]` (fixed-length array) — `None` element
 /// means empty `[]`, `None` length means slice
-pub(crate) struct TyPrimitiveArray(
-    pub(crate) Option<Box<Ty>>,
-    pub(crate) Option<TokenStream>,
-);
+pub(crate) struct TyPrimitiveArray(pub(crate) Option<Box<Ty>>, pub(crate) Option<TokenStream>);
 #[derive(Clone, Debug)]
 /// `ident`
 pub(crate) struct TyPrimitive(pub(crate) TokenStream);
@@ -117,11 +114,7 @@ pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
 /// Bare `fn` / `fn(...)` / `fn(...)->T` — params `None` means not filled yet; the
 /// third field `is_unsafe` marks `unsafe fn(...)` types (`unsafe` qualifies the fn
 /// type itself, as opposed to `unsafe^T` marking an unsafe impl)
-pub(crate) struct TyFn(
-    pub(crate) Option<Vec<Ty>>,
-    pub(crate) Option<Box<Ty>>,
-    pub(crate) bool,
-);
+pub(crate) struct TyFn(pub(crate) Option<Vec<Ty>>, pub(crate) Option<Box<Ty>>, pub(crate) bool);
 #[derive(Clone, Debug)]
 /// `#[...]` — the attribute itself
 pub(crate) struct TyAttr(pub(crate) TokenStream);
@@ -154,6 +147,19 @@ pub(crate) struct TyWhere(pub(crate) TokenStream);
 #[derive(Clone, Debug)]
 /// Bare `where{...}` or `T where{...}` — inner `None` means a bare where suffix
 pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
+
+#[derive(Clone, Debug)]
+/// `impl{...}` — the Self-part shape template attached to a type (Ext 2):
+/// a standard Rust type inside the block (expanded by `expand_consts`,
+/// parsed by syn in codegen), matched against the leaf target type by
+/// `codegen::shape::match_shape`. Inner `None` means a bare `impl{...}`
+/// attachment. The template is consumed by the shape match — it is never
+/// emitted into the output.
+pub(crate) struct TyWithImpl(pub(crate) Option<Box<Ty>>, pub(crate) TyImplTemplate);
+
+#[derive(Clone, Debug)]
+/// The template token stream carried by [`TyWithImpl`].
+pub(crate) struct TyImplTemplate(pub(crate) TokenStream);
 
 #[derive(Clone, Debug)]
 pub(crate) struct Ty {
@@ -203,6 +209,7 @@ pub(crate) enum TyKind {
     WithType(TyWithType),
     WithCode(TyWithCode),
     WithWhere(TyWithWhere),
+    WithImpl(TyWithImpl),
     Num(TyNum),
     Range(TyRange),
     Error(TyError),

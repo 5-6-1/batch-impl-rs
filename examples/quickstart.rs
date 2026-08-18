@@ -1,7 +1,8 @@
-// batch-impl 快速上手 demo —— 单文件可运行展示 DSL 主要特性。
+// batch-impl quickstart demo — a runnable single-file tour of the main DSL
+// features.
 //
-// 运行：`cargo run --example quickstart`
-// 期望输出：每条都打印 `...: OK`，最后打印总览。
+// Run: `cargo run --example quickstart`
+// Expected output: every demo prints `...: OK`, then a summary line.
 
 use batch_impl::{batch_impl, batch_impl_only, batch_trait};
 use std::collections::HashMap;
@@ -9,7 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 // ------------------------------------------------------------
-// 1. 基础：为多个具体类型同时实现同一 trait
+// 1. Basics: implement one trait for several concrete types at once
 // ------------------------------------------------------------
 #[batch_impl(usize, isize, f32, f64)]
 trait Numeric {}
@@ -24,7 +25,7 @@ fn demos_basic() {
 }
 
 // ------------------------------------------------------------
-// 2. 泛型：`<T> Vec<T>` 一行声明
+// 2. Generics: `<T> Vec<T>` in one line
 // ------------------------------------------------------------
 #[batch_impl(<T> Vec<T>)]
 trait Collection {}
@@ -37,7 +38,7 @@ fn demos_generic() {
 }
 
 // ------------------------------------------------------------
-// 3. 共享 body + 独立 body 合并
+// 3. Shared body + independent body merging
 // ------------------------------------------------------------
 #[batch_impl(
     [usize { fn name() -> &'static str { "usize" } },
@@ -58,7 +59,7 @@ fn demos_shared_independent_body() {
 }
 
 // ------------------------------------------------------------
-// 4. `^` 运算符：容器 / 引用 / 笛卡尔积
+// 4. `^` operator: containers / references / Cartesian product
 // ------------------------------------------------------------
 #[batch_impl([&, Box, Rc, Arc]^u32)]
 trait RefOrOwned {}
@@ -74,7 +75,7 @@ fn demos_caret() {
 }
 
 // ------------------------------------------------------------
-// 5. 元组生成：`()^3` 自动生成泛型元组
+// 5. Tuple generation: `()^3` mints the generic tuple automatically
 // ------------------------------------------------------------
 #[batch_impl(()^3)]
 trait Tuple {}
@@ -97,7 +98,7 @@ fn demos_tuple_gen() {
 }
 
 // ------------------------------------------------------------
-// 6. 关联类型绑定：`<T> Iter<Item=T> Vec<T>`
+// 6. Associated type binding: `<T> Iter<Item=T> Vec<T>`
 // ------------------------------------------------------------
 #[batch_impl(<T> Iter<Item=T> Vec<T> {
     fn count(&self) -> usize { self.len() }
@@ -114,17 +115,17 @@ fn demos_assoc_binding() {
 }
 
 // ------------------------------------------------------------
-// 7. unsafe 支持：单条标记 + unsafe trait
+// 7. unsafe support: per-spec marker + unsafe trait
 // ------------------------------------------------------------
 /// # Safety
 ///
-/// 演示用标记 trait，无实际 unsafe 语义。
+/// Marker trait for the demo only; no real unsafe semantics.
 #[batch_impl(unsafe^usize, isize)]
 unsafe trait PartialUnsafe {}
 
 /// # Safety
 ///
-/// 演示用标记 trait，无实际 unsafe 语义。
+/// Marker trait for the demo only; no real unsafe semantics.
 #[batch_impl(u8, u16, u32)]
 unsafe trait AllUnsafe {}
 
@@ -140,7 +141,7 @@ fn demos_unsafe() {
 }
 
 // ------------------------------------------------------------
-// 8. fn 类型与返回类型
+// 8. fn types and return types
 // ------------------------------------------------------------
 #[batch_impl(fn^(i32, u32))]
 trait FnProbe {}
@@ -159,7 +160,7 @@ fn demos_fn_types() {
 }
 
 // ------------------------------------------------------------
-// 9. 属性支持：`#[allow(dead_code)]^T`
+// 9. Attribute support: `#[allow(dead_code)]^T`
 // ------------------------------------------------------------
 #[batch_impl(#[allow(dead_code)]^usize, isize)]
 trait AttrProbe {}
@@ -172,7 +173,7 @@ fn demos_attr() {
 }
 
 // ------------------------------------------------------------
-// 10. `#` 指令：从 trait 自动读取签名
+// 10. The `#` directives: signatures auto-read from the trait
 // ------------------------------------------------------------
 #[batch_impl(
     usize #to_str{"usize"},
@@ -201,14 +202,14 @@ fn demos_directives() {
 }
 
 // ------------------------------------------------------------
-// 11. `batch_trait!` 多段、路径 trait、unsafe 段
+// 11. `batch_trait!`: multi-segment, path trait, unsafe segment
 // ------------------------------------------------------------
 trait SegA {}
 trait SegB<T> {}
 
 /// # Safety
 ///
-/// 演示用标记 trait，无实际 unsafe 语义。
+/// Marker trait for the demo only; no real unsafe semantics.
 unsafe trait SegUnsafe {}
 
 mod deep {
@@ -237,7 +238,7 @@ fn demos_batch_trait_macro() {
 }
 
 // ------------------------------------------------------------
-// 12. `batch_impl_only`：trait 重复声明被丢弃
+// 12. `batch_impl_only`: the repeated trait definition is dropped
 // ------------------------------------------------------------
 trait DropTrait {
     fn val(&self) -> u32;
@@ -254,7 +255,7 @@ fn demos_batch_impl_only() {
 }
 
 // ------------------------------------------------------------
-// 13. 复杂类型透传：`dyn ...` 与 `fn() -> ...`
+// 13. Complex type passthrough: `dyn ...` and `fn() -> ...`
 // ------------------------------------------------------------
 #[batch_impl(
     &str,
@@ -276,7 +277,7 @@ fn demos_complex_passthrough() {
 }
 
 // ------------------------------------------------------------
-// 14. 嵌套泛型合并：`<T> Describe<T> [Vec<T>, <U> HashMap<T, U>]`
+// 14. Nested generic merge: `<T> Describe<T> [Vec<T>, <U> HashMap<T, U>]`
 // ------------------------------------------------------------
 #[batch_impl(<T> Describe<T> [Vec<T>, <U> HashMap<T, U>] {
     fn describe(&self) -> String { format!("len={}", self.len()) }
@@ -294,7 +295,7 @@ fn demos_nested_generic_merge() {
 }
 
 // ============================================================
-// 总览
+// Summary
 // ============================================================
 
 fn main() {

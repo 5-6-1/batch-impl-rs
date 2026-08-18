@@ -65,6 +65,7 @@ impl_from_for_ty! {
     TyWithType => WithType,
     TyWithCode => WithCode,
     TyWithWhere => WithWhere,
+    TyWithImpl => WithImpl,
     TyNum => Num,
     TyRange => Range,
     TyError => Error,

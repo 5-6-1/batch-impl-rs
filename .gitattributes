@@ -1,0 +1,5 @@
+# Normalize line endings: store and check out LF everywhere. The repository is
+# LF-only (CI runs on Linux); a Windows worktree with core.autocrlf would
+# otherwise churn every touched file between CRLF and LF and spam "LF will be
+# replaced by CRLF" warnings.
+* text=auto eol=lf

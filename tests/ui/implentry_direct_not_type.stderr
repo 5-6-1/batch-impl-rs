@@ -1,0 +1,7 @@
+error: batch-impl: the direct form needs a standard Rust type after the generic declaration (e.g. `<T> Box<T>`)
+ --> tests/ui/implentry_direct_not_type.rs:5:1
+  |
+5 | #[batch_impl(Box^u8)]
+  | ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

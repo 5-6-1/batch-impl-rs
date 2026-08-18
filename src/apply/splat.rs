@@ -59,9 +59,7 @@ impl Apply for TySplat {
                         let combos =
                             a.0.into_iter()
                                 .map(|t| match t.kind {
-                                    TyKind::Tuple(tt) => {
-                                        TySplat::Tuple(tt).to_ty().with_span(span)
-                                    }
+                                    TyKind::Tuple(tt) => TySplat::Tuple(tt).to_ty().with_span(span),
                                     _ => t,
                                 })
                                 .collect::<Vec<_>>();

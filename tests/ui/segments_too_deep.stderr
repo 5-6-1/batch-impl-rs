@@ -1,0 +1,5 @@
+error: batch-impl: chained type segments exceed 129 levels (limit 128); split into separate impl-specs
+ --> tests/ui/segments_too_deep.rs:3:531
+  |
+3 | ...u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8> X)]
+  |                                                                    ^

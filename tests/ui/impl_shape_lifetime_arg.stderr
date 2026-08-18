@@ -1,0 +1,7 @@
+error: batch-impl: `impl{...}` template cannot destructure the target type (generic argument differs (template `'_` vs target `u8`))
+ --> tests/ui/impl_shape_lifetime_arg.rs:8:1
+  |
+8 | #[batch_impl(Pair2<u8, u16> impl{Cow<'_, A>} { fn mk(x: u8) -> A { x } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

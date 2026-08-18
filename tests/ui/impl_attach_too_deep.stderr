@@ -1,0 +1,5 @@
+error: batch-impl: trailing attachment chain (`{...}` / `where{...}` / `impl{...}`) exceeds 129 levels (limit 128); split into separate impl-specs
+ --> tests/ui/impl_attach_too_deep.rs:5:14
+  |
+5 | #[batch_impl(i32 impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl{X}impl...
+  |              ^^^

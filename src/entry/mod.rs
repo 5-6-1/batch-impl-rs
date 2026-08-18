@@ -19,8 +19,7 @@ use syn::ItemTrait;
 use crate::analyze::TraitBounds;
 use crate::ast::{Op, reset_fresh_counter};
 use crate::preprocess::{
-    angle_collect, expand_empty_trait_generics, expand_tokens, render_angles,
-    where_process,
+    angle_collect, expand_empty_trait_generics, expand_tokens, render_angles, where_process,
 };
 use crate::util::{Cursor, compile_error_str};
 use path_prefix::try_parse_path_prefix;
@@ -28,9 +27,11 @@ use path_prefix::try_parse_path_prefix;
 use crate::entry::driver::parse_batch_trait_entry;
 
 pub(crate) mod driver;
+pub(crate) mod impl_entry;
 pub(crate) mod path_prefix;
 mod preprocess_test;
 mod preview;
+pub(crate) use impl_entry::expand_impl_entry;
 pub(crate) use preprocess_test::preprocess_test;
 pub(crate) use preview::preview;
 
@@ -41,9 +42,9 @@ pub(crate) use preview::preview;
 /// Errors are returned via `Err` as a `compile_error!` stream.
 #[allow(clippy::too_many_arguments)]
 fn run_pipeline(
-    tokens: &[TokenTree], top_level: Op, trait_full_path: &TokenStream,
-    trait_last_ident: &Ident, is_unsafe: bool, start_trait: Option<ItemTrait>,
-    trait_bounds: &TraitBounds, trait_param_names: &[Ident],
+    tokens: &[TokenTree], top_level: Op, trait_full_path: &TokenStream, trait_last_ident: &Ident,
+    is_unsafe: bool, start_trait: Option<ItemTrait>, trait_bounds: &TraitBounds,
+    trait_param_names: &[Ident],
 ) -> Result<TokenStream, TokenStream> {
     let mut cursor = Cursor::new(tokens);
     let impls = parse_batch_trait_entry(
@@ -131,32 +132,24 @@ pub(crate) fn prepare_attr_expansion(
                 None => {
                     let msg = "batch-impl: expected at least one ident after the \
                              path prefix `#` as the trait path";
-                    return Err(compile_error_str(
-                        msg,
-                        proc_macro2::Span::call_site(),
-                    ));
+                    return Err(compile_error_str(msg, proc_macro2::Span::call_site()));
                 }
             }
         }
         None => (quote![#trait_name], trait_name.clone(), attr_vec.clone()),
     };
 
-    // User constant definitions (`@name=value;`) lead the spec list — the
-    // same leading-position rule as batch_trait! (0.7.2: attribute macros
-    // support the section too).
-    let (rest_tokens, user_consts) =
-        crate::preprocess::collect_user_consts(&rest_tokens)?;
     // Outermost macro-meta layer: `@` constant expansion (pure lexical substitution)
     // precedes `<>` pairing — output may contain flat `<...>` (e.g. `@map = HashMap<u32, String>`
     // values) that angle_collect must pair uniformly; reversed, `Vec<@inner>`'s
     // `@inner` is paired into the `<>` group and expand_consts never enters it, leaving
-    // residue behind (observed compile error).
+    // residue behind (observed compile error). Custom `@name=value;` sections are
+    // `batch_trait!`-only (the 0.7.2 attribute-macro support was reverted in 0.8.0).
     let rest_tokens = crate::preprocess::expand_consts(
         &rest_tokens,
         crate::preprocess::ConstCtx::Attribute {
             trait_def: &trait_item,
             trait_full_path: &trait_full_path,
-            user_table: &user_consts,
         },
     )?;
     // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)
@@ -164,14 +157,15 @@ pub(crate) fn prepare_attr_expansion(
 
     let expanded = expand_tokens(&rest_tokens, &trait_item, &trait_full_path)?;
     // New bare `where predicate {body}` syntax → uniformly rewritten to legacy `where{predicate}`
-    // (before `A<>` expansion: `Foo<>` inside predicates must pass through, not be expanded)
-    let expanded = where_process(&expanded)?;
+    // (before `A<>` expansion: `Foo<>` inside predicates must pass through, not be expanded).
+    // The trait entries require the trailing code block (`allow_end = false`); only the Ext 1
+    // ItemImpl entry permits a body-less where region.
+    let expanded = where_process(&expanded, false)?;
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = crate::analyze::extract_trait_bounds(&trait_item);
     // `A<>`: copy the trait generics (args and bounds all come from the trait definition,
     // including where predicates), so the expansion is fully equivalent to handwritten code.
-    let expanded =
-        expand_empty_trait_generics(&expanded, &trait_item, &trait_bounds)?;
+    let expanded = expand_empty_trait_generics(&expanded, &trait_item, &trait_bounds)?;
     // Trait generic param names — needed by the codegen postprocess (trait
     // generic substitution) for *both* entry macros: batch_impl_only drops the
     // trait definition but still substitutes its params in directive bodies.
@@ -222,10 +216,7 @@ fn replace_segment_trait(
             // just the top level.
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let inner = replace_segment_trait(inner, trait_full_path)?;
-            out.push(
-                proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect())
-                    .into(),
-            );
+            out.push(proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect()).into());
             i += 1;
         } else {
             out.push(tokens[i].clone());
@@ -251,7 +242,7 @@ pub(crate) fn expand_batch_trait(
         crate::preprocess::ConstCtx::Trait { user_table: &user_consts },
     )?;
     let tokens = angle_collect(&tokens)?;
-    let tokens = where_process(&tokens)?;
+    let tokens = where_process(&tokens, false)?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
     loop {
@@ -267,8 +258,7 @@ pub(crate) fn expand_batch_trait(
         }
 
         // `unsafe` prefix: mark all impls in this segment as unsafe impls
-        let is_unsafe = if matches!(cursor.peek(), Some(TokenTree::Ident(id)) if *id == "unsafe")
-        {
+        let is_unsafe = if matches!(cursor.peek(), Some(TokenTree::Ident(id)) if *id == "unsafe") {
             cursor.bump();
             true
         } else {
@@ -293,32 +283,24 @@ pub(crate) fn expand_batch_trait(
         }
         let trait_path = cursor.slice_since(path_start);
         if trait_path.is_empty() {
-            return Err(compile_error_str(
-                "batch_trait! expects a trait name",
-                cursor.span(),
-            ));
+            return Err(compile_error_str("batch_trait! expects a trait name", cursor.span()));
         }
         // Full trait path: just collect the token stream of trait_path as-is
         let trait_full_path = trait_path.iter().cloned().collect();
         // Take the last ident in the path as the `trait_name` used for matching
-        let trait_last_ident =
-            match trait_path
-                .iter()
-                .filter_map(|tt| {
-                    if let TokenTree::Ident(id) = tt { id.into() } else { None }
-                })
-                .next_back()
-            {
-                Some(ident) => ident,
-                None => {
-                    return Err(compile_error_str(
-                        "batch_trait! expects an ident as the trait name",
-                        trait_path
-                            .first()
-                            .map_or_else(proc_macro2::Span::call_site, |t| t.span()),
-                    ));
-                }
-            };
+        let trait_last_ident = match trait_path
+            .iter()
+            .filter_map(|tt| if let TokenTree::Ident(id) = tt { id.into() } else { None })
+            .next_back()
+        {
+            Some(ident) => ident,
+            None => {
+                return Err(compile_error_str(
+                    "batch_trait! expects an ident as the trait name",
+                    trait_path.first().map_or_else(proc_macro2::Span::call_site, |t| t.span()),
+                ));
+            }
+        };
         if !cursor.is_punct(':') {
             return Err(compile_error_str(
                 "batch_trait! expects ':' to separate the trait name and impl-specs",

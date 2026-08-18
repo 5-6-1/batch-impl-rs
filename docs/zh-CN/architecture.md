@@ -1,6 +1,8 @@
 # batch-impl 内部架构
 
-**v0.7.2**——0.7.2 已发布：`@` 诊断用户语言化 + `batch_preview!` + trait 实参生成器 splat 提升 + `#blanket` 按值修复；0.7.1 已发布：定向诊断 + 单一真相源笛卡尔积（`util::cartesian`）+ 指令分发迁入 `directives/`；0.7.0：**splat** `*` 前缀（`TySplat{Tuple,Array}` 枚举镜像来源括号，完整委托 `TyTuple`/`TyArray` apply + 包回）、数组分发传播、parse 层拆分 `chain`/`primary`/`trailing`；0.6.x：预处理顺序 `@ <> # where`、宏元层完整化、`@N` fresh 引用、receiver 过滤、blanket 委托、span 诊断。
+**v0.8.0**（unreleased）——风格打底（移除 rustfmt 宽度上限、全库重排）+ 文档更新（示例注释英文化、测试数字更正）+ 扁平链深度护栏（`^`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（`@name=value;` 段仅 `batch_trait!` 可用）+ **Ext 2 `impl{...}` Self-part 形状模板**（新 `codegen::shape` 内核 + `TyKind::WithImpl` + `expand_consts` 进入模板、`where_process` 视为边界）+ **Ext 1 ItemImpl 入口**（`#[batch_impl]` 同样接受 `impl` 块；`entry/impl_entry.rs` + 顶层分流；形状模板 × 矩阵源实例化、`;` 分隔 spec、`@` 域仅 `@trait`；`where_process` 新增 `;` 停止与 `allow_end` 参数）；
+
+**v0.7.2**——0.7.2 已发布：`@` 诊断用户语言化 + `batch_preview!` + trait 实参生成器 splat 提升 + `#blanket` 按值修复 + 属性宏自定义 `@` 常量（0.8.0 已回退）；0.7.1 已发布：定向诊断 + 单一真相源笛卡尔积（`util::cartesian`）+ 指令分发迁入 `directives/`；0.7.0：**splat** `*` 前缀（`TySplat{Tuple,Array}` 枚举镜像来源括号，完整委托 `TyTuple`/`TyArray` apply + 包回）、数组分发传播、parse 层拆分 `chain`/`primary`/`trailing`；0.6.x：预处理顺序 `@ <> # where`、宏元层完整化、`@N` fresh 引用、receiver 过滤、blanket 委托、span 诊断。
 
 面向贡献者：模块组织、解析流程、错误机制、测试矩阵。
 
@@ -10,6 +12,7 @@
 lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait! / 测试宏）+ 模块树
   ├── entry/                入口与驱动
   │   ├── mod.rs            入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
+  │   ├── impl_entry.rs     Ext 1 ItemImpl 入口：形状模板 × 矩阵源实例化（attr 预处理子集 + `;` spec 切分 + 装配）
   │   ├── driver.rs         共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
   │   ├── preview.rs        batch_preview!：诊断通道展开预览 + `^`/`-` 误写提示
   │   └── path_prefix.rs    外部 trait 路径前缀：#Path::to::Trait: 状态机解析
@@ -28,12 +31,12 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   ├── preprocess/           预处理层（token 重写器，一个趟一个文件；mod.rs 聚合 re-export）
   │   ├── mod.rs            delimiter! 分隔符拼写宏 + 管线：angle_collect → expand_consts → expand_tokens（#name 指令展开）→ where_process
   │   ├── directives/       `#` 指令系统：#fill / #delegate / #blanket + 开放扩展（name_list / trait_items / delegate_args / blanket / blanket_wrappers）
-  │   ├── consts/           `@` 常量系统：内置类型族（@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 范围）+ 自定义前导定义段 `@name=value;`（三个入口通用）+ where 选择器（@all_fresh / @N..M 放行）（table / expand / ctx）
+  │   ├── consts/           `@` 常量系统：内置类型族（@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 范围）+ 仅 `batch_trait!` 的自定义前导定义段 `@name=value;` + where 选择器（@all_fresh / @N..M 放行）（table / expand / ctx）
   │   ├── empty_generics.rs `A<>` 照抄展开（形参渲染用合并后的 bound）
   │   ├── where_process.rs  裸 where 改写：`where 谓词 {body}` → 旧式 `where{谓词}`
   │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
   ├── ast/                  AST 层
-  │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 19 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
+  │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 20 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
   │   ├── fresh.rs          fresh 名协议（`_Param_*_BatchGen_` 常量 + 生成/构造/解析三函数）
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
@@ -43,6 +46,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── mod.rs            extract_impl_parts → 后处理 → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
   │   ├── impl_parts.rs     ImplParts 结构 + TyKind 变体遍历（extract / hoist）
   │   ├── postprocess.rs    ImplParts 上的 trait 泛型替换（`From<bool>`：指令 body 里 `value: T` → `value: bool`）
+  │   ├── shape.rs          Ext 2/Ext 1 共享内核：match_shape（模板 vs 叶子逐位匹配）+ Mapping + ShapeError——对每种 syn::Type 形态结构递归（切片/元组/数组/引用/指针/Paren/路径）；裸 const 参数数组长度与 `'_'` 生命周期通配可绑定；fn 指针/trait 对象模板与跨类（生命周期/const vs 类型）实参逐字比较
   │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
   │   ├── fresh.rs          fresh 名清扫（`_Param_{g}_{i}_` → 每个 impl 的 `_Param_0..N_`）+ `@N`/`@g_i` 引用校验（目标类型 / trait 实参）
   │   └── where_at.rs       `@` where 谓词解析（`@N`/`@g_i`/`@all_fresh`/`@N..M`）
@@ -207,6 +211,16 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 超过 128 层报「嵌套深度超过 128 层」而非栈溢出（v0.1 承诺恢复；`angle_collect`
 在配对时计数，`MAX_NEST_DEPTH = 128`）。
 
+**扁平链深度护栏**（0.8.0）：三种扁平构造不产生任何组嵌套，却同样构建深 `Ty` 树，
+token 层护栏看不见它们——`^`/`-` 算子链（右结合 `^` 每个操作数嵌套一层 `TyGeneric`）、
+尾部 `{...}`/`where{...}` 附件链（每个 body 包一层 wrapper）、链式类型段
+（`<T><U>...X`、`Trait<A> Trait<B>... X`、`#[a] #[b]... X`）。三者都在解析层封顶 128
+（`parse_binary_chain` 的操作数计数；`parse_primitive` 的附件计数与段深度），使下游
+所有递归遍历（`map_children` / `expand_splat_elems` / `hoist_type_params` /
+`ToTokens`）深度有界——此前约 850 个 `^` 链式单元即令 rustc 栈溢出
+（STATUS_STACK_OVERFLOW，实测；10000 个操作数的 `-` 链保持扁平从不溢出——证实深度
+理论的差分探针）。
+
 **span 诊断**（0.6.2）：每个 `Ty` 节点携带源 span（`struct Ty { span, kind }`），
 `Ty::apply` 单点取 span 并在组合子输出中贯穿——`apply` 内错误指向左操作数位置。
 `compile_error_str(msg, span)` / `compile_err_at!(span, ...)` 接显式 span。
@@ -230,16 +244,16 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 |-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                                                         |
 | `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因作者输入 panic"（`cargo test --lib`）                                                          |
-| `tests/`    | `dsl.rs`        | 50 个 `#[test]`，覆盖核心特性的语义回归（含 where 子句继承、外部路径前缀、宏调用边界、`unsafe fn` 类型、列表减法 `-`、`A<>` 与同名继承、@all 状态/receiver 过滤、blanket 静态委托） |
-| `tests/`    | `regression.rs` | 26 个 `#[test]`，覆盖 dsl.rs 未触碰的 corner case：嵌套 `>>`、路径类型、const 泛型、生命周期、dyn + Send、路径前缀、数组/切片 builder、`batch_impl` vs `batch_trait!` 一致性 |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：31 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
+| `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
+| `tests/`    | `features/`     | 34 个按功能域拆分的测试模块（每个 <350 行；由原单文件 `dsl.rs` / `regression.rs` / `ext1_impl.rs` / `ext2_impl.rs` 拆分）：`dsl_*`（82）、`regression_*`（26）、`ext1_*`（17，含嵌套/边界/冲突）、`ext2_*`（45，含嵌套/边界/冲突/形状形态/原型模式/交叉组合）——共 **170 个 `#[test]`** |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：74 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
 
 运行：
 
 ```bash
 cargo run --example quickstart       # 主特性 demo
 cargo test --lib                     # 单元测试 + fuzz
-cargo test --test dsl --test regression   # 功能与回归测试
+cargo test --test dsl                  # 功能 + 回归 + Ext 测试（tests/dsl.rs 挂载 tests/features/）
 cargo test --test ui                  # 诊断 UI 测试
 # 重新生成 UI 快照：
 TRYBUILD=overwrite cargo test --test ui

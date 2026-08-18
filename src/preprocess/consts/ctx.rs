@@ -16,31 +16,27 @@ use proc_macro2::{TokenStream, TokenTree};
 /// [`ConstCtx::Attribute`] (`#[batch_impl]`/`#[batch_impl_only]`): built-in +
 /// trait-aware constants (`@trait`/`@all` family/`@Cow`; `trait_full_path`
 /// lets `@trait` expand to the full path, i.e. the `#ext::Trait:` prefix path
-/// for the external-trait scenario of `batch_impl_only`).
+/// for the external-trait scenario of `batch_impl_only`). Custom `@name=value;`
+/// definitions are **not** supported here (the 0.7.2 feature was reverted in
+/// 0.8.0 — a definition segment errors in [`try_expand_at`]).
 ///
 /// [`ConstCtx::Trait`] (`batch_trait!`): built-in + user table (leading
 /// `@name=value;`).
 #[derive(Clone, Copy)]
 pub(crate) enum ConstCtx<'a> {
-    Attribute {
-        trait_def: &'a syn::ItemTrait,
-        trait_full_path: &'a TokenStream,
-        user_table: &'a UserConsts,
-    },
-    Trait {
-        user_table: &'a UserConsts,
-    },
+    Attribute { trait_def: &'a syn::ItemTrait, trait_full_path: &'a TokenStream },
+    Trait { user_table: &'a UserConsts },
 }
 
 pub(crate) type UserConsts = HashMap<String, Vec<TokenTree>>;
 
 impl<'a> ConstCtx<'a> {
-    /// User constant table (both entries collect a leading `@name=value;`
-    /// section; 0.7.2: attribute macros support custom definitions).
+    /// User constant table (`batch_trait!` only — attribute macros do not
+    /// collect a leading `@name=value;` section).
     pub(crate) fn user_table(&self) -> Option<&'a UserConsts> {
         match self {
-            &ConstCtx::Trait { user_table }
-            | &ConstCtx::Attribute { user_table, .. } => user_table.into(),
+            &ConstCtx::Trait { user_table } => user_table.into(),
+            ConstCtx::Attribute { .. } => None,
         }
     }
 

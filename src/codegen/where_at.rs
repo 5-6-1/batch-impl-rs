@@ -62,12 +62,18 @@ pub(crate) fn resolve_where_at(
     pred: &TokenStream, impl_names: &[TokenStream],
 ) -> Result<TokenStream, TokenStream> {
     // Fresh params sorted by (group, position) — the sweep order, so `@N`
-    // matches the final `_Param_{N}_BatchGen_` the sweeper will emit.
-    let mut fresh_sorted: Vec<&TokenStream> = impl_names
+    // matches the final `_Param_{N}_BatchGen_` the sweeper will emit. The
+    // parse result rides in the tuple (filter_map), so the sort key can
+    // never unwrap — the library promises no panics, even on adversarial
+    // input or internal invariant drift.
+    let mut fresh_sorted: Vec<(usize, usize, &TokenStream)> = impl_names
         .iter()
-        .filter(|n| parse_grouped_fresh(&n.to_string()).is_some())
+        .filter_map(|n| {
+            let (g, i) = parse_grouped_fresh(&n.to_string())?;
+            Some((g, i, n))
+        })
         .collect();
-    fresh_sorted.sort_by_key(|n| parse_grouped_fresh(&n.to_string()).unwrap());
+    fresh_sorted.sort_by_key(|&(g, i, _)| (g, i));
     let tokens = pred.clone().into_iter().collect::<Vec<_>>();
     let mut out = vec![];
     let mut i = 0;
@@ -109,11 +115,7 @@ pub(crate) fn resolve_where_at(
                     {
                         let (count, _end_idx, tail) =
                             parse_fresh_range(&tokens, i, start, fresh_sorted.len())?;
-                        emit_fresh_predicates(
-                            &mut out,
-                            &fresh_sorted[start..start + count],
-                            &tail,
-                        );
+                        emit_fresh_predicates(&mut out, &fresh_sorted[start..start + count], &tail);
                         i = tokens.len();
                         continue;
                     }
@@ -121,7 +123,7 @@ pub(crate) fn resolve_where_at(
                         // Document-order index: `@N` resolves to the N-th fresh
                         // after (group, position) sorting — the same order the
                         // sweeper renumbers to `_Param_0..N_BatchGen_`.
-                        let Some(&name) = fresh_sorted.get(idx) else {
+                        let Some(&(_, _, name)) = fresh_sorted.get(idx) else {
                             return Err(at_num_out_of_range(
                                 idx,
                                 fresh_sorted.len(),
@@ -139,18 +141,11 @@ pub(crate) fn resolve_where_at(
                     // stable across array-dispatch impls (a group absent from
                     // an impl errors here instead of silently shifting).
                     if let Some((g, pos)) = s.split_once('_')
-                        && let (Ok(g), Ok(pos)) =
-                            (g.parse::<usize>(), pos.parse::<usize>())
+                        && let (Ok(g), Ok(pos)) = (g.parse::<usize>(), pos.parse::<usize>())
                     {
                         let target = format!("_Param_{}_{}_BatchGen_", g, pos);
-                        let Some(name) =
-                            impl_names.iter().find(|n| n.to_string() == target)
-                        else {
-                            return Err(at_group_out_of_range(
-                                g,
-                                pos,
-                                tokens[i].span(),
-                            ));
+                        let Some(name) = impl_names.iter().find(|n| n.to_string() == target) else {
+                            return Err(at_group_out_of_range(g, pos, tokens[i].span()));
                         };
                         out.extend(name.clone());
                         i += 2;
@@ -181,10 +176,10 @@ pub(crate) fn resolve_where_at(
 /// single authority for the fresh-predicate emission shared by `@all_fresh`
 /// and the `@N..M` range form.
 fn emit_fresh_predicates(
-    out: &mut Vec<TokenTree>, names: &[&TokenStream], tail: &[TokenTree],
+    out: &mut Vec<TokenTree>, names: &[(usize, usize, &TokenStream)], tail: &[TokenTree],
 ) {
     let comma = TokenTree::Punct(Punct::new(',', Spacing::Alone));
-    for (k, &name) in names.iter().enumerate() {
+    for (k, &(_, _, name)) in names.iter().enumerate() {
         if k > 0 {
             out.push(comma.clone());
         }
@@ -201,8 +196,7 @@ fn emit_fresh_predicates(
 fn parse_fresh_range(
     tokens: &[TokenTree], i: usize, start: usize, fresh_len: usize,
 ) -> Result<(usize, usize, Vec<TokenTree>), TokenStream> {
-    let inclusive =
-        matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=');
+    let inclusive = matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=');
     let end_idx = if inclusive { i + 5 } else { i + 4 };
     let Some(TokenTree::Literal(end_lit)) = tokens.get(end_idx) else {
         return Err(compile_error_str(
@@ -216,11 +210,7 @@ fn parse_fresh_range(
             end_lit.span(),
         ));
     };
-    let count = if inclusive {
-        end.saturating_sub(start) + 1
-    } else {
-        end.saturating_sub(start)
-    };
+    let count = if inclusive { end.saturating_sub(start) + 1 } else { end.saturating_sub(start) };
     if count == 0 {
         return Err(compile_err!(
             "batch-impl: `@{}..{}` is an empty range (start not below end); no predicates will be generated",
@@ -297,16 +287,9 @@ mod tests {
             wrapped.into(),
         )
         .into();
-        let out =
-            generate_impl(impl_ty, &quote!(WhereArr), false, &tb, &[]).to_string();
-        assert!(
-            !out.contains("compile_error"),
-            "expansion must not contain compile_error: {out}"
-        );
-        assert!(
-            out.contains("where [T ; N] : Sized"),
-            "missing where predicate: {out}"
-        );
+        let out = generate_impl(impl_ty, &quote!(WhereArr), false, &tb, &[]).to_string();
+        assert!(!out.contains("compile_error"), "expansion must not contain compile_error: {out}");
+        assert!(out.contains("where [T ; N] : Sized"), "missing where predicate: {out}");
         assert!(
             out.contains("impl < T , const N : usize > WhereArr < T , N >"),
             "unexpected impl generics: {out}"
