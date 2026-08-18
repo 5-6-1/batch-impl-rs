@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.8.0** (unreleased) — no tutorial changes yet (style and docs groundwork only);
+**v0.8.1** (unreleased) — no tutorial changes yet (0.8.1 is the `where{...}` angle-pairing hotfix; see the CHANGELOG);
 
 **v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros (reverted in 0.8.0), and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`()^N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
 

@@ -2,7 +2,11 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## 0.8.0 (unreleased)
+## 0.8.1 (unreleased)
+
+- **修复：`where{...}` 谓词组配对尖括号**——`where{...}` 块内的两参数 bound（`@all_fresh: Semiring<Additive, Multiplicative>`）此前被深度 0 逗号分裂成坏谓词，因为 Brace 组透传、`<>` 保持扁平。`angle_collect` 现在进入 `where{...}` 组并配对组内 `<...>`（代码体仍透传）；`render_angles` 还原。真实使用中发现（alga2）；DSL 端到端回归测试锁定
+
+## 0.8.0 (2026-08-18)
 
 - **shape-match 增强（Ext 1/Ext 2）**——`impl{...}` / ItemImpl 模板匹配覆盖全部 `syn::Type` 形态（切片、任意元数元组、定长数组、引用/指针、多段路径）；定长数组长度写成裸 const 参数名时绑定叶子长度（`[A; N]` → `N := 3`），`'_'` 匿名生命周期为通配匹配任意叶子生命周期——由此支撑**原型实现模式**：为代表性叶子写一个正确实现，"相同→保留、不同→绑定"规则自动适配整个矩阵（`[Box,Rc]^@num impl{Box<u8>} #max{Box::new(u8::MAX)}` → 28 个 impl；`Cow<'_, @num> impl{Cow<'_, u8>}` 覆盖含生命周期的 Cow 族；多族可在一条属性内组合）。fn 指针 / trait 对象模板与跨类实参（生命周期/const vs 类型）保持逐字并定向诊断
 - **Ext 1：`#[batch_impl]` ItemImpl 入口**——属性宏同样接受 `impl` 块并批量实例化：DSL 描述形状模板 × 矩阵源（`A<B> : [Box,Rc]^[usize,isize]`），每个矩阵叶子产出一个 impl，槽映射（共享 shape-match 内核：相同 ident 保留、不同则绑定）重写 for-Type / where 谓词 / body；原始 impl（for-Type 含占位槽名）被 withhold。`@trait`（→ impl 的 trait path）允许在泛型声明 bound 与 where 谓词中；自定义 `@` 常量 / `@N` 引用 / `#` 指令在本入口拒绝；`;` 分隔多个 spec（单 spec 为常见形态）；裸 where 谓词区域新增深度 0 `;` 与（仅 ItemImpl）流末尾终止

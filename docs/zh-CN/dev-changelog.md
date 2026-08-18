@@ -2,7 +2,11 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.8.0 (unreleased)
+## 0.8.1 (unreleased)
+
+- **修复：`where{...}` 谓词组配对尖括号**（`preprocess/angle.rs`）：真实使用中发现（alga2——`where{...}` 内的两参数 bound `Semiring<Additive, Multiplicative>` 被深度 0 逗号分裂成坏谓词，因 Brace 组透传、`<>` 保持扁平）。`is_where_group` 识别 `where` 关键字直跟的 Brace 组；`angle_collect` 进入该组并配对组内 `<...>`（代码体仍透传——比较 `<` 不受影响，body 边界测试验证）；`render_angles` 重建（span 还原，与 Paren/Bracket 重建一致）。范围说明：修复覆盖 trait 入口与 Ext 1 的块形式 `where{...}` 谓词（走深度 0 谓词切分）；blanket wrapper where 与 Ext 1 的整组拼接从不切分，`impl{...}` 模板由 syn 解析（无需配对）。angle.rs 2 个单元测试 + 1 个 DSL 端到端回归（`dsl_where.rs::where_two_arg_bound_not_split`——alga2 精确场景，dsl 171 测试）
+
+## 0.8.0 (2026-08-18)
 
 - **打磨（Ext 1/Ext 2）**——fuzz 覆盖 ItemImpl 入口（`impl_entry_full_pipeline_no_panic`：随机 attr token 配固定 dummy impl——no-panic 承诺覆盖 `;` spec 切分 / `@trait` 替换 / shape 匹配 / 装配）；`batch_preview!` 接受 ItemImpl 形式（顶层分流镜像 `batch_impl`，渲染真实 `expand_impl_entry` 输出）；交叉组合测试锁定：`impl{...}` + `#fill`（指令拷贝体被槽映射重写）、`impl{...}` + `@N` where 引用（模板匹配生成器元组叶子 `()^2` → `(P0, P1)`）、`#blanket` + `impl{...}`（blanket spec 携带模板作尾随附件）
 - **shape-match 增强（Ext 2 `impl{...}` / Ext 1）**（`codegen/shape.rs`）：定长数组长度写成裸 const 参数名时绑定叶子长度（`[A; N]` → `N := 3`，body 可引用 `N`；字面长度仍逐字）；`'_'` 匿名生命周期为通配，匹配任意叶子生命周期（具名生命周期仍逐字——`'a` vs `'b` 报错）；fn 指针 / trait 对象模板与跨类实参（生命周期/const vs 类型）保持逐字并定向诊断（ui fixture `impl_shape_lifetime_arg` / `impl_shape_fn_bound`；原 `impl_shape_const_len` 失败 fixture 转为成功用例）；新增 `tests/features/ext2_shape_forms.rs`（17 测试：完整 `syn::Type` 形态矩阵、原型实现模式 `[Box,Rc]^@num impl{Box<u8>} #max{...}`、用户的多原型列表写法 `[[Box,Rc] impl{Box<u8>}, Cow<'_> impl{Cow<'_,u8>}]^@num`）

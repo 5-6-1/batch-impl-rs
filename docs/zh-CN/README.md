@@ -1,6 +1,8 @@
 # batch-impl
 
-**v0.8.0**（unreleased）——0.8.0 进行中：风格与文档打底（移除 rustfmt 宽度上限、示例注释英文化、architecture 测试数字更新）+ 扁平链深度护栏（`^`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（自定义 `@name=value;` 段仅 `batch_trait!` 可用；属性宏矩阵直接用 `^`/`-`/`*` 书写）+ **Ext 2 `impl{...}` Self-part 形状模板**：用标准 Rust 类型模板绑定生成 impl 的目标形状——与目标同位置的 ident 相同则保留、不同则替换进目标/where/body（`Box<u32> impl{Rc<T>}` → `Rc := Box, T := u32`）；模板匹配覆盖全部 `syn::Type` 形态（切片/元组/定长数组/引用/指针/路径），定长数组长度与 `'_'` 生命周期通配可绑定——每个形状族写一个原型实现即可覆盖整个矩阵（`[Box,Rc]^@num impl{Box<u8>} #max{...}`；含生命周期的族用 `Cow<'_, @num> impl{Cow<'_, u8>}`）+ **Ext 1 ItemImpl 入口**：`#[batch_impl]` 同样接受 `impl` 块，按形状模板 × 矩阵源批量实例化（`A<B> : [Box,Rc]^[usize,isize]` → 4 个 impl，槽替换进 for-Type/where/body）；
+**v0.8.1**（unreleased）——0.8.1 进行中：`where{...}` 谓词组配对尖括号——`where{...}` 块内的两参数 bound（`@all_fresh: Semiring<Additive, Multiplicative>`）不再被深度 0 逗号分裂成坏谓词（alga2 真实使用中发现；代码体仍透传）；
+
+**v0.8.0**（2026-08-18）——0.8.0 已发布：风格与文档打底（移除 rustfmt 宽度上限、示例注释英文化、architecture 测试数字更新）+ 扁平链深度护栏（`^`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（自定义 `@name=value;` 段仅 `batch_trait!` 可用；属性宏矩阵直接用 `^`/`-`/`*` 书写）+ **Ext 2 `impl{...}` Self-part 形状模板**：用标准 Rust 类型模板绑定生成 impl 的目标形状——与目标同位置的 ident 相同则保留、不同则替换进目标/where/body（`Box<u32> impl{Rc<T>}` → `Rc := Box, T := u32`）；模板匹配覆盖全部 `syn::Type` 形态（切片/元组/定长数组/引用/指针/路径），定长数组长度与 `'_'` 生命周期通配可绑定——每个形状族写一个原型实现即可覆盖整个矩阵（`[Box,Rc]^@num impl{Box<u8>} #max{...}`；含生命周期的族用 `Cow<'_, @num> impl{Cow<'_, u8>}`）+ **Ext 1 ItemImpl 入口**：`#[batch_impl]` 同样接受 `impl` 块，按形状模板 × 矩阵源批量实例化（`A<B> : [Box,Rc]^[usize,isize]` → 4 个 impl，槽替换进 for-Type/where/body）；
 
 **v0.7.2**（2026-08-14）——0.7.2 已发布：诊断用户语言化（保留名零泄露）、`batch_preview!` 展开预览、trait 实参生成器 splat 声明提升、`#blanket` 按值接收者修复、开放扩展协议收敛、语法面冻结承诺、属性宏自定义 `@` 常量（0.8.0 已回退）；0.7.1 已发布：定向诊断（`;`/`=`/`@`/`#` 残留、相邻类型、binding/bound 缺值、拼写建议）取代 rustc 裸错；0.7.0：**splat** `*` 前缀（摊平容器/生成器到列表，左操作数 `*[...]` 分配 / `*(...)` 追加）、数组分发传播（嵌套 `[A,B]` 笛卡尔积）、生成器 fresh 声明修复、泛型实参内 splat 幂（`Frac<*(*@u*)^2>` = 36 impl）、具体类型实参拒绝 binding/bound、`#fill` 单元素推荐（`#name{...}`）。
 
@@ -77,7 +79,7 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.8.0"
+batch-impl = "0.8.1"
 ```
 
 需要 Rust 2024 edition 及以上。

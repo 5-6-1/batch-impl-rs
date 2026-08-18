@@ -5,7 +5,11 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.8.0 (unreleased)
+## 0.8.1 (unreleased)
+
+- **Fix: `where{...}` predicate groups are angle-paired** — a two-arg bound inside a `where{...}` block (`@all_fresh: Semiring<Additive, Multiplicative>`) used to be split at its depth-0 comma into a bad predicate, because the angle brackets stayed unpaired (Brace groups were passthrough). `angle_collect` now enters `where{...}` groups and pairs the `<...>` inside (code bodies stay passthrough); `render_angles` restores them. Reported from real use (alga2); a DSL end-to-end regression test locks the fix
+
+## 0.8.0 (2026-08-18)
 
 - **Shape-match enhancement (Ext 1/Ext 2)** — `impl{...}` / ItemImpl template matching now covers every `syn::Type` form (slices, tuples of any arity, fixed arrays, references/pointers, multi-segment paths); fixed-array lengths written as bare const-param names bind to the leaf's length (`[A; N]` → `N := 3`) and `'_'` anonymous lifetimes are wildcards matching any leaf lifetime — enabling the **prototype-impl pattern**: write one correct implementation for a representative leaf and the equal→keep / different→bind rule adapts it to the whole matrix (`[Box,Rc]^@num impl{Box<u8>} #max{Box::new(u8::MAX)}` → 28 impls; `Cow<'_, @num> impl{Cow<'_, u8>}` covers the lifetime-bearing Cow family; multiple families combine in one attribute). fn-pointer/trait-object templates and cross-class arguments (lifetime/const vs type) stay verbatim with targeted diagnostics
 - **Ext 1: `#[batch_impl]` ItemImpl entry** — the attribute also accepts an `impl` block and batch-instantiates it: the DSL describes a shape template × matrix source (`A<B> : [Box,Rc]^[usize,isize]`), every matrix leaf emits one impl, and the slot mapping (the shared shape-match kernel: equal idents kept, different ones bound) rewrites the for-Type / where predicates / body; the original impl (whose for-Type holds the placeholder slots) is withheld. `@trait` (→ the impl's trait path) is allowed in generic-decl bounds and where predicates; custom `@` constants / `@N` refs / `#` directives are rejected on this entry; `;` separates multiple specs (single-spec common case); the bare-where region now also ends at a depth-0 `;` or (ItemImpl only) the end of the stream
