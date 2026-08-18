@@ -1,6 +1,6 @@
 use quote::ToTokens;
 
-use crate::apply::{Apply, check_expand_limit, err_ty, err_ty_at};
+use crate::apply::{Apply, check_expand_limit, err_ty, err_ty_at, expand_limit_err};
 use crate::ast::*;
 use crate::util::cartesian;
 use proc_macro2::Span;
@@ -25,10 +25,9 @@ pub(crate) fn map_range(
             span,
         );
     }
-    if let Some(e) = check_expand_limit(
-        &format!("range `{}..{}{}`", start, end, end_mark),
-        ns.len(),
-    ) {
+    if let Some(e) =
+        check_expand_limit(&format!("range `{}..{}{}`", start, end, end_mark), ns.len())
+    {
         return e;
     }
     TyArray(ns.into_iter().map(f).collect()).into()
@@ -88,23 +87,19 @@ fn pow_single(template: Ty, n: usize) -> Ty {
         .with_span(template_span)
         .apply(TyTuple(params).into());
     }
-    TyTuple(
-        (0..n)
-            .map(|_| Ty { span: template_span, kind: template.kind.clone() })
-            .collect(),
-    )
-    .into()
+    TyTuple((0..n).map(|_| Ty { span: template_span, kind: template.kind.clone() }).collect())
+        .into()
 }
 
 /// `(A,B,..)^N`: N-way Cartesian product, choosing one of all elements per position.
-/// The product count is checked once after expansion (`elems^N` can far exceed
-/// [`MAX_EXPAND`]).
+/// The product count is checked inside `cartesian` before each allocation
+/// (`elems^N` can far exceed [`MAX_EXPAND`]).
 fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
     let dims: Vec<Vec<Ty>> = std::iter::repeat_n(elems, n).collect();
-    let combos = cartesian(&dims);
-    if let Some(e) = check_expand_limit("tuple Cartesian product", combos.len()) {
-        return e;
-    }
+    let combos = match cartesian(&dims, MAX_EXPAND) {
+        Ok(c) => c,
+        Err(size) => return expand_limit_err("tuple Cartesian product", size),
+    };
     TyArray(combos.into_iter().map(instantiate_combo).collect()).into()
 }
 
@@ -126,9 +121,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                 let params = tp
                     .params
                     .iter()
-                    .map(|(_, bound)| {
-                        (TyPrimitive(name.clone()).to_ty().into(), bound.clone())
-                    })
+                    .map(|(_, bound)| (TyPrimitive(name.clone()).to_ty().into(), bound.clone()))
                     .collect();
                 param_decls.push(TyTypeParam { params, bindings: vec![] });
                 tuple_elems.push(TyPrimitive(name).to_ty().with_span(elem_span));
@@ -187,9 +180,7 @@ impl Apply for TyFn {
             // A bare fn gets its params via `^`; the right side must be a tuple (a Group like
             // `fn^((i8,i16))` is unwrapped by the default apply's Group branch; here `o` is always plain)
             TyFn(None, None, is_unsafe) => match o.kind {
-                TyKind::Tuple(t) => {
-                    TyFn(t.0.into(), None, is_unsafe).to_ty().with_span(span)
-                }
+                TyKind::Tuple(t) => TyFn(t.0.into(), None, is_unsafe).to_ty().with_span(span),
                 _ => err_ty_at(
                     "batch-impl: the right side of the `fn` prefix must be a tuple type, e.g. fn^(i32, u32)",
                     span,
@@ -267,14 +258,9 @@ impl Apply for TyPrimitiveArray {
         match (self.0, self.1) {
             (None, None) => TyPrimitiveArray(o.into(), None).to_ty().with_span(span),
             (Some(elem), None) => {
-                TyPrimitiveArray(elem.into(), o.to_token_stream().into())
-                    .to_ty()
-                    .with_span(span)
+                TyPrimitiveArray(elem.into(), o.to_token_stream().into()).to_ty().with_span(span)
             }
-            _ => err_ty_at(
-                "batch-impl: fixed-size array `[T; N]` cannot be a left operand",
-                span,
-            ),
+            _ => err_ty_at("batch-impl: fixed-size array `[T; N]` cannot be a left operand", span),
         }
     }
 }
@@ -315,3 +301,4 @@ impl_apply_inner!(TyWithTrait, WithTrait);
 impl_apply_inner!(TyWithType, WithType);
 impl_apply_optional_inner!(TyWithCode, WithCode);
 impl_apply_optional_inner!(TyWithWhere, WithWhere);
+impl_apply_optional_inner!(TyWithImpl, WithImpl);

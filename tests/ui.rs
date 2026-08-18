@@ -65,8 +65,9 @@ fn ui() {
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
     // at the definition by `check_value_refs`
     t.compile_fail("tests/ui/const_bare_endpoint.rs");
-    // a definition after the first spec is not a leading definition
-    t.compile_fail("tests/ui/const_def_position.rs");
+    // custom `@name=value;` sections are `batch_trait!`-only — an attribute
+    // macro definition errors (0.7.2 feature reverted in 0.8.0)
+    t.compile_fail("tests/ui/const_attr_unsupported.rs");
     t.compile_fail("tests/ui/at_group_out_of_range.rs");
     // @N / @g_i in the target type: dangling references error at the DSL
     // layer instead of leaking the reserved _Param_*_BatchGen_ name via E0412
@@ -134,6 +135,31 @@ fn ui() {
     t.compile_fail("tests/ui/literal_and_range.rs");
     t.compile_fail("tests/ui/array_and_punct.rs");
     t.compile_fail("tests/ui/directive_typo.rs");
+
+    // flat-chain depth guards: no group nesting, yet each builds a deep Ty
+    // tree — capped at 128 levels instead of overflowing the compiler stack
+    t.compile_fail("tests/ui/chain_too_deep.rs");
+    t.compile_fail("tests/ui/attach_too_deep.rs");
+    t.compile_fail("tests/ui/segments_too_deep.rs");
+
+    // Ext 2 `impl{...}` Self-part shape templates: DSL operators / shape
+    // mismatch / inconsistent merged bindings / attachment depth
+    t.compile_fail("tests/ui/impl_template_dsl_ops.rs");
+    t.compile_fail("tests/ui/impl_shape_mismatch.rs");
+    t.compile_fail("tests/ui/impl_inconsistent_binding.rs");
+    t.compile_fail("tests/ui/impl_attach_too_deep.rs");
+    // shape-match verbatim limits: lifetime args / fn-pointer slots cannot
+    // bind (array lengths and `'_` wildcards DO bind — see ext2_shape_forms)
+    t.compile_fail("tests/ui/impl_shape_lifetime_arg.rs");
+    t.compile_fail("tests/ui/impl_shape_fn_bound.rs");
+
+    // Ext 1 ItemImpl entry: for-Type shape mismatch / banned `@` and `#` /
+    // non-type direct form
+    t.compile_fail("tests/ui/implentry_shape_mismatch.rs");
+    t.compile_fail("tests/ui/implentry_at_const_banned.rs");
+    t.compile_fail("tests/ui/implentry_hash_banned.rs");
+    t.compile_fail("tests/ui/implentry_at_num_banned.rs");
+    t.compile_fail("tests/ui/implentry_direct_not_type.rs");
 
     // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");

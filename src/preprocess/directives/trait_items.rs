@@ -26,15 +26,9 @@ pub(crate) fn resolve_all_marker(name: &str) -> Option<AllMarkerSpec> {
         "all_required_methods" => ((true, false, false), false.into(), None).into(),
         "all_required_constants" => ((false, true, false), false.into(), None).into(),
         "all_required_types" => ((false, false, true), false.into(), None).into(),
-        "all_ref_methods" => {
-            ((true, false, false), None, ReceiverFilter::Ref.into()).into()
-        }
-        "all_value_methods" => {
-            ((true, false, false), None, ReceiverFilter::Value.into()).into()
-        }
-        "all_static_methods" => {
-            ((true, false, false), None, ReceiverFilter::Static.into()).into()
-        }
+        "all_ref_methods" => ((true, false, false), None, ReceiverFilter::Ref.into()).into(),
+        "all_value_methods" => ((true, false, false), None, ReceiverFilter::Value.into()).into(),
+        "all_static_methods" => ((true, false, false), None, ReceiverFilter::Static.into()).into(),
         _ => None,
     }
 }
@@ -74,12 +68,8 @@ pub(crate) fn get_trait_generic_decl(
                 let id = tp.ident.clone();
                 quote!(#id).into()
             }
-            (syn::GenericParam::Const(cp), GenericFilter::Const) => {
-                quote!(#cp).into()
-            }
-            (syn::GenericParam::Lifetime(ld), GenericFilter::Lifetime) => {
-                quote!(#ld).into()
-            }
+            (syn::GenericParam::Const(cp), GenericFilter::Const) => quote!(#cp).into(),
+            (syn::GenericParam::Lifetime(ld), GenericFilter::Lifetime) => quote!(#ld).into(),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -159,16 +149,10 @@ pub(crate) fn get_trait_item<'a>(
             return Ok(item);
         }
     }
-    Err(compile_err!(
-        "batch-impl: item `{}` not found in trait `{}`",
-        trait_def.ident,
-        name
-    ))
+    Err(compile_err!("batch-impl: item `{}` not found in trait `{}`", trait_def.ident, name))
 }
 
-pub(crate) fn build_from_item(
-    item: &syn::TraitItem, body: &TokenStream,
-) -> TokenStream {
+pub(crate) fn build_from_item(item: &syn::TraitItem, body: &TokenStream) -> TokenStream {
     build_from_item_sig(item, None, body)
 }
 
@@ -197,14 +181,12 @@ pub(crate) fn build_from_item_sig(
         }
         syn::TraitItem::Const(c) => {
             let mut c = c.clone();
-            c.default =
-                (syn::token::Eq::default(), syn::Expr::Verbatim(body.clone())).into();
+            c.default = (syn::token::Eq::default(), syn::Expr::Verbatim(body.clone())).into();
             quote! {#c}
         }
         syn::TraitItem::Type(t) => {
             let mut t = t.clone();
-            t.default =
-                (syn::token::Eq::default(), syn::Type::Verbatim(body.clone())).into();
+            t.default = (syn::token::Eq::default(), syn::Type::Verbatim(body.clone())).into();
             quote! {#t}
         }
         _ => compile_error_str(

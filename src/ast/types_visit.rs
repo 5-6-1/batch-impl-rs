@@ -2,11 +2,11 @@
 //! home ([`Ty::map_children`]). Split from `types.rs` so node definitions and
 //! traversal stay under the per-file budget.
 
-use crate::apply::check_expand_limit;
+use crate::apply::expand_limit_err;
 use crate::ast::types::{
-    Ty, TyArray, TyFn, TyGeneric, TyGroup, TyKind, TyParams, TyPrimitiveArray,
-    TyTuple, TyTypeParam, TyWithAttr, TyWithCode, TyWithPrefix, TyWithTrait,
-    TyWithType, TyWithWhere,
+    MAX_EXPAND, Ty, TyArray, TyFn, TyGeneric, TyGroup, TyKind, TyParams, TyPrimitiveArray, TyTuple,
+    TyTypeParam, TyWithAttr, TyWithCode, TyWithImpl, TyWithPrefix, TyWithTrait, TyWithType,
+    TyWithWhere,
 };
 use crate::util::cartesian;
 
@@ -30,9 +30,7 @@ pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
         // elements — `*((a,b),)` = `(a,b)` (one tuple impl), and a tuple
         // inside a splat (`*(a,(b,c))`) keeps `(b,c)` intact. Only lists
         // (arrays, nested splats) and generators flatten.
-        TyKind::Tuple(t) => {
-            (vec![Ty { span: ty.span, kind: TyKind::Tuple(t) }], None)
-        }
+        TyKind::Tuple(t) => (vec![Ty { span: ty.span, kind: TyKind::Tuple(t) }], None),
         TyKind::Group(g) => splat_expand(*g.0),
         // Generator: its inner container is a *param list* (the fresh tuple),
         // not a type — flatten it even though bare tuples stay single
@@ -101,10 +99,7 @@ pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypePar
 /// (`<*()^N>` would render the fresh tuple as a parameter name).
 pub(crate) fn contains_generator(params: &TyTypeParam) -> bool {
     params.params.iter().any(|(n, _)| ty_contains_generator(n))
-        || params
-            .bindings
-            .iter()
-            .any(|(n, v)| ty_contains_generator(n) || ty_contains_generator(v))
+        || params.bindings.iter().any(|(n, v)| ty_contains_generator(n) || ty_contains_generator(v))
 }
 
 fn ty_contains_generator(ty: &Ty) -> bool {
@@ -113,12 +108,12 @@ fn ty_contains_generator(ty: &Ty) -> bool {
         TyKind::Generic(g) => {
             ty_contains_generator(&g.0)
                 || g.1.params.iter().any(|(n, b)| {
-                    ty_contains_generator(n)
-                        || b.as_ref().is_some_and(ty_contains_generator)
+                    ty_contains_generator(n) || b.as_ref().is_some_and(ty_contains_generator)
                 })
-                || g.1.bindings.iter().any(|(n, v)| {
-                    ty_contains_generator(n) || ty_contains_generator(v)
-                })
+                || g.1
+                    .bindings
+                    .iter()
+                    .any(|(n, v)| ty_contains_generator(n) || ty_contains_generator(v))
         }
         TyKind::Array(a) => a.0.iter().any(ty_contains_generator),
         TyKind::Tuple(t) => t.0.iter().any(ty_contains_generator),
@@ -131,9 +126,7 @@ fn ty_contains_generator(ty: &Ty) -> bool {
 }
 
 /// Merge two optional fresh declarations (`TyTypeParam::extend` semantics).
-pub(crate) fn merge_decls(
-    a: Option<TyTypeParam>, b: Option<TyTypeParam>,
-) -> Option<TyTypeParam> {
+pub(crate) fn merge_decls(a: Option<TyTypeParam>, b: Option<TyTypeParam>) -> Option<TyTypeParam> {
     match (a, b) {
         (None, b) => b,
         (a, None) => a,
@@ -153,9 +146,7 @@ where
 {
     match inner {
         Some(i) => match i.expand() {
-            Expand::Many(v) => {
-                Expand::Many(v.into_iter().map(|e| make(e.into())).collect())
-            }
+            Expand::Many(v) => Expand::Many(v.into_iter().map(|e| make(e.into())).collect()),
             Expand::Leaf(l) => Expand::Leaf(make(l.into())),
         },
         None => Expand::Leaf(make(None)),
@@ -169,9 +160,7 @@ where
     F: Fn(Box<Ty>) -> Ty,
 {
     match inner.expand() {
-        Expand::Many(v) => {
-            Expand::Many(v.into_iter().map(|e| make(e.into())).collect())
-        }
+        Expand::Many(v) => Expand::Many(v.into_iter().map(|e| make(e.into())).collect()),
         Expand::Leaf(l) => Expand::Leaf(make(l.into())),
     }
 }
@@ -186,36 +175,31 @@ impl Ty {
     pub(crate) fn map_children(self, f: &mut impl FnMut(Ty) -> Ty) -> Ty {
         let span = self.span;
         match self.kind {
-            TyKind::Array(a) => TyArray(a.0.into_iter().map(|e| f(e)).collect())
-                .to_ty()
-                .with_span(span),
-            TyKind::Tuple(t) => TyTuple(t.0.into_iter().map(|e| f(e)).collect())
-                .to_ty()
-                .with_span(span),
+            TyKind::Array(a) => {
+                TyArray(a.0.into_iter().map(|e| f(e)).collect()).to_ty().with_span(span)
+            }
+            TyKind::Tuple(t) => {
+                TyTuple(t.0.into_iter().map(|e| f(e)).collect()).to_ty().with_span(span)
+            }
             TyKind::Group(g) => TyGroup(f(*g.0).into()).to_ty().with_span(span),
             TyKind::PrimitiveArray(pa) => {
-                TyPrimitiveArray(pa.0.map(|e| f(*e).into()), pa.1)
-                    .to_ty()
-                    .with_span(span)
+                TyPrimitiveArray(pa.0.map(|e| f(*e).into()), pa.1).to_ty().with_span(span)
             }
-            TyKind::Generic(g) => {
-                TyGeneric(f(*g.0).into(), g.1).to_ty().with_span(span)
-            }
+            TyKind::Generic(g) => TyGeneric(f(*g.0).into(), g.1).to_ty().with_span(span),
             TyKind::WithPrefix(wp) => {
                 TyWithPrefix(wp.0, wp.1.map(|e| f(*e).into())).to_ty().with_span(span)
             }
-            TyKind::WithTrait(wt) => {
-                TyWithTrait(wt.0, f(*wt.1).into()).to_ty().with_span(span)
-            }
+            TyKind::WithTrait(wt) => TyWithTrait(wt.0, f(*wt.1).into()).to_ty().with_span(span),
             TyKind::WithCode(wc) => {
                 TyWithCode(wc.0.map(|e| f(*e).into()), wc.1).to_ty().with_span(span)
             }
             TyKind::WithWhere(ww) => {
                 TyWithWhere(ww.0.map(|e| f(*e).into()), ww.1).to_ty().with_span(span)
             }
-            TyKind::WithType(wt) => {
-                TyWithType(wt.0, f(*wt.1).into()).to_ty().with_span(span)
+            TyKind::WithImpl(wi) => {
+                TyWithImpl(wi.0.map(|e| f(*e).into()), wi.1).to_ty().with_span(span)
             }
+            TyKind::WithType(wt) => TyWithType(wt.0, f(*wt.1).into()).to_ty().with_span(span),
             TyKind::WithAttr(wa) => {
                 TyWithAttr(wa.0, wa.1.map(|e| f(*e).into())).to_ty().with_span(span)
             }
@@ -251,9 +235,7 @@ impl Ty {
                     elems
                         .into_iter()
                         .map(|e| match &decl {
-                            Some(d) => TyWithType(d.clone(), e.into())
-                                .to_ty()
-                                .with_span(span),
+                            Some(d) => TyWithType(d.clone(), e.into()).to_ty().with_span(span),
                             None => e,
                         })
                         .collect(),
@@ -274,12 +256,12 @@ impl Ty {
                                 _ => vec![e.clone()],
                             })
                             .collect();
-                    let combos = cartesian(&dims);
-                    if let Some(e) =
-                        check_expand_limit("tuple list distribution", combos.len())
-                    {
-                        return e.expand();
-                    }
+                    let combos = match cartesian(&dims, MAX_EXPAND) {
+                        Ok(c) => c,
+                        Err(size) => {
+                            return expand_limit_err("tuple list distribution", size).expand();
+                        }
+                    };
                     Expand::Many(
                         combos
                             .into_iter()
@@ -304,6 +286,13 @@ impl Ty {
                     inner,
                 )
             }
+            TyKind::WithImpl(wi) => {
+                let TyWithImpl(inner, payload) = wi;
+                expand_wrapped(
+                    move |i| TyWithImpl(i, payload.clone()).to_ty().with_span(span),
+                    inner,
+                )
+            }
             TyKind::WithType(wt) => {
                 let TyWithType(params, inner) = wt;
                 expand_rebuild(
@@ -313,24 +302,15 @@ impl Ty {
             }
             TyKind::WithTrait(wt) => {
                 let TyWithTrait(t, inner) = wt;
-                expand_rebuild(
-                    move |e| TyWithTrait(t.clone(), e).to_ty().with_span(span),
-                    *inner,
-                )
+                expand_rebuild(move |e| TyWithTrait(t.clone(), e).to_ty().with_span(span), *inner)
             }
             TyKind::WithAttr(wa) => {
                 let TyWithAttr(attr, inner) = wa;
-                expand_wrapped(
-                    move |i| TyWithAttr(attr.clone(), i).to_ty().with_span(span),
-                    inner,
-                )
+                expand_wrapped(move |i| TyWithAttr(attr.clone(), i).to_ty().with_span(span), inner)
             }
             TyKind::WithPrefix(wp) => {
                 let TyWithPrefix(prefix, inner) = wp;
-                expand_wrapped(
-                    move |i| TyWithPrefix(prefix, i).to_ty().with_span(span),
-                    inner,
-                )
+                expand_wrapped(move |i| TyWithPrefix(prefix, i).to_ty().with_span(span), inner)
             }
             TyKind::Group(g) => (*g.0).expand(),
             TyKind::Generic(g) => {
@@ -340,36 +320,30 @@ impl Ty {
                 // `[u8,...]` from a `@u*` constant, and the `TyArray` produced
                 // by splat powers (`*(*@u*)^2` → `[*(u8,u8), ...]`) all reach
                 // params as a `TyArray` and distribute here.
-                if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_)))
-                {
+                if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_))) {
                     let dims: Vec<TyParams> =
                         g.1.params
                             .iter()
                             .map(|(name, bound)| match &name.kind {
                                 TyKind::Array(a) => {
-                                    a.0.iter()
-                                        .map(|e| (e.clone().into(), bound.clone()))
-                                        .collect()
+                                    a.0.iter().map(|e| (e.clone().into(), bound.clone())).collect()
                                 }
                                 _ => vec![(name.clone(), bound.clone())],
                             })
                             .collect();
-                    let combos = cartesian(&dims);
-                    if let Some(e) =
-                        check_expand_limit("generic array distribution", combos.len())
-                    {
-                        return e.expand();
-                    }
+                    let combos = match cartesian(&dims, MAX_EXPAND) {
+                        Ok(c) => c,
+                        Err(size) => {
+                            return expand_limit_err("generic array distribution", size).expand();
+                        }
+                    };
                     Expand::Many(
                         combos
                             .into_iter()
                             .map(|params| {
                                 TyGeneric(
                                     g.0.clone(),
-                                    TyTypeParam {
-                                        params,
-                                        bindings: g.1.bindings.clone(),
-                                    },
+                                    TyTypeParam { params, bindings: g.1.bindings.clone() },
                                 )
                                 .to_ty()
                                 .with_span(span)

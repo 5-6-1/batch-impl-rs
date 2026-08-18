@@ -44,6 +44,23 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 /// - `Trait name<trait generics>` — the trait's generic args and associated type bindings
 /// - target type — wrapped in `[]` for a parallel list, `^`/`-` for generic application
 ///
+/// ## ItemImpl entry (0.8.0, Ext 1)
+///
+/// The same attribute also accepts an `impl` block: the DSL describes a shape
+/// template × matrix source, and every matrix leaf instantiates the impl
+/// (the slot mapping rewrites the for-Type / where / body; the original impl
+/// is withheld):
+///
+/// ```
+/// # use batch_impl::batch_impl;
+/// # use std::rc::Rc;
+/// # trait Mk { fn make() -> Self; }
+/// #[batch_impl(Wrapper<T> : [Box, Rc]^u8)]
+/// impl Mk for Wrapper<T> { fn make() -> Wrapper<T> { Wrapper::new(T::default()) } }
+/// // → impl Mk for Box<u8> { fn make() -> Box<u8> { Box::new(u8::default()) } }
+/// // → impl Mk for Rc<u8>  { fn make() -> Rc<u8>  { Rc::new(u8::default()) } }
+/// ```
+///
 /// ## Examples
 ///
 /// ```
@@ -66,10 +83,24 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 pub fn batch_impl(
     attr: proc_macro::TokenStream, item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let trait_item = parse_macro_input!(item as ItemTrait);
-    expand_attr_macro(attr.into(), trait_item, true)
-        .map(proc_macro::TokenStream::from)
-        .unwrap_or_else(Into::into)
+    // Ext 1 (0.8.0): the attribute also accepts an `impl` block — batch
+    // instantiation from a shape-template × matrix-source description. The
+    // trait branch is untouched (top-level dispatch only, per todos §A).
+    if let Ok(trait_item) = syn::parse::<ItemTrait>(item.clone()) {
+        return expand_attr_macro(attr.into(), trait_item, true)
+            .map(proc_macro::TokenStream::from)
+            .unwrap_or_else(Into::into);
+    }
+    if let Ok(impl_item) = syn::parse::<syn::ItemImpl>(item.clone()) {
+        return entry::expand_impl_entry(attr.into(), impl_item)
+            .map(proc_macro::TokenStream::from)
+            .unwrap_or_else(Into::into);
+    }
+    proc_macro::TokenStream::from(crate::util::compile_error_str(
+        "batch-impl: expected a trait definition (`trait ...`) or an impl block \
+         (`impl Trait for Type { ... }`)",
+        proc_macro2::Span::call_site(),
+    ))
 }
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/batch_impl_only.md"))]
@@ -91,9 +122,7 @@ pub fn batch_trait(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/batch_preprocess_test.md"))]
 #[proc_macro]
-pub fn batch_preprocess_test(
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
+pub fn batch_preprocess_test(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     entry::preprocess_test(input.into())
         .map(proc_macro::TokenStream::from)
         .unwrap_or_else(Into::into)
@@ -102,9 +131,7 @@ pub fn batch_preprocess_test(
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/batch_preview.md"))]
 #[proc_macro]
 pub fn batch_preview(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    entry::preview(input.into())
-        .map(proc_macro::TokenStream::from)
-        .unwrap_or_else(Into::into)
+    entry::preview(input.into()).map(proc_macro::TokenStream::from).unwrap_or_else(Into::into)
 }
 
 // ============================================================

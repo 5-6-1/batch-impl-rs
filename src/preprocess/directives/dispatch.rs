@@ -63,14 +63,12 @@ pub(crate) fn expand_directive(
                 }
                 let consumed = 4;
                 match name.to_string().as_str() {
-                    "fill" => expand_fill(args, body, trait_def)
-                        .map(|tt| (vec![tt], consumed)),
-                    "delegate" => expand_delegate(args, body, trait_def)
-                        .map(|tt| (vec![tt], consumed)),
-                    "blanket" => {
-                        expand_blanket(args, body, trait_def, trait_full_path)
-                            .map(|v| (v, consumed))
+                    "fill" => expand_fill(args, body, trait_def).map(|tt| (vec![tt], consumed)),
+                    "delegate" => {
+                        expand_delegate(args, body, trait_def).map(|tt| (vec![tt], consumed))
                     }
+                    "blanket" => expand_blanket(args, body, trait_def, trait_full_path)
+                        .map(|v| (v, consumed)),
                     // Open extension: `#name(args){body}` → a **top-level**
                     // macro call `{ ! name!{(args){body} trait_def} }` — the
                     // `!` prefix marks top-level emission: codegen strips it,
@@ -85,10 +83,7 @@ pub(crate) fn expand_directive(
                         let inner = quote! {
                             #name ! { #args #body #trait_def }
                         };
-                        Ok((
-                            vec![Group::new(delimiter![{}], quote!(! #inner)).into()],
-                            consumed,
-                        ))
+                        Ok((vec![Group::new(delimiter![{}], quote!(! #inner)).into()], consumed))
                     }
                 }
             }
@@ -122,10 +117,8 @@ fn expand_many(
     args_group: &Group, trait_def: &ItemTrait,
     build: impl Fn(&Ident, &syn::TraitItem) -> Result<TokenStream, TokenStream>,
 ) -> Result<TokenTree, TokenStream> {
-    let method_names = parse_names_from_tokens(
-        &args_group.stream().into_iter().collect::<Vec<_>>(),
-        trait_def,
-    )?;
+    let method_names =
+        parse_names_from_tokens(&args_group.stream().into_iter().collect::<Vec<_>>(), trait_def)?;
     let mut methods = TokenStream::new();
     for name in &method_names {
         let item = get_trait_item(trait_def, name)?;
@@ -144,9 +137,7 @@ fn expand_fill(
     args_group: &Group, body: &Group, trait_def: &ItemTrait,
 ) -> Result<TokenTree, TokenStream> {
     let body_stream = body.stream();
-    expand_many(args_group, trait_def, |_name, item| {
-        Ok(build_from_item(item, &body_stream))
-    })
+    expand_many(args_group, trait_def, |_name, item| Ok(build_from_item(item, &body_stream)))
 }
 
 /// `#delegate(args){target}` → `{fn m1(sig){(target).m1(params)} ...}`
@@ -183,11 +174,19 @@ fn expand_delegate(
             if let syn::FnArg::Typed(pat_type) = input
                 && !pat_is_forwardable(&pat_type.pat)
             {
+                // `arg{i}` is always a valid identifier pattern; the
+                // fallback turns a hypothetical failure into a compile
+                // error instead of a panic (no-panic promise).
+                let arg_name = format!("arg{}", arg_idx);
                 pat_type.pat = syn::Pat::parse_single
-                    .parse_str(&format!("arg{}", arg_idx))
-                    .expect(
-                        "generated arg names are always valid identifier patterns",
-                    )
+                    .parse_str(&arg_name)
+                    .map_err(|_| {
+                        compile_err!(
+                            "batch-impl: internal error: generated argument name \
+                             `{}` is not a valid identifier pattern",
+                            arg_name
+                        )
+                    })?
                     .into();
                 arg_idx += 1;
             }
@@ -236,8 +235,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
         dp[0] = i + 1;
         for (j, cb) in b.iter().enumerate() {
             let cur = dp[j + 1];
-            dp[j + 1] =
-                if ca == cb { prev } else { 1 + prev.min(dp[j + 1]).min(dp[j]) };
+            dp[j + 1] = if ca == cb { prev } else { 1 + prev.min(dp[j + 1]).min(dp[j]) };
             prev = cur;
         }
     }

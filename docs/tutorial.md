@@ -1,6 +1,8 @@
 # batch-impl Tutorial
 
-**v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros, and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`()^N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
+**v0.8.0** (unreleased) — no tutorial changes yet (style and docs groundwork only);
+
+**v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros (reverted in 0.8.0), and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`()^N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
@@ -333,9 +335,12 @@ trait BoxRc {}
 
 Constant values are stored as **verbatim tokens**; reference sites splice and expand recursively — a value can be a DSL expression (`@uints=@uint`) or a chained reference (`@a=@b`). Cycles/forward references are rejected at definition (preventing infinite recursion); a bare range endpoint reference (`@a=@u8` without `..`) errors at definition.
 
-### 6.3 Custom constant sections (all three entries)
+### 6.3 Custom constant sections (`batch_trait!` only)
 
-A leading `@name=value;` section defines reusable constants (0.7.2: `#[batch_impl]` / `#[batch_impl_only]` support it too; values may chain references and embed DSL expressions):
+A leading `@name=value;` section defines reusable constants (values may chain
+references and embed DSL expressions). **`#[batch_impl]` / `#[batch_impl_only]`
+do not support custom constants** — the 0.7.2 feature was reverted in 0.8.0;
+write attribute-macro matrices directly with `^`/`-`/`*` instead:
 
 ```rust
 # use batch_impl::batch_trait;
@@ -345,13 +350,6 @@ batch_trait! {
     A: @uints;
     B: <T> B<T> Vec<T>;
 }
-```
-
-```rust
-# use batch_impl::batch_impl;
-# use std::rc::Rc;
-#[batch_impl(@small = [u8, u16]; @wrap = [Box, Rc]^@small; @wrap)]
-trait AttrConsts {}
 ```
 
 > **Limit**: `batch_trait!` **does not support `#` directives** (`#fill`/`#delegate`/`#blanket`/open extension) — directives need the trait definition as the signature source of truth, and `batch_trait!` is a function-like macro that never sees one. Use `#[batch_impl]` / `#[batch_impl_only]` when you need directives.
@@ -490,6 +488,121 @@ trait T { fn tag(&self) -> &'static str; }
 
 Trait-level `where` clauses inherit into the impl; renaming/composite predicates referencing undeclared params error explicitly.
 
+### 8.4 `impl{...}` Self-part shape templates (0.8.0, Ext 2)
+
+A third trailing attachment beside `where{...}` and `{body}` — the Self-part
+shape template. The three kinds attach in **any order**. The block holds a
+**standard Rust type** (DSL operators are rejected): it is matched against
+the leaf target type **position by position**, and an ident that **equals**
+the target's ident at that position is a literal (kept as-is), while a
+**different** one is a binding slot — rewritten in the target type, the where
+predicates and the body. One body, adapted to every leaf:
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl([Box, Rc]^u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
+trait Make { fn mk(x: u32) -> Self; }
+// → impl Make for Box<u32> { fn mk(x: u32) -> Box<u32> { Box::new(x) } }
+// → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
+```
+
+- `impl{T}` + `i32` → `T := i32` (a bare ident template binds the whole leaf);
+- `impl{Rc<T>}` + `Rc<i32>` → `T := i32` (`Rc` is equal → literal);
+- `impl{Rc<T>}` + `Box<i32>` → `Rc := Box, T := i32` (different base → slot);
+- multiple `impl{...}` merge into one mapping — identical re-bindings are
+  legal, conflicting ones error (`impl{X}` binds the whole leaf, `impl{X<u32>}`
+  binds the base — `InconsistentBinding`);
+- the attachment depth limit counts `impl{...}` like the other kinds;
+- `@trait` inside the template expands to the trait path before matching.
+
+#### Template matching: what binds and what does not
+
+The template is matched against the leaf by **structural recursion** — every
+`syn::Type` form is recognized and recursed into:
+
+| Template form | Behaviour |
+|---|---|
+| `T` (bare ident) | binds the whole leaf subtree |
+| `Rc<T>` / `std::rc::Rc<T>` (path, multi-segment ok) | base/segment idents: equal → literal, different → slot; generic args recurse |
+| `&A` / `&mut A` / `*const A` / `*mut A` | the reference/pointer lifetime & mutability are structural; the element binds |
+| `[A]` (slice), `(A, B, C)` (tuple) | elements bind position by position |
+| `[A; 3]` (fixed array, literal length) | the length compares verbatim; the element binds |
+| `[A; N]` (fixed array, const-param length) | the length **binds** to the leaf's length (`N := 3`; the body may use `N`) |
+| `Cow<'_, A>` (lifetime arg) | `'_'` is a **wildcard** matching any lifetime; `'a` vs `'b` compares verbatim; the type arg binds |
+
+Not bindable (kept as verbatim comparison — a targeted diagnostic instead of
+a silent mis-bind):
+
+- **slots inside fn-pointer / trait-object templates** (`fn(A) -> B`,
+  `dyn A + Send`): these forms are compared verbatim — only an identical
+  template matches itself;
+- **cross-class argument binding** (`Cow<'_, A>` vs a 1-arg `Box<u8>` leaf;
+  `Foo<A>` vs `Foo<3>`): a lifetime/const argument cannot bind to a type
+  argument, and mismatched arities cannot align. Write one prototype template
+  per shape family instead (below).
+
+#### The prototype-impl pattern
+
+Write **one correct implementation for a representative leaf**, and the
+"equal → keep, different → bind" rule adapts it to every leaf of the matrix:
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+#[batch_impl([Box, Rc]^@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
+trait TMax { fn max() -> Self; }
+// → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
+// → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
+// → impl TMax for Rc<f64>  { fn max() -> Rc<f64>  { Rc::new(f64::MAX) } }
+```
+
+Each shape family needs its own prototype (a `Cow<'_, u8>` template covers
+the Cow family — the lifetime `'_'` wildcard matches any leaf lifetime).
+Combine families in one attribute, either as separate specs or as pairs with
+a list-wide distribution:
+
+```rust
+# use batch_impl::batch_impl;
+# use std::borrow::Cow;
+# use std::rc::Rc;
+#[batch_impl(
+    [[Box, Rc] impl{Box<u8>},
+     Cow<'_> impl{Cow<'_, u8>}]^@num #tag{1}
+)]
+trait Tag { fn tag() -> usize; }
+// Box<u8>..Rc<f64> covered by the Box<u8> prototype; Cow<'_, u8>..Cow<'_, f64>
+// covered by the Cow prototype — one attribute, two shape families
+```
+
+### 8.5 The ItemImpl entry (0.8.0, Ext 1)
+
+`#[batch_impl]` also accepts an **`impl` block**: the DSL describes a
+**shape template × matrix source**, every matrix leaf emits one impl, and
+the slot mapping (the same "equal → keep, different → bind" rule as
+`impl{...}`) rewrites the for-Type / where predicates / body. The original
+impl (whose for-Type holds the placeholder slots) is withheld:
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+# trait Make { fn make() -> Self; }
+#[batch_impl(A<B> : [Box, Rc]^[usize, isize])]
+impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
+// → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
+// → ... × 4
+```
+
+- Attr grammar: shape form `A<B> : [Box,Rc]^[usize,isize]` (template `:` matrix)
+  or the direct form `<T> Box<T>` (generic declaration + for-type, N = 1);
+  `;` separates multiple specs (`W:u8; W:u16`), the single-spec case is the
+  common one;
+- `@trait` (→ the impl's trait path) is allowed in generic-decl bounds and
+  where predicates; custom `@` constants, `@N`/`@g_i` refs and `#` directives
+  are rejected on this entry;
+- the impl's own generics / where clause / `unsafe` are preserved; the bare
+  where region also ends at a depth-0 `;` or the end of the stream.
+
 ## 9. Tuple Generation and Matrices
 
 ### 9.1 Tuple generators
@@ -542,6 +655,7 @@ trait Conv<T> { fn conv() -> T; }
 ```
 
 - **`batch_trait!`** — a function-like macro for an already-declared trait, multi-section support, custom `@name=value;` constant sections, no directives.
+- **ItemImpl entry (0.8.0, Ext 1)** — `#[batch_impl]` also accepts an `impl` block: batch-instantiate a hand-written impl from a shape template × matrix source (see §8.5).
 
 ## 12. Error Hints
 

@@ -18,9 +18,7 @@ use crate::codegen::impl_parts::ImplParts;
 /// quote groups parameter tokens, so the replacement descends into groups.
 /// Limitation: a *function* generic param that happens to share a trait
 /// param's name would be substituted too (rare; renamed params avoid it).
-pub(crate) fn substitute_trait_generics(
-    parts: &mut ImplParts, trait_param_names: &[Ident],
-) {
+pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names: &[Ident]) {
     let Some(body) = parts.body.take() else {
         return;
     };
@@ -75,33 +73,30 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
     let Ty { span, kind } = ty;
     match kind {
         TyKind::Tuple(t) => {
-            let (flat, decl) =
-                t.0.into_iter().fold((vec![], None), |(mut flat, decl), e| {
-                    if matches!(e.kind, TyKind::Splat(_)) {
-                        let (mut es, d) = splat_expand(e);
-                        flat.append(&mut es);
-                        (flat, merge_decls(decl, d))
-                    } else {
-                        flat.push(expand_splat_elems(e));
-                        (flat, decl)
-                    }
-                });
+            let (flat, decl) = t.0.into_iter().fold((vec![], None), |(mut flat, decl), e| {
+                if matches!(e.kind, TyKind::Splat(_)) {
+                    let (mut es, d) = splat_expand(e);
+                    flat.append(&mut es);
+                    (flat, merge_decls(decl, d))
+                } else {
+                    flat.push(expand_splat_elems(e));
+                    (flat, decl)
+                }
+            });
             let tuple = TyTuple(flat).to_ty().with_span(span);
             match decl {
                 Some(d) => TyWithType(d, tuple.into()).to_ty().with_span(span),
                 None => tuple,
             }
         }
-        TyKind::Group(g) => {
-            TyGroup(Box::new(expand_splat_elems(*g.0))).to_ty().with_span(span)
-        }
+        TyKind::Group(g) => TyGroup(Box::new(expand_splat_elems(*g.0))).to_ty().with_span(span),
         TyKind::WithCode(wc) => {
             let inner = wc.0.map(|e| expand_splat_elems(*e).into());
             TyWithCode(inner, wc.1).to_ty().with_span(span)
         }
-        TyKind::WithType(wt) => TyWithType(wt.0, Box::new(expand_splat_elems(*wt.1)))
-            .to_ty()
-            .with_span(span),
+        TyKind::WithType(wt) => {
+            TyWithType(wt.0, Box::new(expand_splat_elems(*wt.1))).to_ty().with_span(span)
+        }
         TyKind::WithTrait(wt) => {
             // The trait path itself may carry splat args (`Conv<*(A,B)>`) —
             // expand them via `expand_tp`, hoisting any `*()^N` declaration
@@ -110,17 +105,19 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
             let trait_ty = TyTrait(wt.0.0, tp);
             let inner = Box::new(expand_splat_elems(*wt.1));
             match decl {
-                Some(d) => {
-                    TyWithType(d, Box::new(TyWithTrait(trait_ty, inner).to_ty()))
-                        .to_ty()
-                        .with_span(span)
-                }
+                Some(d) => TyWithType(d, Box::new(TyWithTrait(trait_ty, inner).to_ty()))
+                    .to_ty()
+                    .with_span(span),
                 None => TyWithTrait(trait_ty, inner).to_ty().with_span(span),
             }
         }
         TyKind::WithWhere(ww) => {
             let inner = ww.0.map(|e| expand_splat_elems(*e).into());
             TyWithWhere(inner, ww.1).to_ty().with_span(span)
+        }
+        TyKind::WithImpl(wi) => {
+            let inner = wi.0.map(|e| expand_splat_elems(*e).into());
+            TyWithImpl(inner, wi.1).to_ty().with_span(span)
         }
         TyKind::WithPrefix(wp) => {
             let inner = wp.1.map(|e| expand_splat_elems(*e).into());
@@ -132,9 +129,7 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
         }
         TyKind::Generic(g) => {
             let (tp, decl) = expand_tp(g.1);
-            let generic = TyGeneric(Box::new(expand_splat_elems(*g.0)), tp)
-                .to_ty()
-                .with_span(span);
+            let generic = TyGeneric(Box::new(expand_splat_elems(*g.0)), tp).to_ty().with_span(span);
             match decl {
                 Some(d) => TyWithType(d, Box::new(generic)).to_ty().with_span(span),
                 None => generic,
@@ -173,12 +168,7 @@ fn expand_tp(tp: TyTypeParam) -> (TyTypeParam, Option<TyTypeParam>) {
     let bindings = tp
         .bindings
         .into_iter()
-        .map(|(n, v)| {
-            (
-                Box::new(expand_splat_elems(*n)),
-                Box::new(expand_splat_elems(*v)),
-            )
-        })
+        .map(|(n, v)| (Box::new(expand_splat_elems(*n)), Box::new(expand_splat_elems(*v))))
         .collect();
     (TyTypeParam { params, bindings }, decl)
 }

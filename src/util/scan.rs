@@ -114,9 +114,7 @@ pub(crate) fn is_punct_at(tokens: &[TokenTree], index: usize, ch: char) -> bool 
 
 /// Whether the token is the given punctuation with `Joint` spacing (e.g. the
 /// first `.` of `..`, the `-` of `->`, the first `:` of `::`).
-pub(crate) fn is_joint_punct_at(
-    tokens: &[TokenTree], index: usize, ch: char,
-) -> bool {
+pub(crate) fn is_joint_punct_at(tokens: &[TokenTree], index: usize, ch: char) -> bool {
     matches!(tokens.get(index), Some(TokenTree::Punct(p))
         if p.as_char() == ch && p.spacing() == Spacing::Joint)
 }
@@ -130,6 +128,21 @@ pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool
     index > 0
         && matches!(&tokens[index - 1], TokenTree::Punct(p)
             if p.as_char() == '!' || p.as_char() == '#')
+}
+
+/// Whether `tokens[index]` is the `impl` ident of an `impl{...}` Self-part
+/// shape template (Ext 2): an `impl` ident directly followed by a Brace
+/// group. The single authority for the `impl{...}` discrimination shared by
+/// `expand_consts` (which enters the template to expand `@`/`@trait`) and
+/// `where_process` (which treats it as a predicate-region boundary).
+pub(crate) fn is_impl_template(tokens: &[TokenTree], index: usize) -> bool {
+    matches!(
+        (tokens.get(index), tokens.get(index + 1)),
+        (
+            Some(TokenTree::Ident(id)),
+            Some(TokenTree::Group(g)),
+        ) if *id == "impl" && g.delimiter() == proc_macro2::Delimiter::Brace
+    )
 }
 
 /// Check whether `tokens[index]` is the `>` of `->` (previous token is a Joint `-`).

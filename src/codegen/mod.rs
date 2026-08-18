@@ -8,12 +8,14 @@
 mod fresh;
 mod impl_parts;
 mod postprocess;
+mod shape;
 mod top_level;
 mod where_at;
 
 pub(crate) use fresh::*;
 pub(crate) use impl_parts::*;
 pub(crate) use postprocess::*;
+pub(crate) use shape::*;
 pub(crate) use top_level::*;
 pub(crate) use where_at::*;
 
@@ -22,7 +24,7 @@ use crate::ast::types_render::render_param;
 use crate::ast::*;
 use crate::util::compile_error_str;
 use proc_macro2::{Ident, TokenStream, TokenTree};
-use quote::quote;
+use quote::{ToTokens, quote};
 use std::collections::HashSet;
 
 /// Generates one impl block (for a single flattened leaf `Ty`).
@@ -40,8 +42,8 @@ use std::collections::HashSet;
 /// - otherwise → dismantle metadata (`extract_impl_parts`) → hoist nested generics
 ///   (`hoist_type_params`) → build generics / trait generics / impl body → render `quote!`
 pub(crate) fn generate_impl(
-    ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool,
-    trait_bounds: &TraitBounds, trait_param_names: &[Ident],
+    ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool, trait_bounds: &TraitBounds,
+    trait_param_names: &[Ident],
 ) -> TokenStream {
     // bare code block: `{...}` as the whole spec → emit verbatim as a top-level item
     // (not wrapped in an impl block). A `!`-marked block (top-level macro form)
@@ -120,35 +122,22 @@ pub(crate) fn generate_impl(
     // layer — the keyword is needed to render `const N: usize`; bare `N` here
     // to match trait args and where-predicate refs). Shared by bound
     // inheritance and where-predicate resolution.
-    let impl_name_streams = parts
-        .impl_generics
-        .iter()
-        .map(|(n, _)| {
-            let s = n.to_string();
-            let bare = s.strip_prefix("const ").unwrap_or(&s);
-            bare.parse().unwrap()
-        })
-        .collect::<Vec<TokenStream>>();
-    let impl_names =
-        impl_name_streams.iter().map(|n| n.to_string()).collect::<HashSet<String>>();
-    let trait_args = parts
-        .trait_generic_names
-        .iter()
-        .map(|n| n.to_string())
-        .collect::<Vec<String>>();
+    let impl_name_streams =
+        parts.impl_generics.iter().map(|(n, _)| bare_param_name(n)).collect::<Vec<TokenStream>>();
+    let impl_names = impl_name_streams.iter().map(|n| n.to_string()).collect::<HashSet<String>>();
+    let trait_args =
+        parts.trait_generic_names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
 
     // inherit trait generic bounds: same-name inheritance vs. mismatch errors; see trait_bounds docs
-    let mut errs =
-        inherit_trait_bounds(&mut parts, trait_bounds, &trait_args, &impl_names);
+    let mut errs = inherit_trait_bounds(&mut parts, trait_bounds, &trait_args, &impl_names);
     // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
-    let where_resolved =
-        match resolve_where_predicates(&parts.where_clauses, &impl_name_streams) {
-            Ok(ws) => ws,
-            Err(es) => {
-                errs.extend(es);
-                vec![]
-            }
-        };
+    let where_resolved = match resolve_where_predicates(&parts.where_clauses, &impl_name_streams) {
+        Ok(ws) => ws,
+        Err(es) => {
+            errs.extend(es);
+            vec![]
+        }
+    };
     // `@N` / `@g_i` in the target type / trait args (where predicates are
     // validated by resolve_where_predicates): a dangling reference would leak
     // the reserved `_Param_*_BatchGen_` name into rustc's E0412 output —
@@ -161,14 +150,82 @@ pub(crate) fn generate_impl(
     if !errs.is_empty() {
         return errs.into_iter().collect();
     }
-    render_impl(parts, where_resolved, trait_name, is_unsafe_trait)
+    // Ext 2: `impl{...}` Self-part shape templates — match each template
+    // against the leaf target type, merge the slot mappings, and apply the
+    // rewrites (where predicates + body here; the target type at render,
+    // where the final tokens are in hand). An empty template list is the
+    // no-op case.
+    let shape_entries = if parts.impl_templates.is_empty() {
+        Vec::new()
+    } else {
+        match collect_shape_mapping(&parts) {
+            Ok(m) => m.entries().to_vec(),
+            Err(e) => return compile_error_str(&e.message(), proc_macro2::Span::call_site()),
+        }
+    };
+    if !shape_entries.is_empty() {
+        parts.where_clauses =
+            parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_entries)).collect();
+        if let Some(b) = &mut parts.body {
+            *b = apply_mapping(b.clone(), &shape_entries);
+        }
+    }
+    render_impl(parts, where_resolved, trait_name, is_unsafe_trait, &shape_entries)
+}
+
+/// Matches every `impl{...}` template against the leaf target type and
+/// merges the slot mappings (identical re-bindings legal, conflicting ones
+/// error). Both sides must be standard Rust types: the template is
+/// user-written (syn-parsed), the target is the rendered leaf (a generator /
+/// DSL leftover cannot be destructured).
+fn collect_shape_mapping(parts: &ImplParts) -> Result<Mapping, ShapeError> {
+    let target_tokens = parts.target_type.to_token_stream();
+    let target: syn::Type = syn::parse2(target_tokens).map_err(|_| {
+        ShapeError::ShapeMismatch(
+            "the target type is not a standard Rust type (DSL leftovers cannot be destructured by an `impl{...}` template)"
+                .into(),
+        )
+    })?;
+    let mut merged = Mapping::default();
+    for t in &parts.impl_templates {
+        let template: syn::Type = syn::parse2(t.clone()).map_err(|_| {
+            ShapeError::ShapeMismatch(
+                "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)"
+                    .into(),
+            )
+        })?;
+        merged.merge(match_shape(&template, &target)?)?;
+    }
+    Ok(merged)
+}
+
+/// Renders an impl generic name with the `const` keyword stripped (the parse
+/// layer keeps `const` so `const N: usize` renders correctly; the bare name is
+/// used for trait-arg matching and where-predicate references). Names are
+/// always a single ident or the `const` ident pair; the fallback arm keeps the
+/// token stream as-is so this helper can never panic (defensive — unreachable
+/// in practice, kept to uphold the no-panic promise).
+fn bare_param_name(name: &TokenStream) -> TokenStream {
+    let mut tokens = name.clone().into_iter();
+    match (tokens.next(), tokens.next()) {
+        (Some(TokenTree::Ident(id)), None) => quote!(#id),
+        (Some(TokenTree::Ident(kw)), Some(TokenTree::Ident(id)))
+            if kw == "const" && tokens.next().is_none() =>
+        {
+            quote!(#id)
+        }
+        _ => name.clone(),
+    }
 }
 
 /// Renders the final `impl<...> Trait<...> for Target where ... { ... }`
 /// block from the extracted parts (bounds inherited, `@` refs resolved).
+/// `shape_entries` (Ext 2 `impl{...}` slot mapping) rewrites the target
+/// type at render — the where predicates and body were already rewritten by
+/// the caller.
 fn render_impl(
     parts: ImplParts, where_resolved: Vec<TokenStream>, trait_name: &TokenStream,
-    is_unsafe_trait: bool,
+    is_unsafe_trait: bool, shape_entries: &[(String, TokenStream)],
 ) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
@@ -193,15 +250,18 @@ fn render_impl(
         quote!(<#(#names),*>)
     };
 
-    // target type
-    let target = &parts.target_type;
+    // target type — Ext 2 slot mapping applied at render (the leaf tokens
+    // are in hand here; slot names in the target are replaced with the
+    // bound subtrees, e.g. `A<B>` → `Box<usize>`).
+    let target = if shape_entries.is_empty() {
+        parts.target_type.to_token_stream()
+    } else {
+        apply_mapping(parts.target_type.to_token_stream(), shape_entries)
+    };
 
     // impl body: associated types + user body
-    let mut body_tokens: Vec<TokenStream> = parts
-        .associated_types
-        .iter()
-        .map(|(name, value)| quote!(type #name = #value;))
-        .collect();
+    let mut body_tokens: Vec<TokenStream> =
+        parts.associated_types.iter().map(|(name, value)| quote!(type #name = #value;)).collect();
     if let Some(body) = &parts.body {
         body_tokens.push(body.clone());
     }

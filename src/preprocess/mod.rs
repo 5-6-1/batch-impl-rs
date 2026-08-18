@@ -93,8 +93,7 @@ pub(crate) fn expand_tokens(
         if is_punct(&tokens[i], '#')
             && let Some(TokenTree::Ident(name)) = tokens.get(i + 1)
         {
-            let (out, consumed) =
-                expand_directive(name, tokens, i, trait_def, trait_full_path)?;
+            let (out, consumed) = expand_directive(name, tokens, i, trait_def, trait_full_path)?;
             result.extend(out);
             i += consumed;
             continue;
@@ -162,11 +161,8 @@ mod tests {
             let v = s.parse::<TokenStream>().unwrap().into_iter().collect::<Vec<_>>();
             assert!(angle_collect(&v).is_ok(), "angle_collect: {s}");
             assert!(expand_consts(&v, ctx).is_ok(), "expand_consts: {s}");
-            assert!(
-                expand_tokens(&v, &trait_def, &trait_full_path).is_ok(),
-                "expand_tokens: {s}"
-            );
-            assert!(where_process(&v).is_ok(), "where_process: {s}");
+            assert!(expand_tokens(&v, &trait_def, &trait_full_path).is_ok(), "expand_tokens: {s}");
+            assert!(where_process(&v, false).is_ok(), "where_process: {s}");
         }
         // Control: WITHOUT the `!`/`#` marker the same content IS entered and
         // errors (proves the test distinguishes passthrough from recursion).

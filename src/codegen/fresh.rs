@@ -33,9 +33,7 @@ pub(crate) fn sweep_fresh_names(tokens: TokenStream) -> TokenStream {
     replace_grouped_fresh(tokens, &map)
 }
 
-pub(crate) fn collect_grouped_fresh(
-    tokens: &TokenStream, out: &mut Vec<(usize, usize)>,
-) {
+pub(crate) fn collect_grouped_fresh(tokens: &TokenStream, out: &mut Vec<(usize, usize)>) {
     for tt in tokens.clone() {
         match tt {
             TokenTree::Ident(id) => {
@@ -60,8 +58,7 @@ pub(crate) fn replace_grouped_fresh(
         match tt {
             TokenTree::Ident(id) => {
                 let s = id.to_string();
-                if let Some(&k) = parse_grouped_fresh(&s).and_then(|gi| map.get(&gi))
-                {
+                if let Some(&k) = parse_grouped_fresh(&s).and_then(|gi| map.get(&gi)) {
                     let name = format!("_Param_{}_BatchGen_", k);
                     out.push(TokenTree::Ident(Ident::new(&name, id.span())));
                 } else {
@@ -70,8 +67,7 @@ pub(crate) fn replace_grouped_fresh(
             }
             TokenTree::Group(g) => {
                 let inner = g.stream();
-                let mut new_g =
-                    Group::new(g.delimiter(), replace_grouped_fresh(inner, map));
+                let mut new_g = Group::new(g.delimiter(), replace_grouped_fresh(inner, map));
                 new_g.set_span(g.span());
                 out.push(TokenTree::Group(new_g));
             }
@@ -85,9 +81,7 @@ pub(crate) fn replace_grouped_fresh(
 /// The single authority for this diagnostic — `resolve_where_at` (where
 /// predicates) and [`validate_at_refs`] (target type / trait args) share it,
 /// so the wording cannot drift apart.
-pub(crate) fn at_num_out_of_range(
-    n: usize, fresh_count: usize, span: Span,
-) -> TokenStream {
+pub(crate) fn at_num_out_of_range(n: usize, fresh_count: usize, span: Span) -> TokenStream {
     compile_error_str(
         &format!(
             "batch-impl: `@{}` is out of range — this impl has {} fresh \
@@ -137,8 +131,7 @@ pub(crate) fn validate_at_refs(
 /// Recursive token walk: a grouped name must be declared; a single-numbered
 /// `@N`-constructed name must be within the fresh count.
 fn collect_dangling(
-    tokens: TokenStream, declared: &std::collections::HashSet<(usize, usize)>,
-    fresh_count: usize,
+    tokens: TokenStream, declared: &std::collections::HashSet<(usize, usize)>, fresh_count: usize,
 ) -> Vec<TokenStream> {
     tokens
         .into_iter()
@@ -159,9 +152,7 @@ fn collect_dangling(
                     vec![]
                 }
             }
-            TokenTree::Group(g) => {
-                collect_dangling(g.stream(), declared, fresh_count)
-            }
+            TokenTree::Group(g) => collect_dangling(g.stream(), declared, fresh_count),
             _ => vec![],
         })
         .collect()

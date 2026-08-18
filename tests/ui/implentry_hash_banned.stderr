@@ -1,0 +1,7 @@
+error: batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly)
+ --> tests/ui/implentry_hash_banned.rs:4:1
+  |
+4 | #[batch_impl(W : u8 #tag{7})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

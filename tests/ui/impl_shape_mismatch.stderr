@@ -1,0 +1,7 @@
+error: batch-impl: `impl{...}` template cannot destructure the target type (generic argument shape differs at segment `Rc`)
+ --> tests/ui/impl_shape_mismatch.rs:5:1
+  |
+5 | #[batch_impl(i32 impl{Rc<T>})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

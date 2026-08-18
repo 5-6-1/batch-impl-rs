@@ -2,9 +2,5 @@
 **/*.rs.bk
 Cargo.lock
 .idea/
-.aiassistant/
-# One-off maintenance scripts (terminology fixes etc.) — not part of the crate
-/tools/
-# Reasonix assistant tooling — not part of the crate
-.reasonix/
-reasonix.toml
+# trybuild scratch (recreated on snapshot mismatch)
+/wip/

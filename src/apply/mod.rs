@@ -34,12 +34,17 @@ pub(crate) fn err_ty_at(msg: &str, span: Span) -> Ty {
 /// Expansion-count check: returns a `compile_error!` signal when `len` exceeds [`MAX_EXPAND`].
 /// Used where expansion can blow up exponentially: `^N` / Cartesian products / ranges
 pub(crate) fn check_expand_limit(what: &str, len: usize) -> Option<Ty> {
-    (len > MAX_EXPAND).then(|| {
-        err_ty(&format!(
-            "batch-impl: `{}` expands to {} items (limit {}); likely exponential/range/Cartesian typo",
-            what, len, MAX_EXPAND
-        ))
-    })
+    (len > MAX_EXPAND).then(|| expand_limit_err(what, len))
+}
+
+/// The over-limit diagnostic itself — split out so the `cartesian` callers
+/// can render the same message from the `Err` size without going through
+/// the `Option` check (single wording authority).
+pub(crate) fn expand_limit_err(what: &str, len: usize) -> Ty {
+    err_ty(&format!(
+        "batch-impl: `{}` expands to {} items (limit {}); likely exponential/range/Cartesian typo",
+        what, len, MAX_EXPAND
+    ))
 }
 
 /// Binary operation on type expressions: in `A^B` / `A-B`, `A.apply(B)` combines into a `Ty`.
@@ -71,11 +76,8 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             // Array-array chains (`[A,B]^[C,D]^[E,F]`) check the limit by **leaf count** —
             // each intermediate array is small, but leaf count grows exponentially along the `^` chain.
             TyKind::Array(arr) => {
-                let result = arr
-                    .0
-                    .into_iter()
-                    .map(|e| self.clone().apply(e, span))
-                    .collect::<Vec<Ty>>();
+                let result =
+                    arr.0.into_iter().map(|e| self.clone().apply(e, span)).collect::<Vec<Ty>>();
                 if let Some(e) = check_expand_limit(
                     "list chain expansion",
                     result.iter().map(count_leaves).sum(),
@@ -91,26 +93,34 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             // flatten `*()` / `*[]`, so nested structures stay intact).
             TyKind::Group(g) => self.apply(*g.0, span),
             TyKind::WithCode(wc) => match wc.0 {
-                Some(inner) => TyWithCode(
-                    Ty { span, kind: self.clone().into() }.apply(*inner).into(),
-                    wc.1,
-                )
-                .to_ty()
-                .with_span(span),
-                None => TyWithCode(Ty { span, kind: self.into() }.into(), wc.1)
-                    .to_ty()
-                    .with_span(span),
+                Some(inner) => {
+                    TyWithCode(Ty { span, kind: self.clone().into() }.apply(*inner).into(), wc.1)
+                        .to_ty()
+                        .with_span(span)
+                }
+                None => {
+                    TyWithCode(Ty { span, kind: self.into() }.into(), wc.1).to_ty().with_span(span)
+                }
+            },
+            TyKind::WithImpl(wi) => match wi.0 {
+                Some(inner) => {
+                    TyWithImpl(Ty { span, kind: self.clone().into() }.apply(*inner).into(), wi.1)
+                        .to_ty()
+                        .with_span(span)
+                }
+                None => {
+                    TyWithImpl(Ty { span, kind: self.into() }.into(), wi.1).to_ty().with_span(span)
+                }
             },
             TyKind::WithWhere(ww) => match ww.0 {
-                Some(inner) => TyWithWhere(
-                    Ty { span, kind: self.clone().into() }.apply(*inner).into(),
-                    ww.1,
-                )
-                .to_ty()
-                .with_span(span),
-                None => TyWithWhere(Ty { span, kind: self.into() }.into(), ww.1)
-                    .to_ty()
-                    .with_span(span),
+                Some(inner) => {
+                    TyWithWhere(Ty { span, kind: self.clone().into() }.apply(*inner).into(), ww.1)
+                        .to_ty()
+                        .with_span(span)
+                }
+                None => {
+                    TyWithWhere(Ty { span, kind: self.into() }.into(), ww.1).to_ty().with_span(span)
+                }
             },
             // When the right operand is `WithType` (e.g. the fresh generic tuple of `()^N`),
             // hoist the generic declaration outward: `T^<A>X` => `<A>(T^X)`,
@@ -148,8 +158,7 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             TyKind::Error(e) => Ty { span, kind: TyKind::Error(e) },
             TyKind::Range(TyRange { start, end, inclusive }) => {
                 map_range(start, end, inclusive, span, |n| {
-                    Ty { span, kind: self.clone().into() }
-                        .apply(TyNum(n).to_ty().with_span(span))
+                    Ty { span, kind: self.clone().into() }.apply(TyNum(n).to_ty().with_span(span))
                 })
             }
             other => self.apply_help(Ty { span: o.span, kind: other }, span),
@@ -197,6 +206,7 @@ impl Apply for TyKind {
             TyKind::WithType(wt) => wt.apply_help(o, span),
             TyKind::WithCode(wc) => wc.apply_help(o, span),
             TyKind::WithWhere(ww) => ww.apply_help(o, span),
+            TyKind::WithImpl(wi) => wi.apply_help(o, span),
             TyKind::TypeParam(t) => t.apply_help(o, span),
             TyKind::Num(n) => n.apply_help(o, span),
             TyKind::Range(r) => r.apply_help(o, span),
@@ -235,12 +245,8 @@ impl Apply for TyPrimitive {
     /// `T^U` => `T<U>`; `T^<A,B>` => `T<A,B>`
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         match o.kind {
-            TyKind::TypeParam(tp) => {
-                TyGeneric(self.into(), tp).to_ty().with_span(span)
-            }
-            _ => TyGeneric(self.into(), TyTypeParam::single(&o))
-                .to_ty()
-                .with_span(span),
+            TyKind::TypeParam(tp) => TyGeneric(self.into(), tp).to_ty().with_span(span),
+            _ => TyGeneric(self.into(), TyTypeParam::single(&o)).to_ty().with_span(span),
         }
     }
 }

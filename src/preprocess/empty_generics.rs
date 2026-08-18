@@ -33,9 +33,7 @@ fn args_all_bindings(args: &[TokenTree]) -> bool {
 /// Renders the formal-param segment of `A<>`: type params use the bound
 /// merged by [`TraitBounds`] (inline + where predicates); lifetimes / consts
 /// are copied as-is.
-fn render_formals(
-    trait_def: &ItemTrait, trait_bounds: &TraitBounds,
-) -> Vec<TokenStream> {
+fn render_formals(trait_def: &ItemTrait, trait_bounds: &TraitBounds) -> Vec<TokenStream> {
     let mut formals = vec![];
     for (i, p) in trait_def.generics.params.iter().enumerate() {
         match p {
@@ -103,13 +101,7 @@ pub(crate) fn expand_empty_trait_generics(
                     // Expand into an angle-group sequence (the pairing-output
                     // shape of `angle_collect`): `angle-group(<'a, T: bounds,
                     // const N>) A angle-group(<'a, T, N, Item = T>)`
-                    out.push(
-                        proc_macro2::Group::new(
-                            delimiter![<>],
-                            quote!(#(#formals),*),
-                        )
-                        .into(),
-                    );
+                    out.push(proc_macro2::Group::new(delimiter![<>], quote!(#(#formals),*)).into());
                     out.extend(quote!(#id));
                     let args_ts = if args.is_empty() {
                         quote!(#(#arg_names),*)

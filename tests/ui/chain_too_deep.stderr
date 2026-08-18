@@ -1,0 +1,5 @@
+error: batch-impl: operator chain exceeds 129 levels (limit 128); split the chain into separate impl-specs
+ --> tests/ui/chain_too_deep.rs:3:525
+  |
+3 | ...^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^Vec^u8)]
+  |                                                                    ^

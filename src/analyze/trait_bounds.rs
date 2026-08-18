@@ -103,9 +103,7 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
         .params
         .iter()
         .filter_map(|p| match p {
-            syn::GenericParam::Lifetime(ld) => {
-                Some(format!("'{}", ld.lifetime.ident))
-            }
+            syn::GenericParam::Lifetime(ld) => Some(format!("'{}", ld.lifetime.ident)),
             _ => None,
         })
         .collect::<Vec<String>>();
@@ -121,8 +119,7 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
                     let b = &tp.bounds;
                     Some(quote!(#b))
                 };
-                let refs =
-                    collect_bound_refs(&tp.bounds, &type_const_names, &lt_names);
+                let refs = collect_bound_refs(&tp.bounds, &type_const_names, &lt_names);
                 params.push(TraitParam { name: tp.ident.to_string(), bound, refs });
             }
             syn::GenericParam::Lifetime(ld) => params.push(TraitParam {
@@ -130,11 +127,9 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
                 bound: None,
                 refs: vec![],
             }),
-            syn::GenericParam::Const(cp) => params.push(TraitParam {
-                name: cp.ident.to_string(),
-                bound: None,
-                refs: vec![],
-            }),
+            syn::GenericParam::Const(cp) => {
+                params.push(TraitParam { name: cp.ident.to_string(), bound: None, refs: vec![] })
+            }
         }
     }
     let mut extra_predicates = vec![];
@@ -149,8 +144,7 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
                 // Note: quote interpolation only supports `#ident`, not field access
                 let b = &pt.bounds;
                 let extra = quote!(#b);
-                let extra_refs =
-                    collect_bound_refs(&pt.bounds, &type_const_names, &lt_names);
+                let extra_refs = collect_bound_refs(&pt.bounds, &type_const_names, &lt_names);
                 let param = &mut params[pos];
                 param.bound = Some(match &param.bound {
                     Some(inline) => quote!(#inline + #extra),
@@ -175,9 +169,7 @@ fn single_ident_param(ty: &syn::Type) -> Option<String> {
         return None;
     }
     let seg = tp.path.segments.first()?;
-    if tp.path.segments.len() == 1
-        && matches!(&seg.arguments, syn::PathArguments::None)
-    {
+    if tp.path.segments.len() == 1 && matches!(&seg.arguments, syn::PathArguments::None) {
         Some(seg.ident.to_string())
     } else {
         None
@@ -239,9 +231,7 @@ impl<'a> Collector<'a> {
                 .lifetimes
                 .iter()
                 .filter_map(|p| match p {
-                    syn::GenericParam::Lifetime(ld) => {
-                        Some(format!("'{}", ld.lifetime.ident))
-                    }
+                    syn::GenericParam::Lifetime(ld) => Some(format!("'{}", ld.lifetime.ident)),
                     _ => None,
                 })
                 .collect();

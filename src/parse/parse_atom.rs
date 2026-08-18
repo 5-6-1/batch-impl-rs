@@ -6,9 +6,7 @@ use crate::util::{Cursor, contains_punct};
 use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
 
 /// `#[...]` attribute parsing
-pub(crate) fn parse_attribute(
-    tokens: &[TokenTree],
-) -> Option<(TokenStream, &[TokenTree])> {
+pub(crate) fn parse_attribute(tokens: &[TokenTree]) -> Option<(TokenStream, &[TokenTree])> {
     match tokens {
         [TokenTree::Punct(hash), TokenTree::Group(group), rest @ ..]
             if hash.as_char() == '#' && group.delimiter() == delimiter![[]] =>
@@ -21,7 +19,7 @@ pub(crate) fn parse_attribute(
 
 /// `fn(A,B)->C` function type parsing (fn + parameter tuple + optional return type)
 pub(crate) fn parse_function(
-    tokens: &[TokenTree], trait_name: Option<&Ident>,
+    tokens: &[TokenTree], trait_name: Option<&Ident>, depth: usize,
 ) -> Option<Ty> {
     let [TokenTree::Ident(name), TokenTree::Group(args), rest @ ..] = tokens else {
         return None;
@@ -35,11 +33,8 @@ pub(crate) fn parse_function(
     let mut cursor = Cursor::new(&args_tokens);
     let mut parameters = vec![];
     if cursor.is_punct(',') {
-        return err_ty_at(
-            "batch-impl: `fn` parameter list cannot start with `,`",
-            args.span(),
-        )
-        .into();
+        return err_ty_at("batch-impl: `fn` parameter list cannot start with `,`", args.span())
+            .into();
     }
     while let Some(parameter) = parse_item(&mut cursor, Op::Comma, trait_name) {
         parameters.push(parameter);
@@ -62,7 +57,7 @@ pub(crate) fn parse_function(
                 && arrow.as_char() == '>'
                 && !return_tokens.is_empty() =>
         {
-            parse_primitive(return_tokens, trait_name).into()
+            parse_primitive(return_tokens, trait_name, depth + 1).into()
         }
         // Anything else after the parameter list is not part of the fn type:
         // reject instead of silently dropping (`fn(A) B` / `fn(A)->`).
@@ -88,9 +83,7 @@ pub(crate) fn parse_prefix(tokens: &[TokenTree]) -> Option<(TyPrefix, &[TokenTre
         {
             (TyPrefix::RefMut, rest).into()
         }
-        [TokenTree::Punct(p), rest @ ..] if p.as_char() == '&' => {
-            (TyPrefix::Ref, rest).into()
-        }
+        [TokenTree::Punct(p), rest @ ..] if p.as_char() == '&' => (TyPrefix::Ref, rest).into(),
         [TokenTree::Punct(p), TokenTree::Ident(name), rest @ ..]
             if p.as_char() == '*' && name == "const" =>
         {
@@ -101,12 +94,8 @@ pub(crate) fn parse_prefix(tokens: &[TokenTree]) -> Option<(TyPrefix, &[TokenTre
         {
             (TyPrefix::PtrMut, rest).into()
         }
-        [TokenTree::Ident(name), rest @ ..] if name == "self" => {
-            (TyPrefix::SelfType, rest).into()
-        }
-        [TokenTree::Ident(name), rest @ ..] if name == "unsafe" => {
-            (TyPrefix::Unsafe, rest).into()
-        }
+        [TokenTree::Ident(name), rest @ ..] if name == "self" => (TyPrefix::SelfType, rest).into(),
+        [TokenTree::Ident(name), rest @ ..] if name == "unsafe" => (TyPrefix::Unsafe, rest).into(),
         _ => None,
     }
 }
@@ -132,10 +121,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     let start = match start.to_string().parse::<usize>() {
         Ok(n) => n,
         Err(_) => {
-            return Some(err_ty_at(
-                "batch-impl: range start must be an integer",
-                span,
-            ));
+            return Some(err_ty_at("batch-impl: range start must be an integer", span));
         }
     };
     let (inclusive, end_lit) = match rest {
@@ -150,10 +136,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     let end = match end_lit.to_string().parse::<usize>() {
         Ok(n) => n,
         Err(_) => {
-            return Some(err_ty_at(
-                "batch-impl: range end must be an integer",
-                end_lit.span(),
-            ));
+            return Some(err_ty_at("batch-impl: range end must be an integer", end_lit.span()));
         }
     };
     TyRange { start, end, inclusive }.to_ty().with_span(span).into()
@@ -180,9 +163,7 @@ fn lone_splat(contents: &[TokenTree]) -> bool {
 }
 
 /// `{...}` code block
-pub(crate) fn parse_group(
-    group: &proc_macro2::Group, trait_name: Option<&Ident>,
-) -> Ty {
+pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>) -> Ty {
     let contents = group.stream().into_iter().collect::<Vec<_>>();
     match group.delimiter() {
         delimiter![()] => {
@@ -193,10 +174,7 @@ pub(crate) fn parse_group(
             // expands only in codegen — `(*(a,b))` renders `(a, b)`. This
             // makes `(*(a,b))` ≡ `(*(a,b),)` on one code path. Non-splat
             // single-element groups (`(a)`) stay transparent (`TyGroup`).
-            if contents.is_empty()
-                || contains_punct(&contents, ',')
-                || lone_splat(&contents)
-            {
+            if contents.is_empty() || contains_punct(&contents, ',') || lone_splat(&contents) {
                 // Splat elements are KEPT (splat survival: parse never
                 // flattens `*()`/`*[]` — `(a, *(b,c))` stays a tuple with a
                 // splat element; codegen expands it into `(a, b, c)`).
@@ -216,16 +194,15 @@ pub(crate) fn parse_group(
                     contents[0].span(),
                 )
             } else {
-                let inner =
-                    parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)
-                        .unwrap_or_else(empty);
+                let inner = parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)
+                    .unwrap_or_else(empty);
                 TyGroup(Box::new(inner)).to_ty().with_span(group.span())
             }
         }
         delimiter![[]] => parse_array_group(&contents, group.span(), trait_name),
-        delimiter![{}] => TyWithCode(None, TyCodeBlock(group.stream()))
-            .to_ty()
-            .with_span(group.span()),
+        delimiter![{}] => {
+            TyWithCode(None, TyCodeBlock(group.stream())).to_ty().with_span(group.span())
+        }
         // A transparent (None) group here is unexpected — angle_collect flattens
         // real None groups and parse_primary routes `<>` groups away. Reaching
         // this arm means a macro-expansion produced an unpaired transparent
@@ -253,8 +230,7 @@ fn parse_array_group(
         TyPrimitiveArray(None, None).to_ty().with_span(span)
     } else {
         let mut cursor = Cursor::new(contents);
-        let element =
-            parse_item(&mut cursor, Op::Semi, trait_name).unwrap_or_else(empty);
+        let element = parse_item(&mut cursor, Op::Semi, trait_name).unwrap_or_else(empty);
         if cursor.is_punct(';') {
             cursor.bump();
             let length_tokens = cursor.take_rest();
@@ -277,17 +253,13 @@ fn parse_array_group(
 }
 
 /// Parse a list by looping at the given level (stops when `parse_item` returns None)
-pub(crate) fn parse_list(
-    tokens: &[TokenTree], level: Op, trait_name: Option<&Ident>,
-) -> Vec<Ty> {
+pub(crate) fn parse_list(tokens: &[TokenTree], level: Op, trait_name: Option<&Ident>) -> Vec<Ty> {
     let mut cursor = Cursor::new(tokens);
     let mut items = vec![];
     // Leading comma (`[,A]` / `(,A)`): a list starting with `,` is a typo
     if cursor.is_punct(',') {
         items.push(err_ty("batch-impl: a list cannot start with `,`"));
     }
-    items.extend(std::iter::from_fn(|| {
-        parse_item(&mut cursor, level, trait_name)
-    }));
+    items.extend(std::iter::from_fn(|| parse_item(&mut cursor, level, trait_name)));
     items
 }

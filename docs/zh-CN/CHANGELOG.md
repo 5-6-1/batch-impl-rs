@@ -2,6 +2,17 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.8.0 (unreleased)
+
+- **shape-match 增强（Ext 1/Ext 2）**——`impl{...}` / ItemImpl 模板匹配覆盖全部 `syn::Type` 形态（切片、任意元数元组、定长数组、引用/指针、多段路径）；定长数组长度写成裸 const 参数名时绑定叶子长度（`[A; N]` → `N := 3`），`'_'` 匿名生命周期为通配匹配任意叶子生命周期——由此支撑**原型实现模式**：为代表性叶子写一个正确实现，"相同→保留、不同→绑定"规则自动适配整个矩阵（`[Box,Rc]^@num impl{Box<u8>} #max{Box::new(u8::MAX)}` → 28 个 impl；`Cow<'_, @num> impl{Cow<'_, u8>}` 覆盖含生命周期的 Cow 族；多族可在一条属性内组合）。fn 指针 / trait 对象模板与跨类实参（生命周期/const vs 类型）保持逐字并定向诊断
+- **Ext 1：`#[batch_impl]` ItemImpl 入口**——属性宏同样接受 `impl` 块并批量实例化：DSL 描述形状模板 × 矩阵源（`A<B> : [Box,Rc]^[usize,isize]`），每个矩阵叶子产出一个 impl，槽映射（共享 shape-match 内核：相同 ident 保留、不同则绑定）重写 for-Type / where 谓词 / body；原始 impl（for-Type 含占位槽名）被 withhold。`@trait`（→ impl 的 trait path）允许在泛型声明 bound 与 where 谓词中；自定义 `@` 常量 / `@N` 引用 / `#` 指令在本入口拒绝；`;` 分隔多个 spec（单 spec 为常见形态）；裸 where 谓词区域新增深度 0 `;` 与（仅 ItemImpl）流末尾终止
+- **Ext 2：`impl{...}` Self-part 形状模板**——trait 入口新增第三种尾随附件（`T impl{...} where{...} {body}`，任意顺序）：块内是标准 Rust 类型模板，与矩阵叶子目标类型**逐位匹配**——与目标同位置的 ident **相同** → 字面保留；**不同** → 绑定槽，替换进目标/where/body（`Box<u32> impl{Rc<T>}` → `Rc := Box, T := u32`；`[Box, Rc]^u32 impl{W<T>}` → 每叶子一个 impl，`W` 绑定叶子 base）。多个 `impl{...}` 合并为单一映射（同形冗余合法、异形冲突报错）；模板内 DSL 算子、形状不匹配、附件深度超限均定向报错
+- **回退：属性宏自定义 `@` 常量**——移除 0.7.2 误加的特性（`#[batch_impl]` / `#[batch_impl_only]` 的前导 `@name=value;` 段）：自定义常量段仅 `batch_trait!` 可用（属性宏中出现定义段报"custom constants are not supported"）；属性宏矩阵直接用 `^` / `-` / `*` 书写（属性宏的未知常量消息不再带"定义须先于引用"后缀）
+- **风格打底**：`rustfmt.toml` 移除宽度上限（`max_width` / `fn_call_width` / `struct_lit_width` / `struct_variant_width`），回归固定四行配置；全库按新配置重新格式化
+- **文档**：`examples/simplify.rs` 注释由中文译为英文（DSL 内容不动）；`examples/quickstart.rs` 注释同步英文化；`docs/architecture.md` 测试矩阵数字更新（`tests/features/` 拆分后 dsl 167、ui 74 compile_fail）
+- **去 panic 承诺加固**：生产代码不再有任何可能 panic 的路径——畸形或对抗性 DSL 输入一律产出诊断或展开（修复单 token `#blanket` wrapper 在 debug 构建下的 underflow；笛卡尔积展开改为分配前检查规模，超大矩阵报上限而非耗尽内存）
+- **扁平链深度护栏**：`^`/`-` 算子链、尾部 `{...}`/`where{...}` 附件链、链式类型段（`<T><U>...X`）统一 128 层上限——数百个链式单元此前会使编译器栈溢出（STATUS_STACK_OVERFLOW）；解析层现在输出定向诊断（fuzz 词表新增 `@`/`.`/`'`/`+`/`?` 及常量系统词，覆盖常量/range/生命周期路径）
+
 ## 0.7.2 (2026-08-14)
 
 - 诊断语言用户化：`@N`/`@g_i` 越界或悬空引用不再泄露 `_Param_*_BatchGen_` 保留名——where 谓词与目标类型/trait 实参位置统一按用户语言定向报错（此前类型位置的悬空引用会以 rustc E0412 裸错暴露内部命名）
@@ -10,7 +21,7 @@
 - **`#blanket` 按值接收者修复 + doc 提示**：`fn consume(self)` 的委托体 deref 少一层——按值 `self` 本身就是包装，此前统一 `**self` 多解引用了一层内部类型（E0614）；现在 `(*self).consume()` 对 `Box` 等可移动包装正常通过（`&`/`Rc` 等共享包装移出仍不可过，生成的 impl 携带 `#[doc]` 提示：建议 `@all_ref_methods` 或 `#name{...}`；proc macro 无稳定 warning 通道 E0658，doc 通道零编译风险）
 - **开放扩展协议收敛**：顶层 `{! m!{...}}` 为唯一推荐形态，内嵌 `T {m!{...}}`（无 `!`，输出关联项）标注弃用、保留兼容——proc macro 无 warning 通道，收敛落在文档层（tutorial §7.5 / crate 文档 / architecture）
 - **语法面冻结承诺**：全部既有记号语义视为 final（README 新增承诺节 + architecture 扩展准则 + tutorial §6.4 power-user tier 标注）——后续只做加法、诊断精化与文档，改动既有语义即刻意破坏性发布
-- **属性宏自定义 `@` 常量**：`#[batch_impl]` / `#[batch_impl_only]` 支持与 `batch_trait!` 相同的前导 `@name=value;` 常量段（懒展开、链式引用、循环/前向引用拒绝）；定义不在前导位置时定向报错
+- **属性宏自定义 `@` 常量**（**0.8.0 已回退**）：`#[batch_impl]` / `#[batch_impl_only]` 支持与 `batch_trait!` 相同的前导 `@name=value;` 常量段（懒展开、链式引用、循环/前向引用拒绝）；定义不在前导位置时定向报错
 
 ## 0.7.1 (2026-08-13)
 

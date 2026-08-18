@@ -48,7 +48,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.0
       - uses: Swatinem/rust-cache@v2
       # MSRV 只跑功能/回归 + doctest，跳过 trybuild 快照（.stderr 措辞随 rustc 漂移）
-      - run: cargo test --lib --test dsl --test regression
+      # tests/dsl.rs 是拆分后的测试 crate 入口（mod features; 挂载 tests/features/ 全部模块）
+      - run: cargo test --lib --test dsl
       - run: cargo test --doc
 
   doc:

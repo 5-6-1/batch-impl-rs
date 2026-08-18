@@ -1,6 +1,8 @@
 # batch-impl Internal Architecture
 
-**v0.7.2** — 0.7.2 released: user-language `@` diagnostics + `batch_preview!` + trait-arg generator-splat hoisting + `#blanket` by-value fix; 0.7.1 released: targeted diagnostics + single-source Cartesian product (`util::cartesian`) + directive dispatch moved into `directives/`; 0.7.0: the **splat** `*` prefix (`TySplat{Tuple,Array}` enum mirroring the source bracket, full delegation to `TyTuple`/`TyArray` apply + re-wrap), array distribution propagation, parse-layer split into `chain`/`primary`/`trailing`; 0.6.x: preprocessing order `@ <> # where`, complete macro-meta layer, `@N` fresh references, receiver filtering, blanket delegation, span diagnostics.
+**v0.8.0** (unreleased) — style groundwork (rustfmt width caps dropped, crate-wide reformat) + docs refresh (example comments in English, test counts) + flat-chain depth guards (`^`/`-` chains, attachment chains, chained type segments capped at 128 levels) + the 0.7.2 attribute-macro custom `@` constants feature reverted (`@name=value;` sections are `batch_trait!`-only again) + **Ext 2 `impl{...}` Self-part shape templates** (new `codegen::shape` kernel + `TyKind::WithImpl` + `expand_consts` enters the template, `where_process` treats it as a boundary) + **Ext 1 ItemImpl entry** (`#[batch_impl]` also accepts an `impl` block; `entry/impl_entry.rs` + top-level dispatch; shape-template × matrix-source instantiation, `;`-separated specs, `@trait`-only `@` domain; `where_process` gains the `;` stop and the `allow_end` parameter);
+
+**v0.7.2** — 0.7.2 released: user-language `@` diagnostics + `batch_preview!` + trait-arg generator-splat hoisting + `#blanket` by-value fix + attribute-macro custom `@` constants (reverted in 0.8.0); 0.7.1 released: targeted diagnostics + single-source Cartesian product (`util::cartesian`) + directive dispatch moved into `directives/`; 0.7.0: the **splat** `*` prefix (`TySplat{Tuple,Array}` enum mirroring the source bracket, full delegation to `TyTuple`/`TyArray` apply + re-wrap), array distribution propagation, parse-layer split into `chain`/`primary`/`trailing`; 0.6.x: preprocessing order `@ <> # where`, complete macro-meta layer, `@N` fresh references, receiver filtering, blanket delegation, span diagnostics.
 
 For contributors: module organization, parsing pipeline, error handling, testing matrix.
 
@@ -10,6 +12,7 @@ For contributors: module organization, parsing pipeline, error handling, testing
 lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trait! / test macros) + module tree
   ├── entry/                entry and driver
   │   ├── mod.rs            entry implementation: expand_attr_macro / expand_batch_trait + the shared pipeline run_pipeline
+  │   ├── impl_entry.rs     Ext 1 ItemImpl entry: shape-template × matrix-source instantiation (attr preprocessing subset + `;`-spec split + assembly)
   │   ├── driver.rs         shared driver: BFS over the parallel list → generate_impl per leaf
   │   ├── preview.rs        batch_preview!: expansion through the diagnostic channel + `^`/`-` miswrite notes
   │   └── path_prefix.rs    external trait path prefix: #Path::to::Trait: state-machine parsing
@@ -28,12 +31,12 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   ├── preprocess/           preprocessing layer (token rewriter, one pass per file; mod.rs aggregates re-exports)
   │   ├── mod.rs            the delimiter! delimiter-spelling macro + the pipeline: angle_collect → expand_consts → expand_tokens (#name directive expansion) → where_process
   │   ├── directives/       the `#` directive system: #fill / #delegate / #blanket + open extension (name_list / trait_items / delegate_args / blanket / blanket_wrappers)
-  │   ├── consts/           the `@` constant system: built-in type families (@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 ranges) + custom leading definition sections `@name=value;` (all three entries) + where selectors (@all_fresh / @N..M pass-through) (table / expand / ctx)
+  │   ├── consts/           the `@` constant system: built-in type families (@u*/@i*/@f* + @scalar/@num + @u8..u128/@i8..i128/@f32..f64 ranges) + `batch_trait!`-only custom leading definition sections `@name=value;` + where selectors (@all_fresh / @N..M pass-through) (table / expand / ctx)
   │   ├── empty_generics.rs `A<>` verbatim-copy expansion (parameter rendering uses the merged bound)
   │   ├── where_process.rs  bare-where rewrite: `where predicates {body}` → legacy `where{predicates}`
   │   └── angle.rs          angle-bracket groups: entry None-group flattening + `<...>` pairing into groups (restored on output); the parse layer no longer tracks <> depth
   ├── ast/                  AST layer
-  │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 19 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
+  │   ├── mod.rs            struct Ty { span, kind: TyKind } (TyKind has 20 variants, incl. Error) + Op precedence definitions; span lives at the Ty level and flows through the apply output
   │   ├── fresh.rs          fresh-name protocol (`_Param_*_BatchGen_` constants + generate/construct/parse trio)
   │   └── types_render.rs   AST rendering: ToTokens impl for Ty + the params_to_tokens family
   ├── apply/                application layer
@@ -43,6 +46,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── mod.rs            extract_impl_parts → postprocess → hoist_type_params → generate_impl (the impl-block assembly entry)
   │   ├── impl_parts.rs     the ImplParts struct + traversal of the TyKind variants (extract / hoist)
   │   ├── postprocess.rs    trait generic substitution over ImplParts (`From<bool>`: `value: T` → `value: bool` in directive bodies)
+  │   ├── shape.rs          Ext 2/Ext 1 shared kernel: match_shape (template vs leaf, position-by-position) + Mapping + ShapeError — structural recursion over every syn::Type form (slices/tuples/arrays/references/pointers/parens/paths), bare const-param array lengths and `'_'` lifetime wildcards bind; fn-pointer/trait-object templates and cross-class (lifetime/const vs type) args compare verbatim
   │   ├── top_level.rs      top-level macro injection (`{! ...}` — spec-body merge + macro-input rewrite)
   │   ├── fresh.rs          fresh-name sweeping (`_Param_{g}_{i}_` → `_Param_0..N_` per impl) + `@N`/`@g_i` reference validation (target type / trait args)
   │   └── where_at.rs       `@` where-predicate resolution (`@N`/`@g_i`/`@all_fresh`/`@N..M`)
@@ -94,6 +98,8 @@ The DSL consists of three **mutually non-penetrating syntax domains**; each doma
 
 Directive expansion output falls into two kinds: **single-group output** (`#name`/`#fill`/`#delegate`/the `{...}` group of an open extension) can attach to a type (`T {body}`) or stand alone as a spec; **multi-token output** (the complete spec segments of `#blanket`) is self-contained with its generics/target/delegation and can only stand alone as a spec — attaching it is meaningless. The open extension itself is **top-level only** since 0.6.7: `{! m!{...}}` prepends the spec body and emits the macro call at top level; the legacy in-impl form `T {m!{...}}` (no `!`, associated items) is deprecated since 0.7.2 and kept for compatibility.
 
+**Ext 2 `impl{...}` (0.8.0)**: a third trailing attachment kind beside `{body}` and `where{...}` — the Self-part shape template. The three kinds attach in **any order** (peeled by the same trailing loop); `impl{...}` holds a standard Rust type (DSL operators rejected by syn), entered by `expand_consts` only (`angle_collect`/`expand_tokens`/`where_process` pass it through; `where_process` treats an `impl{...}` as a predicate-region boundary). In codegen the template is matched against the leaf target type by the shared `codegen::shape::match_shape` kernel: a template ident **equal** to the target's at that position is a literal (untouched), a **different** one is a binding slot rewritten in the target/where/body (the "match different → replace, match equal → keep" semantics). Multiple `impl{...}` merge into one mapping (identical re-bindings legal, conflicting ones `InconsistentBinding`). The attachment depth guard counts `impl{...}` like the other kinds.
+
 ### Extension Guidelines
 
 New syntax may only **extend existing mechanisms within existing domains** (e.g. adding set-difference to the `^`/`-` family, new directives to the directive domain, new constants to the macro-meta layer); it must not reuse tokens across domains or change the in-domain semantics of existing tokens. Both `@` bindings and `#blanket` follow this guideline: the former is a pure lexical substitution at the macro-meta layer, and the latter is the automated form of `#delegate` within the directive domain.
@@ -133,6 +139,18 @@ All DSL syntax errors emit friendly compile errors via `compile_error!()`, and t
 
 **Nesting-depth guard** (0.6.1): nested groups (`[[[...]]]`) and nested angle brackets (`Vec<Vec<...>>`) deeper than 128 levels report "nesting depth exceeds 128 levels" instead of a stack overflow (a promise restored from v0.1; `angle_collect` counts while pairing, `MAX_NEST_DEPTH = 128`).
 
+**Flat-chain depth guards** (0.8.0): three flat constructs build an equally deep `Ty` tree
+without any group nesting, so the token-level guard above cannot see them — `^`/`-`
+operator chains (right-assoc `^` nests one `TyGeneric` per operand), trailing
+`{...}`/`where{...}` attachment chains (one wrapper per body), and chained type segments
+(`<T><U>...X`, `Trait<A> Trait<B>... X`, `#[a] #[b]... X`). Each is capped at 128 in the
+parse layer (`parse_binary_chain`'s operand count; `parse_primitive`'s attachment count
+and segment depth), so every downstream recursive traversal (`map_children` /
+`expand_splat_elems` / `hoist_type_params` / `ToTokens`) is depth-bounded — previously
+~850 `^`-chained units overflowed the rustc stack (STATUS_STACK_OVERFLOW, measured; a
+10000-operand `-` chain stays flat and never overflowed — the differential probe that
+confirmed the depth theory).
+
 **Span diagnostics** (0.6.2): every `Ty` node carries its source span (`struct Ty { span, kind }`); `Ty::apply` takes the span at a single point and carries it through the combinator output — errors inside `apply` point at the left-operand position. `compile_error_str(msg, span)` / `compile_err_at!(span, ...)` accept an explicit span.
 **ident-span scheme**: `compile_error!` stamps only the keyword identifier with the target span and keeps everything else at the call site — when all tokens carry spans, rustc treats the error as user code at the item position ("macros that expand to items must be delimited...").
 **Platform limitation** (rustc behavior, unfixable on the macro side): attribute-macro input has precise top-level tokens, tokens inside groups degrade to the call site, and an `Err` return reports the error at the macro-invocation line — precise spans appear only on the `Ty::Error` path of Ok output (parse/apply).
@@ -148,16 +166,16 @@ Four layers:
 |-----------|------|---------|
 | `examples/` | `quickstart.rs` | Runnable DSL main-feature demo (`cargo run --example quickstart`), 14 sections covering basic → complex scenarios |
 | `src/` | `fuzz.rs` | proptest property tests: random token sequences fed to `where_process` / `parse_item`, verifying "never panics on user input" (`cargo test --lib`) |
-| `tests/` | `dsl.rs` | 50 `#[test]`s covering semantic regression of core features (including where-clause inheritance, external path prefixes, macro-invocation boundaries, `unsafe fn` types, list subtraction `-`, `A<>` and same-name inheritance, `@all` status/receiver filtering, blanket static delegation) |
-| `tests/` | `regression.rs` | 26 `#[test]`s covering corner cases dsl.rs doesn't touch: nested `>>`, path types, const generics, lifetimes, dyn + Send, path prefixes, array/slice builders, `batch_impl` vs `batch_trait!` consistency |
-| `tests/` | `ui.rs` | `trybuild` UI tests: 31 `compile_fail` fixtures locking down diagnostic wording + 1 `pass` fixture |
+| `tests/` | `dsl.rs` | thin entry (`mod features;`) mounting the split test modules |
+| `tests/` | `features/` | 34 per-feature test modules (each under 350 lines; split from the former single-file `dsl.rs` / `regression.rs` / `ext1_impl.rs` / `ext2_impl.rs`): `dsl_*` (82 tests: operators, directives, blanket, `@` constants, `@N` refs, splat, where, generics, receivers, entry macros, open extension, distribution), `regression_*` (26 tests: corner cases + `batch_impl` vs `batch_trait!` consistency + macros/path-prefix + arrays), `ext1_*` (17 tests incl. nested/boundary/conflict ItemImpl cases), `ext2_*` (45 tests incl. nested/boundary/conflict/shape-form/prototype-pattern/cross-combo cases) — **170 `#[test]`s total** |
+| `tests/` | `ui.rs` | `trybuild` UI tests: 74 `compile_fail` fixtures locking down diagnostic wording + 1 `pass` fixture |
 
 Running:
 
 ```bash
 cargo run --example quickstart       # main-feature demo
 cargo test --lib                     # unit tests + fuzz
-cargo test --test dsl --test regression   # functional and regression tests
+cargo test --test dsl                  # functional + regression + Ext tests (tests/dsl.rs mounts tests/features/)
 cargo test --test ui                  # diagnostic UI tests
 # Regenerate the UI snapshots:
 TRYBUILD=overwrite cargo test --test ui

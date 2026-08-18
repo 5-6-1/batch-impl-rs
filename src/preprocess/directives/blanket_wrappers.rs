@@ -52,8 +52,12 @@ pub(crate) fn parse_blanket_wrappers(
             ));
         }
         // Trailing `where{...}` bound predicates (last part of the element,
-        // `@0` refers to the target generic; after `:N`)
-        let where_preds = if let Some(TokenTree::Group(g)) = current.last()
+        // `@0` refers to the target generic; after `:N`). The `len >= 2`
+        // guard runs before the `len - 2` arithmetic — a single-token
+        // element (`#blanket(@all){{}}`) would otherwise underflow the
+        // subtraction in debug builds.
+        let where_preds = if current.len() >= 2
+            && let Some(TokenTree::Group(g)) = current.last()
             && g.delimiter() == delimiter![{}]
             && let Some(TokenTree::Ident(id)) = current.get(current.len() - 2)
             && id == "where"
@@ -134,9 +138,7 @@ pub(crate) fn parse_blanket_wrappers(
                 if at.as_char() == '@' && name == "Cow" =>
             {
                 let preds: Vec<TokenTree> =
-                    quote!(@0: ToOwned + ?Sized, @0::Owned: @trait)
-                        .into_iter()
-                        .collect();
+                    quote!(@0: ToOwned + ?Sized, @0::Owned: @trait).into_iter().collect();
                 // quote does not pair angle brackets — `Cow<'_>` needs a
                 // manually built <> group (blanket output no longer goes
                 // through angle_collect; a flat `<` would remain)

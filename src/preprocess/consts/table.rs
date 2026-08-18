@@ -23,7 +23,7 @@ use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::preprocess::consts::ctx::{ConstCtx, UserConsts};
-use crate::util::{bracket_is_passthrough, compile_err, is_punct};
+use crate::util::{bracket_is_passthrough, compile_err, is_impl_template, is_punct};
 
 /// Built-in name families: `@name` → list of type identifiers.
 pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
@@ -32,13 +32,13 @@ pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
         "i*" => vec!["i8", "i16", "i32", "i64", "i128", "isize"].into(),
         "f*" => vec!["f32", "f64"].into(),
         "num" => vec![
-            "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64",
-            "i128", "isize", "f32", "f64",
+            "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
+            "f32", "f64",
         ]
         .into(),
         "scalar" => vec![
-            "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64",
-            "i128", "isize", "f32", "f64", "bool", "char",
+            "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
+            "f32", "f64", "bool", "char",
         ]
         .into(),
         _ => None,
@@ -49,7 +49,9 @@ pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
 /// An illegal width (e.g. `u9`, `f8`) returns `None` (family matched but
 /// width not in the legal set).
 pub(crate) fn split_range_endpoint(s: &str) -> Option<(char, u32)> {
-    let (fam, width_str) = s.split_at(1);
+    // `split_at_checked` instead of `split_at`: the no-panic promise also
+    // covers the (unreachable in practice) empty-name path.
+    let (fam, width_str) = s.split_at_checked(1)?;
     let fam = fam.chars().next()?;
     let width = width_str.parse().ok()?;
     let legal: &[_] = match fam {
@@ -79,33 +81,21 @@ pub(crate) fn builtin_range(start: &str, end: &str) -> Result<Vec<String>, Strin
         ));
     };
     if fam1 != fam2 {
-        return Err(format!(
-            "range endpoint families mismatch: `{}` and `{}`",
-            start, end
-        ));
+        return Err(format!("range endpoint families mismatch: `{}` and `{}`", start, end));
     }
     if w1 > w2 {
-        return Err(format!(
-            "range start is greater than end: `{}..{}`",
-            start, end
-        ));
+        return Err(format!("range start is greater than end: `{}..{}`", start, end));
     }
     let widths: &[_] = match fam1 {
         'u' | 'i' => &[8, 16, 32, 64, 128],
         _ => &[32, 64],
     };
-    Ok(widths
-        .iter()
-        .filter(|&&w| w >= w1 && w <= w2)
-        .map(|w| format!("{}{}", fam1, w))
-        .collect())
+    Ok(widths.iter().filter(|&&w| w >= w1 && w <= w2).map(|w| format!("{}{}", fam1, w)).collect())
 }
 
 /// Renders a list of type names as a Bracket list group (`[u8, u16, ...]`).
 /// Generic over the name iterator item (`&str` or `String` both work).
-pub(crate) fn render_list<S: ToString>(
-    names: impl IntoIterator<Item = S>,
-) -> TokenTree {
+pub(crate) fn render_list<S: ToString>(names: impl IntoIterator<Item = S>) -> TokenTree {
     let idents = names
         .into_iter()
         .map(|s| Ident::new(&s.to_string(), Span::call_site()))
@@ -170,9 +160,7 @@ fn expand_consts_at(
                     result.push(
                         Group::new(
                             g.delimiter(),
-                            expand_consts_at(&inner, ctx, depth + 1)?
-                                .into_iter()
-                                .collect(),
+                            expand_consts_at(&inner, ctx, depth + 1)?.into_iter().collect(),
                         )
                         .into(),
                     );
@@ -212,9 +200,29 @@ fn expand_consts_at(
                     && g.delimiter() == delimiter![{}]
                 {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
-                    let expanded = expand_consts_at(&inner, ctx, depth + 1)?
-                        .into_iter()
-                        .collect();
+                    let expanded = expand_consts_at(&inner, ctx, depth + 1)?.into_iter().collect();
+                    result.push(tokens[i].clone());
+                    result.push(Group::new(delimiter![{}], expanded).into());
+                    i += 2;
+                } else {
+                    result.push(tokens[i].clone());
+                    i += 1;
+                }
+            }
+            // `impl{...}` Self-part shape template (Ext 2): a Brace group
+            // right after the `impl` ident is the shape template, entered to
+            // expand `@trait` / `@` constants — the remaining tokens form a
+            // standard Rust type parsed by syn in codegen. Bodies are never
+            // entered (an `impl` inside `{body}` is inside a Brace group this
+            // walker skips). The `impl{...}` discrimination is centralized in
+            // `util::is_impl_template` (shared with `where_process`); the
+            // guard below re-checks instead of unwrapping — no-panic promise.
+            TokenTree::Ident(_) if is_impl_template(tokens, i) => {
+                if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
+                    && g.delimiter() == delimiter![{}]
+                {
+                    let inner = g.stream().into_iter().collect::<Vec<_>>();
+                    let expanded = expand_consts_at(&inner, ctx, depth + 1)?.into_iter().collect();
                     result.push(tokens[i].clone());
                     result.push(Group::new(delimiter![{}], expanded).into());
                     i += 2;

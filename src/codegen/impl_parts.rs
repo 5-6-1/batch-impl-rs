@@ -26,6 +26,10 @@ pub(crate) struct ImplParts {
     /// where predicates from a `where{...}` suffix; multiple ones are joined into
     /// `where P1, P2, ...`, elements connected by commas.
     pub(crate) where_clauses: Vec<TokenStream>,
+    /// `impl{...}` Self-part shape templates (Ext 2), in attachment order —
+    /// matched against the leaf target type by `codegen::shape::match_shape`,
+    /// the merged slot mapping rewrites the target/where/body.
+    pub(crate) impl_templates: Vec<TokenStream>,
 }
 
 impl ImplParts {
@@ -40,6 +44,7 @@ impl ImplParts {
             attrs: vec![],
             is_unsafe_impl: false,
             where_clauses: vec![],
+            impl_templates: vec![],
         }
     }
 }
@@ -54,13 +59,9 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
     match kind {
         TyKind::WithType(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            let (impl_generics, associated_types) =
-                (parts.impl_generics, parts.associated_types);
+            let (impl_generics, associated_types) = (parts.impl_generics, parts.associated_types);
             parts.impl_generics =
-                wt.0.params
-                    .into_iter()
-                    .map(|(n, b)| (n.to_token_stream(), b))
-                    .collect();
+                wt.0.params.into_iter().map(|(n, b)| (n.to_token_stream(), b)).collect();
             parts.associated_types =
                 wt.0.bindings
                     .into_iter()
@@ -79,13 +80,11 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             // (the names it carries must be declared for the impl to
             // compile) — the same rule as the generic-arg position.
             let (flat, decl) = flat_splat_params(wt.0.1.params);
-            parts
-                .trait_generic_names
-                .extend(flat.into_iter().map(|(n, _)| n.to_token_stream()));
+            parts.trait_generic_names.extend(flat.into_iter().map(|(n, _)| n.to_token_stream()));
             if let Some(d) = decl {
-                parts.impl_generics.extend(
-                    d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b)),
-                );
+                parts
+                    .impl_generics
+                    .extend(d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b)));
             }
             parts.associated_types.extend(
                 wt.0.1
@@ -121,6 +120,18 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             }
             None => ImplParts::leaf(ww.to_ty().with_span(span)),
         },
+        TyKind::WithImpl(wi) => match wi.0 {
+            Some(inner) => {
+                let mut parts = extract_impl_parts(*inner);
+                // The template is consumed by the codegen shape match (never
+                // emitted); multiple `impl{...}` attachments merge into one
+                // mapping (redundant identical bindings legal, conflicting
+                // ones error).
+                parts.impl_templates.push(wi.1.0);
+                parts
+            }
+            None => ImplParts::leaf(wi.to_ty().with_span(span)),
+        },
         TyKind::WithAttr(wa) => match wa.1 {
             Some(inner) => {
                 let mut parts = extract_impl_parts(*inner);
@@ -142,9 +153,8 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                             &mut parts.target_type,
                             TyWithPrefix(wp.0, None).to_ty().with_span(span),
                         );
-                        parts.target_type = TyWithPrefix(wp.0, old_target.into())
-                            .to_ty()
-                            .with_span(span);
+                        parts.target_type =
+                            TyWithPrefix(wp.0, old_target.into()).to_ty().with_span(span);
                     }
                 }
                 parts
@@ -163,9 +173,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
 /// replaces that node with its inner `T`. Must recurse into every container (Array /
 /// Tuple / Group / PrimitiveArray / Generic / WithPrefix / WithTrait / WithCode /
 /// WithWhere / WithAttr / Fn).
-pub(crate) fn hoist_type_params(
-    ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>,
-) -> Ty {
+pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
     match ty.kind {
         // Generic-declaration wrapper: hoist the declaration outward (params
         // are added to `out`, not to the rebuilt node). Same-named fresh
@@ -176,8 +184,7 @@ pub(crate) fn hoist_type_params(
             for (name, bound) in wt.0.params {
                 let name_str = name.to_token_stream().to_string();
                 if is_fresh_name(&name_str)
-                    && let Some(existing) =
-                        out.iter_mut().find(|(n, _)| n.to_string() == name_str)
+                    && let Some(existing) = out.iter_mut().find(|(n, _)| n.to_string() == name_str)
                 {
                     // Prefer a declaration with a bound over the bare one.
                     if existing.1.is_none() {
@@ -190,8 +197,7 @@ pub(crate) fn hoist_type_params(
             hoist_type_params(*wt.1, out)
         }
         // All other variants: recurse into children uniformly.
-        other => Ty { span: ty.span, kind: other }
-            .map_children(&mut |c| hoist_type_params(c, out)),
+        other => Ty { span: ty.span, kind: other }.map_children(&mut |c| hoist_type_params(c, out)),
     }
 }
 

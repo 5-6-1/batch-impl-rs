@@ -6,9 +6,7 @@
 //! pipeline** (instruction preprocessing → where rewrite → parse/expand → generate impl,
 //! incl. apply/expand/codegen).
 
-use proc_macro2::{
-    Delimiter, Group, Ident, Literal, Punct, Spacing, TokenStream, TokenTree,
-};
+use proc_macro2::{Delimiter, Group, Ident, Literal, Punct, Spacing, TokenStream, TokenTree};
 use proptest::prelude::*;
 use std::str::FromStr;
 
@@ -40,6 +38,21 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         prop::strategy::Just(Tok::Ident("fn")),
         prop::strategy::Just(Tok::Ident("self")),
         prop::strategy::Just(Tok::Ident("unsafe")),
+        // Directive words: drive the `#` directive and open-extension paths
+        // in the full-pipeline fuzz (the no-panic promise covers them too).
+        prop::strategy::Just(Tok::Ident("blanket")),
+        prop::strategy::Just(Tok::Ident("fill")),
+        prop::strategy::Just(Tok::Ident("delegate")),
+        prop::strategy::Just(Tok::Ident("name")),
+        prop::strategy::Just(Tok::Ident("all")),
+        // Constant-system words: built-in families / range endpoints / the
+        // `@trait` marker / blanket's `@Cow` — the `@` punct below can now
+        // reach the constant expansion, range, and lifetime paths.
+        prop::strategy::Just(Tok::Ident("u8")),
+        prop::strategy::Just(Tok::Ident("i32")),
+        prop::strategy::Just(Tok::Ident("f64")),
+        prop::strategy::Just(Tok::Ident("Cow")),
+        prop::strategy::Just(Tok::Ident("trait")),
         // Numeric literals (small-integer DSL exponents)
         prop::strategy::Just(Tok::Literal("0")),
         prop::strategy::Just(Tok::Literal("1")),
@@ -59,6 +72,15 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         prop::strategy::Just(Tok::Punct('#', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct('!', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct('=', Spacing::Alone)),
+        // `@` constants, `..`/`..=` ranges (Joint `.` heads a range), `'`
+        // lifetimes, and bound/bound-start punctuation — the paths the old
+        // vocabulary could never reach.
+        prop::strategy::Just(Tok::Punct('@', Spacing::Alone)),
+        prop::strategy::Just(Tok::Punct('.', Spacing::Alone)),
+        prop::strategy::Just(Tok::Punct('.', Spacing::Joint)),
+        prop::strategy::Just(Tok::Punct('+', Spacing::Alone)),
+        prop::strategy::Just(Tok::Punct('?', Spacing::Alone)),
+        prop::strategy::Just(Tok::Punct('\'', Spacing::Alone)),
     ];
     if depth == 0 {
         prop::collection::vec(leaf, 0..6).boxed()
@@ -71,9 +93,7 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
             // should flatten them (contents are DSL tokens)
             prop::strategy::Just(delimiter![none]),
         ]
-        .prop_flat_map(move |d| {
-            tokens(depth - 1).prop_map(move |inner| Tok::Group(d, inner))
-        });
+        .prop_flat_map(move |d| tokens(depth - 1).prop_map(move |inner| Tok::Group(d, inner)));
         prop::collection::vec(prop_oneof![leaf, grouped], 0..6).boxed()
     }
 }
@@ -95,7 +115,7 @@ proptest! {
     #[test]
     fn where_process_no_panic(toks in tokens(3)) {
         let ts = toks.iter().map(to_token).collect::<Vec<_>>();
-        let _ = where_process(&ts);
+        let _ = where_process(&ts, false);
     }
 
     /// DSL parsing: no panic on arbitrary token input, and it advances properly to the end
@@ -126,4 +146,31 @@ proptest! {
         };
         let _ = expand_attr_macro(ts, trait_def, false);
     }
+
+    /// Full pipeline through the Ext 1 ItemImpl entry (`expand_impl_entry`):
+    /// random attr tokens fed against a fixed dummy impl — the no-panic
+    /// promise covers the impl branch of the top-level dispatch too (the
+    /// `;` spec split, `@trait` replacement, shape matching and assembly
+    /// all run on adversarial input).
+    #[test]
+    fn impl_entry_full_pipeline_no_panic(toks in tokens(3)) {
+        let ts = toks.iter().map(to_token).collect::<TokenStream>();
+        let impl_item: syn::ItemImpl = syn::parse_quote! {
+            impl FuzzImpl for Wrap<T> { fn m(&self) -> u32 { 0 } }
+        };
+        let _ = crate::entry::expand_impl_entry(ts, impl_item);
+    }
+}
+
+/// Regression: a single-token `#blanket` wrapper (`{}` alone) used to
+/// underflow `current.len() - 2` in the wrapper parser on debug builds
+/// (panic). The guard must surface a diagnostic or an expansion — never
+/// a panic.
+#[test]
+fn blanket_single_group_wrapper_no_panic() {
+    let attr: TokenStream = "#blanket(@all_methods){{}}".parse().unwrap();
+    let trait_def: syn::ItemTrait = syn::parse_quote! {
+        trait BlanketBug { fn m(&self); }
+    };
+    let _ = expand_attr_macro(attr, trait_def, true);
 }

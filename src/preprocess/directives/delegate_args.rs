@@ -50,9 +50,7 @@ pub(crate) fn pat_is_forwardable(pat: &syn::Pat) -> bool {
 /// `(a, b)` rebuilds the tuple, `[x, y]` rebuilds the array, `x` forwards by
 /// name. The `Err` path is a defensive fallback for patterns that cannot be
 /// forwarded (its text names the offending pattern for the diagnostic).
-pub(crate) fn collect_call_args(
-    sig: &syn::Signature,
-) -> Result<Vec<TokenStream>, String> {
+pub(crate) fn collect_call_args(sig: &syn::Signature) -> Result<Vec<TokenStream>, String> {
     let mut args = vec![];
     for arg in &sig.inputs {
         match arg {

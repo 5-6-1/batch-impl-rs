@@ -40,13 +40,22 @@ pub(crate) fn depth_err(tokens: &[TokenTree], what: &str) -> TokenStream {
 /// (`pow_cartesian`, one list repeated `n` times) and the AST layer's
 /// array-argument distribution (a candidate list per tuple/generic slot).
 /// Each combination picks one element from every dimension, in document
-/// order; callers apply [`check_expand_limit`](crate::apply::check_expand_limit)
-/// themselves (power checked per round historically — now once at the end,
-/// the counts are identical for a fixed result).
-pub(crate) fn cartesian<T: Clone>(dims: &[Vec<T>]) -> Vec<Vec<T>> {
+/// order.
+///
+/// The would-be product size is checked **before each allocation** and the
+/// growth is capped at `limit`: a huge user list (`(T1..Tk)^N` with k×N large)
+/// would otherwise exhaust memory or overflow the capacity multiplication
+/// (a debug-build panic) before any caller-side check could run. `Err`
+/// carries the would-be size so callers can render the same over-limit
+/// diagnostic they already use.
+pub(crate) fn cartesian<T: Clone>(dims: &[Vec<T>], limit: usize) -> Result<Vec<Vec<T>>, usize> {
     let mut combos: Vec<Vec<T>> = vec![vec![]];
     for candidates in dims {
-        let mut next = Vec::with_capacity(combos.len() * candidates.len());
+        let next_len = combos.len().saturating_mul(candidates.len());
+        if next_len > limit {
+            return Err(next_len);
+        }
+        let mut next = Vec::with_capacity(next_len);
         for existing in &combos {
             for c in candidates {
                 let mut combo = existing.clone();
@@ -56,5 +65,5 @@ pub(crate) fn cartesian<T: Clone>(dims: &[Vec<T>]) -> Vec<Vec<T>> {
         }
         combos = next;
     }
-    combos
+    Ok(combos)
 }

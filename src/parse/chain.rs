@@ -6,12 +6,10 @@ use crate::apply::err_ty_at;
 use crate::ast::fresh::at_ref_name;
 use crate::ast::*;
 use crate::parse::parse_primitive;
-use crate::util::Cursor;
+use crate::util::{Cursor, MAX_NEST_DEPTH};
 use proc_macro2::{Ident, TokenTree};
 
-pub(crate) fn parse_item(
-    cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>,
-) -> Option<Ty> {
+pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>) -> Option<Ty> {
     match level {
         Op::Semi | Op::Comma => loop {
             if let Some(item) = parse_operand(cursor, level, trait_name) {
@@ -38,16 +36,21 @@ pub(crate) fn parse_item(
         },
         Op::Dash => parse_binary_chain(cursor, Op::Dash, trait_name, '-', false),
         Op::Caret => parse_binary_chain(cursor, Op::Caret, trait_name, '^', true),
-        Op::Prim => parse_primitive(cursor.take_rest(), trait_name).into(),
+        Op::Prim => parse_primitive(cursor.take_rest(), trait_name, 0).into(),
     }
 }
 
 /// Shared skeleton for `-`/`^`: left operand → while loop collecting operands → fold.
 /// They differ only in associativity: `-` left-assoc (`A-B-C = (A-B)-C`), `^` right-assoc
 /// (`A^B^C = A^(B^C)` — container on the left, nesting inward).
+///
+/// Chain-length guard: a flat operator chain builds an equally deep `Ty` tree
+/// without any group nesting (`^` nests per operand), so the group-level
+/// `MAX_NEST_DEPTH` guard would not catch it; the operand count is capped at
+/// the same limit here — every downstream recursive traversal
+/// (`map_children` / `expand_splat_elems` / rendering) is then depth-bounded.
 fn parse_binary_chain(
-    cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>, op_punct: char,
-    right_assoc: bool,
+    cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>, op_punct: char, right_assoc: bool,
 ) -> Option<Ty> {
     // Left operand: `-A` has an empty left segment — parse_operand returns None only at
     // the end of the cursor (legal termination) or an empty segment (swallowed silently);
@@ -90,6 +93,18 @@ fn parse_binary_chain(
             .into();
         }
         items.push(op);
+        if items.len() > MAX_NEST_DEPTH {
+            return err_ty_at(
+                &format!(
+                    "batch-impl: operator chain exceeds {} levels (limit {}); \
+                     split the chain into separate impl-specs",
+                    items.len(),
+                    MAX_NEST_DEPTH,
+                ),
+                op_span,
+            )
+            .into();
+        }
     }
     if right_assoc {
         items.into_iter().rev().reduce(|acc, x| x.apply(acc))
@@ -114,9 +129,7 @@ fn is_empty_operand(ty: &Ty) -> bool {
 ///
 /// Operand bounds come from `scan_stop` (only `<>` depth, not full Rust type grammar);
 /// the slice inside the bounds is handed to `parse_item` to recurse at higher precedence.
-fn parse_operand(
-    cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>,
-) -> Option<Ty> {
+fn parse_operand(cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>) -> Option<Ty> {
     if cursor.at_end() {
         return None;
     }

@@ -1,8 +1,4 @@
 edition = "2024"
-max_width = 86
-use_small_heuristics = "Max"
-fn_call_width = 60
 fn_params_layout = "Compressed"
-struct_lit_width = 60
-struct_variant_width = 60
+use_small_heuristics = "Max"
 use_field_init_shorthand = true

@@ -7,16 +7,13 @@ use proc_macro2::{TokenStream, TokenTree};
 use quote::quote;
 
 use crate::preprocess::{
-    angle_collect, build_from_item, get_trait_item, parse_names_from_tokens,
-    render_angles,
+    angle_collect, build_from_item, get_trait_item, parse_names_from_tokens, render_angles,
 };
 use crate::util::compile_error_str;
 
 /// `batch_preprocess_test!` implementation — the lib.rs entry point hands the
 /// raw macro input here (see its doc for the protocol).
-pub(crate) fn preprocess_test(
-    input: TokenStream,
-) -> Result<TokenStream, TokenStream> {
+pub(crate) fn preprocess_test(input: TokenStream) -> Result<TokenStream, TokenStream> {
     let tokens = input.into_iter().collect::<Vec<_>>();
     let tokens = angle_collect(&tokens)?;
     // Shape: `{spec}(method name list){body} trait ...` (top-level form —
@@ -39,37 +36,25 @@ pub(crate) fn preprocess_test(
     let Some(TokenTree::Group(names_group)) = tokens.get(idx) else {
         return Err(compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens
-                .first()
-                .map(|t| t.span())
-                .unwrap_or_else(proc_macro2::Span::call_site),
+            tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
         ));
     };
     if names_group.delimiter() != delimiter![()] {
         return Err(compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens
-                .first()
-                .map(|t| t.span())
-                .unwrap_or_else(proc_macro2::Span::call_site),
+            tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
         ));
     }
     let Some(TokenTree::Group(body_group)) = tokens.get(idx + 1) else {
         return Err(compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens
-                .get(1)
-                .map(|t| t.span())
-                .unwrap_or_else(proc_macro2::Span::call_site),
+            tokens.get(1).map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
         ));
     };
     if body_group.delimiter() != delimiter![{}] {
         return Err(compile_error_str(
             "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens
-                .get(1)
-                .map(|t| t.span())
-                .unwrap_or_else(proc_macro2::Span::call_site),
+            tokens.get(1).map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
         ));
     }
     let trait_ts = tokens[idx + 2..].iter().cloned().collect();

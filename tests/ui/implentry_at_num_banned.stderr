@@ -1,0 +1,7 @@
+error: batch-impl: `@N` / `@g_i` position references are not supported on the ItemImpl entry
+ --> tests/ui/implentry_at_num_banned.rs:4:1
+  |
+4 | #[batch_impl(W : Box<@0>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

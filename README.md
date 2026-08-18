@@ -1,6 +1,8 @@
 # batch-impl
 
-**v0.7.2** (2026-08-14) — 0.7.2 released: user-language diagnostics (no reserved-name leaks), `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver fix, open-extension protocol convergence, syntax-freeze commitment, attribute-macro custom `@` constants; 0.7.1 released: targeted diagnostics for stray `;`/`=`/`@`/`#`, adjacent types, empty bindings/bounds and typo suggestions (no more raw rustc errors); 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists, `*[...]` distribute / `*(...)` append as left operand), array distribution propagation (nested `[A,B]` Cartesian products), generator fresh-declaration fix, splat power inside generic args (`Frac<*(*@u*)^2>` = 36 impls), concrete-type args reject bindings/bounds, `#fill` single-item preference (`#name{...}`).
+**v0.8.0** (unreleased) — 0.8.0 WIP: style and docs groundwork (rustfmt width caps dropped, example comments translated to English, architecture test counts refreshed) + flat-chain depth guards (`^`/`-` chains, attachment chains, and chained type segments capped at 128 levels) + the 0.7.2 attribute-macro custom `@` constants feature is reverted (custom `@name=value;` sections are `batch_trait!`-only again; write attribute-macro matrices directly with `^`/`-`/`*`) + **Ext 2 `impl{...}` Self-part shape templates**: bind the generated impl's target shape with a standard Rust template — an ident equal to the target's at that position is kept, a different one is rewritten in the target/where/body (`Box<u32> impl{Rc<T>}` → `Rc := Box, T := u32`); template matching covers every `syn::Type` form (slices/tuples/fixed arrays/references/pointers/paths), fixed-array lengths and `'_'` lifetime wildcards bind — write one prototype impl per shape family and cover a whole matrix (`[Box,Rc]^@num impl{Box<u8>} #max{...}`; `Cow<'_, @num> impl{Cow<'_, u8>}` for lifetime-bearing families) + **Ext 1 ItemImpl entry**: `#[batch_impl]` also accepts an `impl` block and batch-instantiates it from a shape-template × matrix-source (`A<B> : [Box,Rc]^[usize,isize]` → 4 impls, slots rewritten in for-Type/where/body);
+
+**v0.7.2** (2026-08-14) — 0.7.2 released: user-language diagnostics (no reserved-name leaks), `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver fix, open-extension protocol convergence, syntax-freeze commitment, attribute-macro custom `@` constants (reverted in 0.8.0); 0.7.1 released: targeted diagnostics for stray `;`/`=`/`@`/`#`, adjacent types, empty bindings/bounds and typo suggestions (no more raw rustc errors); 0.7.0: the **splat** `*` prefix (flatten containers/generators into lists, `*[...]` distribute / `*(...)` append as left operand), array distribution propagation (nested `[A,B]` Cartesian products), generator fresh-declaration fix, splat power inside generic args (`Frac<*(*@u*)^2>` = 36 impls), concrete-type args reject bindings/bounds, `#fill` single-item preference (`#name{...}`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -70,7 +72,7 @@ So which one to pick depends only on the grouping shape you want: use `^` to nes
 
 ```toml
 [dependencies]
-batch-impl = "0.7.2"
+batch-impl = "0.8.0"
 ```
 
 Requires Rust 2024 edition or newer.
@@ -114,7 +116,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | §7 |
 | Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | §7 |
 | Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | §7 |
-| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + custom leading `@name=value;` sections (all three entries, lazy expansion, chained references) | §6 |
+| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` leading `@name=value;` custom sections (lazy expansion, chained references; attribute macros do not support them — write matrices directly) | §6 |
 | Generic parameter families                     | `@all_type_params` / `@all_const_params` / `@all_lifetimes` — generic declarations copy the trait's formal params (bounds via same-name inheritance) | §6 |
 | Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..=M`) belong to the macro-meta layer | §6 |
 | `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | §8 |
@@ -131,7 +133,8 @@ The semantics of every existing token are **final** — `^`/`-`, `[]`/`()`/`<>`,
 
 - **Full tutorial**: `docs/tutorial.md` (progressive, from a one-line impl to advanced matrix combinations)
 - **Three entry points**: `#[batch_impl]` (includes the trait) / `#[batch_impl_only]` (impls only) / `batch_trait!` (batch-generate for an already declared trait, multi-section support)
-- **Expansion preview**: `batch_preview!` (wrap the `#[batch_impl(...)] trait` input and read the real expansion, impl by impl, plus `^`/`-` associativity miswrite notes)
+- **Ext 1 / Ext 2 (0.8.0)**: the **ItemImpl entry** — `#[batch_impl]` also accepts an `impl` block and batch-instantiates it from a shape-template × matrix-source (tutorial §8.5); the **`impl{...}` Self-part shape templates** — bind the generated impl's target shape and write **one prototype impl per shape family** to cover a whole matrix, incl. lifetime-bearing families like `Cow` (tutorial §8.4)
+- **Expansion preview**: `batch_preview!` (wrap the `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` input and read the real expansion, plus `^`/`-` associativity miswrite notes)
 - **Examples**: `examples/quickstart.rs` (feature demo), `examples/simplify.rs` (a real scenario with 29 impls ≈ 15 lines of DSL), `examples/typeclass.rs` (type-class style: a `Num`/`UNum`/`INum`/`FNum` hierarchy + 36 `From<bool>` impls for `Frac<T, U>`)
 - **Developers**: internal architecture in `docs/architecture.md`, development changelog in `docs/dev-changelog.md`
 

@@ -33,11 +33,11 @@ use crate::util::Cursor;
 // here; a context struct would obscure the one-shot pipeline flow.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn parse_batch_trait_entry(
-    cursor: &mut Cursor, top_level: Op, trait_full_path: &TokenStream,
-    trait_last_ident: &Ident, is_unsafe_trait: bool, start_trait: Option<ItemTrait>,
-    trait_bounds: &TraitBounds, trait_param_names: &[Ident],
+    cursor: &mut Cursor, top_level: Op, trait_full_path: &TokenStream, trait_last_ident: &Ident,
+    is_unsafe_trait: bool, start_trait: Option<ItemTrait>, trait_bounds: &TraitBounds,
+    trait_param_names: &[Ident],
 ) -> TokenStream {
-    let (tys, errors) = collect_spec_leaves(cursor, top_level, trait_last_ident);
+    let (tys, errors) = collect_spec_leaves(cursor, top_level, Some(trait_last_ident));
     if !errors.is_empty() {
         return errors.into_iter().collect();
     }
@@ -66,7 +66,7 @@ pub(crate) fn parse_batch_trait_entry(
 /// the first error, hiding later ones. When any error exists, the caller
 /// emits only the errors — no partial impls.
 pub(crate) fn collect_spec_leaves(
-    cursor: &mut Cursor, top_level: Op, trait_last_ident: &Ident,
+    cursor: &mut Cursor, top_level: Op, trait_last_ident: Option<&Ident>,
 ) -> (Vec<Ty>, Vec<TokenStream>) {
     let mut tys = vec![];
     // Leading comma (`#[batch_impl(,usize)]` / `A: ,usize`): the whole list starts with `,`.
@@ -76,7 +76,7 @@ pub(crate) fn collect_spec_leaves(
     if cursor.is_punct(',') {
         tys.push(err_ty("batch-impl: spec list cannot start with `,`"));
     }
-    while let Some(ty) = parse_item(cursor, top_level, trait_last_ident.into()) {
+    while let Some(ty) = parse_item(cursor, top_level, trait_last_ident) {
         // Fresh-generator group ids are DSL-local: reset per spec so `@g_i`
         // (future) and the codegen sweep never depend on spec position.
         reset_fresh_counter();
