@@ -1,5 +1,7 @@
 # batch-impl
 
+**v0.8.3**（2026-08-19）——移除内置指令拼写守卫：单指令 `#name{body}` 可与 `fill`/`delegate`/`blanket` 合法撞名（trait item 名按字面查找），开放扩展名不再被 `compile_error!` 惩罚——过程宏没有警告通道，拼写错误现在由 rustc 自己的错误暴露；
+
 **v0.8.2**（2026-08-19）——变长段与重复块：`impl{...}` 模板用 `ident@..` 声明变长段（覆盖从自身起的所有剩余元组位置，名字对齐叶子位置），body 用 `@(...)..` 重复（`@ident` 名字引用、`@N` 索引游标、嵌套块笛卡尔积）——一条 alga2 风格 spec 覆盖所有元组 arity（`()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` → `impl<A0..An> Magma for (A0, ..., An) where A0: Magma, ...`）；where 谓词现在也解析尖括号组内的 `@N`（`Module<..., Scalar = @0::Scalar>`——关联类型值引用），并新增 `@N..` 开放范围（"从第二个起"，越界为空）——alga2 元组 `Module` 标量相等约束；
 
 **v0.8.1**——0.8.1 已发布：`where{...}` 谓词组配对尖括号——`where{...}` 块内的两参数 bound（`@all_fresh: Semiring<Additive, Multiplicative>`）不再被深度 0 逗号分裂成坏谓词（alga2 真实使用中发现；代码体仍透传）；

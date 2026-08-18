@@ -41,8 +41,11 @@ pub(crate) fn expand_directive(
         match args.delimiter() {
             delimiter![{}] => {
                 // `#name{body}` — the item name directly followed by
-                // `{body}` (works for fn / const / type).
-                check_builtin_typo(name)?;
+                // `{body}` (works for fn / const / type). No builtin-typo
+                // guard here: `name` is a trait item name, and a method /
+                // const / type may legitimately be called `fill`, `delegate`
+                // or `blanket` (or a close variant) — the typo guard is only
+                // meaningful for open-extension names (the `_` arm below).
                 expand_single(name, args, trait_def).map(|tt| (vec![tt], 3))
             }
             _ => {
@@ -79,7 +82,6 @@ pub(crate) fn expand_directive(
                     // arbitrary items (the same lineage as `#fill`/`#delegate`
                     // — the "read trait → generate" logic is the user's).
                     _ => {
-                        check_builtin_typo(name)?;
                         let inner = quote! {
                             #name ! { #args #body #trait_def }
                         };
@@ -204,40 +206,4 @@ fn expand_delegate(
         let body = quote! { (#target_stream) . #name ( #(#call_args),* ) };
         Ok(build_from_item_sig(item, Some(&sig), &body))
     })
-}
-
-/// Typo guard: an open-extension name within edit distance 2 of a built-in
-/// directive is very likely a typo (`#delgate`/`#blanlet`). Farther names
-/// stay open extensions (your own same-named macro).
-fn check_builtin_typo(name: &Ident) -> Result<(), TokenStream> {
-    let name_str = name.to_string();
-    for builtin in ["fill", "delegate", "blanket"] {
-        if levenshtein(&name_str, builtin) <= 2 {
-            return Err(compile_err!(
-                "batch-impl: unknown directive `#{}` — did you mean `#{}`?",
-                name,
-                builtin
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Edit distance between two strings — the typo guard for open-extension
-/// directive names (a name within distance 2 of `fill`/`delegate`/`blanket`
-/// is very likely a typo, not a user macro).
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut dp: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.iter().enumerate() {
-        let mut prev = dp[0];
-        dp[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let cur = dp[j + 1];
-            dp[j + 1] = if ca == cb { prev } else { 1 + prev.min(dp[j + 1]).min(dp[j]) };
-            prev = cur;
-        }
-    }
-    dp[b.len()]
 }

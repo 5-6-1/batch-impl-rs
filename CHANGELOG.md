@@ -5,6 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.8.3 (2026-08-19)
+
+- **Removed the builtin-directive typo guard** — `check_builtin_typo` (a Levenshtein-distance check that rejected names near `fill`/`delegate`/`blanket` with a `compile_error!` "did you mean" hint) is gone entirely. It also misfired on **single-item `#name{body}`** directives: a trait method legitimately named `fill`, `delegate`, `blanket` (or a close variant like `delegate_to`) was rejected outright. Proc macros have no warning channel, and a `compile_error!` is no way to police names — an open-extension typo now expands and surfaces as rustc's own "macro not found", while trait-item collisions work verbatim
+
 ## 0.8.2 (2026-08-19)
 
 - **Where-predicate `@N` value references and `@N..` open ranges** — `@N` now resolves inside angle groups too (`Module<..., Scalar = @0::Scalar>` — the predicate tail and every group are scanned, mirroring `resolve_at_refs`), so an associated-type binding can reference another fresh's associated type (the alga2 tuple `Module` scalar-equality constraint); the `@N..` open range covers "from N to the last fresh" and is **empty** when N is past the end (an arity-1 impl contributes no "from the second element" predicate — no error); empty predicates (open ranges with nothing to emit, trailing-comma segments) are dropped from the where clause instead of emitting a dangling comma

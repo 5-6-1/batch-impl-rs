@@ -1,5 +1,7 @@
 # batch-impl
 
+**v0.8.3** (2026-08-19) — the builtin-directive typo guard is removed: single-item `#name{body}` directives may legitimately collide with `fill`/`delegate`/`blanket` (trait item names are looked up verbatim), and open-extension names are no longer punished with a `compile_error!` — proc macros have no warning channel, so a typo now surfaces as rustc's own error;
+
 **v0.8.2** (2026-08-19) — variadic segments and repeat blocks: `impl{...}` templates declare a variadic segment with `ident@..` (covers every remaining tuple position, names aligned with the leaf position) and bodies repeat with `@(...)..` (`@ident` name references, `@N` index cursors, nested blocks are Cartesian) — one alga2-style spec covers every tuple arity (`()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` → `impl<A0..An> Magma for (A0, ..., An) where A0: Magma, ...`); where predicates now resolve `@N` inside angle groups too (`Module<..., Scalar = @0::Scalar>` — associated-type value references) and gain the `@N..` open range ("from the second element on", empty when past the end) — the alga2 tuple-`Module` scalar-equality constraint;
 
 **v0.8.1** — 0.8.1 released: `where{...}` predicate groups are angle-paired — a two-arg bound inside a `where{...}` block (`@all_fresh: Semiring<Additive, Multiplicative>`) no longer splits at its depth-0 comma into a bad predicate (found in real use by alga2; code bodies stay passthrough);

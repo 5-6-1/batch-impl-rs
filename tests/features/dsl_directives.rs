@@ -206,3 +206,31 @@ fn delegate_typed_receiver() {
     // (a stray `(self.0).f(self, x)` would be a type error).
     assert_eq!(w.f(42), 42);
 }
+
+// ============================================================
+// Single-item `#name{body}` names may collide with the built-in directive
+// names (`fill` / `delegate` / `blanket`) or close variants — a trait item
+// name is looked up verbatim, no builtin-typo guard (the old
+// `check_builtin_typo` rejected these outright; removed — a compile_error
+// with no warning channel is no way to police names).
+// ============================================================
+#[batch_impl(
+    usize #fill{"fill"} #delegate{"delegate"} #blanket{"blanket"}
+        #delegate_to{"delegate_to"} #fill_array{"fill_array"},
+)]
+trait NameCollisions {
+    fn fill(&self) -> &'static str;
+    fn delegate(&self) -> &'static str;
+    fn blanket(&self) -> &'static str;
+    fn delegate_to(&self) -> &'static str;
+    fn fill_array(&self) -> &'static str;
+}
+
+#[test]
+fn single_item_builtin_name_collisions() {
+    assert_eq!(0usize.fill(), "fill");
+    assert_eq!(0usize.delegate(), "delegate");
+    assert_eq!(0usize.blanket(), "blanket");
+    assert_eq!(0usize.delegate_to(), "delegate_to");
+    assert_eq!(0usize.fill_array(), "fill_array");
+}

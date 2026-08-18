@@ -2,6 +2,10 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.8.3 (2026-08-19)
+
+- **移除内置指令拼写守卫**——`check_builtin_typo`（Levenshtein 距离检查：名字接近 `fill`/`delegate`/`blanket` 就用 `compile_error!` 报"did you mean"）整体删除。它还会误伤**单指令 `#name{body}`**：trait 方法恰巧叫 `fill`、`delegate`、`blanket`（或近似名如 `delegate_to`）会被直接拒绝。过程宏没有警告通道，`compile_error!` 不是约束名字的正确方式——开放扩展拼写错误现在正常展开、由 rustc 自己的"macro not found"暴露，trait item 撞名则按字面工作
+
 ## 0.8.2 (2026-08-19)
 
 - **where 谓词 `@N` 值引用与 `@N..` 开放范围**——`@N` 现在也解析尖括号组内（`Module<..., Scalar = @0::Scalar>`——谓词 tail 与每个组都会被扫描，与 `resolve_at_refs` 同形），关联类型绑定可以引用另一个 fresh 的关联类型（alga2 元组 `Module` 标量相等约束）；`@N..` 开放范围覆盖"从 N 到最后一个 fresh"，N 越界时**为空**（arity 1 的 impl 不产生"从第二分量起"的谓词——不报错）；空谓词（开放范围无可发射项、尾逗号空段）从 where 子句中丢弃，不再输出悬空逗号

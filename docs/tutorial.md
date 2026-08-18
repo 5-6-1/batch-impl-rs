@@ -1,5 +1,7 @@
 # batch-impl Tutorial
 
+**v0.8.3** (2026-08-19) — the builtin-directive typo guard is removed: single-item `#name{...}` may legitimately collide with `fill`/`delegate`/`blanket` (see §7);
+
 **v0.8.2** (2026-08-19) — variadic segments (`ident@..`) in `impl{...}` templates and repeat blocks (`@(...)..`) in bodies, see §8.4;
 
 **v0.8.1** — the `where{...}` angle-pairing hotfix (see the CHANGELOG);

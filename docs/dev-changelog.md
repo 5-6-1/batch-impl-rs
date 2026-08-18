@@ -5,6 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.8.3 (2026-08-19)
+
+- **Removed `check_builtin_typo` / `levenshtein`** (`directives/dispatch.rs`): the open-extension typo guard (edit distance ≤ 2 of `fill`/`delegate`/`blanket` → "did you mean" `compile_error!`) is deleted, including its call in the single-item `#name{body}` arm — where it wrongly rejected trait items named `fill`/`delegate`/`blanket` (or close variants). Reported by the user right after 0.8.2 shipped: proc macros have no warning channel, so a `compile_error!` policing plausible names leaves the user no way out; an open-extension typo now expands to the user macro and surfaces as rustc's own "macro not found". `tests/ui/directive_typo.rs` removed (the guard is gone); new dsl regression `single_item_builtin_name_collisions` covers single-item `#name{body}` names colliding with built-in directive names
+
 ## 0.8.2 (2026-08-19)
 
 - **Where-predicate `@N` value references + `@N..` open ranges** (`codegen/where_at.rs`, reported from real use by alga2 — the tuple `Module` scalar-equality constraint `Module<Additive, Multiplicative, Scalar = @0::Scalar>`): `resolve_where_at` recurses into groups (mirroring `parse::resolve_at_refs` — `@N` inside a paired angle group now resolves), and the range / `@all_fresh` tails are scanned through `resolve_tail` before emission (every emitted predicate resolves its own `@N`). New `@N..` open range: from N to the last fresh, **empty** when N is past the end (no error — an arity-1 impl contributes no "from the second element" predicate). Empty predicates (an open range with nothing to emit, trailing-comma segments) are dropped from the where clause (`resolve_where_predicates` skips empty results) — previously an arity-1 impl emitted `where P0: M, ,` (a dangling comma surfacing as a raw rustc error). 5 new unit tests in where_at.rs + the alga2 tuple-Module integration test (`ext2_varseg.rs::tuple_module_shared_scalar`)

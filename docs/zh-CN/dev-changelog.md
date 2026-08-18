@@ -2,6 +2,10 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.8.3 (2026-08-19)
+
+- **移除 `check_builtin_typo` / `levenshtein`**（`directives/dispatch.rs`）：开放扩展拼写守卫（与 `fill`/`delegate`/`blanket` 编辑距离 ≤ 2 → "did you mean" `compile_error!`）整体删除，含单指令 `#name{body}` 分支里的调用——那里会误伤名字为 `fill`/`delegate`/`blanket`（或近似名）的 trait item。0.8.2 发布后用户即报告：过程宏没有警告通道，`compile_error!` 拦截"看起来像拼写错误"的合法名字不给用户留活路；开放扩展拼写错误现在展开为用户宏、由 rustc 自己的"macro not found"暴露。`tests/ui/directive_typo.rs` 删除（守卫已不存在）；新增 dsl 回归 `single_item_builtin_name_collisions` 覆盖单指令 `#name{body}` 与内置指令名撞名的场景
+
 ## 0.8.2 (2026-08-19)
 
 - **where 谓词 `@N` 值引用 + `@N..` 开放范围**（`codegen/where_at.rs`，alga2 真实使用报告——元组 `Module` 标量相等约束 `Module<Additive, Multiplicative, Scalar = @0::Scalar>`）：`resolve_where_at` 递归进组（与 `parse::resolve_at_refs` 同形——配对尖括号组内的 `@N` 现在解析），范围 / `@all_fresh` 的 tail 经 `resolve_tail` 先扫描再发射（每个发射的谓词独立解析自己的 `@N`）。新增 `@N..` 开放范围：从 N 到最后一个 fresh，N 越界时**为空**（不报错——arity 1 的 impl 不产生"从第二分量起"的谓词）。空谓词（开放范围无可发射项、尾逗号空段）从 where 子句丢弃（`resolve_where_predicates` 跳过空结果）——此前 arity 1 的 impl 输出 `where P0: M, ,`（悬空逗号，rustc 裸错）。where_at.rs 新增 5 个单元测试 + alga2 元组 Module 集成测试（`ext2_varseg.rs::tuple_module_shared_scalar`）

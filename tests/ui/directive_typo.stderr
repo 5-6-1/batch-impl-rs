@@ -1,7 +1,0 @@
-error: batch-impl: unknown directive `#delgate` — did you mean `#delegate`?
- --> tests/ui/directive_typo.rs:5:1
-  |
-5 | #[batch_impl(u8 #delgate{})]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
