@@ -366,7 +366,7 @@ batch_trait! {
 |---|---|---|
 | `@g_i` | **primitive** — group g, slot i (stable across array distribution) | addresses a macro-generated generic (groups/slots number from 0; dangling refs are targeted errors) |
 | `@N` | `@g_i` flattened by document order within one impl | references a fresh generic (`where{@0: Clone}`) |
-| `@all_fresh` | all fresh generics | range sugar — "every one" |
+| `@all_fresh` | all fresh generics | range sugar — "every one" (≡ `@0..`) |
 | `@N..=M` | a contiguous run | range sugar — `@0..=1` = `@0, @1` |
 | `@N..` | an **open** run to the last fresh | range sugar — "from the second element on" (`@1..`); **empty** when N is past the end (an arity-1 impl contributes no such predicate, no error) |
 
@@ -378,7 +378,7 @@ batch_trait! {
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(()^3 where{@all_fresh: Copy})] // every fresh generic
+#[batch_impl(()^3 where{@0..: Copy})]       // = @all_fresh (from 0 to the last fresh)
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
@@ -387,6 +387,9 @@ trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 // (an arity-1 impl contributes no predicate — `@1..` is empty there)
 ```
+
+`@all_fresh` and `@0..` are equivalent; the `@N..` family is the preferred
+spelling (`@0..` covers the whole run, `@1..` its tail).
 
 `@N` also resolves in **value positions** — the type after `:` may carry
 `@N` inside angle groups, e.g. an associated-type binding referencing
@@ -397,7 +400,7 @@ constraint):
 # use batch_impl::batch_impl;
 #[batch_impl(
     Module<(), ()> ()^1..=4 where{
-        @all_fresh: Module<(), (), Scalar: Copy>,
+        @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)}
     #Scalar{A0::Scalar}
@@ -669,14 +672,14 @@ trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
 ```
 
 The alga2-style end-to-end — one spec covers every tuple arity, with
-`@all_fresh` constraining every fresh generic:
+`@0..` (≡ `@all_fresh`) constraining every fresh generic:
 
 ```rust
 # use batch_impl::batch_impl;
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ()^1..=2 where{@all_fresh: Magma} impl{(A@..,)}
+    ()^1..=2 where{@0..: Magma} impl{(A@..,)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }

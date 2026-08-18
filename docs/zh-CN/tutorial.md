@@ -369,7 +369,7 @@ batch_trait! {
 |---|---|---|
 | `@g_i` | **原语**——组 g、位 i（跨数组分发稳定） | 寻址宏生成的泛型（组/位从 0 编号，悬空引用定向报错） |
 | `@N` | `@g_i` 在单 impl 内按文档序摊平的下标 | 引用 fresh 泛型名（`where{@0: Clone}`） |
-| `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个” |
+| `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个”（≡ `@0..`） |
 | `@N..=M` | 连续段 | 范围糖——`@0..=1` = `@0, @1` |
 | `@N..` | 到最后一个 fresh 的**开放**段 | 范围糖——“从第二个起”（`@1..`）；N 越界时**为空**（arity 1 的 impl 不产生此类谓词，不报错） |
 
@@ -381,7 +381,7 @@ batch_trait! {
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(()^3 where{@all_fresh: Copy})] // 全部 fresh 泛型
+#[batch_impl(()^3 where{@0..: Copy})]       // = @all_fresh（从 0 到最后一个 fresh）
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
@@ -391,6 +391,9 @@ trait OpenRange {}
 // （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
 ```
 
+`@all_fresh` 与 `@0..` 等价；推荐用 `@N..` 家族（`@0..` 覆盖整段、`@1..`
+覆盖尾部）。
+
 `@N` 在**值位置**同样解析——`:` 后的类型可在尖括号组内携带 `@N`，例如关联
 类型绑定引用另一个 fresh 的关联类型（alga2 元组 `Module` 标量相等约束）：
 
@@ -398,7 +401,7 @@ trait OpenRange {}
 # use batch_impl::batch_impl;
 #[batch_impl(
     Module<(), ()> ()^1..=4 where{
-        @all_fresh: Module<(), (), Scalar: Copy>,
+        @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)}
     #Scalar{A0::Scalar}
@@ -640,14 +643,14 @@ trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
 // （单段模板提供长度；`@A(self.@0,)..` 是显式写法，多段模板也可用）
 ```
 
-alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@all_fresh` 给每个 fresh 泛型加约束：
+alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@0..`（≡ `@all_fresh`）给每个 fresh 泛型加约束：
 
 ```rust
 # use batch_impl::batch_impl;
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ()^1..=2 where{@all_fresh: Magma} impl{(A@..,)}
+    ()^1..=2 where{@0..: Magma} impl{(A@..,)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
