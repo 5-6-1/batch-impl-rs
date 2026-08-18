@@ -161,6 +161,10 @@ fn ui() {
     t.compile_fail("tests/ui/impl_shape_repeat_no_driver.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_bare_at.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_unequal.rs");
+    // cursor-only blocks: multi-segment templates need a declared driver;
+    // a declared driver must not conflict with inner references
+    t.compile_fail("tests/ui/impl_shape_repeat_cursor_multi.rs");
+    t.compile_fail("tests/ui/impl_shape_repeat_driver_conflict.rs");
 
     // Ext 1 ItemImpl entry: for-Type shape mismatch / banned `@` and `#` /
     // non-type direct form

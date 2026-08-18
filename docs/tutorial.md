@@ -642,13 +642,29 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
   leaf element;
 - `@N` is an **index cursor** — the numeric literal `N + i`; write the path
   prefix yourself (`self.@1` for a segment starting at leaf index 1);
-- the block repeats `L` times where `L` is the common length of the segments
-  it references (all referenced segments must be equal-length, else error);
+- the block repeats `L` times, and the length comes from one of three
+  sources: the segments referenced inside (`@ident`, all equal-length),
+  a **declared driver** (`@A(self.@0,)..` — the segment named right after
+  `@`, useful for cursor-only bodies), or — for a cursor-only block with no
+  declared driver — the template's **unique segment** (an arity-shape with
+  several segments rejects the ambiguous cursor-only form);
 - the block body's trailing `,` is the separator, emitted after every round —
   write no comma *between* side-by-side blocks (each block already
   terminates its own elements);
 - nested blocks run independent rounds (Cartesian semantics);
 - outside a block, `@` in a body is an error.
+
+A cursor-only block generates element references without naming the types —
+the tuple-to-tuple re-shaping case:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn elems(&self) -> (u8, u16, u32) { (@(self.@0,)..) } })]
+trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
+// body → (self.0, self.1, self.2)
+// (the single-segment template supplies the length; `@A(self.@0,)..` is the
+//  explicit spelling, also valid for multi-segment templates)
+```
 
 The alga2-style end-to-end — one spec covers every tuple arity, with
 `@all_fresh` constraining every fresh generic:

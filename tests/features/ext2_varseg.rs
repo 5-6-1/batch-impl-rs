@@ -147,3 +147,25 @@ fn tuple_module_shared_scalar() {
     assert_eq!((S(2u8), S(3u8)).scale(4u8), (S(8u8), S(12u8)));
     assert_eq!((S(2u8), S(3u8), S(4u8)).scale(4u8), (S(8u8), S(12u8), S(16u8)));
 }
+
+// ------------------------------------------------------------
+// 7. Cursor-only blocks: `@(self.@0,)..` with no `@ident` — the length
+//    comes from the template's unique segment (implicit) or from a declared
+//    driver (`@A(self.@0,)..`).
+// ------------------------------------------------------------
+#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn elems(&self) -> (u8, u16, u32) { (@(self.@0,)..) } })]
+trait ShapeElems {
+    fn elems(&self) -> (u8, u16, u32);
+}
+
+#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn elems2(&self) -> (u8, u16, u32) { (@A(self.@0,)..) } })]
+trait ShapeElemsDeclared {
+    fn elems2(&self) -> (u8, u16, u32);
+}
+
+#[test]
+fn cursor_only_blocks() {
+    let t = (1u8, 2u16, 3u32);
+    assert_eq!(t.elems(), (1u8, 2u16, 3u32));
+    assert_eq!(t.elems2(), (1u8, 2u16, 3u32));
+}

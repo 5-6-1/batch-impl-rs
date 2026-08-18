@@ -76,6 +76,19 @@ fn expand_stream(
     let mut i = 0;
     while i < tokens.len() {
         if is_punct_at(tokens, i, '@') {
+            // `@ident ( body ) ..` — the driving segment is declared up
+            // front (the length source; the body may use only `@N` cursors).
+            if let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
+                && let Some(TokenTree::Group(g)) = tokens.get(i + 2)
+                && g.delimiter() == delimiter![()]
+                && is_punct_at(tokens, i + 3, '.')
+                && is_punct_at(tokens, i + 4, '.')
+            {
+                let body = g.stream().into_iter().collect::<Vec<_>>();
+                out.extend(expand_block(&body, segs, depth + 1, Some(id.clone()))?);
+                i += 5;
+                continue;
+            }
             // `@ ( body ) ..`
             if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
                 && g.delimiter() == delimiter![()]
@@ -83,12 +96,13 @@ fn expand_stream(
                 && is_punct_at(tokens, i + 3, '.')
             {
                 let body = g.stream().into_iter().collect::<Vec<_>>();
-                out.extend(expand_block(&body, segs, depth + 1)?);
+                out.extend(expand_block(&body, segs, depth + 1, None)?);
                 i += 4;
                 continue;
             }
             return Err(compile_error_str(
-                "batch-impl: `@` inside an impl body must start a repeat block `@(...)..`",
+                "batch-impl: `@` inside an impl body must start a repeat block \
+                 `@(...)..` (or `@ident(...)..` with the driving segment declared)",
                 tokens[i].span(),
             ));
         }
@@ -111,28 +125,66 @@ fn expand_stream(
 }
 
 /// Expands one repeat block: nested blocks first (their rounds are
-/// independent), then `L` rounds of marker substitution (`L` = the common
-/// driving-segment length).
+/// independent), then `L` rounds of marker substitution (`L` = the driving
+/// segment's length — a declared `@ident` prefix, the block's inner segment
+/// references, or the template's unique segment for a cursor-only block).
 fn expand_block(
-    body: &[TokenTree], segs: &[VarSeg], depth: usize,
+    body: &[TokenTree], segs: &[VarSeg], depth: usize, driver: Option<Ident>,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(body, " in a repeat block"));
     }
     // 1. Nested repeat blocks expand first (own rounds).
     let body = expand_nested(body, segs, depth)?;
-    // 2. Driving segments + the common length.
-    let len = match collect_drivers(&body, segs)? {
-        Some(l) => l,
-        None => {
-            return Err(compile_error_str(
-                "batch-impl: a repeat block `@(...)..` must reference at least one \
-                 variadic segment (`@ident`) to determine the repetition count",
-                body.first().map_or_else(Span::call_site, |t| t.span()),
-            ));
+    // 2. The inner segment references (prefixes + their common length).
+    let (inner_prefixes, inner_len) = collect_drivers(&body, segs)?;
+    // 3. The repetition count.
+    let len = match driver {
+        // Declared driver: it is the length source; any inner references
+        // must point at the same segment.
+        Some(id) => {
+            let prefix = id.to_string();
+            let Some(seg) = segs.iter().find(|s| s.prefix == prefix) else {
+                return Err(compile_error_str(
+                    &format!(
+                        "batch-impl: repeat block driver `@{}` is not a variadic \
+                         segment (the `impl{{...}}` template declares no `{}@..`)",
+                        prefix, prefix,
+                    ),
+                    id.span(),
+                ));
+            };
+            for p in &inner_prefixes {
+                if *p != prefix {
+                    return Err(compile_error_str(
+                        &format!(
+                            "batch-impl: repeat block driver `@{}` conflicts with the \
+                             inner segment reference `@{}` (they must be the same)",
+                            prefix, p,
+                        ),
+                        id.span(),
+                    ));
+                }
+            }
+            seg.len
         }
+        // No declared driver: the inner references decide; a cursor-only
+        // block binds the template's unique segment (its length is the only
+        // possible one — no guessing).
+        None => match inner_len {
+            Some(l) => l,
+            None if segs.len() == 1 => segs[0].len,
+            None => {
+                return Err(compile_error_str(
+                    "batch-impl: a repeat block needs a driving segment to determine \
+                     its length — write `@ident(...)..` with the segment declared, or \
+                     reference a segment inside",
+                    body.first().map_or_else(Span::call_site, |t| t.span()),
+                ));
+            }
+        },
     };
-    // 3. L rounds of marker substitution.
+    // 4. L rounds of marker substitution.
     let mut out = vec![];
     for round in 0..len {
         out.extend(substitute(&body, segs, round, depth + 1)?);
@@ -151,6 +203,20 @@ fn expand_nested(
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
+        // `@ident ( body ) ..` — declared driver
+        if is_punct_at(tokens, i, '@')
+            && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
+            && let Some(TokenTree::Group(g)) = tokens.get(i + 2)
+            && g.delimiter() == delimiter![()]
+            && is_punct_at(tokens, i + 3, '.')
+            && is_punct_at(tokens, i + 4, '.')
+        {
+            let body = g.stream().into_iter().collect::<Vec<_>>();
+            out.extend(expand_block(&body, segs, depth + 1, Some(id.clone()))?);
+            i += 5;
+            continue;
+        }
+        // `@ ( body ) ..`
         if is_punct_at(tokens, i, '@')
             && let Some(TokenTree::Group(g)) = tokens.get(i + 1)
             && g.delimiter() == delimiter![()]
@@ -158,7 +224,7 @@ fn expand_nested(
             && is_punct_at(tokens, i + 3, '.')
         {
             let body = g.stream().into_iter().collect::<Vec<_>>();
-            out.extend(expand_block(&body, segs, depth + 1)?);
+            out.extend(expand_block(&body, segs, depth + 1, None)?);
             i += 4;
             continue;
         }
@@ -180,9 +246,13 @@ fn expand_nested(
     Ok(out)
 }
 
-/// The common length of the block's driving segments (`@ident` references,
-/// deduplicated); `None` when the block references no segment at all.
-fn collect_drivers(tokens: &[TokenTree], segs: &[VarSeg]) -> Result<Option<usize>, TokenStream> {
+/// The inner segment references of a block body: the deduplicated `@ident`
+/// prefixes (first-appearance order) and their common length (`None` when the
+/// block references no segment — a cursor-only block).
+fn collect_drivers(
+    tokens: &[TokenTree], segs: &[VarSeg],
+) -> Result<(Vec<String>, Option<usize>), TokenStream> {
+    let mut prefixes: Vec<String> = vec![];
     let mut len: Option<usize> = None;
     let mut i = 0;
     while i < tokens.len() {
@@ -210,6 +280,9 @@ fn collect_drivers(tokens: &[TokenTree], segs: &[VarSeg]) -> Result<Option<usize
                     id.span(),
                 ));
             };
+            if !prefixes.contains(&prefix) {
+                prefixes.push(prefix);
+            }
             match len {
                 None => len = Some(seg.len),
                 Some(l) if l != seg.len => {
@@ -229,7 +302,12 @@ fn collect_drivers(tokens: &[TokenTree], segs: &[VarSeg]) -> Result<Option<usize
         }
         if let TokenTree::Group(g) = &tokens[i] {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let l = collect_drivers(&inner, segs)?;
+            let (p, l) = collect_drivers(&inner, segs)?;
+            for p in p {
+                if !prefixes.contains(&p) {
+                    prefixes.push(p);
+                }
+            }
             match (len, l) {
                 (None, _) => len = l,
                 (Some(a), Some(b)) if a != b => {
@@ -246,7 +324,7 @@ fn collect_drivers(tokens: &[TokenTree], segs: &[VarSeg]) -> Result<Option<usize
         }
         i += 1;
     }
-    Ok(len)
+    Ok((prefixes, len))
 }
 
 /// Substitutes the markers of one round: `@ident` → the segment's i-th name,
@@ -405,6 +483,48 @@ mod tests {
     fn plain_body_passthrough() {
         let s = "fn combine (& self , rhs : & Self) -> Self { todo ! () }";
         assert_eq!(expand(s).unwrap(), s);
+    }
+
+    #[test]
+    fn declared_driver_cursor_only() {
+        // `@A(self.@0,)..` — the driving segment declared up front, the
+        // body uses only `@N` cursors
+        let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 3 }];
+        let ts = "@A(self.@0,)..".parse::<TokenStream>().unwrap();
+        let out = expand_repeat_blocks(ts, &segs).unwrap().to_string();
+        assert_eq!(out, "self .0 , self .1 , self .2 ,");
+    }
+
+    #[test]
+    fn cursor_only_single_segment() {
+        // no declared driver and no inner `@ident`: the template's unique
+        // segment provides the length
+        let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
+        let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
+        let out = expand_repeat_blocks(ts, &segs).unwrap().to_string();
+        assert_eq!(out, "self .0 , self .1 ,");
+    }
+
+    #[test]
+    fn cursor_only_multi_segment_errors() {
+        // a cursor-only block with several template segments cannot pick a
+        // length — reject instead of guessing
+        let segs = vec![
+            VarSeg { prefix: "A".into(), start: 0, len: 2 },
+            VarSeg { prefix: "B".into(), start: 2, len: 2 },
+        ];
+        let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
+        assert!(expand_repeat_blocks(ts, &segs).is_err());
+    }
+
+    #[test]
+    fn declared_driver_conflict_errors() {
+        let segs = vec![
+            VarSeg { prefix: "A".into(), start: 0, len: 2 },
+            VarSeg { prefix: "B".into(), start: 2, len: 2 },
+        ];
+        let ts = "@A(@B::f(),)..".parse::<TokenStream>().unwrap();
+        assert!(expand_repeat_blocks(ts, &segs).is_err());
     }
 
     #[test]

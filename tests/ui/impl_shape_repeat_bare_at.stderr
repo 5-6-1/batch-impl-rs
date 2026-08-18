@@ -1,4 +1,4 @@
-error: batch-impl: `@` inside an impl body must start a repeat block `@(...)..`
+error: batch-impl: `@` inside an impl body must start a repeat block `@(...)..` (or `@ident(...)..` with the driving segment declared)
  --> tests/ui/impl_shape_repeat_bare_at.rs:4:1
   |
 4 | #[batch_impl((u8, u16) impl{(A@..,)} { fn n(&self) -> usize { let x = 0; x @ 0 } })]

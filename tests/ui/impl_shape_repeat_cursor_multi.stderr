@@ -1,0 +1,10 @@
+error: batch-impl: a repeat block needs a driving segment to determine its length — write `@ident(...)..` with the segment declared, or reference a segment inside
+ --> tests/ui/impl_shape_repeat_cursor_multi.rs:5:1
+  |
+5 | / #[batch_impl(
+6 | |     (u8, u16, u32, u32) impl{(A@.., B@..,)}
+7 | |     { fn n(&self) -> usize { (@(self.@0,)..) } }
+8 | | )]
+  | |__^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
