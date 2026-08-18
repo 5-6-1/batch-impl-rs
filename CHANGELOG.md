@@ -5,6 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.8.2 (unreleased)
+
+- **Variadic segments and repeat blocks (Ext 2)** — an `impl{...}` template can declare a variadic segment with `ident@..`: it covers every remaining tuple position from its own position onward, with names aligned to the leaf position (`(u8, A@..,)` on `(u8, u16, u32)` → `A1`, `A2`; `(A@..,)` on any arity → `A0..An`), same-level segments split the leaf evenly (uneven splits / duplicate prefixes error), and segments recurse into nested tuples. The body repeats with `@(...)..`: `@ident` is the i-th element's slot name (rewritten by the slot mapping afterwards), `@N` an index cursor expanding to `N + i` (the path prefix is written by the user), the block runs once per element of its driving segments (all referenced segments must be equal-length), nested blocks run independent rounds (Cartesian), and the block body's trailing `,` is the per-round separator (write no comma between side-by-side blocks). One spec now covers every tuple arity of a shape — the alga2-style `()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}` emits `impl<A0..An> Magma for (A0, ..., An) where A0: Magma, ...` for n = 1..4
+
 ## 0.8.1 (unreleased)
 
 - **Fix: `where{...}` predicate groups are angle-paired** — a two-arg bound inside a `where{...}` block (`@all_fresh: Semiring<Additive, Multiplicative>`) used to be split at its depth-0 comma into a bad predicate, because the angle brackets stayed unpaired (Brace groups were passthrough). `angle_collect` now enters `where{...}` groups and pairs the `<...>` inside (code bodies stay passthrough); `render_angles` restores them. Reported from real use (alga2); a DSL end-to-end regression test locks the fix

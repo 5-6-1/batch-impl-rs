@@ -145,6 +145,9 @@ pub(crate) fn prepare_attr_expansion(
     // `@inner` is paired into the `<>` group and expand_consts never enters it, leaving
     // residue behind (observed compile error). Custom `@name=value;` sections are
     // `batch_trait!`-only (the 0.7.2 attribute-macro support was reverted in 0.8.0).
+    // Variadic-segment marking runs first: `ident@..` inside `impl{...}` templates
+    // would otherwise hit the constant stage as an unknown `@`.
+    let rest_tokens = crate::preprocess::mark_varseg(&rest_tokens)?;
     let rest_tokens = crate::preprocess::expand_consts(
         &rest_tokens,
         crate::preprocess::ConstCtx::Attribute {
@@ -237,6 +240,9 @@ pub(crate) fn expand_batch_trait(
     // the expansion may contain flat `<...>` that angle_collect must pair uniformly —
     // reversed, `Vec<@inner>`'s `@inner` enters the group and is never expanded; observed).
     let (tokens, user_consts) = crate::preprocess::collect_user_consts(&tokens)?;
+    // Variadic-segment marking precedes the constant stage (an `ident@..`
+    // inside an `impl{...}` template is not a constant reference).
+    let tokens = crate::preprocess::mark_varseg(&tokens)?;
     let tokens = crate::preprocess::expand_consts(
         &tokens,
         crate::preprocess::ConstCtx::Trait { user_table: &user_consts },

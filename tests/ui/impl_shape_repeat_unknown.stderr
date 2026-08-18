@@ -1,0 +1,7 @@
+error: batch-impl: repeat block references unknown variadic segment `@X` (the `impl{...}` template declares no `X@..`)
+ --> tests/ui/impl_shape_repeat_unknown.rs:4:1
+  |
+4 | #[batch_impl((u8, u16) impl{(A@..,)} { fn n(&self) -> usize { @(@X::f(),).. } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

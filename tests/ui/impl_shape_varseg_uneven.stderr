@@ -1,0 +1,7 @@
+error: batch-impl: `impl{...}` template cannot destructure the target type (variadic segments cannot be split evenly: target tuple has 3 elements after 0 fixed, split across 2 segments)
+ --> tests/ui/impl_shape_varseg_uneven.rs:5:1
+  |
+5 | #[batch_impl((u8, u16, u32) impl{(A@.., B@..,)} { fn n(&self) -> usize { 0 } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

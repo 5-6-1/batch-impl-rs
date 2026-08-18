@@ -92,6 +92,7 @@ fn expand_one_spec(
                     )
                 })?;
             let check = match_shape(&template, &for_type)
+                .map(|(m, _)| m)
                 .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
             if !check.entries().is_empty() {
                 return Err(compile_error_str(
@@ -126,6 +127,7 @@ fn expand_one_spec(
                     )
                 })?;
                 let m = match_shape(&template, &leaf_ty)
+                    .map(|(m, _)| m)
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                 // for-Type: slot names rewritten to the bound leaf subtrees.
                 let for_ty = apply_mapping(item.self_ty.to_token_stream(), m.entries());

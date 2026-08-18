@@ -8,6 +8,7 @@
 mod fresh;
 mod impl_parts;
 mod postprocess;
+mod repeat;
 mod shape;
 mod top_level;
 mod where_at;
@@ -15,6 +16,7 @@ mod where_at;
 pub(crate) use fresh::*;
 pub(crate) use impl_parts::*;
 pub(crate) use postprocess::*;
+pub(crate) use repeat::*;
 pub(crate) use shape::*;
 pub(crate) use top_level::*;
 pub(crate) use where_at::*;
@@ -154,12 +156,14 @@ pub(crate) fn generate_impl(
     // against the leaf target type, merge the slot mappings, and apply the
     // rewrites (where predicates + body here; the target type at render,
     // where the final tokens are in hand). An empty template list is the
-    // no-op case.
-    let shape_entries = if parts.impl_templates.is_empty() {
-        Vec::new()
+    // no-op case. Variadic segments (`ident@..`) additionally drive the
+    // body's repeat blocks (`@(...)..`), which expand before the slot
+    // mapping rewrites the resulting segment names.
+    let (shape_entries, var_segs) = if parts.impl_templates.is_empty() {
+        (Vec::new(), Vec::new())
     } else {
         match collect_shape_mapping(&parts) {
-            Ok(m) => m.entries().to_vec(),
+            Ok((m, s)) => (m.entries().to_vec(), s),
             Err(e) => return compile_error_str(&e.message(), proc_macro2::Span::call_site()),
         }
     };
@@ -167,7 +171,10 @@ pub(crate) fn generate_impl(
         parts.where_clauses =
             parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_entries)).collect();
         if let Some(b) = &mut parts.body {
-            *b = apply_mapping(b.clone(), &shape_entries);
+            match expand_repeat_blocks(b.clone(), &var_segs) {
+                Ok(expanded) => *b = apply_mapping(expanded, &shape_entries),
+                Err(e) => return e,
+            }
         }
     }
     render_impl(parts, where_resolved, trait_name, is_unsafe_trait, &shape_entries)
@@ -176,9 +183,11 @@ pub(crate) fn generate_impl(
 /// Matches every `impl{...}` template against the leaf target type and
 /// merges the slot mappings (identical re-bindings legal, conflicting ones
 /// error). Both sides must be standard Rust types: the template is
-/// user-written (syn-parsed), the target is the rendered leaf (a generator /
-/// DSL leftover cannot be destructured).
-fn collect_shape_mapping(parts: &ImplParts) -> Result<Mapping, ShapeError> {
+/// user-written (syn-parsed, with variadic-segment placeholders already in
+/// place), the target is the rendered leaf (a generator / DSL leftover
+/// cannot be destructured). Returns the merged mapping and the resolved
+/// variadic segments.
+fn collect_shape_mapping(parts: &ImplParts) -> Result<(Mapping, Vec<VarSeg>), ShapeError> {
     let target_tokens = parts.target_type.to_token_stream();
     let target: syn::Type = syn::parse2(target_tokens).map_err(|_| {
         ShapeError::ShapeMismatch(
@@ -187,6 +196,7 @@ fn collect_shape_mapping(parts: &ImplParts) -> Result<Mapping, ShapeError> {
         )
     })?;
     let mut merged = Mapping::default();
+    let mut segs = vec![];
     for t in &parts.impl_templates {
         let template: syn::Type = syn::parse2(t.clone()).map_err(|_| {
             ShapeError::ShapeMismatch(
@@ -194,9 +204,11 @@ fn collect_shape_mapping(parts: &ImplParts) -> Result<Mapping, ShapeError> {
                     .into(),
             )
         })?;
-        merged.merge(match_shape(&template, &target)?)?;
+        let (m, s) = match_shape(&template, &target)?;
+        merged.merge(m)?;
+        segs.extend(s);
     }
-    Ok(merged)
+    Ok((merged, segs))
 }
 
 /// Renders an impl generic name with the `const` keyword stripped (the parse

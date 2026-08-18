@@ -1,6 +1,8 @@
 # batch-impl 教程
 
-**v0.8.1**（unreleased）——教程暂无变化（0.8.1 为 `where{...}` 尖括号配对 hotfix；见 CHANGELOG）；
+**v0.8.2**（unreleased）——`impl{...}` 模板变长段（`ident@..`）与 body 重复块（`@(...)..`），见 §8.4；
+
+**v0.8.1**——`where{...}` 尖括号配对 hotfix（见 CHANGELOG）；
 
 **v0.7.2**——0.7.2 加入 `batch_preview!` 展开预览、trait 实参生成器 splat 声明提升、`#blanket` 按值接收者转发、属性宏自定义 `@` 常量段（0.8.0 已回退）与 `@` 诊断用户语言化；0.7.1 加入了定向诊断（残留/相邻/空值 token、拼写建议）取代 rustc 裸错；0.7.0 在既有骨架上加入了 **`*` 摊平操作符**，并把 `<>`/`()`/`[]` 从"被动语法"升级为"可编程结构"：泛型实参内部现在可以写 generator（`()^N`）、splat（`*(A,B)`）、常量族（`@u*`）、列表（`[A,B]`）、绑定（`Item=u32`）与嵌套类型。
 
@@ -571,6 +573,42 @@ trait TMax { fn max() -> Self; }
 trait Tag { fn tag() -> usize; }
 // Box<u8>..Rc<f64> 由 Box<u8> 原型覆盖；Cow<'_, u8>..Cow<'_, f64> 由 Cow 原型覆盖
 // ——一条属性、两个形状族
+```
+
+#### 变长段与 body 重复块
+
+`impl{...}` 模板可以用 `ident@..` 声明**变长段**：它覆盖从自身位置起的所有剩余元组位置（写在固定元素后面的段从固定元素个数开始）。段的名字**对齐叶子位置**——`(u8, A@..,)` 匹配 `(u8, u16, u32)` 得到 `A1`、`A2`（没有 `A0`；索引游标从 `@1` 写起），`(A@..,)` 匹配 `(u8, u16, u32)` 得到 `A0`、`A1`、`A2`。同层多段均分剩余位置（`(A@.., B@..,)` 匹配 arity-4 叶子 → A 长 2、B 长 2）；无法均分报错。段可递归进嵌套元组（`((A@..,),(B@..,))`）；同一模板内段名前缀重复报错。
+
+body 用 `@(...)..` 重复：**重复块**按所引用段的元素数逐轮输出模式：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
+// body → (A0::from(self.0), A1::from(self.1), A2::from(self.2))
+//        → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
+```
+
+- 块内 `@ident` 是**名字引用**——第 i 个元素的槽名（`A0`、`A1`、…），随后由槽映射改写成绑定的叶子元素；
+- `@N` 是**索引游标**——数字 `N + i`；路径前缀自己写（段从叶子下标 1 起就写 `self.@1`）；
+- 块重复 L 次，L = 块内引用的所有段的公共长度（引用的段必须等长，否则报错）；
+- 块体末尾的 `,` 是分隔符，每轮输出——**并列块之间不要再写逗号**（每个块已自带元素分隔）；
+- 嵌套块独立轮次（笛卡尔积语义）；
+- 块外 body 中出现 `@` 报错。
+
+alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@all_fresh` 给每个 fresh 泛型加约束：
+
+```rust
+# use batch_impl::batch_impl;
+trait Magma { fn combine(&self, rhs: &Self) -> Self; }
+impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
+#[batch_impl(
+    ()^1..=2 where{@all_fresh: Magma} impl{(A@..,)}
+    #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
+)]
+trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
+// → impl<A0> TupleMagma for (A0,) where A0: Magma { ... }
+// → impl<A0, A1> TupleMagma for (A0, A1) where A0: Magma, A1: Magma { ... }
 ```
 
 ### 8.5 ItemImpl 入口（0.8.0，Ext 1）

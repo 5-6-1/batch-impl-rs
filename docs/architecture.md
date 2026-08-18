@@ -169,8 +169,8 @@ Four layers:
 | `examples/` | `quickstart.rs` | Runnable DSL main-feature demo (`cargo run --example quickstart`), 14 sections covering basic → complex scenarios |
 | `src/` | `fuzz.rs` | proptest property tests: random token sequences fed to `where_process` / `parse_item`, verifying "never panics on user input" (`cargo test --lib`) |
 | `tests/` | `dsl.rs` | thin entry (`mod features;`) mounting the split test modules |
-| `tests/` | `features/` | 34 per-feature test modules (each under 350 lines; split from the former single-file `dsl.rs` / `regression.rs` / `ext1_impl.rs` / `ext2_impl.rs`): `dsl_*` (82 tests: operators, directives, blanket, `@` constants, `@N` refs, splat, where, generics, receivers, entry macros, open extension, distribution), `regression_*` (26 tests: corner cases + `batch_impl` vs `batch_trait!` consistency + macros/path-prefix + arrays), `ext1_*` (17 tests incl. nested/boundary/conflict ItemImpl cases), `ext2_*` (45 tests incl. nested/boundary/conflict/shape-form/prototype-pattern/cross-combo cases) — **170 `#[test]`s total** |
-| `tests/` | `ui.rs` | `trybuild` UI tests: 74 `compile_fail` fixtures locking down diagnostic wording + 1 `pass` fixture |
+| `tests/` | `features/` | 35 per-feature test modules (each under 350 lines; split from the former single-file `dsl.rs` / `regression.rs` / `ext1_impl.rs` / `ext2_impl.rs`): `dsl_*` (82 tests: operators, directives, blanket, `@` constants, `@N` refs, splat, where, generics, receivers, entry macros, open extension, distribution), `regression_*` (26 tests: corner cases + `batch_impl` vs `batch_trait!` consistency + macros/path-prefix + arrays), `ext1_*` (17 tests incl. nested/boundary/conflict ItemImpl cases), `ext2_*` (50 tests incl. nested/boundary/conflict/shape-form/prototype-pattern/cross-combo + variadic-segment/repeat-block cases) — **175 `#[test]`s total** |
+| `tests/` | `ui.rs` | `trybuild` UI tests: 81 `compile_fail` fixtures locking down diagnostic wording + 1 `pass` fixture |
 
 Running:
 

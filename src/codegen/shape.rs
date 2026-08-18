@@ -14,6 +14,19 @@
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 
+use crate::preprocess::varseg::{is_varseg_type, varseg_prefix};
+
+/// A variadic segment (`ident@..`) resolved by a shape match: the name
+/// prefix, the leaf start index (= the name numbering start), and the
+/// element count. Collected in template order; duplicate prefixes are
+/// rejected by the match.
+#[derive(Clone, Debug)]
+pub(crate) struct VarSeg {
+    pub(crate) prefix: String,
+    pub(crate) start: usize,
+    pub(crate) len: usize,
+}
+
 /// The slot mapping produced by a shape match: slot name → bound leaf
 /// subtree. Order-preserving (rendering walks it in match order).
 #[derive(Default)]
@@ -79,11 +92,15 @@ impl ShapeError {
     }
 }
 
-/// Matches `template` against `leaf`, producing the slot mapping.
-pub(crate) fn match_shape(template: &syn::Type, leaf: &syn::Type) -> Result<Mapping, ShapeError> {
+/// Matches `template` against `leaf`, producing the slot mapping and the
+/// resolved variadic segments (`ident@..`, in template order).
+pub(crate) fn match_shape(
+    template: &syn::Type, leaf: &syn::Type,
+) -> Result<(Mapping, Vec<VarSeg>), ShapeError> {
     let mut map = Mapping::default();
-    match_ty(template, leaf, &mut map)?;
-    Ok(map)
+    let mut segs = vec![];
+    match_ty(template, leaf, &mut map, &mut segs)?;
+    Ok((map, segs))
 }
 
 /// Rewrites a token stream, replacing every ident equal to a slot name with
@@ -118,6 +135,14 @@ fn is_bare_ident(tp: &syn::TypePath) -> bool {
         && matches!(tp.path.segments[0].arguments, syn::PathArguments::None)
 }
 
+/// The ident of a variadic-segment placeholder type (defensive: the caller
+/// has already checked `is_varseg_type`; `None` keeps the no-panic promise
+/// on any internal drift).
+fn varseg_ident(tp: &syn::Type) -> Option<&syn::Ident> {
+    let syn::Type::Path(p) = tp else { return None };
+    (p.path.segments.len() == 1).then(|| &p.path.segments[0].ident)
+}
+
 /// The ident of a bare single-segment path expression (`N` in `[T; N]`);
 /// `None` for any other expression (literals, arithmetic, `N + 1`, ...).
 fn bare_path_ident(expr: &syn::Expr) -> Option<String> {
@@ -132,12 +157,23 @@ fn bare_path_ident(expr: &syn::Expr) -> Option<String> {
 }
 
 /// Recursive position-by-position match (see module docs for the rules).
-fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result<(), ShapeError> {
+fn match_ty(
+    template: &syn::Type, leaf: &syn::Type, map: &mut Mapping, segs: &mut Vec<VarSeg>,
+) -> Result<(), ShapeError> {
     match template {
         // Bare ident: equal leaf ident → literal; anything else → slot
         // bound to the whole leaf subtree (the "0-arity → T := leaf" rule).
+        // A variadic-segment placeholder is legal only as a tuple element —
+        // reaching the bare-ident arm means it sits elsewhere (rejected).
         syn::Type::Path(tp) if is_bare_ident(tp) => {
             let name = &tp.path.segments[0].ident;
+            if is_varseg_type(template) {
+                return Err(ShapeError::ShapeMismatch(
+                    "a variadic segment (`ident@..`) is only supported as a tuple element \
+                     inside an `impl{...}` template"
+                        .into(),
+                ));
+            }
             if let syn::Type::Path(lp) = leaf
                 && is_bare_ident(lp)
                 && lp.path.segments[0].ident == *name
@@ -191,7 +227,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
                                 (
                                     syn::GenericArgument::Type(tt),
                                     syn::GenericArgument::Type(lt),
-                                ) => match_ty(tt, lt, map)?,
+                                ) => match_ty(tt, lt, map, segs)?,
                                 // Lifetime args: `'_` (anonymous) is a
                                 // wildcard matching any lifetime (skip);
                                 // named lifetimes compare verbatim (`'a` vs
@@ -260,7 +296,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
             if t.mutability.is_some() != l.mutability.is_some() {
                 return Err(ShapeError::ShapeMismatch("reference mutability differs".into()));
             }
-            match_ty(&t.elem, &l.elem, map)
+            match_ty(&t.elem, &l.elem, map, segs)
         }
         syn::Type::Tuple(t) => {
             let syn::Type::Tuple(l) = leaf else {
@@ -268,6 +304,64 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
                     "the template is a tuple but the target is not".into(),
                 ));
             };
+            // Variadic segments (`ident@..` placeholders): the remaining
+            // leaf positions (after the fixed template elements) split
+            // evenly across the segments. Each segment binds its name
+            // sequence (`prefix` + leaf start index..) to the corresponding
+            // leaf elements — name numbering aligns with the leaf position
+            // (user-confirmed: `(A, B@..)` → `B1, B2, ...`).
+            let seg_count = t.elems.iter().filter(|e| is_varseg_type(e)).count();
+            if seg_count > 0 {
+                let fixed = t.elems.len() - seg_count;
+                if l.elems.len() < fixed {
+                    return Err(ShapeError::ShapeMismatch(format!(
+                        "tuple arity differs (template has {} fixed elements, target has {})",
+                        fixed,
+                        l.elems.len(),
+                    )));
+                }
+                let remaining = l.elems.len() - fixed;
+                if remaining % seg_count != 0 {
+                    return Err(ShapeError::ShapeMismatch(format!(
+                        "variadic segments cannot be split evenly: target tuple has {} \
+                         elements after {} fixed, split across {} segments",
+                        remaining, fixed, seg_count,
+                    )));
+                }
+                let seg_len = remaining / seg_count;
+                let mut leaf_idx = 0;
+                for te in &t.elems {
+                    if is_varseg_type(te) {
+                        let Some(ident) = varseg_ident(te) else {
+                            return Err(ShapeError::ShapeMismatch(
+                                "malformed variadic segment placeholder".into(),
+                            ));
+                        };
+                        let Some(prefix) = varseg_prefix(ident) else {
+                            return Err(ShapeError::ShapeMismatch(
+                                "malformed variadic segment placeholder".into(),
+                            ));
+                        };
+                        if segs.iter().any(|s| s.prefix == prefix) {
+                            return Err(ShapeError::ShapeMismatch(format!(
+                                "duplicate variadic segment prefix `{}` (each \
+                                 `ident@..` in one template must be unique)",
+                                prefix,
+                            )));
+                        }
+                        segs.push(VarSeg { prefix: prefix.clone(), start: leaf_idx, len: seg_len });
+                        for k in 0..seg_len {
+                            let name = format!("{}{}", prefix, leaf_idx + k);
+                            map.bind(&name, l.elems[leaf_idx + k].to_token_stream())?;
+                        }
+                        leaf_idx += seg_len;
+                    } else {
+                        match_ty(te, &l.elems[leaf_idx], map, segs)?;
+                        leaf_idx += 1;
+                    }
+                }
+                return Ok(());
+            }
             if t.elems.len() != l.elems.len() {
                 return Err(ShapeError::ShapeMismatch(format!(
                     "tuple arity differs (template has {}, target has {})",
@@ -276,7 +370,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
                 )));
             }
             for (te, le) in t.elems.iter().zip(l.elems.iter()) {
-                match_ty(te, le, map)?;
+                match_ty(te, le, map, segs)?;
             }
             Ok(())
         }
@@ -295,7 +389,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
             } else if t.len.to_token_stream().to_string() != l.len.to_token_stream().to_string() {
                 return Err(ShapeError::ShapeMismatch("array length differs".into()));
             }
-            match_ty(&t.elem, &l.elem, map)
+            match_ty(&t.elem, &l.elem, map, segs)
         }
         syn::Type::Slice(t) => {
             let syn::Type::Slice(l) = leaf else {
@@ -303,7 +397,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
                     "the template is a slice but the target is not".into(),
                 ));
             };
-            match_ty(&t.elem, &l.elem, map)
+            match_ty(&t.elem, &l.elem, map, segs)
         }
         syn::Type::Ptr(t) => {
             let syn::Type::Ptr(l) = leaf else {
@@ -320,7 +414,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
             if !mut_eq {
                 return Err(ShapeError::ShapeMismatch("pointer mutability differs".into()));
             }
-            match_ty(&t.elem, &l.elem, map)
+            match_ty(&t.elem, &l.elem, map, segs)
         }
         syn::Type::Paren(t) => {
             let syn::Type::Paren(l) = leaf else {
@@ -328,7 +422,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
                     "the template is a parenthesized type but the target is not".into(),
                 ));
             };
-            match_ty(&t.elem, &l.elem, map)
+            match_ty(&t.elem, &l.elem, map, segs)
         }
         syn::Type::Group(t) => {
             let syn::Type::Group(l) = leaf else {
@@ -336,7 +430,7 @@ fn match_ty(template: &syn::Type, leaf: &syn::Type, map: &mut Mapping) -> Result
                     "the template is a grouped type but the target is not".into(),
                 ));
             };
-            match_ty(&t.elem, &l.elem, map)
+            match_ty(&t.elem, &l.elem, map, segs)
         }
         // Everything else (fn pointers, trait objects, infer, macros...):
         // verbatim compare — templates only bind idents in path/container

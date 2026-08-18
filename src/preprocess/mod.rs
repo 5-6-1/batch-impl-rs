@@ -50,12 +50,14 @@ pub(crate) mod angle;
 pub(crate) mod consts;
 pub(crate) mod directives;
 pub(crate) mod empty_generics;
+pub(crate) mod varseg;
 pub(crate) mod where_process;
 
 pub(crate) use angle::*;
 pub(crate) use consts::*;
 pub(crate) use directives::*;
 pub(crate) use empty_generics::*;
+pub(crate) use varseg::*;
 pub(crate) use where_process::*;
 
 use proc_macro2::{Group, TokenStream, TokenTree};

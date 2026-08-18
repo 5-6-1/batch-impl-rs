@@ -1,0 +1,7 @@
+error: batch-impl: `@` inside an impl body must start a repeat block `@(...)..`
+ --> tests/ui/impl_shape_repeat_bare_at.rs:4:1
+  |
+4 | #[batch_impl((u8, u16) impl{(A@..,)} { fn n(&self) -> usize { let x = 0; x @ 0 } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

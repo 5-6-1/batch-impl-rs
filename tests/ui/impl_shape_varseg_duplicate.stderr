@@ -1,0 +1,7 @@
+error: batch-impl: `impl{...}` template cannot destructure the target type (duplicate variadic segment prefix `A` (each `ident@..` in one template must be unique))
+ --> tests/ui/impl_shape_varseg_duplicate.rs:4:1
+  |
+4 | #[batch_impl((u8, u16) impl{(A@.., A@..,)} { fn n(&self) -> usize { 0 } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

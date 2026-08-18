@@ -1,6 +1,8 @@
 # batch-impl Tutorial
 
-**v0.8.1** (unreleased) — no tutorial changes yet (0.8.1 is the `where{...}` angle-pairing hotfix; see the CHANGELOG);
+**v0.8.2** (unreleased) — variadic segments (`ident@..`) in `impl{...}` templates and repeat blocks (`@(...)..`) in bodies, see §8.4;
+
+**v0.8.1** — the `where{...}` angle-pairing hotfix (see the CHANGELOG);
 
 **v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros (reverted in 0.8.0), and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`()^N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
 
@@ -573,6 +575,59 @@ a list-wide distribution:
 trait Tag { fn tag() -> usize; }
 // Box<u8>..Rc<f64> covered by the Box<u8> prototype; Cow<'_, u8>..Cow<'_, f64>
 // covered by the Cow prototype — one attribute, two shape families
+```
+
+#### Variadic segments and repeat blocks
+
+An `impl{...}` template can declare a **variadic segment** with `ident@..`:
+it covers every remaining tuple position from its own position onward (a
+segment written after fixed elements starts at their count). The segment's
+names are **aligned with the leaf position** — `(u8, A@..,)` on
+`(u8, u16, u32)` yields `A1`, `A2` (there is no `A0`; the index cursor
+starts at `@1`), while `(A@..,)` on `(u8, u16, u32)` yields `A0`, `A1`,
+`A2`. Same-level segments split the leaf evenly (`(A@.., B@..,)` on an
+arity-4 leaf → A len 2, B len 2); an uneven split errors. Segments recurse
+into nested tuples (`((A@..,),(B@..,))`), and duplicate segment prefixes in
+one template error.
+
+The body repeats with `@(...)..` — a repeat block emitted once per element
+of the segment(s) it references:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
+// body → (A0::from(self.0), A1::from(self.1), A2::from(self.2))
+//        → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
+```
+
+- `@ident` inside a block is a **name reference** — the i-th element's slot
+  name (`A0`, `A1`, ...), which the slot mapping then rewrites to the bound
+  leaf element;
+- `@N` is an **index cursor** — the numeric literal `N + i`; write the path
+  prefix yourself (`self.@1` for a segment starting at leaf index 1);
+- the block repeats `L` times where `L` is the common length of the segments
+  it references (all referenced segments must be equal-length, else error);
+- the block body's trailing `,` is the separator, emitted after every round —
+  write no comma *between* side-by-side blocks (each block already
+  terminates its own elements);
+- nested blocks run independent rounds (Cartesian semantics);
+- outside a block, `@` in a body is an error.
+
+The alga2-style end-to-end — one spec covers every tuple arity, with
+`@all_fresh` constraining every fresh generic:
+
+```rust
+# use batch_impl::batch_impl;
+trait Magma { fn combine(&self, rhs: &Self) -> Self; }
+impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
+#[batch_impl(
+    ()^1..=2 where{@all_fresh: Magma} impl{(A@..,)}
+    #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
+)]
+trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
+// → impl<A0> TupleMagma for (A0,) where A0: Magma { ... }
+// → impl<A0, A1> TupleMagma for (A0, A1) where A0: Magma, A1: Magma { ... }
 ```
 
 ### 8.5 The ItemImpl entry (0.8.0, Ext 1)

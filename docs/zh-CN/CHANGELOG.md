@@ -2,6 +2,10 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.8.2 (unreleased)
+
+- **变长段与重复块（Ext 2）**——`impl{...}` 模板可用 `ident@..` 声明**变长段**：覆盖从自身位置起的所有剩余元组位置，名字**对齐叶子位置**（`(u8, A@..,)` 匹配 `(u8, u16, u32)` → `A1`、`A2`；`(A@..,)` 任意 arity → `A0..An`），同层多段均分剩余位置（无法均分 / 段名前缀重复报错），段可递归进嵌套元组。body 用 `@(...)..` 重复：`@ident` 为第 i 个元素的槽名（随后由槽映射改写成绑定值），`@N` 为索引游标（展开为 `N + i`，路径前缀由用户书写），块按驱动段的公共长度逐轮输出（引用的段必须等长），嵌套块独立轮次（笛卡尔积），块体尾部 `,` 为每轮分隔符（并列块之间不写逗号）。一条 spec 覆盖形状的所有元组 arity——alga2 风格 `()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}` 为 n = 1..4 生成 `impl<A0..An> Magma for (A0, ..., An) where A0: Magma, ...`
+
 ## 0.8.1 (unreleased)
 
 - **修复：`where{...}` 谓词组配对尖括号**——`where{...}` 块内的两参数 bound（`@all_fresh: Semiring<Additive, Multiplicative>`）此前被深度 0 逗号分裂成坏谓词，因为 Brace 组透传、`<>` 保持扁平。`angle_collect` 现在进入 `where{...}` 组并配对组内 `<...>`（代码体仍透传）；`render_angles` 还原。真实使用中发现（alga2）；DSL 端到端回归测试锁定

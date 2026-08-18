@@ -152,6 +152,15 @@ fn ui() {
     // bind (array lengths and `'_` wildcards DO bind — see ext2_shape_forms)
     t.compile_fail("tests/ui/impl_shape_lifetime_arg.rs");
     t.compile_fail("tests/ui/impl_shape_fn_bound.rs");
+    // variadic segments (`ident@..`): placement / duplicate prefixes / uneven
+    // splits, and repeat-block diagnostics (`@(...)..`)
+    t.compile_fail("tests/ui/impl_shape_varseg_outside_tuple.rs");
+    t.compile_fail("tests/ui/impl_shape_varseg_duplicate.rs");
+    t.compile_fail("tests/ui/impl_shape_varseg_uneven.rs");
+    t.compile_fail("tests/ui/impl_shape_repeat_unknown.rs");
+    t.compile_fail("tests/ui/impl_shape_repeat_no_driver.rs");
+    t.compile_fail("tests/ui/impl_shape_repeat_bare_at.rs");
+    t.compile_fail("tests/ui/impl_shape_repeat_unequal.rs");
 
     // Ext 1 ItemImpl entry: for-Type shape mismatch / banned `@` and `#` /
     // non-type direct form

@@ -1,6 +1,8 @@
 # batch-impl
 
-**v0.8.1**（unreleased）——0.8.1 进行中：`where{...}` 谓词组配对尖括号——`where{...}` 块内的两参数 bound（`@all_fresh: Semiring<Additive, Multiplicative>`）不再被深度 0 逗号分裂成坏谓词（alga2 真实使用中发现；代码体仍透传）；
+**v0.8.2**（unreleased）——变长段与重复块：`impl{...}` 模板用 `ident@..` 声明变长段（覆盖从自身起的所有剩余元组位置，名字对齐叶子位置），body 用 `@(...)..` 重复（`@ident` 名字引用、`@N` 索引游标、嵌套块笛卡尔积）——一条 alga2 风格 spec 覆盖所有元组 arity（`()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` → `impl<A0..An> Magma for (A0, ..., An) where A0: Magma, ...`）；
+
+**v0.8.1**——0.8.1 已发布：`where{...}` 谓词组配对尖括号——`where{...}` 块内的两参数 bound（`@all_fresh: Semiring<Additive, Multiplicative>`）不再被深度 0 逗号分裂成坏谓词（alga2 真实使用中发现；代码体仍透传）；
 
 **v0.8.0**（2026-08-18）——0.8.0 已发布：风格与文档打底（移除 rustfmt 宽度上限、示例注释英文化、architecture 测试数字更新）+ 扁平链深度护栏（`^`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（自定义 `@name=value;` 段仅 `batch_trait!` 可用；属性宏矩阵直接用 `^`/`-`/`*` 书写）+ **Ext 2 `impl{...}` Self-part 形状模板**：用标准 Rust 类型模板绑定生成 impl 的目标形状——与目标同位置的 ident 相同则保留、不同则替换进目标/where/body（`Box<u32> impl{Rc<T>}` → `Rc := Box, T := u32`）；模板匹配覆盖全部 `syn::Type` 形态（切片/元组/定长数组/引用/指针/路径），定长数组长度与 `'_'` 生命周期通配可绑定——每个形状族写一个原型实现即可覆盖整个矩阵（`[Box,Rc]^@num impl{Box<u8>} #max{...}`；含生命周期的族用 `Cow<'_, @num> impl{Cow<'_, u8>}`）+ **Ext 1 ItemImpl 入口**：`#[batch_impl]` 同样接受 `impl` 块，按形状模板 × 矩阵源批量实例化（`A<B> : [Box,Rc]^[usize,isize]` → 4 个 impl，槽替换进 for-Type/where/body）；
 
@@ -127,6 +129,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`/`@g_i`/`@all_fresh`/`@N..=M`）归宏元层 | §6 |
 | `where{...}`                         | 约束容器统一（`<>` 只留名字），blanket 约束并列合并 | §8 |
 | 元组生成                             | `()^3`、`(T,)^N`、笛卡尔积、范围            | §9 |
+| 变长段 + 重复块                      | `impl{...}` 模板内 `ident@..`（覆盖所有剩余元组位置）+ body 内 `@(...)..` 重复（`@ident` 名字、`@N` 索引游标）——一条 spec 覆盖所有元组 arity | §8.4 |
 | fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持                          | §10 |
 
 > **简写提示**：单方法 `#fill([foo]){body}` 等价于 `#foo{body}`；谓词 + 代码块 `where{谓词} {代码块}` 可裸写成 `where 谓词 {代码块}`（详见 §7.2 / §8.2）。
@@ -145,6 +148,7 @@ trait Describe2 { fn describe(&self) -> String; }
 - **三个入口**：`#[batch_impl]`（含 trait）/ `#[batch_impl_only]`（只出 impl）/
   `batch_trait!`（对已声明 trait 批量生成，支持多段）
 - **Ext 1 / Ext 2（0.8.0）**：**ItemImpl 入口**——`#[batch_impl]` 同样接受 `impl` 块，按形状模板 × 矩阵源批量实例化（教程 §8.5）；**`impl{...}` Self-part 形状模板**——绑定生成 impl 的目标形状，**每个形状族写一个原型实现**即可覆盖整个矩阵，含 `Cow` 这类含生命周期的族（教程 §8.4）
+- **变长段 + 重复块（0.8.2）**：模板 `ident@..` 段 + body `@(...)..` 重复——alga2 风格 `()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` 一条 spec 覆盖所有元组 arity（教程 §8.4）
 - **展开预览**：`batch_preview!`（把 `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` 原样包进去，展示真实展开 +
   `^`/`-` 结合性误写提示）
 - **示例**：`examples/quickstart.rs`（特性 demo）、`examples/simplify.rs`

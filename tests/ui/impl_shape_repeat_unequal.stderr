@@ -1,0 +1,10 @@
+error: batch-impl: repeat block segments have different lengths (2 vs 3); all referenced segments must be equal-length
+ --> tests/ui/impl_shape_repeat_unequal.rs:4:1
+  |
+4 | / #[batch_impl(
+5 | |     ((u8, u16), (u32, u64, u128)) impl{((A@..,),(B@..,))}
+6 | |     { fn n(&self) -> usize { @(@A::f() @B::g(),).. } }
+7 | | )]
+  | |__^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

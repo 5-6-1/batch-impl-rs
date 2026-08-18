@@ -1,6 +1,8 @@
 # batch-impl
 
-**v0.8.1** (unreleased) — 0.8.1 WIP: `where{...}` predicate groups are angle-paired — a two-arg bound inside a `where{...}` block (`@all_fresh: Semiring<Additive, Multiplicative>`) no longer splits at its depth-0 comma into a bad predicate (found in real use by alga2; code bodies stay passthrough);
+**v0.8.2** (unreleased) — variadic segments and repeat blocks: `impl{...}` templates declare a variadic segment with `ident@..` (covers every remaining tuple position, names aligned with the leaf position) and bodies repeat with `@(...)..` (`@ident` name references, `@N` index cursors, nested blocks are Cartesian) — one alga2-style spec covers every tuple arity (`()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` → `impl<A0..An> Magma for (A0, ..., An) where A0: Magma, ...`);
+
+**v0.8.1** — 0.8.1 released: `where{...}` predicate groups are angle-paired — a two-arg bound inside a `where{...}` block (`@all_fresh: Semiring<Additive, Multiplicative>`) no longer splits at its depth-0 comma into a bad predicate (found in real use by alga2; code bodies stay passthrough);
 
 **v0.8.0** (2026-08-18) — 0.8.0 released: style and docs groundwork (rustfmt width caps dropped, example comments translated to English, architecture test counts refreshed) + flat-chain depth guards (`^`/`-` chains, attachment chains, and chained type segments capped at 128 levels) + the 0.7.2 attribute-macro custom `@` constants feature is reverted (custom `@name=value;` sections are `batch_trait!`-only again; write attribute-macro matrices directly with `^`/`-`/`*`) + **Ext 2 `impl{...}` Self-part shape templates**: bind the generated impl's target shape with a standard Rust template — an ident equal to the target's at that position is kept, a different one is rewritten in the target/where/body (`Box<u32> impl{Rc<T>}` → `Rc := Box, T := u32`); template matching covers every `syn::Type` form (slices/tuples/fixed arrays/references/pointers/paths), fixed-array lengths and `'_'` lifetime wildcards bind — write one prototype impl per shape family and cover a whole matrix (`[Box,Rc]^@num impl{Box<u8>} #max{...}`; `Cow<'_, @num> impl{Cow<'_, u8>}` for lifetime-bearing families) + **Ext 1 ItemImpl entry**: `#[batch_impl]` also accepts an `impl` block and batch-instantiates it from a shape-template × matrix-source (`A<B> : [Box,Rc]^[usize,isize]` → 4 impls, slots rewritten in for-Type/where/body);
 
@@ -123,6 +125,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..=M`) belong to the macro-meta layer | §6 |
 | `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | §8 |
 | Tuple generation                                 | `()^3`, `(T,)^N`, Cartesian product, ranges  | §9 |
+| Variadic segments + repeat blocks                | `ident@..` in `impl{...}` templates (cover every remaining tuple position) + `@(...)..` body repetition (`@ident` names, `@N` index cursors) — one spec covers every tuple arity | §8.4 |
 | fn types / unsafe / pointers / attributes        | Full support for type-level modifiers        | §10 |
 
 > **Shorthand**: a single method `#fill([foo]){body}` equals `#foo{body}`; predicates + code block `where{predicates} {code block}` can be written bare as `where predicates {code block}` (see §7.2 / §8.2).
@@ -136,6 +139,7 @@ The semantics of every existing token are **final** — `^`/`-`, `[]`/`()`/`<>`,
 - **Full tutorial**: `docs/tutorial.md` (progressive, from a one-line impl to advanced matrix combinations)
 - **Three entry points**: `#[batch_impl]` (includes the trait) / `#[batch_impl_only]` (impls only) / `batch_trait!` (batch-generate for an already declared trait, multi-section support)
 - **Ext 1 / Ext 2 (0.8.0)**: the **ItemImpl entry** — `#[batch_impl]` also accepts an `impl` block and batch-instantiates it from a shape-template × matrix-source (tutorial §8.5); the **`impl{...}` Self-part shape templates** — bind the generated impl's target shape and write **one prototype impl per shape family** to cover a whole matrix, incl. lifetime-bearing families like `Cow` (tutorial §8.4)
+- **Variadic segments + repeat blocks (0.8.2)**: `ident@..` template segments and `@(...)..` body repetition — the alga2-style `()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` covers every tuple arity with one spec (tutorial §8.4)
 - **Expansion preview**: `batch_preview!` (wrap the `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` input and read the real expansion, plus `^`/`-` associativity miswrite notes)
 - **Examples**: `examples/quickstart.rs` (feature demo), `examples/simplify.rs` (a real scenario with 29 impls ≈ 15 lines of DSL), `examples/typeclass.rs` (type-class style: a `Num`/`UNum`/`INum`/`FNum` hierarchy + 36 `From<bool>` impls for `Frac<T, U>`)
 - **Developers**: internal architecture in `docs/architecture.md`, development changelog in `docs/dev-changelog.md`

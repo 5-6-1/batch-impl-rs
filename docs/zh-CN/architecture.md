@@ -247,8 +247,8 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                                                         |
 | `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因作者输入 panic"（`cargo test --lib`）                                                          |
 | `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
-| `tests/`    | `features/`     | 34 个按功能域拆分的测试模块（每个 <350 行；由原单文件 `dsl.rs` / `regression.rs` / `ext1_impl.rs` / `ext2_impl.rs` 拆分）：`dsl_*`（82）、`regression_*`（26）、`ext1_*`（17，含嵌套/边界/冲突）、`ext2_*`（45，含嵌套/边界/冲突/形状形态/原型模式/交叉组合）——共 **170 个 `#[test]`** |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：74 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
+| `tests/`    | `features/`     | 35 个按功能域拆分的测试模块（每个 <350 行；由原单文件 `dsl.rs` / `regression.rs` / `ext1_impl.rs` / `ext2_impl.rs` 拆分）：`dsl_*`（82）、`regression_*`（26）、`ext1_*`（17，含嵌套/边界/冲突）、`ext2_*`（50，含嵌套/边界/冲突/形状形态/原型模式/交叉组合/变长段与重复块）——共 **175 个 `#[test]`** |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：81 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
 
 运行：
 
