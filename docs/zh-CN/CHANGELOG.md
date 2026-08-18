@@ -2,6 +2,10 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.8.4 (unreleased)
+
+- **`X<>` 同步为本 spec trait 应用**——where 谓词、`impl{...}` 模板、impl 泛型 bound（`<T: Semiring<>>`）或——通过**开关模板** `impl{Tr<>}`（不参与 Self 匹配，只声明同步）——body（`<Self as Semiring<>>::Assoc`）里的同名空尖括号 trait（`Semiring<>`）展开为本 spec 的 trait 应用（`Semiring<Additive, Multiplicative>`），trait 实参只写一次（spec trait 部分）而无需在每个谓词重复；`@trait<>` 等价（`@trait` 先展开为 trait 路径，顺带消掉长外部路径）。任何非本 spec trait 的 `X<>` 报错；无泛型参数的 trait 同步为裸名（`Tr<>` → `Tr`）
+
 ## 0.8.3 (2026-08-19)
 
 - **移除内置指令拼写守卫**——`check_builtin_typo`（Levenshtein 距离检查：名字接近 `fill`/`delegate`/`blanket` 就用 `compile_error!` 报"did you mean"）整体删除。它还会误伤**单指令 `#name{body}`**：trait 方法恰巧叫 `fill`、`delegate`、`blanket`（或近似名如 `delegate_to`）会被直接拒绝。过程宏没有警告通道，`compile_error!` 不是约束名字的正确方式——开放扩展拼写错误现在正常展开、由 rustc 自己的"macro not found"暴露，trait item 撞名则按字面工作

@@ -5,6 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.8.4 (unreleased)
+
+- **`X<>` syncs to the spec trait application** — a same-named empty trait brackets (`Semiring<>`) in a where predicate, an `impl{...}` template, an impl-generic bound (`<T: Semiring<>>`) or — via a **switch template** `impl{Tr<>}` (which does not match Self; it only declares the sync) — the body (`<Self as Semiring<>>::Assoc`) expands to the spec's trait application (`Semiring<Additive, Multiplicative>`), so the trait arguments are written once (in the spec's trait part) instead of repeated in every predicate; `@trait<>` is equivalent (it expands to the trait path first, also dropping long external paths). A `X<>` for any trait other than the spec's errors; a trait with no generic arguments syncs to the bare name (`Tr<>` → `Tr`)
+
 ## 0.8.3 (2026-08-19)
 
 - **Removed the builtin-directive typo guard** — `check_builtin_typo` (a Levenshtein-distance check that rejected names near `fill`/`delegate`/`blanket` with a `compile_error!` "did you mean" hint) is gone entirely. It also misfired on **single-item `#name{body}`** directives: a trait method legitimately named `fill`, `delegate`, `blanket` (or a close variant like `delegate_to`) was rejected outright. Proc macros have no warning channel, and a `compile_error!` is no way to police names — an open-extension typo now expands and surfaces as rustc's own "macro not found", while trait-item collisions work verbatim

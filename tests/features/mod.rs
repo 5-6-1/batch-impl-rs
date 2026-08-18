@@ -34,6 +34,7 @@ pub(crate) mod ext2_boundary;
 pub(crate) mod ext2_conflicts;
 pub(crate) mod ext2_nested;
 pub(crate) mod ext2_shape_forms;
+pub(crate) mod ext2_trait_sync;
 pub(crate) mod ext2_varseg;
 pub(crate) mod regression_arrays_prefix;
 pub(crate) mod regression_basics;

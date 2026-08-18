@@ -431,6 +431,31 @@ On the other axis (value classes):
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
+`X<>` (empty angle brackets on the **same-named** trait) in a where
+predicate or an `impl{...}` template syncs to the spec trait application —
+write `Semiring<>` instead of repeating `Semiring<Additive, Multiplicative>`:
+
+```rust
+# use batch_impl::batch_impl;
+# struct Additive;
+# struct Multiplicative;
+#[batch_impl(
+    Semiring<Additive, Multiplicative> ()^1..=2 where{@0..: Semiring<>},
+)]
+trait Semiring<Oa, Om> {}
+// → impl<P0> Semiring<Additive, Multiplicative> for (P0,)
+//     where P0: Semiring<Additive, Multiplicative>
+// → ... arity 2 (P1 gets the same predicate)
+```
+
+`@trait<>` is equivalent (`@trait` expands to the trait path first). A `X<>`
+for any trait other than the spec's errors; a trait with no generic
+arguments syncs to the bare name (`Tr<>` → `Tr`). The **body** syncs via a
+**switch template** `impl{Tr<>}` — a template holding only the empty-bracket
+trait, which does not match Self; it only declares that the body's `Tr<>`
+references sync too (the body is arbitrary Rust, so a `Vec<>` there is not a
+trait reference).
+
 ## 7. The Directive System `#`
 
 Directives copy item signatures from the trait definition (methods/consts/types all supported); the body is yours to fill — "declare data, not write repetitive code".

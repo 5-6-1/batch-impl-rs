@@ -2,6 +2,10 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.8.4 (unreleased)
+
+- **`X<>` → 本 spec trait 应用**（`codegen/sync_trait.rs`，由 alga2 where 谓词里重复的 `Semiring<Additive, Multiplicative>` 驱动）：where 谓词与 `impl{...}` 模板里的同名空尖括号 trait（`Semiring<>`）在 DSL 解析后同步为本 spec 的 trait 应用——实参来自解析出的 trait 部分（`ImplParts.trait_generic_names`），无状态。两种形态都处理：where 谓词里 `angle_collect` 配对输出（Ident + 空 `delimiter![<>]` 组）与 `impl{...}` 模板里的 flat `Ident < >`（从不配对）；ident 不是本 spec trait 的 `X<>` 报错；无实参的 trait 去括号（`Tr<>` → `Tr`）。`@trait<>`（预处理 → trait 路径 + `<>`）等价。集成：`generate_impl` 在 shape 匹配前同步 `impl_templates`、在 `resolve_where_predicates` 前同步 `where_clauses`、在 **Ty 结构层同步 impl 泛型 bound**（`sync_bound_ty`——bound 经 DSL 解析，空括号变成空 `TyTrait`/`TyGeneric` 且 render 会丢括号；Ty 层同步为同名的空 base 填 spec 实参，`TyTrait` 与 `TyGeneric` 两种形态都覆盖），并——通过**开关模板**（`impl{Tr<>}` / `impl{@trait<>}`，用户设计）——同步 body：开关模板是单独的空括号 trait，**不参与 Self 形状匹配**（与普通形状模板不同），只同步自身的 `Tr<>` 并开启 body 同步（body 是任意 Rust，`Vec<>` 不是 trait 引用）。测试：sync_trait.rs 8 个单元测试、5 个集成测试（`ext2_trait_sync.rs`——where 同步端到端 / `@trait<>` 等价 / 无实参 trait / bound 同步 / 开关模板 body 同步）、2 个 ui fixture（`impl_trait_sync_wrong_ident` / `impl_trait_sync_body_negative`——后者锁定"无开关模板 → body `X<>` 保持未同步"）
+
 ## 0.8.3 (2026-08-19)
 
 - **移除 `check_builtin_typo` / `levenshtein`**（`directives/dispatch.rs`）：开放扩展拼写守卫（与 `fill`/`delegate`/`blanket` 编辑距离 ≤ 2 → "did you mean" `compile_error!`）整体删除，含单指令 `#name{body}` 分支里的调用——那里会误伤名字为 `fill`/`delegate`/`blanket`（或近似名）的 trait item。0.8.2 发布后用户即报告：过程宏没有警告通道，`compile_error!` 拦截"看起来像拼写错误"的合法名字不给用户留活路；开放扩展拼写错误现在展开为用户宏、由 rustc 自己的"macro not found"暴露。`tests/ui/directive_typo.rs` 删除（守卫已不存在）；新增 dsl 回归 `single_item_builtin_name_collisions` 覆盖单指令 `#name{body}` 与内置指令名撞名的场景

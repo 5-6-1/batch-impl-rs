@@ -430,6 +430,29 @@ trait Module<Add, Mul> {
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
+where 谓词或 `impl{...}` 模板里的 `X<>`（**同名** trait 的空尖括号）会同步为
+本 spec 的 trait 应用——写 `Semiring<>` 而不用重复
+`Semiring<Additive, Multiplicative>`：
+
+```rust
+# use batch_impl::batch_impl;
+# struct Additive;
+# struct Multiplicative;
+#[batch_impl(
+    Semiring<Additive, Multiplicative> ()^1..=2 where{@0..: Semiring<>},
+)]
+trait Semiring<Oa, Om> {}
+// → impl<P0> Semiring<Additive, Multiplicative> for (P0,)
+//     where P0: Semiring<Additive, Multiplicative>
+// → …… arity 2（P1 同谓词）
+```
+
+`@trait<>` 等价（`@trait` 先展开为 trait 路径）。任何非本 spec trait 的
+`X<>` 报错；无泛型参数的 trait 同步为裸名（`Tr<>` → `Tr`）。**body 内部**
+通过**开关模板** `impl{Tr<>}` 同步——只含空括号 trait 的模板，不参与
+Self 匹配，仅声明 body 里的 `Tr<>` 引用也同步（body 是任意 Rust，`Vec<>`
+不是 trait 引用）。
+
 ## 7. 指令系统 `#`
 
 指令从 trait 定义抄 item 签名（方法/const/type 全支持），body 由你填——"声明数据，而不是编写重复代码"。

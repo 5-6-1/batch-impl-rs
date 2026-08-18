@@ -1,0 +1,15 @@
+error[E0107]: trait takes 1 generic argument but 0 generic arguments were supplied
+  --> tests/ui/impl_trait_sync_body_negative.rs:11:19
+   |
+11 |     #tag{<Self as BodySync<>>::SIZE},
+   |                   ^^^^^^^^ expected 1 generic argument
+   |
+note: trait defined here, with 1 generic parameter: `Oa`
+  --> tests/ui/impl_trait_sync_body_negative.rs:13:7
+   |
+13 | trait BodySync<Oa> {
+   |       ^^^^^^^^ --
+help: add missing generic argument
+   |
+11 |     #tag{<Self as BodySync<Oa>>::SIZE},
+   |                            ++

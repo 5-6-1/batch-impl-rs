@@ -1,0 +1,7 @@
+error: batch-impl: `Other<>` is not the spec's trait (the spec implements `Semiring`); write the full trait application (`Other<...>`) or use `Semiring<>` for the spec's own trait
+ --> tests/ui/impl_trait_sync_wrong_ident.rs:7:1
+  |
+7 | #[batch_impl(Semiring<Additive> ()^1..=1 where{@0..: Other<>})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
