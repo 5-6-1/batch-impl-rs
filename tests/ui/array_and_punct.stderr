@@ -6,7 +6,7 @@ error: batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`)
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: batch-impl: a range (`..`/`..=`) in a type position needs integer endpoints (e.g. `0..=3`)
+error: batch-impl: missing operand before `.` (e.g. `T.U`)
  --> tests/ui/array_and_punct.rs:7:14
   |
 7 | #[batch_impl(.foo)]

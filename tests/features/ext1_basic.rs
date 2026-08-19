@@ -6,9 +6,9 @@ use batch_impl::batch_impl;
 use std::rc::Rc;
 
 // ------------------------------------------------------------
-// 1. Single-level matrix: `A<B> : [Box, Rc]^[u8, u16]` → 4 impls
+// 1. Single-level matrix: `A<B> : [Box, Rc].[u8, u16]` → 4 impls
 // ------------------------------------------------------------
-#[batch_impl(A<B> : [Box, Rc]^[u8, u16])]
+#[batch_impl(A<B> : [Box, Rc].[u8, u16])]
 impl Mk1 for A<B> {
     fn mk() -> A<B> {
         A::new(B::default())

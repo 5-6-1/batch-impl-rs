@@ -74,7 +74,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
         TyKind::WithTrait(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
             // Trait generic args may carry splats (`Conv<*(A,B)>`) and
-            // generators (`Conv<()^2>`) — flatten them before rendering
+            // generators (`Conv<().2>`) — flatten them before rendering
             // (token-level: `trait_generic_names` is `TokenStream` past this
             // point). A hoisted fresh declaration joins the impl generics
             // (the names it carries must be declared for the impl to
@@ -167,7 +167,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
 }
 
 /// Recursively hoists nested `WithType` generic declarations in a type (e.g. the
-/// fresh-generic tuple of `()^N`).
+/// fresh-generic tuple of `().N`).
 ///
 /// Collects the params of `WithType(<A>, T)` into `out` (for the impl generics) and
 /// replaces that node with its inner `T`. Must recurse into every container (Array /
@@ -177,8 +177,8 @@ pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>
     match ty.kind {
         // Generic-declaration wrapper: hoist the declaration outward (params
         // are added to `out`, not to the rebuilt node). Same-named fresh
-        // params are collected once — `(T,)^N` clones `T` (a generator such
-        // as `()^3`) N times, and each clone carries its own declaration of
+        // params are collected once — `(T,).N` clones `T` (a generator such
+        // as `().3`) N times, and each clone carries its own declaration of
         // the same fresh names; the clones reference one shared generic.
         TyKind::WithType(wt) => {
             for (name, bound) in wt.0.params {

@@ -16,7 +16,7 @@ trait Conv<T>: Sized {
 
 #[batch_impl_only(
     Conv<bool>
-    Pair<[*(SplatA)^2,*(SplatB)^2]>
+    Pair<[*(SplatA).2,*(SplatB).2]>
     #conv{unimplemented!()}
 )]
 pub trait Conv<T>: Sized {

@@ -2,7 +2,7 @@
 
 **v0.8.1**（unreleased）——`where{...}` 尖括号配对 hotfix：`angle_collect` 现在进入 `where{...}` 谓词组（两参数 bound 不再被深度 0 逗号分裂）；代码体仍透传、`render_angles` 还原配对组；
 
-**v0.8.0**（2026-08-18）——风格打底（移除 rustfmt 宽度上限、全库重排）+ 文档更新（示例注释英文化、测试数字更正）+ 扁平链深度护栏（`^`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（`@name=value;` 段仅 `batch_trait!` 可用）+ **Ext 2 `impl{...}` Self-part 形状模板**（新 `codegen::shape` 内核 + `TyKind::WithImpl` + `expand_consts` 进入模板、`where_process` 视为边界）+ **Ext 1 ItemImpl 入口**（`#[batch_impl]` 同样接受 `impl` 块；`entry/impl_entry.rs` + 顶层分流；形状模板 × 矩阵源实例化、`;` 分隔 spec、`@` 域仅 `@trait`；`where_process` 新增 `;` 停止与 `allow_end` 参数）；
+**v0.8.0**（2026-08-18）——风格打底（移除 rustfmt 宽度上限、全库重排）+ 文档更新（示例注释英文化、测试数字更正）+ 扁平链深度护栏（`.`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（`@name=value;` 段仅 `batch_trait!` 可用）+ **Ext 2 `impl{...}` Self-part 形状模板**（新 `codegen::shape` 内核 + `TyKind::WithImpl` + `expand_consts` 进入模板、`where_process` 视为边界）+ **Ext 1 ItemImpl 入口**（`#[batch_impl]` 同样接受 `impl` 块；`entry/impl_entry.rs` + 顶层分流；形状模板 × 矩阵源实例化、`;` 分隔 spec、`@` 域仅 `@trait`；`where_process` 新增 `;` 停止与 `allow_end` 参数）；
 
 **v0.7.2**——0.7.2 已发布：`@` 诊断用户语言化 + `batch_preview!` + trait 实参生成器 splat 提升 + `#blanket` 按值修复 + 属性宏自定义 `@` 常量（0.8.0 已回退）；0.7.1 已发布：定向诊断 + 单一真相源笛卡尔积（`util::cartesian`）+ 指令分发迁入 `directives/`；0.7.0：**splat** `*` 前缀（`TySplat{Tuple,Array}` 枚举镜像来源括号，完整委托 `TyTuple`/`TyArray` apply + 包回）、数组分发传播、parse 层拆分 `chain`/`primary`/`trailing`；0.6.x：预处理顺序 `@ <> # where`、宏元层完整化、`@N` fresh 引用、receiver 过滤、blanket 委托、span 诊断。
 
@@ -16,7 +16,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── mod.rs            入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
   │   ├── impl_entry.rs     Ext 1 ItemImpl 入口：形状模板 × 矩阵源实例化（attr 预处理子集 + `;` spec 切分 + 装配）
   │   ├── driver.rs         共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
-  │   ├── preview.rs        batch_preview!：诊断通道展开预览 + `^`/`-` 误写提示
+  │   ├── preview.rs        batch_preview!：诊断通道展开预览 + `.`/`-` 误写提示
   │   └── path_prefix.rs    外部 trait 路径前缀：#Path::to::Trait: 状态机解析
   ├── analyze/              trait 定义语义分析
   │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
@@ -25,7 +25,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── diagnostic.rs     统一 compile_error_str(msg, span) / compile_err! / compile_err_at! 用于编译期诊断（ident-span 方案：只盖 compile_error 关键字）
   ├── parse/                解析层
   │   ├── mod.rs            入口：parse_primitive + `@` 引用解析（119 行）
-  │   ├── chain.rs          运算符链解析：`-`/`^` 优先级攀爬（parse_item / parse_operand）
+  │   ├── chain.rs          运算符链解析：`-`/`.` 优先级攀爬（parse_item / parse_operand）
   │   ├── primary.rs        主类型：分组、泛型实参（含数组分发）、splat、前缀
   │   ├── trailing.rs       尾随 `{body}` / `where{...}` 拆分 + wrapper 附着
   │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
@@ -43,7 +43,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
   │   ├── mod.rs            Apply trait（默认 apply 做右操作数结构化分发；全部 Ty* 子类型实现 Apply）
-  │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（^N / 笛卡尔积 / 范围 / fresh 泛型）
+  │   └── apply_tuple.rs    元组与容器运算符 + 元组展开（.N / 笛卡尔积 / 范围 / fresh 泛型）
   ├── codegen/              代码生成
   │   ├── mod.rs            extract_impl_parts → 后处理 → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
   │   ├── impl_parts.rs     ImplParts 结构 + TyKind 变体遍历（extract / hoist）
@@ -61,7 +61,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
 **token 流 → const 展开（`@` 常量：内置 + batch_trait! 自定义表）→
 angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..n 个 token：既有
 指令恰一 `{...}` 组，`#blanket` 多段 spec）→ where 裸写改写 → `A<>` 照抄
-→ Cursor 扫描取切片 → parse_item 优先级攀爬（`^`/`-` 经 `Apply` 组合：
+→ Cursor 扫描取切片 → parse_item 优先级攀爬（`.`/`-` 经 `Apply` 组合：
 右操作数结构优先分发）→ Ty AST → 工作清单摊平并列列表 → 逐叶子 generate_impl**
 
 ### 预处理顺序：`@ <> # where`（宏元层最外）
@@ -94,17 +94,17 @@ angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..
   where 子句。引用收集在 **syn AST** 上做（`syn::visit`）：单段路径与泛型实参
   是形参引用位置；`::` 后的路径段（关联类型名）、关联类型绑定名、
 - **splat `*` 前缀**：`*[...]` / `*(...)` 把容器/生成器摊平进外层列表——parse/apply/expand 全程的**整体**——只在 codegen 后处理摊平成元素（`expand_splat_elems` Ty 结构层——`TyTuple` 元素与泛型/trait 实参经 `expand_tp`，因 `TyTypeParam` 的 params 现为 `Box<Ty>`；spec 列表位置的 splat（`[*(A),*(B)]`）在 expand 阶段作为 impl 列表生成摊平）。`TySplat` 是镜像来源
-  括号的枚举：`TySplat::Array`（集合——左操作数分配 `^T`，对标 `TyArray`）vs
+  括号的枚举：`TySplat::Array`（集合——左操作数分配 `.T`，对标 `TyArray`）vs
   `TySplat::Tuple`（列表——追加/元组幂，对标 `TyTuple`）；左操作数
   `apply_help` **委托镜像容器**再包回结果，splat 保持到消费
-  （实现 `X^*[A,B]^T` = `X<A^T,B^T>` 单 impl）。右 splat 操作数同样保持整体
-  （`T^*(A,B)` = `T<*(A,B)>`，仅在 codegen 展开成 `T<A,B>`）。**组内孤立 splat 解析为容器、splat 作为一个元素保持**——`(*(a,b))` = `( *(a,b) )`、`[*(a,b)]` = `[ *(a,b) ]`——splat 元素只在 codegen 展开（渲染结果 `(a, b)` / `[a, b]`），一条代码路径、无按定界符的特例。**合法位置**：splat 是"参数位置列表"（泛型实参/元组/数组元素/泛型声明/fn 参数/spec 列表）；裸 splat 作 **where 谓词主体**在 codegen 明确拒绝（`*(A,B): Trait` 无定义语义——谓词是约束不是列表），谓词内部 splat（`X: Trait<*(A,B)>`）与元组谓词（`(*(A,B)): Trait`）合法。**splat 只展开一层**：元组是类型、作为单元素保持
+  （实现 `X.*[A,B].T` = `X<A.T,B.T>` 单 impl）。右 splat 操作数同样保持整体
+  （`T.*(A,B)` = `T<*(A,B)>`，仅在 codegen 展开成 `T<A,B>`）。**组内孤立 splat 解析为容器、splat 作为一个元素保持**——`(*(a,b))` = `( *(a,b) )`、`[*(a,b)]` = `[ *(a,b) ]`——splat 元素只在 codegen 展开（渲染结果 `(a, b)` / `[a, b]`），一条代码路径、无按定界符的特例。**合法位置**：splat 是"参数位置列表"（泛型实参/元组/数组元素/泛型声明/fn 参数/spec 列表）；裸 splat 作 **where 谓词主体**在 codegen 明确拒绝（`*(A,B): Trait` 无定义语义——谓词是约束不是列表），谓词内部 splat（`X: Trait<*(A,B)>`）与元组谓词（`(*(A,B)): Trait`）合法。**splat 只展开一层**：元组是类型、作为单元素保持
   （`*((a,b),)` = 一个 `(a,b)` impl），数组/嵌套 splat/生成器/组摊平。
-  **元组 splat 的 `^N` 幂把每个笛卡尔组合包回 splat**——`*(A,B)^2` =
+  **元组 splat 的 `.N` 幂把每个笛卡尔组合包回 splat**——`*(A,B).2` =
   `[*(A,A),*(A,B),*(B,A),*(B,B)]`——右 splat 链把组合摊平进容器
-  （`X^*(*@u*)^2` = `X<u8,u8>`/`X<u8,u16>`/...——`X<@u*,@u*>` 的重复列表
-  简写；`*(A,B)^2` 单独作目标摊平成重复，E0119）。**泛型实参内的 splat 幂**
-  （`Frac<*(*@u*)^2>`）——幂结果（`TyArray([*(u8,u8), ...])`）进入 params 后
+  （`X.*(*@u*).2` = `X<u8,u8>`/`X<u8,u16>`/...——`X<@u*,@u*>` 的重复列表
+  简写；`*(A,B).2` 单独作目标摊平成重复，E0119）。**泛型实参内的 splat 幂**
+  （`Frac<*(*@u*).2>`）——幂结果（`TyArray([*(u8,u8), ...])`）进入 params 后
   在 `expand` 的 Generic 分支分发成逐对 impl（36 个，与右 splat 链等价）；
   字面数组实参（`T<[A,B]>`）同样进 params 成 `TyArray`——数组实参分发统一在
   `expand` 的 Generic 分支（唯一权威），parse 层 `has_array_arg` 已删。
@@ -117,7 +117,7 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 
 | 域 | 记号 | 语义 | 由谁解析 |
 |----|------|------|----------|
-| **类型域**（spec 表达式） | `^`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`*[...]`/`*(...)` splat、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
+| **类型域**（spec 表达式） | `.`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`*[...]`/`*(...)` splat、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
 | **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`@all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
 | **宏元层**（`@` 常量） | `@u*`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
 
@@ -148,7 +148,7 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 
 ### 扩展准则
 
-新语法只能**在既有域内延伸既有机制**（如 `^`/`-` 系补充差集、指令域补充新
+新语法只能**在既有域内延伸既有机制**（如 `.`/`-` 系补充差集、指令域补充新
 指令、宏元层补充新常量），不得跨域复用记号、不得改变既有记号的域内语义。
 `@` 绑定与 `#blanket` 均遵循此准则：前者是宏元层纯词法替换，后者是指令域
 内 `#delegate` 的自动化形态。
@@ -174,7 +174,7 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
   - `@Cow` → `Cow<'_>` + 固有约束谓词（deref target = `T::Owned` 的
     打包，与砍掉的裸类型名常量不同类——携带约束才有复用价值）；
 - **`@0` 位置引用**：where 谓词通用（codegen 渲染时 `@N` → impl 泛型第 N 位、
-  `@trait` → trait 名——元组 `()^2 where{@0: Clone}` 与普通 spec 可用）；
+  `@trait` → trait 名——元组 `().2 where{@0: Clone}` 与普通 spec 可用）；
   blanket 包装 where 中 `@0` 特指目标泛型（fresh 名——**同样由 codegen 统一
   解析**：blanket 的 fresh 是唯一 fresh，`@0` 索引到它；预处理只替换 `@trait`）；
   expand_consts 不进入 Brace 组（where 组透传），`@N` 恰好在消费点替换；
@@ -214,12 +214,12 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 在配对时计数，`MAX_NEST_DEPTH = 128`）。
 
 **扁平链深度护栏**（0.8.0）：三种扁平构造不产生任何组嵌套，却同样构建深 `Ty` 树，
-token 层护栏看不见它们——`^`/`-` 算子链（右结合 `^` 每个操作数嵌套一层 `TyGeneric`）、
+token 层护栏看不见它们——`.`/`-` 算子链（右结合 `.` 每个操作数嵌套一层 `TyGeneric`）、
 尾部 `{...}`/`where{...}` 附件链（每个 body 包一层 wrapper）、链式类型段
 （`<T><U>...X`、`Trait<A> Trait<B>... X`、`#[a] #[b]... X`）。三者都在解析层封顶 128
 （`parse_binary_chain` 的操作数计数；`parse_primitive` 的附件计数与段深度），使下游
 所有递归遍历（`map_children` / `expand_splat_elems` / `hoist_type_params` /
-`ToTokens`）深度有界——此前约 850 个 `^` 链式单元即令 rustc 栈溢出
+`ToTokens`）深度有界——此前约 850 个 `.` 链式单元即令 rustc 栈溢出
 （STATUS_STACK_OVERFLOW，实测；10000 个操作数的 `-` 链保持扁平从不溢出——证实深度
 理论的差分探针）。
 

@@ -4,8 +4,8 @@ error: batch-impl: missing operand before `-` (e.g. `T-U`)
 5 | #[batch_impl(-usize)]
   |              ^
 
-error: batch-impl: missing operand before `^` (e.g. `T^U`)
+error: batch-impl: missing operand before `.` (e.g. `T.U`)
  --> tests/ui/leading_operator.rs:8:14
   |
-8 | #[batch_impl(^isize)]
+8 | #[batch_impl(.isize)]
   |              ^

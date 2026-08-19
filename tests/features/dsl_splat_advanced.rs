@@ -72,26 +72,26 @@ fn splat_generic_args() {
     assert_n::<Pair<SplatA, SplatB>>();
 }
 
-// Splat rules: R1 `T^*(A,B)` ≡ `T-A-B` (right operand always flattens);
-// R2 left semantics by source — `*[...]` distributes `^T` (`*[A^T,B^T]`,
-// enabling composition `X^*[A,B]^T` = `X<A^T, B^T>`, one impl), `*(...)`
+// Splat rules: R1 `T.*(A,B)` ≡ `T-A-B` (right operand always flattens);
+// R2 left semantics by source — `*[...]` distributes `.T` (`*[A.T,B.T]`,
+// enabling composition `X.*[A,B].T` = `X<A.T, B.T>`, one impl), `*(...)`
 // appends (`*(A,B,...,T)`, list semantics).
-#[batch_impl(Pair^*[Vec, Box]^u16)]
+#[batch_impl(Pair.*[Vec, Box].u16)]
 trait SplatRule2 {}
 
-#[batch_impl(Pair^*(Vec<u8>, Box<u8>))]
+#[batch_impl(Pair.*(Vec<u8>, Box<u8>))]
 trait SplatRule1 {}
 
-#[batch_impl((SplatA, SplatB)^*(SplatC, SplatD))]
+#[batch_impl((SplatA, SplatB).*(SplatC, SplatD))]
 trait SplatConcat2 {}
 
-#[batch_impl(Triple^*(SplatA, SplatB)^SplatC)]
+#[batch_impl(Triple.*(SplatA, SplatB).SplatC)]
 trait SplatParenAppend {}
 
-#[batch_impl(*(SplatA, SplatB)^SplatC)]
+#[batch_impl(*(SplatA, SplatB).SplatC)]
 trait SplatParenLeft {}
 
-#[batch_impl(*[Vec, Box]^SplatC)]
+#[batch_impl(*[Vec, Box].SplatC)]
 trait SplatBracketLeft {}
 
 #[test]
@@ -116,28 +116,28 @@ fn splat_rules() {
     assert_bl::<Box<SplatC>>();
 }
 
-// `*(A,B)^N` — pow Cartesian combos re-wrap into splats:
-// `*(A,B)^2` = `[*(A,A), *(A,B), *(B,A), *(B,B)]`. Each combo is a
+// `*(A,B).N` — pow Cartesian combos re-wrap into splats:
+// `*(A,B).2` = `[*(A,A), *(A,B), *(B,A), *(B,B)]`. Each combo is a
 // param-position list — a right-splat chain flattens it into the container
-// (`A^*(A,B)^2` = `A<A,A>`/`A<A,B>`/...; a lone target flattens to
-// duplicates, E0119 — use `(A,B)^2` for tuple impls). `*()^N` (empty
+// (`A.*(A,B).2` = `A<A,A>`/`A<A,B>`/...; a lone target flattens to
+// duplicates, E0119 — use `(A,B).2` for tuple impls). `*().N` (empty
 // splat) keeps its splat shape so a carrier appends the fresh params into
-// it: `T^*()^2` = `<A,B>T<A,B>` (bare `*()^N` lone target → E0207).
-#[batch_impl(Pair^*(SplatA, SplatB)^2)]
+// it: `T.*().2` = `<A,B>T<A,B>` (bare `*().N` lone target → E0207).
+#[batch_impl(Pair.*(SplatA, SplatB).2)]
 trait SplatTuplePow {}
 
-#[batch_impl(Pair^*()^2)]
+#[batch_impl(Pair.*().2)]
 trait SplatEmptyPowCarrier {}
 
 #[test]
 fn splat_pow() {
-    // `Pair^*(A,B)^2` — the 4 Cartesian combos flatten into Pair's args.
+    // `Pair.*(A,B).2` — the 4 Cartesian combos flatten into Pair's args.
     fn assert_p<T: SplatTuplePow>() {}
     assert_p::<Pair<SplatA, SplatA>>();
     assert_p::<Pair<SplatA, SplatB>>();
     assert_p::<Pair<SplatB, SplatA>>();
     assert_p::<Pair<SplatB, SplatB>>();
-    // `Pair^*()^2` emits `impl<P0, P1> SplatEmptyPowCarrier for
+    // `Pair.*().2` emits `impl<P0, P1> SplatEmptyPowCarrier for
     // Pair<P0, P1>` — the carrier consumes the full fresh declaration.
     fn assert_c<T: SplatEmptyPowCarrier>() {}
     assert_c::<Pair<SplatA, SplatB>>();
@@ -151,12 +151,12 @@ trait SplatTupleKeep {}
 #[batch_impl(*(SplatA, SplatB, (SplatC, SplatD)))]
 trait SplatTupleKeepList {}
 
-#[batch_impl(*(SplatA, SplatB)^(SplatC, SplatD))]
+#[batch_impl(*(SplatA, SplatB).(SplatC, SplatD))]
 trait SplatGroupRight {}
 
-// The repeat-list shorthand: `Pair^*(*@u*)^2` = `Pair<@u*, @u*>` — one
+// The repeat-list shorthand: `Pair.*(*@u*).2` = `Pair<@u*, @u*>` — one
 // `@u*` written once, Cartesian over both param positions.
-#[batch_impl(Pair^*(*@u*)^2)]
+#[batch_impl(Pair.*(*@u*).2)]
 trait RepeatList {}
 
 #[test]
@@ -167,13 +167,13 @@ fn splat_one_layer() {
     assert_kl::<SplatA>();
     assert_kl::<SplatB>();
     assert_kl::<(SplatC, SplatD)>();
-    // `^(c,d)` (group right) appends the tuple intact — same shape as
+    // `.(c,d)` (group right) appends the tuple intact — same shape as
     // writing `*(a,b,(c,d))` directly.
     fn assert_gr<T: SplatGroupRight>() {}
     assert_gr::<SplatA>();
     assert_gr::<SplatB>();
     assert_gr::<(SplatC, SplatD)>();
-    // `Pair^*(*@u*)^2` — Cartesian over both positions (spot-check a few).
+    // `Pair.*(*@u*).2` — Cartesian over both positions (spot-check a few).
     fn assert_rl<T: RepeatList>() {}
     assert_rl::<Pair<u8, u8>>();
     assert_rl::<Pair<u8, usize>>();

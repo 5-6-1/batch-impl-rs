@@ -6,7 +6,7 @@
 
 **v0.8.1**——`where{...}` 尖括号配对 hotfix（见 CHANGELOG）；
 
-**v0.7.2**——0.7.2 加入 `batch_preview!` 展开预览、trait 实参生成器 splat 声明提升、`#blanket` 按值接收者转发、属性宏自定义 `@` 常量段（0.8.0 已回退）与 `@` 诊断用户语言化；0.7.1 加入了定向诊断（残留/相邻/空值 token、拼写建议）取代 rustc 裸错；0.7.0 在既有骨架上加入了 **`*` 摊平操作符**，并把 `<>`/`()`/`[]` 从"被动语法"升级为"可编程结构"：泛型实参内部现在可以写 generator（`()^N`）、splat（`*(A,B)`）、常量族（`@u*`）、列表（`[A,B]`）、绑定（`Item=u32`）与嵌套类型。
+**v0.7.2**——0.7.2 加入 `batch_preview!` 展开预览、trait 实参生成器 splat 声明提升、`#blanket` 按值接收者转发、属性宏自定义 `@` 常量段（0.8.0 已回退）与 `@` 诊断用户语言化；0.7.1 加入了定向诊断（残留/相邻/空值 token、拼写建议）取代 rustc 裸错；0.7.0 在既有骨架上加入了 **`*` 摊平操作符**，并把 `<>`/`()`/`[]` 从"被动语法"升级为"可编程结构"：泛型实参内部现在可以写 generator（`().N`）、splat（`*(A,B)`）、常量族（`@u*`）、列表（`[A,B]`）、绑定（`Item=u32`）与嵌套类型。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
@@ -16,7 +16,7 @@ batch-impl 的一切能力由三根柱子（0.0→0.6 持续打磨）+ 一个操
 
 | 部分 | 记号 | 作用 |
 |---|---|---|
-| **apply 系统** | `^` / `-` / `[]` / `()` | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
+| **apply 系统** | `.` / `-` / `[]` / `()` | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
 | **指令系统** | `#name` / `#fill` / `#delegate` / `#blanket` | 从 trait 定义抄签名、批量填 body、委托调用、覆盖式委托 |
 | **常量系统** | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | 宏元层：命名并复用类型矩阵条目，纯词法替换 |
 | **`*` 操作符** | `*[...]` / `*(...)` | 摊平：把容器/生成器展开拼入外层列表——0.7.0 新增，全位置生效 |
@@ -52,35 +52,35 @@ spec 的骨架：
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-## 2. 类型矩阵：`^` 与 `-`
+## 2. 类型矩阵：`.` 与 `-`
 
-`^` 与 `-` 是**同一运算**：左侧是修饰符/容器，右侧是目标类型。区别只在结合性：`^` 右结合（嵌套），`-` 左结合（累加参数）。
+`.` 与 `-` 是**同一运算**：左侧是修饰符/容器，右侧是目标类型。区别只在结合性：`.` 右结合（嵌套），`-` 左结合（累加参数）。
 
-优先级从低到高：`;` < `,` < `-` < `^`，`()` 分组在所有运算符之上。
+优先级从低到高：`;` < `,` < `-` < `.`，`()` 分组在所有运算符之上。
 
 | 写法                     | 展开                                 |
 |--------------------------|--------------------------------------|
-| `Box^T`                  | `Box<T>`                             |
-| `Box^<X,Y>`              | `Box<X, Y>`（多参容器）              |
-| `Box^Box^T`              | `Box<Box<T>>`（右结合嵌套）          |
-| `HashMap<K>^V`           | `HashMap<K, V>`（预填泛型追加）      |
-| `&^Box^T`                | `&Box<T>`（修饰符链式应用）          |
+| `Box.T`                  | `Box<T>`                             |
+| `Box.<X,Y>`              | `Box<X, Y>`（多参容器）              |
+| `Box.Box.T`              | `Box<Box<T>>`（右结合嵌套）          |
+| `HashMap<K>.V`           | `HashMap<K, V>`（预填泛型追加）      |
+| `&.Box.T`                | `&Box<T>`（修饰符链式应用）          |
 | `Vec-u32`                | `Vec<u32>`                           |
 | `HashMap-u32-String`     | `HashMap<u32, String>`（左结合累加） |
-| `fn^(A,B)-C`             | `fn(A,B)->C`                         |
-| `[Box, Vec]^T`           | `Box<T>, Vec<T>`                     |
-| `Box^[T1, T2]`           | `Box<T1>, Box<T2>`                   |
-| `[Box, Vec]^[T1, T2]`    | 笛卡尔积共 4 项                      |
-| `[HashMap<K>, Vec<K>]^V` | `HashMap<K, V>, Vec<K, V>`           |
+| `fn.(A,B)-C`             | `fn(A,B)->C`                         |
+| `[Box, Vec].T`           | `Box<T>, Vec<T>`                     |
+| `Box.[T1, T2]`           | `Box<T1>, Box<T2>`                   |
+| `[Box, Vec].[T1, T2]`    | 笛卡尔积共 4 项                      |
+| `[HashMap<K>, Vec<K>].V` | `HashMap<K, V>, Vec<K, V>`           |
 
-> **注意**：`Box^Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box^Vec^u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
+> **注意**：`Box.Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box.Vec.u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
 
-> **操作数严格性**：`^`/`-`/`,` 两侧必须有操作数——`A^`、`^A`、`-A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
+> **操作数严格性**：`.`/`-`/`,` 两侧必须有操作数——`A.`、`.A`、`-A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::collections::HashMap;
-#[batch_impl(Box^Vec^u32, HashMap<u8>^String)]
+#[batch_impl(Box.Vec.u32, HashMap<u8>.String)]
 trait T {}
 // → impl T for Box<Vec<u32>> {}
 // → impl T for HashMap<u8, String> {}
@@ -120,7 +120,7 @@ trait V {}
 // → impl V for Vec<u32> {}
 ```
 
-规则：元组/泛型实参中出现 `[A, B]` → 笛卡尔积分发（多数组全组合）；嵌套数组递归拆到底（`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`）；`(X, [A,B])^N` 的组合含数组由外层分发递归覆盖。注意：具体生成器与 fresh 生成器组合可能 E0119 重叠（fresh 数量/结构相同）——rustc 兜底，用不同 fresh 数量的生成器可避免。
+规则：元组/泛型实参中出现 `[A, B]` → 笛卡尔积分发（多数组全组合）；嵌套数组递归拆到底（`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`）；`(X, [A,B]).N` 的组合含数组由外层分发递归覆盖。注意：具体生成器与 fresh 生成器组合可能 E0119 重叠（fresh 数量/结构相同）——rustc 兜底，用不同 fresh 数量的生成器可避免。
 
 ### 独立/共享 body 合并
 
@@ -158,7 +158,7 @@ splat 的直觉来自 Python 的 `*` 解包——`[a, *b]` 拼接列表、`f(*ar
 # use batch_impl::batch_impl;
 struct T<A, B, C>(A, B, C);   // 三参容器
 struct A; struct B; struct C;
-#[batch_impl(T-*(A, B, C)^3)]  // splat 幂：把 (A,B,C)^3 展开到三个参数位
+#[batch_impl(T-*(A, B, C).3)]  // splat 幂：把 (A,B,C).3 展开到三个参数位
 trait Matrix27 {}
 // → 27 个 impl：T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（与 T-[A,B,C]-[A,B,C]-[A,B,C] 相同）
 ```
@@ -174,24 +174,24 @@ trait SplatList {}
 // → impl SplatList for u8 {}
 // → impl SplatList for u16 {} / u32 / u64
 
-#[batch_impl((u8, u16, u32)^*(u64, usize, i8))]
+#[batch_impl((u8, u16, u32).*(u64, usize, i8))]
 trait SplatConcat {}
 // → impl SplatConcat for (u8, u16, u32, u64, usize, i8) {}
 ```
 
 ### 4.2 左操作数：分配与追加
 
-左 splat 按来源括号分语义——`*[A,B]^T` **分配**（`*[A^T,B^T]`——集合，对标 `TyArray`）、`*(A,B)^T` **追加**（`*(A,B,...,T)`——列表，对标 `TyTuple`）。`[]` 是**集合**、`()` 是**序列**——splat 只是保留来源括号的基础容器语义，**不是新规则**；`TySplat::Array`/`TySplat::Tuple` 镜像 `TyArray`/`TyTuple`：
+左 splat 按来源括号分语义——`*[A,B].T` **分配**（`*[A.T,B.T]`——集合，对标 `TyArray`）、`*(A,B).T` **追加**（`*(A,B,...,T)`——列表，对标 `TyTuple`）。`[]` 是**集合**、`()` 是**序列**——splat 只是保留来源括号的基础容器语义，**不是新规则**；`TySplat::Array`/`TySplat::Tuple` 镜像 `TyArray`/`TyTuple`：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(*[Vec, Box]^u8)]
+#[batch_impl(*[Vec, Box].u8)]
 trait Dist {}
-// → impl Dist for Vec<u8> {} / Box<u8>（分配：每个元素各自 ^u8）
+// → impl Dist for Vec<u8> {} / Box<u8>（分配：每个元素各自 .u8）
 
 # struct Pair<X, Y>(X, Y);
 # struct A; struct B;
-#[batch_impl(Pair^*(A, B))]
+#[batch_impl(Pair.*(A, B))]
 trait Concat {}
 // → impl Concat for Pair<A, B> {}（右 splat = 多实参）
 ```
@@ -226,12 +226,12 @@ trait C {}
 
 ### 4.5 generator 重包
 
-`T<*()^2>`——空 splat 的幂——生成 fresh 参数并摊平：
+`T<*().2>`——空 splat 的幂——生成 fresh 参数并摊平：
 
 ```rust
 # use batch_impl::batch_impl;
 struct Pair2<A, B>(A, B);
-#[batch_impl(Pair2<*()^2>)]
+#[batch_impl(Pair2<*().2>)]
 trait GSplat {}
 // → impl<_Param_0_BatchGen_, _Param_1_BatchGen_> GSplat for Pair2<..., ...> {}
 //   （= <A,B> Pair2<A,B>——两个 fresh 实参）
@@ -241,7 +241,7 @@ trait GSplat {}
 
 splat 是"参数位置列表"——凡是要元素列表的地方都展开：泛型实参（`Foo<*(a,b)>`）、元组/数组元素（`(a, *(b,c))`、`[*(a),*(b)]`）、fn 参数（`fn(*(A,B))`）、spec 列表（`[*(a,b)]`）。裸 splat 作 **where 谓词主体**没有定义语义（`*(A,B): Trait` 会展开成 `A, B: Trait`）——明确报错——包进元组（`(*(A,B)): Trait`）或分开写谓词；谓词**内部**的 splat（`X: Trait<*(A,B)>`）合法。
 
-两条规则：`T^*(A,B,...)` ≡ `T-A-B-...`（右 splat = 扁平参数追加——与 `-` 链等价，来源无关）；左 splat 按来源——`*[A,B]^T` = `*[A^T,B^T]`（分配律）、`*(A,B)^T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
+两条规则：`T.*(A,B,...)` ≡ `T-A-B-...`（右 splat = 扁平参数追加——与 `-` 链等价，来源无关）；左 splat 按来源——`*[A,B].T` = `*[A.T,B.T]`（分配律）、`*(A,B).T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
 
 ## 5. 泛型 `<>`：从声明到可编程实参
 
@@ -294,11 +294,11 @@ struct Wrap<X>(X);
 struct Pair3<A, B>(A, B);
 struct A2; struct B2;
 
-#[batch_impl(Wrap<()^2>)]               // generator：<P0,P1> Wrap<(P0,P1)>
+#[batch_impl(Wrap<().2>)]               // generator：<P0,P1> Wrap<(P0,P1)>
 trait GenTup {}
 // → impl<P0,P1> GenTup for Wrap<(P0, P1)>（元组保持单个实参）
 
-#[batch_impl(Pair3<*()^2>)]             // generator splat：<P0,P1> Pair3<P0,P1>
+#[batch_impl(Pair3<*().2>)]             // generator splat：<P0,P1> Pair3<P0,P1>
 trait GenSpl {}
 // → impl<P0,P1> GenSpl for Pair3<P0, P1>（摊平成两个实参）
 
@@ -333,7 +333,7 @@ trait Foo<T> {}
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Box^@u*)]  // Box 应用 @u* 的每个成员
+#[batch_impl(Box.@u*)]  // Box 应用 @u* 的每个成员
 trait BoxRc {}
 // → impl BoxRc for Box<u8> {} / Box<u16> / ... / Box<usize>
 ```
@@ -346,7 +346,7 @@ trait BoxRc {}
 
 ### 6.3 自定义常量段（仅 `batch_trait!`）
 
-前导 `@name=值;` 段定义复用的常量（值可含链式引用与 DSL 表达式）。**`#[batch_impl]` / `#[batch_impl_only]` 不支持自定义常量**——0.7.2 误加的特性已在 0.8.0 回退；属性宏矩阵直接用 `^`/`-`/`*` 书写：
+前导 `@name=值;` 段定义复用的常量（值可含链式引用与 DSL 表达式）。**`#[batch_impl]` / `#[batch_impl_only]` 不支持自定义常量**——0.7.2 误加的特性已在 0.8.0 回退；属性宏矩阵直接用 `.`/`-`/`*` 书写：
 
 ```rust
 # use batch_impl::batch_trait;
@@ -377,15 +377,15 @@ batch_trait! {
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(()^2 where{@0..=1: Clone})]   // 范围糖：@0..=1 = @0, @1
+#[batch_impl(().2 where{@0..=1: Clone})]   // 范围糖：@0..=1 = @0, @1
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(()^3 where{@0..: Copy})]       // = @all_fresh（从 0 到最后一个 fresh）
+#[batch_impl(().3 where{@0..: Copy})]       // = @all_fresh（从 0 到最后一个 fresh）
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
-#[batch_impl(()^3 where{@1..: Copy})]       // 开放范围：从下标 1 起
+#[batch_impl(().3 where{@1..: Copy})]       // 开放范围：从下标 1 起
 trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 // （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
@@ -400,7 +400,7 @@ trait OpenRange {}
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(
-    Module<(), ()> ()^1..=4 where{
+    Module<(), ()> ().1..=4 where{
         @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)}
@@ -439,7 +439,7 @@ where 谓词或 `impl{...}` 模板里的 `X<>`（**同名** trait 的空尖括�
 # struct Additive;
 # struct Multiplicative;
 #[batch_impl(
-    Semiring<Additive, Multiplicative> ()^1..=2 where{@0..: Semiring<>},
+    Semiring<Additive, Multiplicative> ().1..=2 where{@0..: Semiring<>},
 )]
 trait Semiring<Oa, Om> {}
 // → impl<P0> Semiring<Additive, Multiplicative> for (P0,)
@@ -490,7 +490,7 @@ trait Markers {}
 # use batch_impl::batch_impl;
 #[batch_impl(
     Vec<u32> #d_len{self.len()},
-    Box^Vec^u32 #delegate(d_len){**self}
+    Box.Vec.u32 #delegate(d_len){**self}
 )]
 trait MyLen { fn d_len(&self) -> usize; }
 // → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
@@ -573,7 +573,7 @@ trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`w
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc]^u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
+#[batch_impl([Box, Rc].u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
 trait Make { fn mk(x: u32) -> Self; }
 // → impl Make for Box<u32> { fn mk(x: u32) -> Box<u32> { Box::new(x) } }
 // → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
@@ -613,7 +613,7 @@ trait Make { fn mk(x: u32) -> Self; }
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc]^@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
+#[batch_impl([Box, Rc].@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
 trait TMax { fn max() -> Self; }
 // → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
 // → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
@@ -628,7 +628,7 @@ trait TMax { fn max() -> Self; }
 # use std::rc::Rc;
 #[batch_impl(
     [[Box, Rc] impl{Box<u8>},
-     Cow<'_> impl{Cow<'_, u8>}]^@num #tag{1}
+     Cow<'_> impl{Cow<'_, u8>}].@num #tag{1}
 )]
 trait Tag { fn tag() -> usize; }
 // Box<u8>..Rc<f64> 由 Box<u8> 原型覆盖；Cow<'_, u8>..Cow<'_, f64> 由 Cow 原型覆盖
@@ -673,7 +673,7 @@ alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@0..`（≡ `
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ()^1..=2 where{@0..: Magma} impl{(A@..,)}
+    ().1..=2 where{@0..: Magma} impl{(A@..,)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
@@ -691,13 +691,13 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
 # trait Make { fn make() -> Self; }
-#[batch_impl(A<B> : [Box, Rc]^[usize, isize])]
+#[batch_impl(A<B> : [Box, Rc].[usize, isize])]
 impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 // → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
 // → ... × 4
 ```
 
-- attr 语法：shape 形态 `A<B> : [Box,Rc]^[usize,isize]`（模板 `:` 矩阵）或直接形态
+- attr 语法：shape 形态 `A<B> : [Box,Rc].[usize,isize]`（模板 `:` 矩阵）或直接形态
   `<T> Box<T>`（泛型声明 + for-type，N = 1）；`;` 分隔多个 spec（`W:u8; W:u16`），
   单 spec 为常见形态；
 - `@trait`（→ impl 的 trait path）允许在泛型声明 bound 与 where 谓词中；自定义
@@ -707,34 +707,34 @@ impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 
 ## 9. 元组生成与矩阵
 
-### 9.1 `(A,)^N` 长度展开
+### 9.1 `(A,).N` 长度展开
 
-`(A,)^N` 生成 1 元到 N 元元组（`(A,)`、`(A,A)`、…）：
+`(A,).N` 生成 1 元到 N 元元组（`(A,)`、`(A,A)`、…）：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8,)^3)]
+#[batch_impl((u8,).3)]
 trait TuplePow {}
 // → impl TuplePow for (u8,) {}
 // → impl TuplePow for (u8, u8) {}
 // → impl TuplePow for (u8, u8, u8) {}
 ```
 
-范围：`(A,)^2..4` / `(A,)^2..=4` 生成区间长度。空元组 `()^N` 是**生成器**——生成 N 个 fresh 泛型参数（见 5.4：`T<()^2>` = `<P0,P1>T<(P0,P1)>`）。
+范围：`(A,).2..4` / `(A,).2..=4` 生成区间长度。空元组 `().N` 是**生成器**——生成 N 个 fresh 泛型参数（见 5.4：`T<().2>` = `<P0,P1>T<(P0,P1)>`）。
 
 ### 9.2 笛卡尔积
 
-`[A, B]^[C, D]` 全组合；`*(A,B)^2` splat 幂产生笛卡尔组合列表：
+`[A, B].[C, D]` 全组合；`*(A,B).2` splat 幂产生笛卡尔组合列表：
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc]^[u8, u16])]
+#[batch_impl([Box, Rc].[u8, u16])]
 trait Matrix {}
 // → impl Matrix for Box<u8> {} / Box<u16> / Rc<u8> / Rc<u16>（4 项）
 ```
 
-矩阵可以进一步包进容器或组合进更复杂的 spec（`([u8, u16],)^2` 等）。
+矩阵可以进一步包进容器或组合进更复杂的 spec（`([u8, u16],).2` 等）。
 
 ## 10. 修饰符大全
 
@@ -795,7 +795,7 @@ batch_trait! {
 
 batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）：
 
-- **操作数缺失**：`A^` / `^A` / `,A` —— `compile_error!` 明确报错
+- **操作数缺失**：`A.` / `.A` / `,A` —— `compile_error!` 明确报错
 - **未知 `@` 常量**：列出内置常量名（`@u*`/`@i*`/`@f*`/`@scalar`/`@num` + 范围族）
 - **常量循环/前向引用**：定义处拦截（防无限递归）
 - **`@N`/`@g_i` 越界或悬空引用**：`@5` 超出 impl 生成的泛型数 / `@2_0` 组不存在——用户语言定向报错，不泄露 `_Param_*_BatchGen_` 保留名（也不再以 rustc E0412 裸错呈现）
@@ -804,7 +804,7 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
 - **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
 - **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径与泛型声明——定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path"）
-- **相邻类型缺少操作符**：`A B` / `Vec<T>U` / `[A B]`——报 "missing `^` / `-` / `,`"（不渲染非法 Rust）
+- **相邻类型缺少操作符**：`A B` / `Vec<T>U` / `[A B]`——报 "missing `.` / `-` / `,`"（不渲染非法 Rust）
 - **类型位置的 `;`/`=`/`@`/`#` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断）
 - **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `-B`）
 - **blanket 方法返回 `Self`**：`#blanket` 无法委托返回 `Self`/`Self::Assoc` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`

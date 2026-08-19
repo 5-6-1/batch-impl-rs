@@ -1,7 +1,7 @@
-error: batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T^0)
+error: batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0)
  --> tests/ui/num_as_left_operand.rs:7:1
   |
-7 | #[batch_impl(0^T)]
+7 | #[batch_impl(0.T)]
   | ^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

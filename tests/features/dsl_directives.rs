@@ -42,7 +42,7 @@ fn directive_fill() {
 // ============================================================
 #[batch_impl(
     Vec<u32> #d_len{self.len()},
-    Box^Vec^u32 #delegate(d_len){**self}
+    Box.Vec.u32 #delegate(d_len){**self}
 )]
 trait MyLen {
     fn d_len(&self) -> usize;

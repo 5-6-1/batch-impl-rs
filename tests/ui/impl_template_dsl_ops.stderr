@@ -1,7 +1,7 @@
 error: batch-impl: `impl{...}` template cannot destructure the target type (the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside))
  --> tests/ui/impl_template_dsl_ops.rs:5:1
   |
-5 | #[batch_impl(i32 impl{A^B})]
+5 | #[batch_impl(i32 impl{A.B})]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

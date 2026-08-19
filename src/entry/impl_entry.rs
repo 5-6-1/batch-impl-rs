@@ -2,7 +2,7 @@
 //! hand-written `impl` block from a shape-template × matrix-source
 //! description.
 //!
-//! `#[batch_impl(A<B> : [Box,Rc]^[usize,isize])] impl Tr for A<B> {...}`
+//! `#[batch_impl(A<B> : [Box,Rc].[usize,isize])] impl Tr for A<B> {...}`
 //! emits one impl per matrix leaf (`Box<usize>` / `Box<isize>` / `Rc<usize>` /
 //! `Rc<isize>`): the shape template is matched against each leaf by the
 //! shared `codegen::shape` kernel, and the slot mapping rewrites the

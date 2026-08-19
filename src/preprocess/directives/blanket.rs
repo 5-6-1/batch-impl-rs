@@ -20,16 +20,16 @@ use crate::util::{compile_err, compile_error_str};
 /// `#blanket(@all){&,Box,Rc}` — blanket delegation: emits one complete spec
 /// per wrapper type.
 ///
-/// Equivalent to hand-writing `<T: Trait> wrapper^T #delegate(selected){*…*self}`
+/// Equivalent to hand-writing `<T: Trait> wrapper.T #delegate(selected){*…*self}`
 /// for each wrapper — no wrapper matrix or delegation bodies to write.
 /// Wrapper elements are **arbitrary type expressions** (`&`/`&mut`/`Box`/`Rc`/
-/// `Arc`/`MyPtr`/`Box^Arc`/`Cow<'_>` etc.), applied to a fresh generic via
-/// `^T`: target type = wrapper expression + `^T` (`Box^Arc:2` → `Box<Arc<T>>`,
-/// `Cow<'_>` → `Cow<'_, T>`). **Nested wrappers must be chained with `^`**
-/// (`Box^Arc`); `<` prefilling is append semantics (`Box<Arc>^T` =
+/// `Arc`/`MyPtr`/`Box.Arc`/`Cow<'_>` etc.), applied to a fresh generic via
+/// `.T`: target type = wrapper expression + `.T` (`Box.Arc:2` → `Box<Arc<T>>`,
+/// `Cow<'_>` → `Cow<'_, T>`). **Nested wrappers must be chained with `.`**
+/// (`Box.Arc`); `<` prefilling is append semantics (`Box<Arc>.T` =
 /// `Box<Arc, T>`, an error).
 ///
-/// Deref depth of the delegation body: `:N` annotation (`Box^Arc:2`) or the
+/// Deref depth of the delegation body: `:N` annotation (`Box.Arc:2`) or the
 /// default 1 — `*` count = N + 1 (self is `&wrapper<T>`; deref the self
 /// reference, then N wrapper layers). The default is always 1; the macro never
 /// guesses inner Deref layers; nested wrappers must be explicit `:N` (a
@@ -59,7 +59,7 @@ pub(crate) fn expand_blanket(
     let method_names =
         parse_names_from_tokens(&args_group.stream().into_iter().collect::<Vec<_>>(), trait_def)?;
     // Fresh generic: avoids clashing with other names (same mechanism as the
-    // `()^N` tuple generic); group 0 position 0 — the blanket is the spec's
+    // `().N` tuple generic); group 0 position 0 — the blanket is the spec's
     // only fresh generator, and the codegen sweeper renumbers it to
     // `_Param_0_BatchGen_`.
     let t = fresh_param(take_group(), 0);
@@ -108,8 +108,8 @@ pub(crate) fn expand_blanket(
     let base_preds: Vec<TokenStream> = vec![quote!(#t : #t_bound)];
     // The trait-name part of the spec: only needed for generic traits (pass
     // args `Trait<X>`); omitted for non-generic traits (batch_impl output
-    // auto-appends the trait name — and a prefix wrapper `&^T` as target
-    // cannot follow the trait name; `Trait &^T` would not parse)
+    // auto-appends the trait name — and a prefix wrapper `&.T` as target
+    // cannot follow the trait name; `Trait &.T` would not parse)
     let trait_part = if param_names.is_empty() {
         quote!()
     } else {
@@ -264,11 +264,11 @@ pub(crate) fn expand_blanket(
         // `@0` in the wrapper's main part marks the target position: emit the
         // wrapper as-is and let the parse layer resolve `@0` into the fresh
         // generic name (so `T` can sit anywhere, e.g. `(u32, @0, u8)`).
-        // Without `@0` the wrapper is applied as `wrapper^T` (target appended
+        // Without `@0` the wrapper is applied as `wrapper.T` (target appended
         // last) — the existing behavior.
         let wrapper_vec: Vec<_> = wrapper_ty.clone().into_iter().collect();
         let target: TokenStream =
-            if has_at0(&wrapper_vec) { quote!(#wrapper_ty) } else { quote!(#wrapper_ty ^ #t) };
+            if has_at0(&wrapper_vec) { quote!(#wrapper_ty) } else { quote!(#wrapper_ty . #t) };
         spec_streams.push(quote! {
             #doc_note #impl_generics #trait_part #target #where_part { #methods }
         });

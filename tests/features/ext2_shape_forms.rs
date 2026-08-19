@@ -161,13 +161,13 @@ fn shape_cow_same_shape() {
 
 // ------------------------------------------------------------
 // 11. The prototype-impl pattern (user scenario): one correct implementation
-//     written for `Box<u8>` covers the whole `[Box, Rc]^@num` matrix — the
+//     written for `Box<u8>` covers the whole `[Box, Rc].@num` matrix — the
 //     template's literals bind to each leaf (u8 := u16/.../f64, Box := Rc),
 //     and the directive body is rewritten per impl. (A `const MAX` version
 //     would need `Box::new`/`Rc::new` in const position — not stable, E0015
 //     — so the pattern is exercised with an associated fn.)
 // ------------------------------------------------------------
-#[batch_impl([Box, Rc]^@num impl{Box<u8>} #mk{Box::new(u8::MAX)})]
+#[batch_impl([Box, Rc].@num impl{Box<u8>} #mk{Box::new(u8::MAX)})]
 trait TMk {
     fn mk() -> Self;
 }
@@ -209,7 +209,7 @@ fn shape_cow_matrix_leaves() {
 //     lifetime-bearing 2-arity shape). Each spec shares the same body.
 // ------------------------------------------------------------
 #[batch_impl(
-    [Box, Rc]^@num impl{Box<u8>} #tag{13},
+    [Box, Rc].@num impl{Box<u8>} #tag{13},
     Cow<'_, @num> impl{Cow<'_, u8>} #tag{13}
 )]
 trait MultiProto {
@@ -231,7 +231,7 @@ fn multi_prototype_covers_families() {
 //     every leaf of both specs)
 // ------------------------------------------------------------
 #[batch_impl(
-    [[Box, Rc]^@num impl{Box<u8>},
+    [[Box, Rc].@num impl{Box<u8>},
      Cow<'_, @num> impl{Cow<'_, u8>}] #tag{14}
 )]
 trait ProtoListShared {
@@ -248,14 +248,14 @@ fn prototype_list_shared_body() {
 }
 
 // ------------------------------------------------------------
-// 15. User shorthand 2: the container+prototype pairs in one list, `^@num`
+// 15. User shorthand 2: the container+prototype pairs in one list, `.@num`
 //     applied to the WHOLE list — each pair distributes the type family
 //     (`[Box,Rc] impl{Box<u8>}` → Box<u8>..Rc<f64> with the Box<u8>
 //     prototype; `Cow<'_> impl{Cow<'_,u8>}` → the Cow family)
 // ------------------------------------------------------------
 #[batch_impl(
     [[Box, Rc] impl{Box<u8>},
-     Cow<'_> impl{Cow<'_, u8>}]^@num #tag{15}
+     Cow<'_> impl{Cow<'_, u8>}].@num #tag{15}
 )]
 trait ProtoListPow {
     fn tag() -> usize;

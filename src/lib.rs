@@ -42,7 +42,7 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 /// An impl-spec has three parts (the tail of each part may be omitted):
 /// - `<impl generics>` — generic params of the `impl` block
 /// - `Trait name<trait generics>` — the trait's generic args and associated type bindings
-/// - target type — wrapped in `[]` for a parallel list, `^`/`-` for generic application
+/// - target type — wrapped in `[]` for a parallel list, `.`/`-` for generic application
 ///
 /// ## ItemImpl entry (0.8.0, Ext 1)
 ///
@@ -55,7 +55,7 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 /// # use batch_impl::batch_impl;
 /// # use std::rc::Rc;
 /// # trait Mk { fn make() -> Self; }
-/// #[batch_impl(Wrapper<T> : [Box, Rc]^u8)]
+/// #[batch_impl(Wrapper<T> : [Box, Rc].u8)]
 /// impl Mk for Wrapper<T> { fn make() -> Wrapper<T> { Wrapper::new(T::default()) } }
 /// // → impl Mk for Box<u8> { fn make() -> Box<u8> { Box::new(u8::default()) } }
 /// // → impl Mk for Rc<u8>  { fn make() -> Rc<u8>  { Rc::new(u8::default()) } }

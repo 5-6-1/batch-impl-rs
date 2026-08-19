@@ -10,7 +10,7 @@ use std::rc::Rc;
 // 1. Nested matrix source: `[u8, [u16, u32]]` distributes to u8/u16/u32
 //    (inner array recursion) → 6 leaves
 // ------------------------------------------------------------
-#[batch_impl(A<B> : [Box, Rc]^[u8, [u16, u32]])]
+#[batch_impl(A<B> : [Box, Rc].[u8, [u16, u32]])]
 impl NstMk1 for A<B> {
     fn mk() -> A<B> {
         A::new(B::default())
@@ -35,7 +35,7 @@ fn ext1_nested_matrix_distribution() {
 // 2. Multi-level generic template: `A<B<C>>` matches `Box<Vec<u8>>`
 //    (A := Box, B := Vec, C := u8) — three nesting levels of slots
 // ------------------------------------------------------------
-#[batch_impl(A<B<C>> : Box^Vec^u8)]
+#[batch_impl(A<B<C>> : Box.Vec.u8)]
 impl NstMk2 for A<B<C>> {
     fn head(&self) -> C {
         self[0]
@@ -53,10 +53,10 @@ fn ext1_multi_level_template() {
 }
 
 // ------------------------------------------------------------
-// 3. Slot bound to a composite subtree: `A<B> : Vec^[u8, String]` —
+// 3. Slot bound to a composite subtree: `A<B> : Vec.[u8, String]` —
 //    B is bound to the whole leaf arg (u8 / String)
 // ------------------------------------------------------------
-#[batch_impl(A<B> : Vec^[u8, String])]
+#[batch_impl(A<B> : Vec.[u8, String])]
 impl NstMk3 for A<B> {
     fn mk() -> A<B> {
         A::new()
@@ -106,7 +106,7 @@ fn ext1_multi_dimensional_matrix() {
 // 5. Matrix + where combined: slots in the where clause, a container
 //    matrix with `self.len()` bodies
 // ------------------------------------------------------------
-#[batch_impl(A<B> : Vec^[u8, u16] where A<B>: Sized)]
+#[batch_impl(A<B> : Vec.[u8, u16] where A<B>: Sized)]
 impl NstMk5 for A<B> {
     fn n(&self) -> usize {
         self.len()

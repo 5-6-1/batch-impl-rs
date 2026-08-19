@@ -43,7 +43,7 @@ pub(crate) fn depth_err(tokens: &[TokenTree], what: &str) -> TokenStream {
 /// order.
 ///
 /// The would-be product size is checked **before each allocation** and the
-/// growth is capped at `limit`: a huge user list (`(T1..Tk)^N` with k×N large)
+/// growth is capped at `limit`: a huge user list (`(T1..Tk).N` with k×N large)
 /// would otherwise exhaust memory or overflow the capacity multiplication
 /// (a debug-build panic) before any caller-side check could run. `Err`
 /// carries the would-be size so callers can render the same over-limit

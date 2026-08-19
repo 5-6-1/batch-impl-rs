@@ -35,22 +35,22 @@ fn list_distribution_nested() {
 }
 
 // pow_cartesian output nested in an outer tuple: the array of combos must
-// distribute through the tuple (user scenario `(()^2, ((A_,)^2,(<Clone>,)^2)^3, ()^4)^2`).
-// Fresh counts differ per generator (`()^2` / `()^3`) so no combo pair
+// distribute through the tuple (user scenario `(().2, ((A_,).2,(<Clone>,).2).3, ().4).2`).
+// Fresh counts differ per generator (`().2` / `().3`) so no combo pair
 // overlaps after the sweep rename (E0119 is the user's responsibility when
 // concrete and fresh generators collide).
 struct A_;
-#[batch_impl(((A_,)^2, ((A_,)^2,(<Clone>,)^2)^2, ()^3)^2)]
+#[batch_impl(((A_,).2, ((A_,).2,(<Clone>,).2).2, ().3).2)]
 trait NestedPow {}
 
 #[test]
 fn pow_cartesian_nested_in_tuple() {
     fn assert_t<T: NestedPow>() {}
-    // `[e0, e0]` — both positions pick the `(A_,)^2` generator
+    // `[e0, e0]` — both positions pick the `(A_,).2` generator
     assert_t::<((A_, A_), (A_, A_))>();
-    // `[e0, e2]` — position 2 picks the `()^3` fresh trio
+    // `[e0, e2]` — position 2 picks the `().3` fresh trio
     assert_t::<((A_, A_), (u8, u16, u32))>();
     // `[e0, e1_1]` — position 2 picks an inner cartesian combo
-    // (`((A_,)^2, (<Clone>,)^2)` combo 2 = `(A_,A_), (C0,C1)`)
+    // (`((A_,).2, (<Clone>,).2)` combo 2 = `(A_,A_), (C0,C1)`)
     assert_t::<((A_, A_), ((A_, A_), (u8, u16)))>();
 }

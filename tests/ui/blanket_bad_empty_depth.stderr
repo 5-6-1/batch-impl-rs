@@ -1,4 +1,4 @@
-error: batch-impl: after #blanket `:` must come a number (e.g. `Box^Arc:2`)
+error: batch-impl: after #blanket `:` must come a number (e.g. `Box.Arc:2`)
  --> tests/ui/blanket_bad_empty_depth.rs:4:1
   |
 4 | #[batch_impl(#blanket(@all_methods){Box:})]

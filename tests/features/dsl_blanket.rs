@@ -9,7 +9,7 @@ use std::rc::Rc;
 // A blanket wrapper whose main part contains `@0` marks the target position:
 // `@0` is replaced by the fresh target generic and the wrapper is emitted
 // as-is (so `T` can sit anywhere, e.g. `(u32, @0, u8)`); without `@0` the
-// wrapper is applied as `wrapper^T` (target appended last).
+// wrapper is applied as `wrapper.T` (target appended last).
 trait BlanketAt0 {
     fn tag(&self) -> u32;
 }
@@ -68,10 +68,10 @@ trait BlanketInc {
     fn inc(&mut self) -> u16;
 }
 
-// Nested wrapping and `:N` depth annotations: `Box^Rc:2` → `Box<Rc<T>>` (delegates `***self`),
-// `Box^Box^Box:3` → `Box<Box<Box<T>>>` (delegates `****self`)
+// Nested wrapping and `:N` depth annotations: `Box.Rc:2` → `Box<Rc<T>>` (delegates `***self`),
+// `Box.Box.Box:3` → `Box<Box<Box<T>>>` (delegates `****self`)
 #[batch_impl(u32 { fn deep(&self) -> u32 { *self } })]
-#[batch_impl(#blanket(deep){Box^Rc:2, Box^Box^Box:3})]
+#[batch_impl(#blanket(deep){Box.Rc:2, Box.Box.Box:3})]
 trait BlanketDeep {
     fn deep(&self) -> u32;
 }
@@ -107,7 +107,7 @@ trait LazyA {}
 trait LazyB {}
 batch_trait!(
     @lazy_nums=[u8, u16];
-    @lazy_wrapped=[Box, Rc]^@lazy_nums;
+    @lazy_wrapped=[Box, Rc].@lazy_nums;
     @lazy_chain=@lazy_wrapped;
     LazyA: @lazy_chain;
     LazyB: @lazy_nums;
@@ -168,11 +168,11 @@ fn blanket_by_value_receiver() {
     Box::new(9u8).consume(); // by-value forward: `(*self).consume()` moves out of the Box
 }
 
-// `#[attr]` followed by an operator chain (not `^`-joined at the spec
+// `#[attr]` followed by an operator chain (not `.`-joined at the spec
 // level): the attr's `apply` keeps an already-attached inner and applies
-// the operator to it (`#[attr] Box^u8` = `#[attr] Box<u8>` — 0.7.2 fix:
+// the operator to it (`#[attr] Box.u8` = `#[attr] Box<u8>` — 0.7.2 fix:
 // the inner was silently replaced).
-#[batch_impl(#[allow(dead_code)] Box^u8)]
+#[batch_impl(#[allow(dead_code)] Box.u8)]
 trait AttrChain {}
 
 #[test]

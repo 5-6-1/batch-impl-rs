@@ -3,7 +3,7 @@
 //! Runs the real attribute-macro preprocessing + parse/expand pipeline on a
 //! `#[batch_impl(...)] trait` input and reports the generated items through
 //! the only stable terminal channel a proc macro has: a `compile_error!`
-//! whose message IS the expansion. Preview-only guidance (the `^`/`-`
+//! whose message IS the expansion. Preview-only guidance (the `.`/`-`
 //! associativity miswrite note) rides the same message — the compiler path
 //! never guesses.
 
@@ -19,8 +19,8 @@ use crate::preprocess::render_angles;
 use crate::util::{Cursor, compile_error_str};
 
 /// Well-known 1-arity std containers: a multi-arg generic on one of these
-/// bases is almost certainly a `^`/`-` associativity miswrite
-/// (`Box^Vec-u32` = `Box-Vec-u32` = `Box<Vec, u32>`). Preview-only
+/// bases is almost certainly a `.`/`-` associativity miswrite
+/// (`Box.Vec-u32` = `Box-Vec-u32` = `Box<Vec, u32>`). Preview-only
 /// guidance — a user type shadowing one of these names costs a wrong note,
 /// never a wrong build.
 const ONE_ARITY_CONTAINERS: &[&str] = &[
@@ -64,7 +64,7 @@ pub(crate) fn preview(input: TokenStream) -> Result<TokenStream, TokenStream> {
     ))
 }
 
-/// The trait-entry preview: leaves → one impl per line + `^`/`-` miswrite notes.
+/// The trait-entry preview: leaves → one impl per line + `.`/`-` miswrite notes.
 fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
     let (attr_tokens, include_trait) =
         find_impl_attr(&trait_item.attrs).ok_or_else(|| {
@@ -148,7 +148,7 @@ fn find_impl_attr(attrs: &[syn::Attribute]) -> Option<(TokenStream, bool)> {
 
 /// Collects the associativity-miswrite notes for a leaf: a known 1-arity
 /// container rendered with 2+ args (`Box<Vec, u32>`) is the shape of
-/// `Box^Vec-u32` (= `Box-Vec-u32`) — the note teaches the `^`/`-`
+/// `Box.Vec-u32` (= `Box-Vec-u32`) — the note teaches the `.`/`-`
 /// identity and the nesting rewrite.
 fn miswrite_notes(ty: &Ty) -> Vec<String> {
     match &ty.kind {
@@ -177,7 +177,7 @@ fn miswrite_notes(ty: &Ty) -> Vec<String> {
 }
 
 /// The note for a single `TyGeneric` whose base is a known 1-arity container
-/// but whose args exceed one — the rendered shape of a `^`/`-` miswrite.
+/// but whose args exceed one — the rendered shape of a `.`/`-` miswrite.
 fn miswrite_note(g: &TyGeneric) -> Option<String> {
     let TyKind::Primitive(p) = &g.0.kind else {
         return None;
@@ -194,12 +194,12 @@ fn miswrite_note(g: &TyGeneric) -> Option<String> {
         return None;
     }
     Some(format!(
-        "batch-impl note: `{}<{}>` has {} args but `{}` takes 1 — `-` accumulates args side by side (`A^B-C` = `A-B-C` = `A<B, C>`); did you mean `{}^{}`?",
+        "batch-impl note: `{}<{}>` has {} args but `{}` takes 1 — `-` accumulates args side by side (`A.B-C` = `A-B-C` = `A<B, C>`); did you mean `{}.{}`?",
         base,
         args.join(", "),
         args.len(),
         base,
         base,
-        args.join("^"),
+        args.join("."),
     ))
 }

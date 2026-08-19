@@ -127,7 +127,7 @@ trait AtTraitSpec<T> {
         fn dl1(&self) -> usize { self.len() }
         fn dl2(&self) -> usize { self.len() }
     },
-    Box^Vec^u32 #delegate([dl1, dl2]){**self}
+    Box.Vec.u32 #delegate([dl1, dl2]){**self}
 )]
 trait DelBr {
     fn dl1(&self) -> usize;
@@ -141,8 +141,8 @@ trait OwnAt0 {
     fn own(&self) -> u32;
 }
 
-// @N positional reference: ()^3 where{@2: Clone} (fresh generic in the third slot)
-#[batch_impl(()^3 where{@2: Clone} { fn tk3() -> u32 { 3 } })]
+// @N positional reference: ().3 where{@2: Clone} (fresh generic in the third slot)
+#[batch_impl(().3 where{@2: Clone} { fn tk3() -> u32 { 3 } })]
 trait TupleWhereAt3 {
     fn tk3() -> u32;
 }
@@ -201,7 +201,7 @@ macro_rules! make_impls {
         }
     };
 }
-make_impls!([Box, Rc]^@u* { fn gm(&self) -> u32 { 9 } });
+make_impls!([Box, Rc].@u* { fn gm(&self) -> u32 { 9 } });
 
 #[test]
 fn review_fixes_locked() {

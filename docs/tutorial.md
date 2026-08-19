@@ -6,7 +6,7 @@
 
 **v0.8.1** — the `where{...}` angle-pairing hotfix (see the CHANGELOG);
 
-**v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros (reverted in 0.8.0), and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`()^N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
+**v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros (reverted in 0.8.0), and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`().N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
@@ -16,7 +16,7 @@ Every capability of batch-impl is built from three pillars (polished continuousl
 
 | Part | Notation | Role |
 |---|---|---|
-| **apply system** | `^` / `-` / `[]` / `()` | Type matrix: apply the left container/modifier to the right type, lists expand into multiple impls |
+| **apply system** | `.` / `-` / `[]` / `()` | Type matrix: apply the left container/modifier to the right type, lists expand into multiple impls |
 | **directive system** | `#name` / `#fill` / `#delegate` / `#blanket` | Copy signatures from the trait definition, fill bodies in bulk, delegate calls, blanket delegation |
 | **constant system** | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | Macro-meta layer: name and reuse type-matrix entries, pure lexical substitution |
 | **`*` operator** | `*[...]` / `*(...)` | Flatten: splice a container/generator into the enclosing list — new in 0.7.0, effective in every position |
@@ -52,35 +52,35 @@ The spec skeleton:
 
 Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 
-## 2. Type Matrix: `^` and `-`
+## 2. Type Matrix: `.` and `-`
 
-`^` and `-` are **the same operation**: the left side is a modifier/container, the right side the target type. They differ only in associativity: `^` is right-associative (nesting), `-` is left-associative (accumulating params).
+`.` and `-` are **the same operation**: the left side is a modifier/container, the right side the target type. They differ only in associativity: `.` is right-associative (nesting), `-` is left-associative (accumulating params).
 
-Precedence from low to high: `;` < `,` < `-` < `^`; `()` grouping sits above all operators.
+Precedence from low to high: `;` < `,` < `-` < `.`; `()` grouping sits above all operators.
 
 | Writing                    | Expansion                            |
 |----------------------------|--------------------------------------|
-| `Box^T`                    | `Box<T>`                             |
-| `Box^<X,Y>`                | `Box<X, Y>` (multi-param container)  |
-| `Box^Box^T`                | `Box<Box<T>>` (right-associative nesting) |
-| `HashMap<K>^V`             | `HashMap<K, V>` (prefilled generics appended) |
-| `&^Box^T`                  | `&Box<T>` (chained modifiers)        |
+| `Box.T`                    | `Box<T>`                             |
+| `Box.<X,Y>`                | `Box<X, Y>` (multi-param container)  |
+| `Box.Box.T`                | `Box<Box<T>>` (right-associative nesting) |
+| `HashMap<K>.V`             | `HashMap<K, V>` (prefilled generics appended) |
+| `&.Box.T`                  | `&Box<T>` (chained modifiers)        |
 | `Vec-u32`                  | `Vec<u32>`                           |
 | `HashMap-u32-String`       | `HashMap<u32, String>` (left-associative accumulation) |
-| `fn^(A,B)-C`               | `fn(A,B)->C`                         |
-| `[Box, Vec]^T`             | `Box<T>, Vec<T>`                     |
-| `Box^[T1, T2]`             | `Box<T1>, Box<T2>`                   |
-| `[Box, Vec]^[T1, T2]`      | Cartesian product, 4 entries         |
-| `[HashMap<K>, Vec<K>]^V`   | `HashMap<K, V>, Vec<K, V>`           |
+| `fn.(A,B)-C`               | `fn(A,B)->C`                         |
+| `[Box, Vec].T`             | `Box<T>, Vec<T>`                     |
+| `Box.[T1, T2]`             | `Box<T1>, Box<T2>`                   |
+| `[Box, Vec].[T1, T2]`      | Cartesian product, 4 entries         |
+| `[HashMap<K>, Vec<K>].V`   | `HashMap<K, V>, Vec<K, V>`           |
 
-> **Note**: `Box^Vec-u32` is wrong (it parses as `Box<Vec, u32>`); write `Box^Vec^u32` instead. When you miswrite it, rustc's E0107 error prints the rendered `Box<Vec, u32>` verbatim — the mistake is self-evident.
+> **Note**: `Box.Vec-u32` is wrong (it parses as `Box<Vec, u32>`); write `Box.Vec.u32` instead. When you miswrite it, rustc's E0107 error prints the rendered `Box<Vec, u32>` verbatim — the mistake is self-evident.
 
-> **Operand strictness**: both sides of `^`/`-`/`,` must have operands — `A^`, `^A`, `-A`, `,A`, `A,,B` all report `compile_error!`; only **trailing commas** (`A,` / `[A, B,]`) are allowed, and `()`/`[]` brackets are real tokens, not empty operands. `;` stays lenient as a `batch_trait!` section boundary.
+> **Operand strictness**: both sides of `.`/`-`/`,` must have operands — `A.`, `.A`, `-A`, `,A`, `A,,B` all report `compile_error!`; only **trailing commas** (`A,` / `[A, B,]`) are allowed, and `()`/`[]` brackets are real tokens, not empty operands. `;` stays lenient as a `batch_trait!` section boundary.
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::collections::HashMap;
-#[batch_impl(Box^Vec^u32, HashMap<u8>^String)]
+#[batch_impl(Box.Vec.u32, HashMap<u8>.String)]
 trait T {}
 // → impl T for Box<Vec<u32>> {}
 // → impl T for HashMap<u8, String> {}
@@ -120,7 +120,7 @@ trait V {}
 // → impl V for Vec<u32> {}
 ```
 
-Rule: `[A, B]` inside a tuple/generic-arg position → Cartesian-product distribution (all combinations of multiple arrays); nested arrays recurse to leaves (`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`); combos of `(X, [A,B])^N` containing arrays are covered by the outer distribution. Note: concrete generators combined with fresh generators may overlap (E0119 — same fresh count/structure); rustc catches it — use generators with different fresh counts to avoid.
+Rule: `[A, B]` inside a tuple/generic-arg position → Cartesian-product distribution (all combinations of multiple arrays); nested arrays recurse to leaves (`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`); combos of `(X, [A,B]).N` containing arrays are covered by the outer distribution. Note: concrete generators combined with fresh generators may overlap (E0119 — same fresh count/structure); rustc catches it — use generators with different fresh counts to avoid.
 
 ### Independent/shared body merging
 
@@ -157,7 +157,7 @@ The splat draws its intuition from Python's `*` unpacking — `[a, *b]` splices 
 # use batch_impl::batch_impl;
 struct T<A, B, C>(A, B, C);   // 3-arg container
 struct A; struct B; struct C;
-#[batch_impl(T-*(A, B, C)^3)]  // splat-pow: unfold (A,B,C)^3 into three arg positions
+#[batch_impl(T-*(A, B, C).3)]  // splat-pow: unfold (A,B,C).3 into three arg positions
 trait Matrix27 {}
 // → 27 impls: T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（same as T-[A,B,C]-[A,B,C]-[A,B,C]）
 ```
@@ -180,15 +180,15 @@ trait U {}
 
 ### 4.2 Left operand: distribute vs append
 
-`[]` is a **set** and `()` is a **sequence** — splat just mirrors the source bracket, so `*[A,B]^T` distributes (each element applies `T`, keeping set semantics) and `*(A,B)^T` appends (keeping list semantics). This is not a new rule; it preserves the underlying container's behavior, and `TySplat::Array`/`TySplat::Tuple` mirror `TyArray`/`TyTuple`.
+`[]` is a **set** and `()` is a **sequence** — splat just mirrors the source bracket, so `*[A,B].T` distributes (each element applies `T`, keeping set semantics) and `*(A,B).T` appends (keeping list semantics). This is not a new rule; it preserves the underlying container's behavior, and `TySplat::Array`/`TySplat::Tuple` mirror `TyArray`/`TyTuple`.
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(*[Vec, Box]^u8)]        // array splat distributes: each element ^u8
+#[batch_impl(*[Vec, Box].u8)]        // array splat distributes: each element .u8
 trait T1 {}
 // → impl T1 for Vec<u8> {} / Box<u8>
 
-#[batch_impl(*(Vec<u8>, Box<u8>)^u16)]  // tuple splat appends: the right operand joins
+#[batch_impl(*(Vec<u8>, Box<u8>).u16)]  // tuple splat appends: the right operand joins
 trait T2 {}
 // → impl T2 for Vec<u8> {} / Box<u8> / u16（append）
 ```
@@ -213,7 +213,7 @@ A splat power inside generic args distributes its Cartesian result one impl per 
 ```rust
 # use batch_impl::batch_impl;
 struct Frac<T, U>(T, U);
-#[batch_impl(Frac<*(*@u*)^2>)]
+#[batch_impl(Frac<*(*@u*).2>)]
 trait Pow {}
 // → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}（36 impls）
 ```
@@ -224,12 +224,12 @@ A group whose content is a lone splat parses as the container holding the splat 
 
 ### 4.5 Generator re-wrap
 
-`*(()^N)` — a generator splat — hoists fresh declarations and splats the tuple into a container:
+`*(().N)` — a generator splat — hoists fresh declarations and splats the tuple into a container:
 
 ```rust
 # use batch_impl::batch_impl;
 struct Pair3<A, B>(A, B);
-#[batch_impl(Pair3<*()^2>)]
+#[batch_impl(Pair3<*().2>)]
 trait GenSpl {}
 // → impl<P0, P1> GenSpl for Pair3<P0, P1>（flattened into two args）
 ```
@@ -287,11 +287,11 @@ struct Wrap<X>(X);
 struct Pair3<A, B>(A, B);
 struct A2; struct B2;
 
-#[batch_impl(Wrap<()^2>)]               // generator: <P0,P1> Wrap<(P0,P1)>
+#[batch_impl(Wrap<().2>)]               // generator: <P0,P1> Wrap<(P0,P1)>
 trait GenTup {}
 // → impl<P0,P1> GenTup for Wrap<(P0, P1)>（the tuple stays a single arg）
 
-#[batch_impl(Pair3<*()^2>)]             // generator splat: <P0,P1> Pair3<P0,P1>
+#[batch_impl(Pair3<*().2>)]             // generator splat: <P0,P1> Pair3<P0,P1>
 trait GenSpl {}
 // → impl<P0,P1> GenSpl for Pair3<P0, P1>（flattened into two args）
 
@@ -328,7 +328,7 @@ trait Foo<T> {}
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Box^@u*)]  // Box applied to every member of @u*
+#[batch_impl(Box.@u*)]  // Box applied to every member of @u*
 trait BoxRc {}
 // → impl BoxRc for Box<u8> {} / Box<u16> / ... / Box<usize>
 ```
@@ -344,7 +344,7 @@ Constant values are stored as **verbatim tokens**; reference sites splice and ex
 A leading `@name=value;` section defines reusable constants (values may chain
 references and embed DSL expressions). **`#[batch_impl]` / `#[batch_impl_only]`
 do not support custom constants** — the 0.7.2 feature was reverted in 0.8.0;
-write attribute-macro matrices directly with `^`/`-`/`*` instead:
+write attribute-macro matrices directly with `.`/`-`/`*` instead:
 
 ```rust
 # use batch_impl::batch_trait;
@@ -374,15 +374,15 @@ batch_trait! {
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(()^2 where{@0..=1: Clone})]   // range sugar: @0..=1 = @0, @1
+#[batch_impl(().2 where{@0..=1: Clone})]   // range sugar: @0..=1 = @0, @1
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(()^3 where{@0..: Copy})]       // = @all_fresh (from 0 to the last fresh)
+#[batch_impl(().3 where{@0..: Copy})]       // = @all_fresh (from 0 to the last fresh)
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
-#[batch_impl(()^3 where{@1..: Copy})]       // open range: from index 1 on
+#[batch_impl(().3 where{@1..: Copy})]       // open range: from index 1 on
 trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 // (an arity-1 impl contributes no predicate — `@1..` is empty there)
@@ -399,7 +399,7 @@ constraint):
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(
-    Module<(), ()> ()^1..=4 where{
+    Module<(), ()> ().1..=4 where{
         @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)}
@@ -440,7 +440,7 @@ write `Semiring<>` instead of repeating `Semiring<Additive, Multiplicative>`:
 # struct Additive;
 # struct Multiplicative;
 #[batch_impl(
-    Semiring<Additive, Multiplicative> ()^1..=2 where{@0..: Semiring<>},
+    Semiring<Additive, Multiplicative> ().1..=2 where{@0..: Semiring<>},
 )]
 trait Semiring<Oa, Om> {}
 // → impl<P0> Semiring<Additive, Multiplicative> for (P0,)
@@ -485,7 +485,7 @@ trait Ops { fn add(&mut self, x: u8); fn add2(&mut self, x: u8); }
 # use batch_impl::batch_impl;
 #[batch_impl(
     Vec<u32> #d_len{self.len()},
-    Box^Vec^u32 #delegate(d_len){**self}
+    Box.Vec.u32 #delegate(d_len){**self}
 )]
 trait MyLen { fn d_len(&self) -> usize; }
 // → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
@@ -569,7 +569,7 @@ predicates and the body. One body, adapted to every leaf:
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc]^u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
+#[batch_impl([Box, Rc].u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
 trait Make { fn mk(x: u32) -> Self; }
 // → impl Make for Box<u32> { fn mk(x: u32) -> Box<u32> { Box::new(x) } }
 // → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
@@ -618,7 +618,7 @@ Write **one correct implementation for a representative leaf**, and the
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc]^@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
+#[batch_impl([Box, Rc].@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
 trait TMax { fn max() -> Self; }
 // → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
 // → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
@@ -636,7 +636,7 @@ a list-wide distribution:
 # use std::rc::Rc;
 #[batch_impl(
     [[Box, Rc] impl{Box<u8>},
-     Cow<'_> impl{Cow<'_, u8>}]^@num #tag{1}
+     Cow<'_> impl{Cow<'_, u8>}].@num #tag{1}
 )]
 trait Tag { fn tag() -> usize; }
 // Box<u8>..Rc<f64> covered by the Box<u8> prototype; Cow<'_, u8>..Cow<'_, f64>
@@ -704,7 +704,7 @@ The alga2-style end-to-end — one spec covers every tuple arity, with
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ()^1..=2 where{@0..: Magma} impl{(A@..,)}
+    ().1..=2 where{@0..: Magma} impl{(A@..,)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
@@ -724,13 +724,13 @@ impl (whose for-Type holds the placeholder slots) is withheld:
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
 # trait Make { fn make() -> Self; }
-#[batch_impl(A<B> : [Box, Rc]^[usize, isize])]
+#[batch_impl(A<B> : [Box, Rc].[usize, isize])]
 impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 // → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
 // → ... × 4
 ```
 
-- Attr grammar: shape form `A<B> : [Box,Rc]^[usize,isize]` (template `:` matrix)
+- Attr grammar: shape form `A<B> : [Box,Rc].[usize,isize]` (template `:` matrix)
   or the direct form `<T> Box<T>` (generic declaration + for-type, N = 1);
   `;` separates multiple specs (`W:u8; W:u16`), the single-spec case is the
   common one;
@@ -744,38 +744,38 @@ impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 
 ### 9.1 Tuple generators
 
-`(T,)^N` generates tuples of length 1..=N; `()^N` generates N fresh params:
+`(T,).N` generates tuples of length 1..=N; `().N` generates N fresh params:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8,)^3)]
+#[batch_impl((u8,).3)]
 trait T {}
 // → impl T for (u8,) {} / (u8, u8) / (u8, u8, u8)
 ```
 
 ### 9.2 Cartesian products
 
-`[A, B]^[C, D]` full combinations; `*(A,B)^2` splat pow produces a Cartesian combo list:
+`[A, B].[C, D]` full combinations; `*(A,B).2` splat pow produces a Cartesian combo list:
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc]^[u8, u16])]
+#[batch_impl([Box, Rc].[u8, u16])]
 trait Matrix {}
 // → impl Matrix for Box<u8> {} / Box<u16> / Rc<u8> / Rc<u16>（4 entries）
 ```
 
-Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u16],)^2` etc.).
+Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u16],).2` etc.).
 
 ## 10. The Modifier Gallery
 
 | Modifier | Meaning | Example |
 |---|---|---|
-| `&` / `&mut` | reference | `&^Box^T` = `&Box<T>` |
-| `*const` / `*mut` | raw pointer | `*const^T` = `*const T` |
-| `unsafe` | unsafe fn | `unsafe^fn^(A,B)-C` |
+| `&` / `&mut` | reference | `&.Box.T` = `&Box<T>` |
+| `*const` / `*mut` | raw pointer | `*const.T` = `*const T` |
+| `unsafe` | unsafe fn | `unsafe.fn.(A,B)-C` |
 | `#[...]` attributes | attribute on the impl | `#[cfg(...)]` gating |
-| `!` | never type | `!^T` |
+| `!` | never type | `!.T` |
 
 ## 11. Three Entry Points
 
@@ -798,7 +798,7 @@ trait Conv<T> { fn conv() -> T; }
 
 batch-impl's errors are **compile-time diagnostics** pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line):
 
-- **Missing operand**: `A^` / `^A` / `,A` — `compile_error!` with a clear message
+- **Missing operand**: `A.` / `.A` / `,A` — `compile_error!` with a clear message
 - **Unknown `@` constant**: lists the built-in names (`@u*`/`@i*`/`@f*`/`@scalar`/`@num` + range families)
 - **Constant cycle/forward reference**: rejected at definition (prevents infinite recursion)
 - **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count / `@2_0` group missing — targeted errors in user language, no reserved `_Param_*_BatchGen_` names leaked (and no raw rustc E0412 either)
@@ -807,7 +807,7 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
 - **Empty range** (`@u16..u8`): "no impls generated for empty range"
 - **`=`/`:` in concrete-type args**: bindings/bounds are trait-path/declaration-only — targeted error (`Assoc<Item = u32>` with a struct reports "binding args are only valid on a trait path")
-- **Adjacent types without an operator**: `A B` / `Vec<T>U` / `[A B]` — "missing `^` / `-` / `,`" instead of rendering invalid Rust
+- **Adjacent types without an operator**: `A B` / `Vec<T>U` / `[A B]` — "missing `.` / `-` / `,`" instead of rendering invalid Rust
 - **Stray `;`/`=`/`@`/`#` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic)
 - **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `-B`)
 - **Blanket method returns `Self`**: `#blanket` cannot delegate a method returning `Self`/`Self::Assoc` (forwarding yields the inner type, not the wrapper's `Self`) — error with a `#name{...}` suggestion

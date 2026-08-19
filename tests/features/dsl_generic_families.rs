@@ -1,6 +1,6 @@
 //! dsl.rs generic-parameter family tests: `@all_type_params` /
 //! `@all_const_params` / `@all_lifetimes` declarations, and the
-//! nested-generator dedup in `(T,)^N`.
+//! nested-generator dedup in `(T,).N`.
 //! (split from the former single-file `tests/dsl.rs`)
 
 use batch_impl::batch_impl;
@@ -33,12 +33,12 @@ fn generic_param_families() {
     assert_eq!(a.n(), 3);
 }
 
-#[batch_impl((()^3,)^3)]
+#[batch_impl((().3,).3)]
 trait NestedGenT {}
 
 #[test]
 fn nested_generator_in_tuple_pow() {
-    // (T,)^3 clones the generator's fresh declarations; hoisting must
+    // (T,).3 clones the generator's fresh declarations; hoisting must
     // dedupe them so the impl has one shared generic trio.
     fn assert_trait<T: NestedGenT>() {}
     assert_trait::<((u8, u16, u32), (u8, u16, u32), (u8, u16, u32))>();

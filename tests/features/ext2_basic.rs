@@ -48,10 +48,10 @@ fn impl_different_base_slot() {
 }
 
 // ------------------------------------------------------------
-// 4. Matrix leaves × one template: `[Box, Rc]^u32 impl{W<T>}` — the base
+// 4. Matrix leaves × one template: `[Box, Rc].u32 impl{W<T>}` — the base
 //    slot W binds each leaf's base (Box / Rc), the arg slot T binds u32
 // ------------------------------------------------------------
-#[batch_impl([Box, Rc]^u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
+#[batch_impl([Box, Rc].u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
 trait ImplMatrix {
     fn mk(x: u32) -> Self;
 }

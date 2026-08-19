@@ -34,7 +34,7 @@ pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
         TyKind::Group(g) => splat_expand(*g.0),
         // Generator: its inner container is a *param list* (the fresh tuple),
         // not a type — flatten it even though bare tuples stay single
-        // elements (`(*(()^3))` = `(P0,P1,P2)`, not `((P0,P1,P2),)`).
+        // elements (`(*(().3))` = `(P0,P1,P2)`, not `((P0,P1,P2),)`).
         TyKind::WithType(wt) => {
             let TyWithType(params, inner) = wt;
             let (elems, _) = match inner.kind {
@@ -44,7 +44,7 @@ pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
             (elems, Some(params))
         }
         // Anything else (primitive / generic / nested containers that belong
-        // to the element itself, e.g. `Vec<()^2>`) stays a single element.
+        // to the element itself, e.g. `Vec<().2>`) stays a single element.
         other => (vec![Ty { span: ty.span, kind: other }], None),
     }
 }
@@ -58,7 +58,7 @@ fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
 }
 
 /// Flatten top-level splat params (`T<*(A,B)>` → `T<A,B>`) and hoist
-/// generator declarations (`T<()^2>` = `<A,B>T<(A,B)>`) without recursing
+/// generator declarations (`T<().2>` = `<A,B>T<(A,B)>`) without recursing
 /// into ordinary names; returns flat params + any hoisted declaration.
 /// Shared by `expand_tp` (structure level, recurses afterwards) and
 /// `extract_impl_parts` (trait args, rendered to tokens).
@@ -73,9 +73,9 @@ pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypePar
                 decl = merge_decls(decl, d);
                 flat.extend(es.into_iter().map(|e| (e.into(), None)));
             }
-            // generator param (`()^N`) → hoist the fresh declaration; the
-            // inner tuple stays the arg (`T<()^2>` = `<A,B>T<(A,B)>`), but a
-            // splat re-wrap (`*()^N` → `<A,B>T<A,B>`) flattens further.
+            // generator param (`().N`) → hoist the fresh declaration; the
+            // inner tuple stays the arg (`T<().2>` = `<A,B>T<(A,B)>`), but a
+            // splat re-wrap (`*().N` → `<A,B>T<A,B>`) flattens further.
             TyKind::WithType(wt) => {
                 decl = merge_decls(decl, Some(wt.0));
                 let inner = *wt.1;
@@ -96,7 +96,7 @@ pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypePar
 
 /// Whether a parameter list contains a generator (a `WithType` fresh
 /// declaration) anywhere — the generic-declaration position cannot carry one
-/// (`<*()^N>` would render the fresh tuple as a parameter name).
+/// (`<*().N>` would render the fresh tuple as a parameter name).
 pub(crate) fn contains_generator(params: &TyTypeParam) -> bool {
     params.params.iter().any(|(n, _)| ty_contains_generator(n))
         || params.bindings.iter().any(|(n, v)| ty_contains_generator(n) || ty_contains_generator(v))
@@ -318,7 +318,7 @@ impl Ty {
                 // (Cartesian across multiple arrays). This is the single
                 // authority for array-arg distribution: literal `[A,B]`, the
                 // `[u8,...]` from a `@u*` constant, and the `TyArray` produced
-                // by splat powers (`*(*@u*)^2` → `[*(u8,u8), ...]`) all reach
+                // by splat powers (`*(*@u*).2` → `[*(u8,u8), ...]`) all reach
                 // params as a `TyArray` and distribute here.
                 if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_))) {
                     let dims: Vec<TyParams> =

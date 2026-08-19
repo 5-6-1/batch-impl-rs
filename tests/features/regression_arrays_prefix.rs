@@ -1,6 +1,6 @@
 //! regression.rs §19-22: array/slice builders (`TyPrimitiveArray`), list
 //! distribution for attribute/prefix prefixes, `batch_trait!` `A<>`
-//! passthrough, and `T^<A,B>` caret-after-angle-list.
+//! passthrough, and `T.<A,B>` caret-after-angle-list.
 //! (split from the former single-file `tests/regression.rs`)
 
 use batch_impl::{batch_impl, batch_trait};
@@ -8,30 +8,30 @@ use std::collections::HashMap;
 
 // ============================================================
 // 19. Array/slice builder: `TyPrimitiveArray` merging TySlice + TyFixedArray
-//     - `[]^T` => `[T]` (empty base wraps out a slice)
-//     - `[T]^N` => `[T; N]` (numeric literal / const generic / range / list)
+//     - `[].T` => `[T]` (empty base wraps out a slice)
+//     - `[T].N` => `[T; N]` (numeric literal / const generic / range / list)
 //     - `<const N> []-X-N` => `[X; N]`: the whole matrix wrapped into a const generic array
-//     - `()^N` fresh generic tuples auto-extracted when used as generic args / array elements
+//     - `().N` fresh generic tuples auto-extracted when used as generic args / array elements
 // ============================================================
-#[batch_impl([]^u8)]
+#[batch_impl([].u8)]
 trait ArrSlice {}
 
-#[batch_impl([u8]^3)]
+#[batch_impl([u8].3)]
 trait ArrLit {}
 
-#[batch_impl(<const N: usize> [u8]^N)]
+#[batch_impl(<const N: usize> [u8].N)]
 trait ArrConst {}
 
-#[batch_impl([u8]^1..3)]
+#[batch_impl([u8].1..3)]
 trait ArrRange {}
 
-#[batch_impl([u8]^[1, 2, 4])]
+#[batch_impl([u8].[1, 2, 4])]
 trait ArrList {}
 
-#[batch_impl(<const N: usize> []-[&, self, Box]^[u8, i8, ()^0..3]-N)]
+#[batch_impl(<const N: usize> []-[&, self, Box].[u8, i8, ().0..3]-N)]
 trait ArrMatrix {}
 
-#[batch_impl(Box^()^0..3)]
+#[batch_impl(Box.().0..3)]
 trait ArrTupleGeneric {}
 
 #[test]
@@ -113,13 +113,13 @@ fn batch_trait_empty_angle_passthrough() {
 }
 
 // ============================================================
-// 22. `T^<A,B>` caret followed by a generic argument list (legacy syntax case)
+// 22. `T.<A,B>` caret followed by a generic argument list (legacy syntax case)
 //     (parse_primary's `[Group] → parse_group` used to intercept a single angle-bracket
 //     group first, swallowing the right operand and silently dropping `<u32, String>`,
 //     outputting a bare `HashMap`; after the fix, the designed semantics apply:
-//     `T^<A,B> => T<A,B>`)
+//     `T.<A,B> => T<A,B>`)
 // ============================================================
-#[batch_impl(HashMap^<u32, String> { fn klen(&self) -> usize { self.len() } })]
+#[batch_impl(HashMap.<u32, String> { fn klen(&self) -> usize { self.len() } })]
 trait CaretAngleList {
     fn klen(&self) -> usize;
 }

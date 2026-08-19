@@ -59,9 +59,9 @@ fn demos_shared_independent_body() {
 }
 
 // ------------------------------------------------------------
-// 4. `^` operator: containers / references / Cartesian product
+// 4. `.` operator: containers / references / Cartesian product
 // ------------------------------------------------------------
-#[batch_impl([&, Box, Rc, Arc]^u32)]
+#[batch_impl([&, Box, Rc, Arc].u32)]
 trait RefOrOwned {}
 
 fn demos_caret() {
@@ -71,13 +71,13 @@ fn demos_caret() {
     check(&Box::new(v));
     check(&Rc::new(v));
     check(&Arc::new(v));
-    println!("  4. `^` cartesian product ([&, Box, Rc, Arc]^u32): OK");
+    println!("  4. `.` cartesian product ([&, Box, Rc, Arc].u32): OK");
 }
 
 // ------------------------------------------------------------
-// 5. Tuple generation: `()^3` mints the generic tuple automatically
+// 5. Tuple generation: `().3` mints the generic tuple automatically
 // ------------------------------------------------------------
-#[batch_impl(()^3)]
+#[batch_impl(().3)]
 trait Tuple {}
 
 #[batch_impl((u8, u16, u32) {
@@ -120,7 +120,7 @@ fn demos_assoc_binding() {
 /// # Safety
 ///
 /// Marker trait for the demo only; no real unsafe semantics.
-#[batch_impl(unsafe^usize, isize)]
+#[batch_impl(unsafe.usize, isize)]
 unsafe trait PartialUnsafe {}
 
 /// # Safety
@@ -143,7 +143,7 @@ fn demos_unsafe() {
 // ------------------------------------------------------------
 // 8. fn types and return types
 // ------------------------------------------------------------
-#[batch_impl(fn^(i32, u32))]
+#[batch_impl(fn.(i32, u32))]
 trait FnProbe {}
 
 #[batch_impl(fn(i32, u32)-String)]
@@ -160,9 +160,9 @@ fn demos_fn_types() {
 }
 
 // ------------------------------------------------------------
-// 9. Attribute support: `#[allow(dead_code)]^T`
+// 9. Attribute support: `#[allow(dead_code)].T`
 // ------------------------------------------------------------
-#[batch_impl(#[allow(dead_code)]^usize, isize)]
+#[batch_impl(#[allow(dead_code)].usize, isize)]
 trait AttrProbe {}
 
 fn demos_attr() {
@@ -185,7 +185,7 @@ trait ReadSig {
 
 #[batch_impl(
     Vec<u32> #d_len{self.len()},
-    Box^Vec^u32 #delegate(d_len){**self}
+    Box.Vec.u32 #delegate(d_len){**self}
 )]
 trait DelegatedLen {
     fn d_len(&self) -> usize;

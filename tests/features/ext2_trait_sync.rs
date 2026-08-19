@@ -17,7 +17,7 @@ struct Multiplicative;
 //    args written once, in the spec's trait part).
 // ------------------------------------------------------------
 #[batch_impl(
-    Semiring<Additive, Multiplicative> ()^1..=2 where{@0..: Semiring<>}
+    Semiring<Additive, Multiplicative> ().1..=2 where{@0..: Semiring<>}
     impl{(A@..,)} #tag1{7},
 )]
 trait Semiring<Oa, Om> {
@@ -41,7 +41,7 @@ fn where_trait_sync() {
 //    `<>`, then the same sync fills the brackets.
 // ------------------------------------------------------------
 #[batch_impl(
-    @trait<Additive, Multiplicative> ()^1..=2 where{@0..: @trait<>}
+    @trait<Additive, Multiplicative> ().1..=2 where{@0..: @trait<>}
     impl{(A@..,)} #tag2{7},
 )]
 trait AtTrait<Oa, Om> {
@@ -64,7 +64,7 @@ fn at_trait_sync() {
 // 3. A trait with no generic args: `Tr<>` syncs to the bare `Tr` (brackets
 //    dropped). The spec's trait is the annotated one (no trait name prefix).
 // ------------------------------------------------------------
-#[batch_impl(()^1..=2 where{@0..: Tr<>} impl{(A@..,)} #tag3{7})]
+#[batch_impl(().1..=2 where{@0..: Tr<>} impl{(A@..,)} #tag3{7})]
 trait Tr {
     fn tag3(&self) -> u32;
 }
@@ -112,7 +112,7 @@ fn bound_trait_sync() {
 //    becomes `<Self as BodySync<Additive>>::SIZE`.
 // ------------------------------------------------------------
 #[batch_impl(
-    BodySync<Additive> ()^1..=1 where{@0..: BodySync<>} impl{BodySync<>}
+    BodySync<Additive> ().1..=1 where{@0..: BodySync<>} impl{BodySync<>}
     #SIZE{7}
     #tag{<Self as BodySync<>>::SIZE},
 )]

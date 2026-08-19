@@ -110,7 +110,7 @@ pub(crate) fn generate_impl(
     substitute_trait_generics(&mut parts, trait_param_names);
 
     // Tuple-level splat expansion (Ty structure): `(A, *(B,C))` → `(A,B,C)`,
-    // with fresh declarations from `*()^N` hoisted. Runs before hoisting so
+    // with fresh declarations from `*().N` hoisted. Runs before hoisting so
     // the lifted decl feeds into the impl generics. Generic-arg splats
     // (`T<*(A,B)>`) are structural (`TySplat` in `Box<Ty>` params) and expand
     // inside the same pass via `expand_tp`; trait-path splats (`Conv<*(A,B)>`)

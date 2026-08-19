@@ -11,12 +11,12 @@
 use batch_impl::batch_impl;
 
 // ------------------------------------------------------------
-// 1. alga2-style end-to-end: `()^1..=4` fresh-generic tuples, a variadic
+// 1. alga2-style end-to-end: `().1..=4` fresh-generic tuples, a variadic
 //    segment template, `@all_fresh` where predicates and a `#combine` body
 //    repeat block — one spec covers every arity.
 // ------------------------------------------------------------
 #[batch_impl(
-    ()^1..=4 where{@all_fresh: Magma} impl{(A@..,)}
+    ().1..=4 where{@all_fresh: Magma} impl{(A@..,)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait Magma {
@@ -119,7 +119,7 @@ fn single_element_segment_direct_name() {
 //    angle group (arity 1 contributes no such predicate).
 // ------------------------------------------------------------
 #[batch_impl(
-    Module<(), ()> ()^1..=4 where{
+    Module<(), ()> ().1..=4 where{
         @all_fresh: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)}

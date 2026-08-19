@@ -54,7 +54,7 @@ pub(crate) fn try_expand_at(
             ConstCtx::Attribute { .. } => {
                 "batch-impl: custom constants are not supported by \
                  `#[batch_impl]` / `#[batch_impl_only]` — write the type \
-                 matrix directly with `^` / `-` / `*` instead"
+                 matrix directly with `.` / `-` / `*` instead"
             }
             ConstCtx::Trait { .. } => {
                 "batch-impl: constant definition must appear before all trait \

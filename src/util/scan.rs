@@ -94,7 +94,12 @@ pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
             let is_range_inclusive = is_punct(token, '=')
                 && index > 0
                 && matches!(tokens.get(index - 1), Some(prev) if is_punct(prev, '.'));
-            if !is_arrow_dash && !is_range_inclusive {
+            // `.` as an apply operator must not cut a `..` range (`1..=4` /
+            // `@1..` — the two dots stay one unit, parsed by `parse_range`).
+            let is_dot_range = is_punct(token, '.')
+                && (index > 0 && matches!(tokens.get(index - 1), Some(prev) if is_punct(prev, '.'))
+                    || matches!(tokens.get(index + 1), Some(next) if is_punct(next, '.')));
+            if !is_arrow_dash && !is_range_inclusive && !is_dot_range {
                 return index.into();
             }
         }

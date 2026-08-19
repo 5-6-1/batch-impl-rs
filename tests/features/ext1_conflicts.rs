@@ -8,10 +8,10 @@ use batch_impl::batch_impl;
 use std::rc::Rc;
 
 // ------------------------------------------------------------
-// 1. Fully-literal template (`Vec<u8> : Vec^u8`): every ident is equal at
+// 1. Fully-literal template (`Vec<u8> : Vec.u8`): every ident is equal at
 //    its position → no binding at all; the body's `Vec` stays untouched
 // ------------------------------------------------------------
-#[batch_impl(Vec<u8> : Vec^u8)]
+#[batch_impl(Vec<u8> : Vec.u8)]
 impl CfMk1 for Vec<u8> {
     fn n(&self) -> usize {
         self.len()
@@ -33,7 +33,7 @@ fn ext1_literal_template_no_binding() {
 //    is rewritten (the slot semantics win — "same name, same entity").
 //    `Wrapper` is a slot bound to Box/Rc; `Wrapper::new` → `Box::new`
 // ------------------------------------------------------------
-#[batch_impl(Wrapper<T> : [Box, Rc]^u8)]
+#[batch_impl(Wrapper<T> : [Box, Rc].u8)]
 impl CfMk2 for Wrapper<T> {
     fn mk() -> Wrapper<T> {
         Wrapper::new(T::default())
@@ -56,7 +56,7 @@ fn ext1_slot_name_overrides_body() {
 // 3. Mixed slots in one expression: `A::new(B::default())` — the base slot
 //    in a path, the arg slot as an argument
 // ------------------------------------------------------------
-#[batch_impl(A<B> : [Box, Rc]^[u8, u16])]
+#[batch_impl(A<B> : [Box, Rc].[u8, u16])]
 impl CfMk3 for A<B> {
     fn mk() -> A<B> {
         A::new(B::default())
@@ -87,7 +87,7 @@ impl HasAssoc2 for u16 {
     type Assoc = u16;
 }
 
-#[batch_impl(A<B> : Vec^[u8, u16] where A<B>: Sized, B: HasAssoc2)]
+#[batch_impl(A<B> : Vec.[u8, u16] where A<B>: Sized, B: HasAssoc2)]
 impl CfMk4 for A<B> {
     fn a(&self) -> usize {
         self.len()

@@ -33,10 +33,10 @@ pub(crate) fn map_range(
     TyArray(ns.into_iter().map(f).collect()).into()
 }
 
-/// `(...,)^N`: expands the tuple to length N (empty / single / multi-element handled separately)
-/// `N` above [`MAX_EXPAND`] is a typo diagnostic (covers `()^N` / `(T,)^N`).
+/// `(...,).N`: expands the tuple to length N (empty / single / multi-element handled separately)
+/// `N` above [`MAX_EXPAND`] is a typo diagnostic (covers `().N` / `(T,).N`).
 fn tuple_pow(mut elems: Vec<Ty>, n: usize) -> Ty {
-    if let Some(e) = check_expand_limit(&format!("tuple `^{}`", n), n) {
+    if let Some(e) = check_expand_limit(&format!("tuple `.{}`", n), n) {
         return e;
     }
     match elems.len() {
@@ -47,7 +47,7 @@ fn tuple_pow(mut elems: Vec<Ty>, n: usize) -> Ty {
     }
 }
 
-/// `()^N` => `<A,B,...,N>(A,B,...,N)` — generate N fresh generic params and wrap
+/// `().N` => `<A,B,...,N>(A,B,...,N)` — generate N fresh generic params and wrap
 fn pow_empty(n: usize) -> Ty {
     if n == 0 {
         return TyTuple(vec![]).into();
@@ -62,11 +62,11 @@ fn pow_empty(n: usize) -> Ty {
     tp.apply(TyTuple(params).into())
 }
 
-/// `(T,)^N` => `(T,T,...,T)`; `(<Bound>)^N` => `(A:Bound, B:Bound, ...)`
+/// `(T,).N` => `(T,T,...,T)`; `(<Bound>).N` => `(A:Bound, B:Bound, ...)`
 fn pow_single(template: Ty, n: usize) -> Ty {
     let template_span = template.span;
     if let TyKind::TypeParam(tp) = template.kind.clone() {
-        // From `(<Bound>)^N`: exactly one unbound param (guaranteed by parse_angle_bracket_contents)
+        // From `(<Bound>).N`: exactly one unbound param (guaranteed by parse_angle_bracket_contents)
         if tp.params.len() != 1 || tp.params[0].1.is_some() {
             return err_ty(
                 "batch-impl: unexpected bound parameter in (<Trait>)⁁; this is an internal error",
@@ -91,9 +91,9 @@ fn pow_single(template: Ty, n: usize) -> Ty {
         .into()
 }
 
-/// `(A,B,..)^N`: N-way Cartesian product, choosing one of all elements per position.
+/// `(A,B,..).N`: N-way Cartesian product, choosing one of all elements per position.
 /// The product count is checked inside `cartesian` before each allocation
-/// (`elems^N` can far exceed [`MAX_EXPAND`]).
+/// (`elems.N` can far exceed [`MAX_EXPAND`]).
 fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
     let dims: Vec<Vec<Ty>> = std::iter::repeat_n(elems, n).collect();
     let combos = match cartesian(&dims, MAX_EXPAND) {
@@ -117,7 +117,7 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
                 let name = fresh_param(g, pos);
                 pos += 1;
                 // Keep the original bound (previously the param name was mistaken for the bound;
-                // `(A: Clone, T)^N` produced `_Param: A` instead of `_Param: Clone`)
+                // `(A: Clone, T).N` produced `_Param: A` instead of `_Param: Clone`)
                 let params = tp
                     .params
                     .iter()
@@ -148,7 +148,7 @@ fn fresh_params(g: usize, n: usize) -> Vec<Ty> {
 }
 
 impl Apply for TyTuple {
-    /// `(A,B,)^C` => append C; `(A,)^N` => tuple-length expansion; `(A,)^N..M` => range expansion
+    /// `(A,B,).C` => append C; `(A,).N` => tuple-length expansion; `(A,).N..M` => range expansion
     fn apply_help(mut self, o: Ty, span: Span) -> Ty {
         match o.kind {
             TyKind::Num(TyNum(n)) => tuple_pow(self.0, n),
@@ -161,10 +161,10 @@ impl Apply for TyTuple {
 }
 
 impl Apply for TyGroup {
-    /// `(T)` strips to the inner type, so `(T)^N` equals `T^N` (e.g.
-    /// `(W)^2` = `W^2` = `W<2>`, a const-generic argument; only valid for
-    /// types with a const generic — `(u8)^2` would emit `u8<2>`, which
-    /// rustc rejects with E0109). Tuple generation needs `(T,)^N`.
+    /// `(T)` strips to the inner type, so `(T).N` equals `T.N` (e.g.
+    /// `(W).2` = `W.2` = `W<2>`, a const-generic argument; only valid for
+    /// types with a const generic — `(u8).2` would emit `u8<2>`, which
+    /// rustc rejects with E0109). Tuple generation needs `(T,).N`.
     /// A bare `<T>` group is rejected earlier by parsing (`<` right after
     /// `(` is not a type).
     fn apply_help(self, o: Ty, _span: Span) -> Ty {
@@ -173,16 +173,16 @@ impl Apply for TyGroup {
 }
 
 impl Apply for TyFn {
-    /// `fn^(A,B)` => `fn(A,B)` (fills in params); `fn(A,B)-C` => `fn(A,B)->C` (adds return type).
-    /// The `is_unsafe` field passes through (`unsafe fn^(A,B)` => `unsafe fn(A,B)`).
+    /// `fn.(A,B)` => `fn(A,B)` (fills in params); `fn(A,B)-C` => `fn(A,B)->C` (adds return type).
+    /// The `is_unsafe` field passes through (`unsafe fn.(A,B)` => `unsafe fn(A,B)`).
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         match self {
-            // A bare fn gets its params via `^`; the right side must be a tuple (a Group like
-            // `fn^((i8,i16))` is unwrapped by the default apply's Group branch; here `o` is always plain)
+            // A bare fn gets its params via `.`; the right side must be a tuple (a Group like
+            // `fn.((i8,i16))` is unwrapped by the default apply's Group branch; here `o` is always plain)
             TyFn(None, None, is_unsafe) => match o.kind {
                 TyKind::Tuple(t) => TyFn(t.0.into(), None, is_unsafe).to_ty().with_span(span),
                 _ => err_ty_at(
-                    "batch-impl: the right side of the `fn` prefix must be a tuple type, e.g. fn^(i32, u32)",
+                    "batch-impl: the right side of the `fn` prefix must be a tuple type, e.g. fn.(i32, u32)",
                     span,
                 ),
             },
@@ -204,9 +204,9 @@ impl Apply for TyFn {
 }
 
 impl Apply for TyWithAttr {
-    /// `#[attr]^T` => `#[attr] T` (attaches the attribute to the type);
+    /// `#[attr].T` => `#[attr] T` (attaches the attribute to the type);
     /// with an inner already attached, the operator applies to the inner
-    /// (`#[attr] Box^u8` = `#[attr] Box<u8>` — 0.7.2 fix: the inner was
+    /// (`#[attr] Box.u8` = `#[attr] Box<u8>` — 0.7.2 fix: the inner was
     /// silently replaced).
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         let inner = match self.1 {
@@ -218,17 +218,17 @@ impl Apply for TyWithAttr {
 }
 
 impl Apply for TyTypeParam {
-    /// `<T>^U` => `WithType(<T>, U)` (generic parameters applied to the target type)
+    /// `<T>.U` => `WithType(<T>, U)` (generic parameters applied to the target type)
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         TyWithType(self, o.into()).to_ty().with_span(span)
     }
 }
 impl Apply for TyNum {
-    /// A number cannot be a left operand (used only on the right, e.g. `T^3`)
+    /// A number cannot be a left operand (used only on the right, e.g. `T.3`)
     fn apply_help(self, _: Ty, span: Span) -> Ty {
         err_ty_at(
             &format!(
-                "batch-impl: number `{}` cannot be a left operand; use it on the right (e.g. T^{})",
+                "batch-impl: number `{}` cannot be a left operand; use it on the right (e.g. T.{})",
                 self.0, self.0
             ),
             span,
@@ -236,12 +236,12 @@ impl Apply for TyNum {
     }
 }
 impl Apply for TyRange {
-    /// A range cannot be a left operand (used only on the right, e.g. `T^1..3`)
+    /// A range cannot be a left operand (used only on the right, e.g. `T.1..3`)
     fn apply_help(self, _: Ty, span: Span) -> Ty {
         let end_mark = if self.inclusive { "=" } else { "" };
         err_ty_at(
             &format!(
-                "batch-impl: range `{}..{}{}` cannot be a left operand; it goes on the right (e.g. T^{}..{}{})",
+                "batch-impl: range `{}..{}{}` cannot be a left operand; it goes on the right (e.g. T.{}..{}{})",
                 self.start, self.end, end_mark, self.start, self.end, end_mark
             ),
             span,
@@ -249,9 +249,9 @@ impl Apply for TyRange {
     }
 }
 impl Apply for TyPrimitiveArray {
-    /// `[]^T` => `[T]` (empty base wraps a slice); `[T]^N` => `[T; N]` (fixed-size array)
+    /// `[].T` => `[T]` (empty base wraps a slice); `[T].N` => `[T; N]` (fixed-size array)
     ///
-    /// The length right side can be a numeric literal (`[u8]^3`), a const generic (`[u8]^N`), or a
+    /// The length right side can be a numeric literal (`[u8].3`), a const generic (`[u8].N`), or a
     /// list/range (expanded item-wise by the top-level right-operand dispatch); re-applying to
     /// a finished array is an error.
     fn apply_help(self, o: Ty, span: Span) -> Ty {

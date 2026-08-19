@@ -25,7 +25,7 @@ batch_trait!(
     @nums=[u8, u16, u32];
     @uints=@u*;
     ConstA: @nums;
-    ConstB: [Box, Rc]^@uints;
+    ConstB: [Box, Rc].@uints;
 );
 
 #[test]

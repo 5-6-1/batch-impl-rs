@@ -4,7 +4,7 @@
 //! Showcases four DSL layers in one file:
 //! - `@` name families (`@u*`/`@i*`/`@f*`/`@num`) expand to the built-in type lists;
 //! - `batch_trait!` segments fill whole classes with one line each;
-//! - the splat pow `Frac^*(*@u*)^2` feeds one list into both generic positions
+//! - the splat pow `Frac.*(*@u*).2` feeds one list into both generic positions
 //!   (6 × 6 = 36 combos);
 //! - a spec-level trait segment with concrete args (`From<bool>`) substitutes
 //!   the trait param into directive-copied bodies (`fn from(value: bool)`).
@@ -76,12 +76,12 @@ batch_trait! {
 
 // `From<bool>` pins the trait's `T` to `bool`, so the copied signature
 // `fn from(value: T)` becomes `fn from(value: bool)`; the splat pow
-// `Frac^*(*@u*)^2` feeds the `@u*` list into both generic positions —
+// `Frac.*(*@u*).2` feeds the `@u*` list into both generic positions —
 // 6 × 6 = 36 `impl From<bool> for Frac<u8, u8>` ... `Frac<usize, usize>`.
 // The dummy trait is discarded (only its signatures are read).
 #[batch_impl_only(
     From<bool>
-    Frac<*(*@u*)^2>
+    Frac<*(*@u*).2>
     #from{
         Frac {
             positive: true,

@@ -29,7 +29,7 @@ pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>, de
         return function;
     }
 
-    // Bare `fn` (no params): `fn^(A,B)` gets its args filled in later by the `^` operator
+    // Bare `fn` (no params): `fn.(A,B)` gets its args filled in later by the `.` operator
     if let [TokenTree::Ident(name)] = tokens
         && name == "fn"
     {
@@ -38,10 +38,10 @@ pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>, de
 
     if let Some((prefix, rest)) = parse_prefix(tokens) {
         // `unsafe` prefix disambiguation:
-        // - bare `unsafe` (rest empty) → unsafe impl marker (unsafe^T / unsafe-T), passthrough verbatim
+        // - bare `unsafe` (rest empty) → unsafe impl marker (unsafe.T / unsafe-T), passthrough verbatim
         // - `unsafe fn...` → unsafe fn type (TyFn.is_unsafe set)
         // - `unsafe X` (X not fn) → error: in Rust, unsafe only qualifies fn types; writing it next to
-        //   any other type is almost certainly a forgotten `^` (unsafe^Vec<T>)
+        //   any other type is almost certainly a forgotten `.` (unsafe.Vec<T>)
         if matches!(prefix, TyPrefix::Unsafe) && !rest.is_empty() {
             if matches!(rest.first(), Some(TokenTree::Ident(f)) if f == "fn") {
                 let inner = parse_primitive(rest, trait_name, depth + 1);
@@ -56,7 +56,7 @@ pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>, de
             }
             return err_ty(
                 "batch-impl: `unsafe` can only qualify a fn type (e.g. `unsafe fn(u32) -> u32`) \
-or act as a bare impl marker (e.g. `unsafe^T`)",
+or act as a bare impl marker (e.g. `unsafe.T`)",
             );
         }
         let inner = attach_wrapper(TyWithPrefix(prefix, None).into(), rest, trait_name, depth);
@@ -64,9 +64,9 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
     }
 
     // Splat prefix: `*[...]` / `*(...)` — flatten a container's elements into
-    // the enclosing list / `^` argument list. `*const`/`*mut` stay pointers
+    // the enclosing list / `.` argument list. `*const`/`*mut` stay pointers
     // (handled by parse_prefix above). The group's contents are comma-split
-    // and each chunk parsed as a full expression (`parse_item` — so `*()^3`
+    // and each chunk parsed as a full expression (`parse_item` — so `*().3`
     // keeps its generator); splats are flattened at consumption (container
     // collection / apply), not here.
     if let [TokenTree::Punct(star), TokenTree::Group(group), rest @ ..] = tokens
@@ -132,7 +132,7 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
     }
 
     // An angle-bracket group (`delimiter![<>]`) is a generic list; must go through
-    // parse_type_params (else `HashMap^<A,B>`'s right operand is swallowed as empty by parse_group)
+    // parse_type_params (else `HashMap.<A,B>`'s right operand is swallowed as empty by parse_group)
     if let [TokenTree::Group(group)] = tokens
         && group.delimiter() != delimiter![<>]
     {
@@ -165,15 +165,15 @@ or act as a bare impl marker (e.g. `unsafe^T`)",
     if let Some((args, rest)) = parse_type_params(tokens) {
         let args_vec = args.into_iter().collect::<Vec<_>>();
         let params = parse_angle_bracket_contents(&args_vec, trait_name, true);
-        // The declaration position cannot carry a generator (`<*()^N>` /
-        // `<*(()^N)>`): the fresh declarations have no carrier — the
+        // The declaration position cannot carry a generator (`<*().N>` /
+        // `<*(().N)>`): the fresh declarations have no carrier — the
         // declaration itself is the carrier. Reject instead of rendering the
         // fresh tuple as a parameter name.
         if contains_generator(&params) {
             return err_ty_at(
                 "batch-impl: a generic declaration cannot contain a generator \
-                 (`<*()^N>` / `<*(()^N)>`) — the fresh declarations have no \
-                 carrier; write the generator in the type position (e.g. `T^()^2`)",
+                 (`<*().N>` / `<*(().N)>`) — the fresh declarations have no \
+                 carrier; write the generator in the type position (e.g. `T.().2`)",
                 tokens[0].span(),
             );
         }

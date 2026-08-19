@@ -1,7 +1,7 @@
-error: batch-impl: `tuple `^2000`` expands to 2000 items (limit 1024); likely exponential/range/Cartesian typo
+error: batch-impl: `tuple `.2000`` expands to 2000 items (limit 1024); likely exponential/range/Cartesian typo
  --> tests/ui/expand_limit.rs:4:1
   |
-4 | #[batch_impl(()^2000)]
+4 | #[batch_impl(().2000)]
   | ^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

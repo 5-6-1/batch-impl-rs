@@ -1,4 +1,4 @@
-//! Operator-chain parsing: `-`/`^` precedence climbing and operand parsing.
+//! Operator-chain parsing: `-`/`.` precedence climbing and operand parsing.
 
 use quote::quote;
 
@@ -35,17 +35,17 @@ pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, trait_name: Option<&Ide
             }
         },
         Op::Dash => parse_binary_chain(cursor, Op::Dash, trait_name, '-', false),
-        Op::Caret => parse_binary_chain(cursor, Op::Caret, trait_name, '^', true),
+        Op::Caret => parse_binary_chain(cursor, Op::Caret, trait_name, '.', true),
         Op::Prim => parse_primitive(cursor.take_rest(), trait_name, 0).into(),
     }
 }
 
-/// Shared skeleton for `-`/`^`: left operand → while loop collecting operands → fold.
-/// They differ only in associativity: `-` left-assoc (`A-B-C = (A-B)-C`), `^` right-assoc
-/// (`A^B^C = A^(B^C)` — container on the left, nesting inward).
+/// Shared skeleton for `-`/`.`: left operand → while loop collecting operands → fold.
+/// They differ only in associativity: `-` left-assoc (`A-B-C = (A-B)-C`), `.` right-assoc
+/// (`A.B.C = A.(B.C)` — container on the left, nesting inward).
 ///
 /// Chain-length guard: a flat operator chain builds an equally deep `Ty` tree
-/// without any group nesting (`^` nests per operand), so the group-level
+/// without any group nesting (`.` nests per operand), so the group-level
 /// `MAX_NEST_DEPTH` guard would not catch it; the operand count is capped at
 /// the same limit here — every downstream recursive traversal
 /// (`map_children` / `expand_splat_elems` / rendering) is then depth-bounded.
@@ -54,9 +54,9 @@ fn parse_binary_chain(
 ) -> Option<Ty> {
     // Left operand: `-A` has an empty left segment — parse_operand returns None only at
     // the end of the cursor (legal termination) or an empty segment (swallowed silently);
-    // `^A` parses to an empty Primitive instead, caught by is_empty_operand. Empty
+    // `.A` parses to an empty Primitive instead, caught by is_empty_operand. Empty
     // segments error either way.
-    let hint = if op_punct == '-' { " (e.g. `T-U`)" } else { " (e.g. `T^U`)" };
+    let hint = if op_punct == '-' { " (e.g. `T-U`)" } else { " (e.g. `T.U`)" };
     let mut items = match parse_operand(cursor, level, trait_name) {
         Some(op) => vec![op],
         None if cursor.at_end() => return None,
@@ -118,7 +118,7 @@ fn cursor_span(cursor: &Cursor) -> proc_macro2::Span {
     cursor.peek().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site)
 }
 
-/// Whether an operand is empty (when `^`/`-` is immediately followed by a depth-0 stop char,
+/// Whether an operand is empty (when `.`/`-` is immediately followed by a depth-0 stop char,
 /// `take_segment` cuts out an empty slice). An empty operand means a missing operand before or
 /// after the operator; `()`/`[]` are real tokens (empty tuple/base), not empty operands.
 fn is_empty_operand(ty: &Ty) -> bool {

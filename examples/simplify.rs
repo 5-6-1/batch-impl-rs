@@ -6,9 +6,9 @@
 //! separate impls for fn/HashMap/pointers/associated types… The DSL below
 //! batches all of it.
 //!
-//! Features covered: `[...]` side-by-side lists, shared body, `^` list
+//! Features covered: `[...]` side-by-side lists, shared body, `.` list
 //! application, `&`/`*const`/`*mut` prefixes, `where{...}` constraints,
-//! `#delegate` / `#fill` / `#name` directives, tuple generation `()^1..=4`,
+//! `#delegate` / `#fill` / `#name` directives, tuple generation `().1..=4`,
 //! left-associative `-`, associated type bindings `Item=T`, and the three
 //! entry points `batch_impl` / `batch_impl_only` / `batch_trait!`.
 
@@ -34,17 +34,17 @@ trait Describe {
 }
 
 // ============================================================
-// 2. & / Box / Rc / Arc delegate to the inner value: `[&, Box, Rc, Arc]^T` → 4 impls
+// 2. & / Box / Rc / Arc delegate to the inner value: `[&, Box, Rc, Arc].T` → 4 impls
 // ============================================================
 // Why does one line cover all four? `self` is a reference to the wrapper in
 // every case:
 // - &T  : self is &&T, `**self` = T
 // - Box: self is &Box<T>, `**self` = T
 // So the delegation body is identical; `#delegate` copies the signatures and
-// generates `(**self).method()`. `&` is just another list element, and `^`
+// generates `(**self).method()`. `&` is just another list element, and `.`
 // applies each of them to T at once.
 #[batch_impl_only(
-    <T: Describe> [&, Box, Rc, Arc]^T #delegate(describe, is_zero){**self}
+    <T: Describe> [&, Box, Rc, Arc].T #delegate(describe, is_zero){**self}
 )]
 trait Describe {
     fn describe(&self) -> String;
@@ -52,10 +52,10 @@ trait Describe {
 }
 
 // ============================================================
-// 3. Tuple generation: `()^1..=4` → 4 impls, each with its own generics
+// 3. Tuple generation: `().1..=4` → 4 impls, each with its own generics
 // ============================================================
 #[batch_impl(
-    ()^1..=4 { fn describe(&self) -> &'static str { "tuple" } }
+    ().1..=4 { fn describe(&self) -> &'static str { "tuple" } }
 )]
 trait DescribeTuple {
     fn describe(&self) -> &'static str;
@@ -115,7 +115,7 @@ batch_trait!(
 // ============================================================
 // 8. Pointer prefixes `*const` / `*mut`
 // ============================================================
-#[batch_impl(*const^u32, *mut^i32)]
+#[batch_impl(*const.u32, *mut.i32)]
 trait PtrMarker {}
 
 // ============================================================

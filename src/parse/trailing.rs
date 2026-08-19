@@ -69,7 +69,7 @@ pub(crate) fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
 /// Wrapper kind (`WithAttr`/`WithPrefix` half-applied, inner `None`): empty
 /// rest keeps the half-applied node, otherwise apply to the parsed remainder.
 /// The remainder is operator-free by construction (the caller's segment cut
-/// stops at `^`/`-`/`,`), so the Prim level suffices. `depth` threads the
+/// stops at `.`/`-`/`,`), so the Prim level suffices. `depth` threads the
 /// chained-segment guard through the parse_primitive recursion.
 pub(crate) fn attach_wrapper(
     kind: TyKind, rest: &[TokenTree], trait_name: Option<&Ident>, depth: usize,

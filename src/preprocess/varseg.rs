@@ -48,7 +48,7 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
             continue;
         }
         // Paren / Bracket / transparent groups recurse (a template may nest
-        // inside a list or a `^` argument); Brace bodies stay passthrough.
+        // inside a list or a `.` argument); Brace bodies stay passthrough.
         if let TokenTree::Group(g) = &tokens[i]
             && g.delimiter() != delimiter![{}]
         {

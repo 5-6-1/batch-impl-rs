@@ -11,7 +11,7 @@
 //!   marker specs;
 //! - [`delegate_args`] — delegate argument forwarding patterns;
 //! - [`blanket`] — `#blanket` expansion (wrapper matrix → delegation specs);
-//! - [`blanket_wrappers`] — blanket wrapper parsing (`wrapper^T` forms).
+//! - [`blanket_wrappers`] — blanket wrapper parsing (`wrapper.T` forms).
 
 mod blanket;
 mod blanket_wrappers;

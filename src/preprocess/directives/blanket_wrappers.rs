@@ -16,7 +16,7 @@ pub(crate) const MAX_BLANKET_DEPTH: usize = 128;
 /// optional bound predicates.
 pub(crate) struct BlanketWrapper {
     /// Wrapper type expression (without the `:N` annotation), applied as-is
-    /// to the fresh generic via `^T`.
+    /// to the fresh generic via `.T`.
     pub(crate) ty: TokenStream,
     /// Deref depth of the delegation body (`*` count = depth + 1); `:N`
     /// explicit annotation or default 1.
@@ -27,12 +27,12 @@ pub(crate) struct BlanketWrapper {
     pub(crate) where_preds: Option<Vec<TokenTree>>,
 }
 
-/// Parses the `#blanket` body wrapper list (`&,Box^Arc:2,Cow<'_>`,
+/// Parses the `#blanket` body wrapper list (`&,Box.Arc:2,Cow<'_>`,
 /// comma-separated).
 ///
 /// An element = arbitrary type token stream + optional trailing `:N` depth
 /// annotation (Alone `:` + numeric literal; does not clash with the Joint `:`
-/// of path `::`). Elements may be nested/prefilled forms (`&Box`, `Box^Arc`,
+/// of path `::`). Elements may be nested/prefilled forms (`&Box`, `Box.Arc`,
 /// `Cow<'_>`). Three syntax-necessarily-wrong cases are kept as errors:
 /// `*const`/`*mut` (safe code cannot deref a raw pointer to delegate), `self`
 /// (meaningless), and empty elements / invalid `:N`.
@@ -78,7 +78,7 @@ pub(crate) fn parse_blanket_wrappers(
                         depth = lit.to_string().parse().map_err(|_| {
                             compile_err!(
                                 "batch-impl: #blanket `:{}` has an invalid depth \
-                                 (must be a positive integer, e.g. `Box^Arc:2`)",
+                                 (must be a positive integer, e.g. `Box.Arc:2`)",
                                 lit
                             )
                         })?;
@@ -105,7 +105,7 @@ pub(crate) fn parse_blanket_wrappers(
                         return Err(compile_err_at!(
                             other.span(),
                             "batch-impl: after #blanket `:{}` must come a number \
-                             (e.g. `Box^Arc:2`)",
+                             (e.g. `Box.Arc:2`)",
                             other
                         ));
                     }
@@ -115,7 +115,7 @@ pub(crate) fn parse_blanket_wrappers(
                     None => {
                         return Err(compile_error_str(
                             "batch-impl: after #blanket `:` must come a number \
-                             (e.g. `Box^Arc:2`)",
+                             (e.g. `Box.Arc:2`)",
                             current[i].span(),
                         ));
                     }
@@ -127,7 +127,7 @@ pub(crate) fn parse_blanket_wrappers(
         match ty_tokens {
             [] => Err(compile_error_str(
                 "batch-impl: #blanket `:N` is missing the wrapper type before it \
-                 (e.g. `Box^Arc:2`)",
+                 (e.g. `Box.Arc:2`)",
                 proc_macro2::Span::call_site(),
             )),
             // Built-in wrapper constant: `@Cow` → `Cow<'_>` + inherent bound

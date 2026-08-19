@@ -16,22 +16,22 @@ struct Pair<A, B>(A, B);
 #[batch_impl([SplatA, *[SplatD, SplatE, SplatF]])]
 trait SplatArr {}
 
-#[batch_impl((SplatA, SplatB, SplatC)^*(SplatD, SplatE, SplatF))]
+#[batch_impl((SplatA, SplatB, SplatC).*(SplatD, SplatE, SplatF))]
 trait SplatConcat {}
 
-#[batch_impl((*(()^3)))]
+#[batch_impl((*(().3)))]
 trait SplatGen {}
 
-#[batch_impl((SplatA, *(()^3)))]
+#[batch_impl((SplatA, *(().3)))]
 trait SplatGenFlat {}
 
-#[batch_impl(*[Vec, Box]^SplatF)]
+#[batch_impl(*[Vec, Box].SplatF)]
 trait SplatLeft {}
 
-#[batch_impl(Pair^*(SplatD, SplatE))]
+#[batch_impl(Pair.*(SplatD, SplatE))]
 trait SplatArgs {}
 
-// Trait segment + right splat: `Conv<bool> Pair^*(A, B)` — the splat stays
+// Trait segment + right splat: `Conv<bool> Pair.*(A, B)` — the splat stays
 // whole through parse/apply and expands only in codegen: `Pair<A, B>` (the
 // old behavior misparsed to `Pair<A<B>>`). The real `Conv` is defined
 // here; the `#[batch_impl_only]` dummy below is discarded after its
@@ -41,7 +41,7 @@ pub trait Conv<T>: Sized {
     fn conv(_value: T) -> Self;
 }
 
-#[batch_impl_only(Conv<bool> Pair^*(SplatA, SplatB) #conv{unimplemented!()})]
+#[batch_impl_only(Conv<bool> Pair.*(SplatA, SplatB) #conv{unimplemented!()})]
 pub trait Conv<T>: Sized {
     fn conv(_value: T) -> Self;
 }
@@ -61,14 +61,14 @@ fn trait_path_splat() {
     let _ = <SplatPair2 as Conv2<SplatA, SplatB>>::conv2(SplatA, SplatB);
 }
 
-// Splat power as a generic arg: `Frac<*(*@u*)^2>` distributes the pow's
+// Splat power as a generic arg: `Frac<*(*@u*).2>` distributes the pow's
 // Cartesian result (`[*(u8,u8), ...]`) into one impl per pair — 36 total.
 // The literal `T<[A,B]>` array path is parse-time (`has_array_arg`); pow
 // results enter params as a `TyArray` and distribute in `expand`.
 struct SplatPow<T, U>(T, U);
-#[batch_impl(SplatPow<*(*@u*)^2>)]
+#[batch_impl(SplatPow<*(*@u*).2>)]
 trait SplatPowArg {}
-#[batch_impl(SplatPow<*(@u*)^2>)]
+#[batch_impl(SplatPow<*(@u*).2>)]
 trait SplatPowArg2 {}
 fn assert_pow<T: SplatPowArg>() {}
 fn assert_pow2<T: SplatPowArg2>() {}
@@ -82,14 +82,14 @@ fn splat_pow_arg() {
     assert_pow2::<SplatPow<usize, u128>>();
 }
 
-// Generator args in `<>`: `()^2` hoists fresh decls and keeps the tuple as
-// one arg — `GenWrap<()^2>` = `impl<P0,P1> T for GenWrap<(P0,P1)>`; `*()^2`
-// flattens instead — `GenPair2<*()^2>` = `impl<P0,P1> T for GenPair2<P0,P1>`.
+// Generator args in `<>`: `().2` hoists fresh decls and keeps the tuple as
+// one arg — `GenWrap<().2>` = `impl<P0,P1> T for GenWrap<(P0,P1)>`; `*().2`
+// flattens instead — `GenPair2<*().2>` = `impl<P0,P1> T for GenPair2<P0,P1>`.
 struct GenWrap<X>(X);
 struct GenPair2<A, B>(A, B);
-#[batch_impl(GenWrap<()^2>)]
+#[batch_impl(GenWrap<().2>)]
 trait GenTupleArg {}
-#[batch_impl(GenPair2<*()^2>)]
+#[batch_impl(GenPair2<*().2>)]
 trait GenSplatArg {}
 
 fn assert_gt<T: GenTupleArg>() {}
@@ -104,16 +104,16 @@ fn gen_args_in_angle() {
 }
 
 // Generator splats in trait args hoist their fresh declarations into the
-// impl generics (`Conv<*()^2> X` = `impl<P0,P1> Conv<P0,P1> for X`) —
+// impl generics (`Conv<*().2> X` = `impl<P0,P1> Conv<P0,P1> for X`) —
 // the trait-arg position follows the generic-arg rule (0.7.2; previously the
 // declaration was dropped and rustc reported E0412 on the fresh names).
 struct GenConvPair<A, B>(A, B);
-#[batch_impl(GenConv<*()^2> GenConvPair<u8, u16>)]
+#[batch_impl(GenConv<*().2> GenConvPair<u8, u16>)]
 trait GenConv<T, U> {}
 
-// The parenthesized form `*(()^3)` behaves like the bare `*()^3`.
+// The parenthesized form `*(().3)` behaves like the bare `*().3`.
 struct GenTrio<A, B, C>(A, B, C);
-#[batch_impl(GenTrio<*(()^3)>)]
+#[batch_impl(GenTrio<*(().3)>)]
 trait GenSplatArg3 {}
 
 fn assert_gc<T: GenConv<u8, u16>>() {}
@@ -137,9 +137,9 @@ trait SplatGenericArg {}
 // expands only in codegen, so the rendered result is `(a, b)` / `[a, b]`.
 // `(*(a,b))` ≡ `(*(a,b),)` on one code path.
 struct SplatOne<X>(X);
-#[batch_impl(SplatOne^(*(SplatA, SplatB)))]
+#[batch_impl(SplatOne.(*(SplatA, SplatB)))]
 trait SplatTupArg {}
-#[batch_impl(SplatOne^(*(SplatA, SplatB),))]
+#[batch_impl(SplatOne.(*(SplatA, SplatB),))]
 trait SplatTupArgT {}
 #[batch_impl((*(SplatA, SplatB)))]
 trait SplatTupLone {}
@@ -149,10 +149,10 @@ trait SplatTupArr {}
 trait SplatTupEmpty {}
 
 // Splat survival: array elements keep their splat until consumption —
-// `[*(A),*(B)]^2` repeats each element (`[*(A,A),*(B,B)]`), so the splat
-// pow drives both generic positions: `Pair^[*(SplatA),*(SplatB)]^2` =
+// `[*(A),*(B)].2` repeats each element (`[*(A,A),*(B,B)]`), so the splat
+// pow drives both generic positions: `Pair.[*(SplatA),*(SplatB)].2` =
 // `[Pair<SplatA,SplatA>, Pair<SplatB,SplatB>]`.
-#[batch_impl(Pair^[*(SplatA),*(SplatB)]^2)]
+#[batch_impl(Pair.[*(SplatA),*(SplatB)].2)]
 trait SplatSurvival {}
 
 #[test]

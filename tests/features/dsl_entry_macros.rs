@@ -78,8 +78,8 @@ trait SegB<T> {}
 
 batch_trait! {
     @type_t = <T> @trait <T>;
-    SegA: @type_t [&, Box]^T;
-    SegB: @type_t Box^[T, Vec<T>];
+    SegA: @type_t [&, Box].T;
+    SegB: @type_t Box.[T, Vec<T>];
 }
 
 #[test]

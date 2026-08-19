@@ -74,11 +74,11 @@ fn cmp_parallel_list() {
     assert_eq!(CmpList::tag(&0u16), "cmp");
 }
 
-// --- ^ operator (reference prefix) ---
+// --- . operator (reference prefix) ---
 trait CmpCaret {}
-#[batch_impl(&^u32)]
+#[batch_impl(&.u32)]
 trait CmpAttrCaret {}
-batch_trait!(CmpCaret: &^u32);
+batch_trait!(CmpCaret: &.u32);
 
 #[test]
 fn cmp_caret_prefix() {
@@ -88,11 +88,11 @@ fn cmp_caret_prefix() {
     _b::<&u32>();
 }
 
-// --- nested ^ ---
+// --- nested . ---
 trait CmpNestedCaret {}
-#[batch_impl(Box^Box^isize)]
+#[batch_impl(Box.Box.isize)]
 trait CmpAttrNestedCaret {}
-batch_trait!(CmpNestedCaret: Box^Box^isize);
+batch_trait!(CmpNestedCaret: Box.Box.isize);
 
 #[test]
 fn cmp_nested_caret() {
@@ -102,11 +102,11 @@ fn cmp_nested_caret() {
     _b::<Box<Box<isize>>>();
 }
 
-// --- ^ through [] ---
+// --- . through [] ---
 trait CmpCaretBracket {}
-#[batch_impl(Box^[Box^isize])]
+#[batch_impl(Box.[Box.isize])]
 trait CmpAttrCaretBracket {}
-batch_trait!(CmpCaretBracket: Box^[Box^isize]);
+batch_trait!(CmpCaretBracket: Box.[Box.isize]);
 
 #[test]
 fn cmp_caret_through_bracket() {

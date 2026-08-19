@@ -65,7 +65,7 @@ fn replace_idents(ts: TokenStream, map: &[(Ident, TokenStream)]) -> TokenStream 
 /// Expand splat elements inside `TyTuple` at the Ty-structure level (the
 /// codegen postprocess — parse/apply/expand keep `*()`/`*[]` whole). A splat
 /// element becomes its flat elements with fresh declarations hoisted:
-/// `(A, *(B,C))` → `(A,B,C)`, `(*(()^3))` → `<P0,P1,P2>(P0,P1,P2)`.
+/// `(A, *(B,C))` → `(A,B,C)`, `(*(().3))` → `<P0,P1,P2>(P0,P1,P2)`.
 /// Generic args (`T<*(A,B)>`) and trait args (`Conv<*(A,B)>`) expand here
 /// too (via [`expand_tp`]) — since `TyTypeParam` stores params as `Box<Ty>`,
 /// splats stay structural and need no token-level pass.
@@ -99,7 +99,7 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
         }
         TyKind::WithTrait(wt) => {
             // The trait path itself may carry splat args (`Conv<*(A,B)>`) —
-            // expand them via `expand_tp`, hoisting any `*()^N` declaration
+            // expand them via `expand_tp`, hoisting any `*().N` declaration
             // into a `TyWithType` around the whole `WithTrait`.
             let (tp, decl) = expand_tp(wt.0.1);
             let trait_ty = TyTrait(wt.0.0, tp);
@@ -152,7 +152,7 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
 /// Expand splat params inside a `TyTypeParam` (generic args / trait args):
 /// top-level splat params flatten via [`flat_splat_params`], then every
 /// remaining param (name / bound / binding value) recurses through
-/// [`expand_splat_elems`]. Fresh declarations hoisted out of `*()^N` splats
+/// [`expand_splat_elems`]. Fresh declarations hoisted out of `*().N` splats
 /// are returned for the caller to wrap in `TyWithType` (a `TyGeneric` /
 /// `TyTrait` cannot carry them itself).
 fn expand_tp(tp: TyTypeParam) -> (TyTypeParam, Option<TyTypeParam>) {

@@ -185,12 +185,12 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
                 if g.delimiter() == delimiter![<>])
             {
                 // `(<T: Bound>)` — the tuple-generator declaration form needs
-                // the trailing comma (`(<T: Bound>,)^N`); without it the
+                // the trailing comma (`(<T: Bound>,).N`); without it the
                 // declaration would leak into the type position and render
                 // `<T: Bound> N` (rustc "expected type, found `N`").
                 err_ty_at(
                     "batch-impl: a generic declaration `<...>` inside `(...)` needs \
-                     the trailing-comma tuple form `(<T: Bound>,)^N`",
+                     the trailing-comma tuple form `(<T: Bound>,).N`",
                     contents[0].span(),
                 )
             } else {
@@ -218,7 +218,7 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
 /// else array/slice via the `;` separator (`[T]` slice / `[T; N]` fixed
 /// length). A lone splat (`[*(a,b)]`) parses as an array holding the splat as
 /// one element — the splat survives and expands at consumption (spec-list /
-/// dispatch), so `[*(a,b)]` ≡ `[*(a,b),]`; `[*(A),*(B)]^2` repeats each
+/// dispatch), so `[*(a,b)]` ≡ `[*(a,b),]`; `[*(A),*(B)].2` repeats each
 /// element (`[*(A,A),*(B,B)]`) instead of flattening to bare types.
 fn parse_array_group(
     contents: &[TokenTree], span: proc_macro2::Span, trait_name: Option<&Ident>,

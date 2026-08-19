@@ -124,10 +124,10 @@ fn impl_with_fill_directive() {
 
 // ------------------------------------------------------------
 // 8. `impl{...}` with `@N` where references: the template matches a
-//    generator-tuple leaf (`()^2` → `(P0, P1)`), the where predicate
+//    generator-tuple leaf (`().2` → `(P0, P1)`), the where predicate
 //    references the fresh generics
 // ------------------------------------------------------------
-#[batch_impl(()^2 impl{(A, B)} where{@0: Clone} { fn n(&self) -> usize { 2 } })]
+#[batch_impl(().2 impl{(A, B)} where{@0: Clone} { fn n(&self) -> usize { 2 } })]
 trait ComboAtN {
     fn n(&self) -> usize;
 }

@@ -49,7 +49,7 @@ fn suffix_where_clause() {
 // 24. List modifier + `where{...}` (where attached to the outer Array)
 // ============================================================
 #[batch_impl(
-    <T> WrapOrd<T> [Box, Rc]^Vec<T> where{ T: Ord }
+    <T> WrapOrd<T> [Box, Rc].Vec<T> where{ T: Ord }
     { fn is_sorted(&self) -> bool { self.windows(2).all(|w| w[0] <= w[1]) } }
 )]
 trait WrapOrd<T> {
@@ -127,7 +127,7 @@ impl<A, B> Semi<A, B> for u8 {}
 struct Additive;
 struct Multiplicative;
 
-#[batch_impl(()^2 where{@0: Semi<Additive, Multiplicative>, @1: Clone} { fn n(&self) -> usize { 2 } })]
+#[batch_impl(().2 where{@0: Semi<Additive, Multiplicative>, @1: Clone} { fn n(&self) -> usize { 2 } })]
 trait TwoArgBound {
     fn n(&self) -> usize;
 }

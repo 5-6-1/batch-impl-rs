@@ -1,7 +1,7 @@
 error: batch-impl: range `3..2` is empty (start not below end); no impls will be generated
  --> tests/ui/empty_range.rs:4:1
   |
-4 | #[batch_impl(()^3..2)]
+4 | #[batch_impl(().3..2)]
   | ^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

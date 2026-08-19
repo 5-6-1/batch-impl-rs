@@ -60,7 +60,7 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         // DSL operators and punctuation
         prop::strategy::Just(Tok::Punct('<', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct('>', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('^', Spacing::Alone)),
+        prop::strategy::Just(Tok::Punct('.', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct('-', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct(',', Spacing::Alone)),
         prop::strategy::Just(Tok::Punct(';', Spacing::Alone)),

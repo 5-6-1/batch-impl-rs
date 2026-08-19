@@ -1,5 +1,5 @@
 //! dsl.rs §1-12 + §29: basic batch generation — concrete types, generics,
-//! body merging, `^` lists, tuple generation, associated type bindings,
+//! body merging, `.` lists, tuple generation, associated type bindings,
 //! unsafe impls, fn types, attributes, complex passthrough, unsafe fn types.
 //! (split from the former single-file `tests/dsl.rs`)
 
@@ -54,9 +54,9 @@ fn shared_independent_body() {
 }
 
 // ============================================================
-// 4. ^ operator: [&, Box, Rc]^u32 cartesian product
+// 4. . operator: [&, Box, Rc].u32 cartesian product
 // ============================================================
-#[batch_impl([&, Box, Rc]^u32)]
+#[batch_impl([&, Box, Rc].u32)]
 trait RefOrOwnedEmpty {}
 
 #[test]
@@ -69,9 +69,9 @@ fn caret_prefix_list() {
 }
 
 // ============================================================
-// 5. Tuple generation: ()^3
+// 5. Tuple generation: ().3
 // ============================================================
-#[batch_impl(()^3)]
+#[batch_impl(().3)]
 trait Tuple3 {}
 
 #[test]
@@ -81,13 +81,13 @@ fn tuple_pow_basic() {
 }
 
 // ============================================================
-// 6. Range tuples: ()^1..=3
+// 6. Range tuples: ().1..=3
 // ============================================================
-#[batch_impl(()^1)]
+#[batch_impl(().1)]
 trait Tuple1 {}
-#[batch_impl(()^2)]
+#[batch_impl(().2)]
 trait Tuple2 {}
-#[batch_impl(()^3)]
+#[batch_impl(().3)]
 trait Tuple3R {}
 
 #[test]
@@ -138,7 +138,7 @@ fn unsafe_trait_impls() {
 /// # Safety
 ///
 /// Marker trait for testing; no actual unsafe semantics.
-#[batch_impl(unsafe^usize, isize)]
+#[batch_impl(unsafe.usize, isize)]
 unsafe trait PartialUnsafe {}
 
 #[test]
@@ -151,7 +151,7 @@ fn partial_unsafe() {
 // ============================================================
 // 10. fn types
 // ============================================================
-#[batch_impl(fn^(i32, u32))]
+#[batch_impl(fn.(i32, u32))]
 trait FnSimple {}
 
 #[batch_impl(fn(i32, u32)-String)]
@@ -168,9 +168,9 @@ fn fn_types() {
 }
 
 // ============================================================
-// 11. Attribute support: #[allow(dead_code)]^usize
+// 11. Attribute support: #[allow(dead_code)].usize
 // ============================================================
-#[batch_impl(#[allow(dead_code)]^usize, isize)]
+#[batch_impl(#[allow(dead_code)].usize, isize)]
 trait AttrSimple {}
 
 #[test]
@@ -207,15 +207,15 @@ fn complex_passthrough() {
 
 // ============================================================
 // 29. `unsafe fn(...)` types: `unsafe` modifies the fn type itself
-//     (distinct from the unsafe impl marker `unsafe^T`; `unsafe X` errors when X is not a fn)
+//     (distinct from the unsafe impl marker `unsafe.T`; `unsafe X` errors when X is not a fn)
 // ============================================================
 #[batch_impl(unsafe fn(u32) -> u32)]
 trait UnsafeFnMarker {}
 
-#[batch_impl(unsafe fn^(u32, i32))]
+#[batch_impl(unsafe fn.(u32, i32))]
 trait UnsafeFnPow {}
 
-#[batch_impl(unsafe fn^(u32, i32) - i64)]
+#[batch_impl(unsafe fn.(u32, i32) - i64)]
 trait UnsafeFnRet {}
 
 #[test]

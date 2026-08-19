@@ -92,7 +92,7 @@ pub(crate) fn parse_angle_bracket_contents(
         // Splat args need no special case: `Foo<*(a,b)>` falls through to
         // the default path below, which keeps the `*(a,b)` token as one
         // generic arg — the codegen postprocess flattens it into `Foo<a,b>`
-        // at render. A generator splat there (`Foo<*(()^N)>`) hoists its
+        // at render. A generator splat there (`Foo<*(().N)>`) hoists its
         // fresh declaration out of the args (flat_splat_params) — same rule
         // as the trait-arg position (0.7.2).
         // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
@@ -233,11 +233,11 @@ fn validate_stray_punct(tokens: &[TokenTree]) -> Option<Ty> {
                     ),
                     '@' => Some(
                         "batch-impl: `@` inside a type (position references like `@0` must \
-                         start an operand, e.g. `T^@0`)",
+                         start an operand, e.g. `T.@0`)",
                     ),
                     '#' => Some(
                         "batch-impl: `#` inside a type (attributes belong at the spec start \
-                         as `#[...]^T`; directives are expanded before parsing)",
+                         as `#[...].T`; directives are expanded before parsing)",
                     ),
                     _ => None,
                 }
@@ -318,7 +318,7 @@ fn validate_adjacent(tokens: &[TokenTree]) -> Option<Ty> {
         let generic_app = after_ident && group_is_generic_or_call;
         if prev_is_fragment && is_fragment && !fn_head && !generic_app {
             return Some(err_ty_at(
-                "batch-impl: adjacent types without an operator (missing `^` / `-` / `,`)",
+                "batch-impl: adjacent types without an operator (missing `.` / `-` / `,`)",
                 tt.span(),
             ));
         }

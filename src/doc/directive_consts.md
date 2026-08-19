@@ -12,7 +12,7 @@ Documentation placeholder for the `@` macro-meta constant system.
 
 ```
 # use batch_impl::batch_impl;
-#[batch_impl(Box^@u*)]
+#[batch_impl(Box.@u*)]
 trait C {}
 # fn main() {}
 ```

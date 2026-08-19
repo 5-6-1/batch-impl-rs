@@ -69,10 +69,10 @@ fn ext1_three_specs() {
 }
 
 // ------------------------------------------------------------
-// 4. Matrix chain with a reference modifier: `&^[Box, Rc]^u8` →
+// 4. Matrix chain with a reference modifier: `&.[Box, Rc].u8` →
 //    `&Box<u8>` / `&Rc<u8>`; the template mirrors the reference (`&A<B>`)
 // ------------------------------------------------------------
-#[batch_impl(&A<B> : &^[Box, Rc]^u8)]
+#[batch_impl(&A<B> : &.[Box, Rc].u8)]
 impl BndMk4 for &A<B> {
     fn get(&self) -> B {
         ***self
@@ -94,10 +94,10 @@ fn ext1_matrix_with_modifiers() {
 }
 
 // ------------------------------------------------------------
-// 5. Zero-slot template (all literals, no binding): `Vec<u8> : Vec^u8`
+// 5. Zero-slot template (all literals, no binding): `Vec<u8> : Vec.u8`
 //    — the leaf equals the template ident-for-ident, no mapping is built
 // ------------------------------------------------------------
-#[batch_impl(Vec<u8> : Vec^u8)]
+#[batch_impl(Vec<u8> : Vec.u8)]
 impl BndMk5 for Vec<u8> {
     fn n5(&self) -> usize {
         self.len()

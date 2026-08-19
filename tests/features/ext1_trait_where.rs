@@ -77,7 +77,7 @@ fn ext1_impl_own_generics_where() {
 // ------------------------------------------------------------
 // 8. Shape-template slots in the where predicates are rewritten too
 // ------------------------------------------------------------
-#[batch_impl(A<B> : Vec^u8 where A<B>: Clone)]
+#[batch_impl(A<B> : Vec.u8 where A<B>: Clone)]
 impl Mk8 for A<B> {
     fn n(&self) -> usize {
         self.len()

@@ -9,9 +9,9 @@ pub(crate) struct TyArray(pub(crate) Vec<Ty>);
 pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
 #[derive(Clone, Debug)]
 /// `*[...]` / `*(...)` — splat: flatten a container's elements into the
-/// enclosing tuple/array/`^` argument list. The variant mirrors the source
+/// enclosing tuple/array/`.` argument list. The variant mirrors the source
 /// bracket and drives the **left-operand** semantics: `TySplat::Array`
-/// distributes `^T` (`*[A^T,B^T]` — set, mirrors `TyArray`), `TySplat::Tuple`
+/// distributes `.T` (`*[A.T,B.T]` — set, mirrors `TyArray`), `TySplat::Tuple`
 /// appends (`*(A,B,...,T)` — list, mirrors `TyTuple`). A splat survives as a
 /// **whole unit** through parse/apply/expand (splat survival) and flattens
 /// only in the codegen postprocess (`expand_splat_elems`); right operands
@@ -69,17 +69,17 @@ pub(crate) struct TyTypeParam {
 }
 
 impl TyTypeParam {
-    /// Constructs a single unbound param (`U` in `T^U` becomes `<U>`)
+    /// Constructs a single unbound param (`U` in `T.U` becomes `<U>`)
     pub(crate) fn single(arg: &Ty) -> Self {
         TyTypeParam { params: vec![(arg.clone().into(), None)], bindings: vec![] }
     }
 
-    /// Appends an unbound param (`B` in `T<A>^B` appends to `<A,B>`)
+    /// Appends an unbound param (`B` in `T<A>.B` appends to `<A,B>`)
     pub(crate) fn push_arg(&mut self, arg: &Ty) {
         self.params.push((arg.clone().into(), None));
     }
 
-    /// Merges another param list (the `<B,C>` in `T<A>^<B,C>` has its
+    /// Merges another param list (the `<B,C>` in `T<A>.<B,C>` has its
     /// params + bindings merged in)
     pub(crate) fn extend(&mut self, other: TyTypeParam) {
         self.params.extend(other.params);
@@ -113,7 +113,7 @@ pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
 #[derive(Clone, Debug)]
 /// Bare `fn` / `fn(...)` / `fn(...)->T` — params `None` means not filled yet; the
 /// third field `is_unsafe` marks `unsafe fn(...)` types (`unsafe` qualifies the fn
-/// type itself, as opposed to `unsafe^T` marking an unsafe impl)
+/// type itself, as opposed to `unsafe.T` marking an unsafe impl)
 pub(crate) struct TyFn(pub(crate) Option<Vec<Ty>>, pub(crate) Option<Box<Ty>>, pub(crate) bool);
 #[derive(Clone, Debug)]
 /// `#[...]` — the attribute itself
@@ -215,10 +215,13 @@ pub(crate) enum TyKind {
     Error(TyError),
 }
 
-/// Operator precedence levels (low→high: `;` < `,` < `-` < `^`; `Prim` = atomic, no operator).
+/// Operator precedence levels (low→high: `;` < `,` < 空格 `-` < `.` `.`; `Prim` = atomic, no operator).
 ///
 /// Each level defines "stop characters": when scanning at that level, `parse_operand`
 /// truncates at them, then hands the truncated slice to higher-precedence recursion.
+/// `.` is the apply operator (right-assoc, was `.`); `-` is the left-assoc apply
+/// (step 2 turns it into a space-adjacent application); the `.` stop skips `..`
+/// ranges (`1..=4` / `@1..` stay one unit).
 #[derive(Copy, Clone)]
 pub(crate) enum Op {
     Semi,
@@ -247,14 +250,14 @@ impl Op {
             Op::Semi => &[',', ';'],
             Op::Comma => &[','],
             Op::Dash => &['-', ','],
-            Op::Caret => &['^', '-', ','],
+            Op::Caret => &['.', '-', ','],
             Op::Prim => &[],
         }
     }
 }
 
-/// Upper bound on the products of a single expansion (`^N` / cartesian / range batch).
-/// Prevents exponential blowups like `(T1,..,Tk)^N`, `[A,B]^[C,D]^[E,F]` from hanging
+/// Upper bound on the products of a single expansion (`.N` / cartesian / range batch).
+/// Prevents exponential blowups like `(T1,..,Tk).N`, `[A,B].[C,D].[E,F]` from hanging
 /// compilation (aligned with the v0.1 cap of 1024).
 pub(crate) const MAX_EXPAND: usize = 1024;
 
