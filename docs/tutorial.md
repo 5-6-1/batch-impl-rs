@@ -1,5 +1,7 @@
 # batch-impl Tutorial
 
+**v0.9.0** (unreleased) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (see §2); the DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`); same-name generic declarations merge into a where clause; `_` is a never-replaced wildcard in `impl{...}` templates; `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`);
+
 **v0.8.3** (2026-08-19) — the builtin-directive typo guard is removed: single-item `#name{...}` may legitimately collide with `fill`/`delegate`/`blanket` (see §7);
 
 **v0.8.2** (2026-08-19) — variadic segments (`ident@..`) in `impl{...}` templates and repeat blocks (`@(...)..`) in bodies, see §8.4;

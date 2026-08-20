@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.8.3** (2026-08-19) — the builtin-directive typo guard is removed: single-item `#name{body}` directives may legitimately collide with `fill`/`delegate`/`blanket` (trait item names are looked up verbatim), and open-extension names are no longer punished with a `compile_error!` — proc macros have no warning channel, so a typo now surfaces as rustc's own error;
+**v0.9.0** (unreleased) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (`Box u8` = `Box<u8>`, `<T: Clone> Vec<T>` = a declaration applied to a type); `-` keeps only its directive-domain exclusion meaning. The DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`), same-name generic declarations merge into a where clause (`<T: Clone><T: Copy> X` → `impl<T> ... where T: Clone, T: Copy`), `_` is a never-replaced wildcard in shape templates (`impl{B<_>}`), and `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`, path-qualified included).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 

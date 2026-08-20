@@ -2,9 +2,13 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## 0.8.4 (unreleased)
+## 0.9.0 (unreleased)
 
-- **`X<>` 同步为本 spec trait 应用**——where 谓词、`impl{...}` 模板、impl 泛型 bound（`<T: Semiring<>>`）或——通过**开关模板** `impl{Tr<>}`（不参与 Self 匹配，只声明同步）——body（`<Self as Semiring<>>::Assoc`）里的同名空尖括号 trait（`Semiring<>`）展开为本 spec 的 trait 应用（`Semiring<Additive, Multiplicative>`），trait 实参只写一次（spec trait 部分）而无需在每个谓词重复；`@trait<>` 等价（`@trait` 先展开为 trait 路径，顺带消掉长外部路径）。任何非本 spec trait 的 `X<>` 报错；无泛型参数的 trait 同步为裸名（`Tr<>` → `Tr`）
+- **Breaking：apply 运算符重命名**——`.` 现在是右结合 apply 运算符（旧 `^` 的语义，矩阵写法 `[Box, Rc].u8` 不变），**空格应用取代 `-`** 作为左结合组合（`Box u8` = `Box<u8>`、`HashMap K V` = `HashMap<K, V>`、`<T: Clone> Vec<T>` = 声明应用到类型）。`-` 前缀只保留**指令域**的排除语义（`#fill(@all,-foo)`——指令实参，绝非类型运算符）；类型域里的裸 `-` 现在定向报错而不是被静默误解析
+- **块模型**——DSL 现在是**块的任意组合**：声明、指令块、代码块、类型任意顺序出现，链用 `apply` 折叠（无位置要求——`{...}` 块不必在末尾、声明不必在开头；`<T> #tag{"ab"} Box T` 任意顺序得到同一 impl）。空格应用 = 块的任意组合（`<T> #foo{} Box T` = `<T>.apply({...}).apply(Box).apply(T)`，无硬性顺序）
+- **同名泛型声明合并**——`<T: Clone><T: Copy> X` 不再报"重复 T"：名字只声明一次（裸名），所有 bound 移入 where 谓词（`impl<T> ... where T: Clone, T: Copy`）；单次声明保留内联 bound
+- **形状模板 `_` 通配**——`impl{B<_>}` / `impl{[A; _]}`：下划线是**永不替换**的占位符（绑定位置推断，`_` 保持 `_`），支持部分固定的模板
+- **`X<>` 同步为本 spec trait 应用**——where 谓词、`impl{...}` 模板、impl 泛型 bound（`<T: Semiring<>>`）或——通过**开关模板** `impl{Tr<>}`（不参与 Self 匹配，只声明同步）——body（`<Self as Semiring<>>::Assoc`）里的同名空尖括号 trait（`Semiring<>`）展开为本 spec 的 trait 应用（`Semiring<Additive, Multiplicative>`），trait 实参只写一次（spec trait 部分）而无需在每个谓词重复；`@trait<>` 等价（`@trait` 先展开为 trait 路径，顺带消掉长外部路径）。任何非本 spec trait 的 `X<>` 报错；无泛型参数的 trait 同步为裸名（`Tr<>` → `Tr`）。开关模板支持路径限定（`impl{mod::Tr<>}`——`@trait` 展开为完整路径，含 `batch_impl_only` 外部路径）
 
 ## 0.8.3 (2026-08-19)
 
