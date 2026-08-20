@@ -30,6 +30,7 @@ pub(crate) mod dup_params;
 pub(crate) mod impl_entry_basic;
 pub(crate) mod impl_entry_boundary;
 pub(crate) mod impl_entry_conflicts;
+pub(crate) mod impl_entry_extras;
 pub(crate) mod impl_entry_nested;
 pub(crate) mod impl_entry_trait_where;
 pub(crate) mod regression_arrays_prefix;

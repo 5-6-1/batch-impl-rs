@@ -9,6 +9,14 @@
 //! for-Type / where predicates / body. The original impl is withheld (its
 //! for-Type holds the placeholder slot names).
 //!
+//! The impl block itself is **ordinary Rust** (`impl Tr<...> for T { ... }`
+//! must parse as `syn::ItemImpl` verbatim) — the DSL lives only in the
+//! attribute. The body / for-Type therefore stay standard Rust: no
+//! variadic segments, no repeat blocks, no DSL operators. `X<>` (empty
+//! brackets) in the **where predicates** fills with the impl's trait args
+//! (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
+//! `Marker<Additive, Multiplicative>`), the same sync as the trait entries.
+//!
 //! Attr grammar (single-spec common case; `;` separates multiple specs):
 //! - shape form: `shape-template : new-generic-decl? matrix-source? (where ...)?`
 //! - direct form: `new-generic-decl? for-type (where ...)?`
@@ -22,7 +30,7 @@ use quote::{ToTokens, quote};
 use syn::ItemImpl;
 
 use crate::ast::{Op, Ty};
-use crate::codegen::{Mapping, apply_mapping, match_shape};
+use crate::codegen::{Mapping, apply_mapping, match_shape, sync_trait_application};
 use crate::entry::driver::collect_spec_leaves;
 use crate::parse::split_at_depth0;
 use crate::preprocess::{angle_collect, render_angles, where_process};
@@ -195,12 +203,29 @@ fn assemble_impl(
             }
         }
     };
+    // `X<>` sync: every `X<>` in the where predicates fills with the impl's
+    // trait args (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
+    // `Marker<Additive, Multiplicative>`). The body is not synced: it is
+    // ordinary Rust (the impl block parses verbatim), so an empty bracket
+    // there is a real Rust type, not a DSL trait reference.
+    let trait_args = trait_path
+        .segments
+        .last()
+        .map(|seg| match &seg.arguments {
+            syn::PathArguments::AngleBracketed(ab) => {
+                ab.args.iter().map(|a| a.to_token_stream()).collect::<Vec<_>>()
+            }
+            _ => vec![],
+        })
+        .unwrap_or_default();
     let mut preds = vec![];
     if !where_preds.is_empty() {
-        preds.push(apply_mapping(where_preds.iter().cloned().collect(), entries));
+        let p = sync_trait_application(where_preds.iter().cloned().collect(), &trait_args)?;
+        preds.push(apply_mapping(p, entries));
     }
     if let Some(wc) = &item.generics.where_clause {
-        preds.push(apply_mapping(wc.predicates.to_token_stream(), entries));
+        let p = sync_trait_application(wc.predicates.to_token_stream(), &trait_args)?;
+        preds.push(apply_mapping(p, entries));
     }
     let where_clause = if preds.is_empty() { quote!() } else { quote!(where #(#preds),*) };
     let items = item

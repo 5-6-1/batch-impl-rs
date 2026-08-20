@@ -162,7 +162,7 @@ pub(crate) fn prepare_attr_expansion(
     // New bare `where predicate {body}` syntax → uniformly rewritten to legacy `where{predicate}`
     // (before `A<>` expansion: `Foo<>` inside predicates must pass through, not be expanded).
     // The trait entries require the trailing code block (`allow_end = false`); only the impl entry
-    // ItemImpl entry permits a body-less where region.
+    // permits a body-less where region.
     let expanded = where_process(&expanded, false)?;
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = crate::analyze::extract_trait_bounds(&trait_item);
