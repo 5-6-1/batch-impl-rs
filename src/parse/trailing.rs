@@ -68,14 +68,11 @@ pub(crate) fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
 
 /// Wrapper kind (`WithAttr`/`WithPrefix` half-applied, inner `None`): empty
 /// rest keeps the half-applied node, otherwise apply to the parsed remainder.
-/// The remainder is operator-free by construction (the caller's segment cut
-/// stops at `.`/`,`), so the Prim level suffices. `depth` threads the
-/// chained-segment guard through the parse_primitive recursion.
-pub(crate) fn attach_wrapper(
-    kind: TyKind, rest: &[TokenTree], trait_name: Option<&Ident>, depth: usize,
-) -> Ty {
+/// The remainder is operator-free by construction (it is a sub-slice of a
+/// space unit — no adjacency), so the Prim level suffices.
+pub(crate) fn attach_wrapper(kind: TyKind, rest: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     let base = Ty { span: proc_macro2::Span::call_site(), kind };
-    if rest.is_empty() { base } else { base.apply(parse_primitive(rest, trait_name, depth + 1)) }
+    if rest.is_empty() { base } else { base.apply(parse_primitive(rest, trait_name)) }
 }
 
 /// Strips every trailing attachment (`{body}` / `where{...}` / `impl{...}`)

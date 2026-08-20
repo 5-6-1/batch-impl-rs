@@ -1,4 +1,31 @@
 //! Parsing layer: DSL precedence-climbing parser and angle-bracket generic parsing.
+//!
+//! # Precedence hierarchy and its invariants
+//!
+//! Low → high: `;` < `,` < **space** (left-assoc, the Dash level) < `.`
+//! (right-assoc, the Caret level) < atoms (Prim). Two mechanisms cut the
+//! token stream:
+//!
+//! - the **space chain** (`space_chain_fold`) cuts *units* at adjacency
+//!   boundaries — a space application is an atom directly followed by another
+//!   atom, and the space is not a token, so the cut is made by
+//!   [`scan_space_unit`](crate::parse::space::scan_space_unit);
+//! - every other level cuts by **stop characters** (`parse_operand` →
+//!   `take_segment`).
+//!
+//! The invariants that keep the layers sound:
+//!
+//! 1. A space unit contains **no adjacency boundary** (the scan consumes
+//!    `.` chains, `::` paths, prefixes, groups, arrows and ranges into it).
+//! 2. The `.` chain operates *inside* a unit, so its operands (segments cut
+//!    at `.`/`,`) never contain adjacency either.
+//! 3. Hence the Prim level ([`parse_primary`]) never sees two adjacent
+//!    atoms — adjacency is consumed by the space chain alone, and the
+//!    skeleton rest-apply that used to live in `parse_primary` is gone. One
+//!    exception keeps a passthrough: `for<'a> fn(...)` / `dyn for<'a> ...`
+//!    units are scanned whole (the `<>` there is an HRTB bound, not generic
+//!    args of a base), so `parse_generic` still sees a non-empty rest and
+//!    passes the unit through as a primitive.
 
 mod chain;
 mod generic;
@@ -74,26 +101,12 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
 /// Consecutive attachments (`T{a}{b}` / `T where{...}`) are a **linear chain**; strip by loop
 /// removes recursion (deep bodies overflow the stack); iteration removes any depth limit.
 ///
-/// `depth` counts chained type segments — every "parse the remaining tokens and
-/// apply the current unit" recursion in [`parse_primary`] adds one level. Flat
-/// chains (`<T><U>...X`, `Trait<A> Trait<B>... X`, `#[a] #[b]... X`) build a
-/// deep `Ty` tree without any group nesting, so the token-level group guard
-/// (`angle_collect`'s `MAX_NEST_DEPTH`) cannot catch them; this entry enforces
-/// the same limit. Attachments are counted separately below (they wrap the
-/// type one `WithCode`/`WithWhere` level per body).
-pub(crate) fn parse_primitive(
-    tokens: &[TokenTree], trait_name: Option<&Ident>, depth: usize,
-) -> Ty {
-    if depth > MAX_NEST_DEPTH {
-        return err_ty_at(
-            &format!(
-                "batch-impl: chained type segments exceed {} levels (limit {}); \
-                 split into separate impl-specs",
-                depth, MAX_NEST_DEPTH,
-            ),
-            tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span()),
-        );
-    }
+/// The chain-depth guards live where the chains are built: the space chain
+/// (`space_chain_fold`) and the `.` chain (`parse_dot_chain`) each cap their
+/// operand count at `MAX_NEST_DEPTH`, and this entry caps the attachment
+/// chain below — so every downstream recursive traversal
+/// (`map_children` / `expand_splat_elems` / rendering) stays depth-bounded.
+pub(crate) fn parse_primitive(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     // Collect attachments outside-in (outer first); `rest` shrinks to the innermost base
     let (mut attaches, rest) = strip_attachments(tokens);
     // Attachment-chain guard: each attachment nests the type one wrapper
@@ -115,10 +128,10 @@ pub(crate) fn parse_primitive(
         // injection" base (inner `None` mark); empty attaches = empty input, so parse atomically
         match attaches.pop() {
             Some(inner) => inner,
-            None => parse_primary(rest, trait_name, depth),
+            None => parse_primary(rest, trait_name),
         }
     } else {
-        parse_primary(rest, trait_name, depth)
+        parse_primary(rest, trait_name)
     };
     // Apply from inside out (attaches tail = innermost)
     while let Some(block) = attaches.pop() {

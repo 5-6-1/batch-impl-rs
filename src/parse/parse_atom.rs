@@ -18,9 +18,7 @@ pub(crate) fn parse_attribute(tokens: &[TokenTree]) -> Option<(TokenStream, &[To
 }
 
 /// `fn(A,B)->C` function type parsing (fn + parameter tuple + optional return type)
-pub(crate) fn parse_function(
-    tokens: &[TokenTree], trait_name: Option<&Ident>, _depth: usize,
-) -> Option<Ty> {
+pub(crate) fn parse_function(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Option<Ty> {
     let [TokenTree::Ident(name), TokenTree::Group(args), rest @ ..] = tokens else {
         return None;
     };

@@ -36,8 +36,8 @@ pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, trait_name: Option<&Ide
             }
         },
         Op::Dash => parse_space_chain(cursor, trait_name),
-        Op::Caret => parse_binary_chain(cursor, trait_name),
-        Op::Prim => parse_primitive(cursor.take_rest(), trait_name, 0).into(),
+        Op::Caret => parse_dot_chain(cursor, trait_name),
+        Op::Prim => parse_primitive(cursor.take_rest(), trait_name).into(),
     }
 }
 
@@ -174,7 +174,7 @@ fn chain_boundary_error(t: &TokenTree) -> Ty {
 /// `MAX_NEST_DEPTH` guard would not catch it; the operand count is capped at
 /// the same limit here — every downstream recursive traversal
 /// (`map_children` / `expand_splat_elems` / rendering) is then depth-bounded.
-fn parse_binary_chain(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Option<Ty> {
+fn parse_dot_chain(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Option<Ty> {
     // Left operand: `.A` parses to an empty Primitive instead, caught by
     // is_empty_operand. Empty segments error either way.
     let hint = " (e.g. `T.U`)";

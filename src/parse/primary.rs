@@ -1,4 +1,10 @@
 //! Primary type parsing: groups, generic args (incl. array dispatch), splats, prefixes.
+//!
+//! The Prim level's input never contains a space-application boundary: the
+//! space chain cuts units by adjacency (see `parse/mod.rs` invariants), each
+//! unit is parsed at the Caret level, and `.` operands are sub-segments of a
+//! unit. Consequently `parse_generic`/`parse_type_params`/splat here always
+//! see an **empty rest** — the old skeleton rest-apply is gone.
 
 use crate::apply::{err_ty, err_ty_at};
 use crate::ast::*;
@@ -14,18 +20,12 @@ use crate::parse::{parse_item, split_at_depth0};
 use crate::util::Cursor;
 use proc_macro2::{Delimiter, Ident, TokenTree};
 
-/// Primary type parsing: groups, generic args (incl. array dispatch), splats, prefixes.
-///
-/// `depth` counts chained type segments (see [`parse_primitive`]): every
-/// `parse_primitive(rest, depth + 1)` call below is one more applied unit,
-/// so flat chains like `<T><U>...X` or `Trait<A> Trait<B>... X` hit the
-/// 128-level guard instead of overflowing the downstream tree traversals.
-pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>, depth: usize) -> Ty {
+pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     if let Some((attr, rest)) = parse_attribute(tokens) {
-        return attach_wrapper(TyWithAttr(TyAttr(attr), None).into(), rest, trait_name, depth);
+        return attach_wrapper(TyWithAttr(TyAttr(attr), None).into(), rest, trait_name);
     }
 
-    if let Some(function) = parse_function(tokens, trait_name, depth) {
+    if let Some(function) = parse_function(tokens, trait_name) {
         return function;
     }
 
@@ -44,7 +44,7 @@ pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>, de
         //   any other type is almost certainly a forgotten `.` (unsafe.Vec<T>)
         if matches!(prefix, TyPrefix::Unsafe) && !rest.is_empty() {
             if matches!(rest.first(), Some(TokenTree::Ident(f)) if f == "fn") {
-                let inner = parse_primitive(rest, trait_name, depth + 1);
+                let inner = parse_primitive(rest, trait_name);
                 return match inner.kind {
                     TyKind::Fn(mut f) => {
                         f.2 = true;
@@ -59,8 +59,7 @@ pub(crate) fn parse_primary(tokens: &[TokenTree], trait_name: Option<&Ident>, de
 or act as a bare impl marker (e.g. `unsafe.T`)",
             );
         }
-        let inner = attach_wrapper(TyWithPrefix(prefix, None).into(), rest, trait_name, depth);
-        return inner;
+        return attach_wrapper(TyWithPrefix(prefix, None).into(), rest, trait_name);
     }
 
     // Splat prefix: `*[...]` / `*(...)` — flatten a container's elements into
@@ -69,7 +68,7 @@ or act as a bare impl marker (e.g. `unsafe.T`)",
     // and each chunk parsed as a full expression (`parse_item` — so `*().3`
     // keeps its generator); splats are flattened at consumption (container
     // collection / apply), not here.
-    if let [TokenTree::Punct(star), TokenTree::Group(group), rest @ ..] = tokens
+    if let [TokenTree::Punct(star), TokenTree::Group(group)] = tokens
         && star.as_char() == '*'
         && matches!(group.delimiter(), Delimiter::Bracket | Delimiter::Parenthesis)
     {
@@ -89,17 +88,12 @@ or act as a bare impl marker (e.g. `unsafe.T`)",
         };
         // `*[...]` is set semantics (distribute), `*(...)` is list semantics
         // (append) — the variant mirrors the parse-time delimiter.
-        let splat = if matches!(group.delimiter(), Delimiter::Bracket) {
+        return if matches!(group.delimiter(), Delimiter::Bracket) {
             TySplat::Array(TyArray(elems)).to_ty()
         } else {
             TySplat::Tuple(TyTuple(elems)).to_ty()
         }
         .with_span(star.span());
-        return if rest.is_empty() {
-            splat
-        } else {
-            splat.apply(parse_primitive(rest, trait_name, depth + 1))
-        };
     }
 
     // A bare `*` that is neither a splat (`*[...]` / `*(...)`) nor a raw
@@ -155,29 +149,24 @@ or act as a bare impl marker (e.g. `unsafe.T`)",
     }
 
     if let Some((base, args, rest)) = parse_generic(tokens) {
+        // `rest` non-empty means the `<>` group is an HRTB bound of a prefix
+        // (`for<'a> fn(...)` / `dyn for<'a> Fn(...)`) rather than generic
+        // args of the base — the space chain keeps such units whole, so the
+        // whole unit passes through as a primitive.
+        if !rest.is_empty() {
+            return primitive(tokens);
+        }
         let args_vec = args.into_iter().collect::<Vec<TokenTree>>();
         let params =
             parse_angle_bracket_contents(&args_vec, trait_name, is_trait_base(&base, trait_name));
-        let generic = if is_trait_base(&base, trait_name) {
+        return if is_trait_base(&base, trait_name) {
             TyTrait(base.iter().cloned().collect(), params).into()
         } else {
-            // rest non-empty and not an angle-bracket group (`Vec<T><U>` = chained generics, via apply):
-            // anything else (e.g. `Vec<T>U`) is treated as a passthrough
-            if !rest.is_empty()
-                && !matches!(rest.first(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>])
-            {
-                return primitive(tokens);
-            }
             TyGeneric(primitive(&base).into(), params).into()
-        };
-        return if rest.is_empty() {
-            generic
-        } else {
-            generic.apply(parse_primitive(&rest, trait_name, depth + 1))
         };
     }
 
-    if let Some((args, rest)) = parse_type_params(tokens) {
+    if let Some((args, _rest)) = parse_type_params(tokens) {
         let args_vec = args.into_iter().collect::<Vec<_>>();
         let params = parse_angle_bracket_contents(&args_vec, trait_name, true);
         // The declaration position cannot carry a generator (`<*().N>` /
@@ -192,12 +181,7 @@ or act as a bare impl marker (e.g. `unsafe.T`)",
                 tokens[0].span(),
             );
         }
-        let params = params.into();
-        return if rest.is_empty() {
-            params
-        } else {
-            params.apply(parse_primitive(&rest, trait_name, depth + 1))
-        };
+        return params.into();
     }
 
     primitive(tokens)
