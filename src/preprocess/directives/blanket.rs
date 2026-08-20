@@ -7,7 +7,7 @@
 //! attachment semantics under "syntax-domain isolation" in architecture.md).
 
 use proc_macro2::{Group, TokenStream, TokenTree};
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::ItemTrait;
 
 use crate::ast::{fresh_param, take_group};
@@ -15,7 +15,7 @@ use crate::preprocess::{
     angle_collect, build_from_item, collect_call_args, get_trait_item, parse_blanket_wrappers,
     parse_names_from_tokens,
 };
-use crate::util::{compile_err, compile_error_str};
+use crate::util::compile_err;
 
 /// `#blanket(@all){&,Box,Rc}` — blanket delegation: emits one complete spec
 /// per wrapper type.
@@ -71,7 +71,10 @@ pub(crate) fn expand_blanket(
     // T's bound: `Trait<X>` (with args) or bare `Trait`.
     // Args must be grouped into an angle group (same as trait_part) — once
     // grouped, parsing is correct without relying on idempotence.
-    let t_bound = trait_with_args(trait_full_path, &param_names);
+    let t_bound = crate::preprocess::directives::blanket_helpers::trait_with_args(
+        trait_full_path,
+        &param_names,
+    );
     // blanket runs after angle_collect and its output is no longer paired,
     // so groups must be built manually. The bound uses trait_full_path (with
     // `#[batch_impl_only(#ext::Trait: ...)]` it is an external path; a local
@@ -113,7 +116,10 @@ pub(crate) fn expand_blanket(
     let trait_part = if param_names.is_empty() {
         quote!()
     } else {
-        trait_with_args(trait_full_path, &param_names)
+        crate::preprocess::directives::blanket_helpers::trait_with_args(
+            trait_full_path,
+            &param_names,
+        )
     };
     // The `T as Trait<X>` form for assoc-item projections
     let as_trait = if param_names.is_empty() {
@@ -159,7 +165,12 @@ pub(crate) fn expand_blanket(
         // Wrapper where predicates: `@0` → target generic name; merged into
         // where (zero-analysis parallel merge)
         let wrapper_preds = match &wrapper.where_preds {
-            Some(preds) => resolve_target_predicates(preds, trait_full_path)?,
+            Some(preds) => {
+                crate::preprocess::directives::blanket_helpers::resolve_target_predicates(
+                    preds,
+                    trait_full_path,
+                )?
+            }
             None => vec![],
         };
         // Insert predicate streams as wholes (commas between predicates are
@@ -191,7 +202,9 @@ pub(crate) fn expand_blanket(
                     // `Self` is the wrapper — `fn new() -> Self` through
                     // `Box` used to emit `t::new()` and fail with rustc's
                     // E0308 at the generated impl. Report with guidance.
-                    if return_type_refs_self(&f.sig.output) {
+                    if crate::preprocess::directives::blanket_helpers::return_type_refs_self(
+                        &f.sig.output,
+                    ) {
                         return Err(compile_err!(
                             "batch-impl: #blanket method `{}::{}` returns/refers to \
                              `Self` (bare or `Self::Assoc` projection); blanket delegation \
@@ -268,89 +281,14 @@ pub(crate) fn expand_blanket(
         // last) — the existing behavior.
         let wrapper_vec: Vec<_> = wrapper_ty.clone().into_iter().collect();
         let target: TokenStream =
-            if has_at0(&wrapper_vec) { quote!(#wrapper_ty) } else { quote!(#wrapper_ty . #t) };
+            if crate::preprocess::directives::blanket_helpers::has_at0(&wrapper_vec) {
+                quote!(#wrapper_ty)
+            } else {
+                quote!(#wrapper_ty . #t)
+            };
         spec_streams.push(quote! {
             #doc_note #impl_generics #trait_part #target #where_part { #methods }
         });
     }
     Ok(quote!(#(#spec_streams),*).into_iter().collect())
-}
-
-/// Whether a method's return type references `Self` (making blanket
-/// delegation unsound: the forwarded call returns the inner type, not the
-/// wrapper's `Self`).
-fn return_type_refs_self(output: &syn::ReturnType) -> bool {
-    match output {
-        syn::ReturnType::Default => false,
-        syn::ReturnType::Type(_, ty) => ty
-            .to_token_stream()
-            .into_iter()
-            .any(|tt| matches!(tt, TokenTree::Ident(id) if id == "Self")),
-    }
-}
-
-/// Whether a wrapper's main part contains the `@0` target marker (`@` +
-/// literal `0`, possibly nested inside groups) — the position decision only;
-/// the marker itself is resolved by the parse layer into the fresh name.
-fn has_at0(tokens: &[TokenTree]) -> bool {
-    let v: Vec<_> = tokens.to_vec();
-    v.iter().enumerate().any(|(i, tt)| match tt {
-        TokenTree::Punct(p) if p.as_char() == '@' => {
-            matches!(v.get(i + 1), Some(TokenTree::Literal(l)) if l.to_string() == "0")
-        }
-        TokenTree::Group(g) => has_at0(&g.stream().into_iter().collect::<Vec<_>>()),
-        _ => false,
-    })
-}
-
-/// `Trait<X, Y>` with grouped angle args — blanket runs after `angle_collect`
-/// and its output is no longer paired, so the group is built manually. An
-/// empty param list yields the bare path.
-fn trait_with_args(path: &TokenStream, param_names: &[TokenStream]) -> TokenStream {
-    if param_names.is_empty() {
-        quote!(#path)
-    } else {
-        let args_group = Group::new(delimiter![<>], quote!(#(#param_names),*));
-        quote!(#path #args_group)
-    }
-}
-
-/// Replaces `@trait` in wrapper where predicates with the full trait path
-/// (local name, or the `#ext::Trait:` external path for `batch_impl_only`).
-/// `@N` position references are **kept as-is** and resolved by codegen's
-/// `resolve_where_at` like any user where predicate (blanket's fresh generic
-/// is the only fresh, so `@0` indexes it); other tokens after `@` error.
-fn resolve_target_predicates(
-    preds: &[TokenTree], trait_full_path: &TokenStream,
-) -> Result<Vec<TokenTree>, TokenStream> {
-    let mut out = vec![];
-    let mut i = 0;
-    while i < preds.len() {
-        match &preds[i] {
-            TokenTree::Punct(p) if p.as_char() == '@' => match preds.get(i + 1) {
-                Some(TokenTree::Ident(id)) if id == "trait" => {
-                    out.extend(trait_full_path.clone());
-                    i += 2;
-                }
-                // `@0` / `@N`: keep as-is for codegen; other forms error
-                Some(TokenTree::Literal(lit)) if lit.to_string().parse::<usize>().is_ok() => {
-                    out.push(preds[i].clone());
-                    out.push(TokenTree::Literal(lit.clone()));
-                    i += 2;
-                }
-                _ => {
-                    return Err(compile_error_str(
-                        "batch-impl: in #blanket wrapper where, `@` must be \
-                         followed by a position digit (e.g. `@0`) or `@trait`",
-                        preds[i].span(),
-                    ));
-                }
-            },
-            _ => {
-                out.push(preds[i].clone());
-                i += 1;
-            }
-        }
-    }
-    Ok(out)
 }

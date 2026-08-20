@@ -14,6 +14,7 @@
 //! - [`blanket_wrappers`] — blanket wrapper parsing (`wrapper.T` forms).
 
 mod blanket;
+mod blanket_helpers;
 mod blanket_wrappers;
 mod delegate_args;
 mod dispatch;
