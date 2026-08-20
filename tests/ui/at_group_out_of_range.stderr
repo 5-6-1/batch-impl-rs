@@ -1,7 +1,7 @@
 error: batch-impl: `@2_0` does not match a generated generic — this impl has no group 2 position 0 (groups and positions number from 0); use `@N` for the N-th fresh generic in document order
  --> tests/ui/at_group_out_of_range.rs:5:1
   |
-5 | #[batch_impl(().3-().3 where{@2_0: Clone})]
+5 | #[batch_impl(().3 ().3 where{@2_0: Clone})]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -23,8 +23,8 @@ batch_preview! {
 
 The preview's diagnostic channel makes this block fail to compile by design (the message IS
 the output); it reports one message containing the trait and both generated impls. It also teaches the
-`.`/`-` associativity identity: a known 1-arity container rendered with 2+ args
-(`Box<Vec, u32>`) is the shape of `Box.Vec-u32` (= `Box-Vec-u32`, since `A.B-C` =
-`A-B-C` = `A<B, C>`), and the note suggests the nesting rewrite (`Box.Vec.u32`).
+`.`/space associativity identity: a known 1-arity container rendered with 2+ args
+(`Box<Vec, u32>`) is the shape of `Box.Vec u32` (= `Box Vec u32`, since `A.B C` =
+`A B C` = `A<B, C>`), and the note suggests the nesting rewrite (`Box.Vec.u32`).
 This guidance is preview-only: the compiler path never guesses, and a user type shadowing a
 known container name costs a wrong note, never a wrong build.

@@ -146,7 +146,7 @@ fn demos_unsafe() {
 #[batch_impl(fn.(i32, u32))]
 trait FnProbe {}
 
-#[batch_impl(fn(i32, u32)-String)]
+#[batch_impl(fn(i32, u32) String)]
 trait FnProbeWithRet {}
 
 fn demos_fn_types() {

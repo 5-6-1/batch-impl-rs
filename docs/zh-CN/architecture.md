@@ -16,7 +16,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── mod.rs            入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
   │   ├── impl_entry.rs     Ext 1 ItemImpl 入口：形状模板 × 矩阵源实例化（attr 预处理子集 + `;` spec 切分 + 装配）
   │   ├── driver.rs         共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
-  │   ├── preview.rs        batch_preview!：诊断通道展开预览 + `.`/`-` 误写提示
+  │   ├── preview.rs        batch_preview!：诊断通道展开预览 + `.`/空格 误写提示
   │   └── path_prefix.rs    外部 trait 路径前缀：#Path::to::Trait: 状态机解析
   ├── analyze/              trait 定义语义分析
   │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST 引用收集（where 谓词透传槽位）
@@ -25,7 +25,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── diagnostic.rs     统一 compile_error_str(msg, span) / compile_err! / compile_err_at! 用于编译期诊断（ident-span 方案：只盖 compile_error 关键字）
   ├── parse/                解析层
   │   ├── mod.rs            入口：parse_primitive + `@` 引用解析（119 行）
-  │   ├── chain.rs          运算符链解析：`-`/`.` 优先级攀爬（parse_item / parse_operand）
+  │   ├── chain.rs          运算符链解析：空格/`.` 优先级攀爬（parse_item / parse_operand / parse_space_chain）
   │   ├── primary.rs        主类型：分组、泛型实参（含数组分发）、splat、前缀
   │   ├── trailing.rs       尾随 `{body}` / `where{...}` 拆分 + wrapper 附着
   │   ├── parse_atom.rs     原子层解析：属性 / fn / 前缀 / 范围 / 分组 / 列表
@@ -61,7 +61,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
 **token 流 → const 展开（`@` 常量：内置 + batch_trait! 自定义表）→
 angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..n 个 token：既有
 指令恰一 `{...}` 组，`#blanket` 多段 spec）→ where 裸写改写 → `A<>` 照抄
-→ Cursor 扫描取切片 → parse_item 优先级攀爬（`.`/`-` 经 `Apply` 组合：
+→ Cursor 扫描取切片 → parse_item 优先级攀爬（空格/`.` 经 `Apply` 组合：
 右操作数结构优先分发）→ Ty AST → 工作清单摊平并列列表 → 逐叶子 generate_impl**
 
 ### 预处理顺序：`@ <> # where`（宏元层最外）
@@ -117,14 +117,14 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 
 | 域 | 记号 | 语义 | 由谁解析 |
 |----|------|------|----------|
-| **类型域**（spec 表达式） | `.`/`-`（同一 apply 的两种结合性：右嵌套/左累加）、`[...]` 列表、`(...)` 元组、`*[...]`/`*(...)` splat、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
+| **类型域**（spec 表达式） | `.`/空格（同一 apply 的两种结合性：右嵌套/左累加，外加裸 trait 名）、`[...]` 列表、`(...)` 元组、`*[...]`/`*(...)` splat、`<...>` 泛型、`where{...}` 后缀、附着 `{body}` | 描述类型矩阵，每个格子生成一个 impl | `parse/` + `apply/` + `codegen/` |
 | **指令域**（`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){包装}` / 开放扩展） | 参数列表内 `,` 分隔、`-name` 排除项、`@all` 系列标记 | 从 trait 定义抄签名 / 批量填 body / 委托调用 / 覆盖式委托 | `preprocess/`（`parse_names_from_tokens` 独立解析，DSL 解析不进入） |
 | **宏元层**（`@` 常量） | `@u*`/`@scalar` 名字族、`@u8..u128` 范围族、`batch_trait!` 前导 `@name=值;` 自定义段 | 类型矩阵命名复用；词法替换为列表后走原管线，不参与任何域内解析 | `consts.rs`（`angle_collect` 后、指令预处理前） |
 
 ### 隔离规则
 
-- **同记号、分域、各义**：`-` 在类型域是 apply 链接（`HashMap-K-V` = `HashMap<K, V>`），
-  在指令域是排除记号（`#fill(@all,-foo)`）——两域解析互不进入，语义永不冲突；
+- **同记号、分域、各义**：空格在类型域是左结合 apply（`HashMap K V` = `HashMap<K, V>`），
+  `-` 在指令域是排除记号（`#fill(@all,-foo)`）——两域解析互不进入，语义永不冲突；
 - **域边界即模块边界**：类型域解析（`parse_item` 优先级攀爬）永远不递归进入
   指令参数；指令预处理（`expand_tokens`）只展开 `#` 指令，不解释 DSL 运算符；
   `@` 常量（`preprocess/consts/`）只做词法替换，不进入任何域；
@@ -148,7 +148,7 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 
 ### 扩展准则
 
-新语法只能**在既有域内延伸既有机制**（如 `.`/`-` 系补充差集、指令域补充新
+新语法只能**在既有域内延伸既有机制**（如 `.`/空格 系补充差集、指令域补充新
 指令、宏元层补充新常量），不得跨域复用记号、不得改变既有记号的域内语义。
 `@` 绑定与 `#blanket` 均遵循此准则：前者是宏元层纯词法替换，后者是指令域
 内 `#delegate` 的自动化形态。
@@ -214,13 +214,13 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 在配对时计数，`MAX_NEST_DEPTH = 128`）。
 
 **扁平链深度护栏**（0.8.0）：三种扁平构造不产生任何组嵌套，却同样构建深 `Ty` 树，
-token 层护栏看不见它们——`.`/`-` 算子链（右结合 `.` 每个操作数嵌套一层 `TyGeneric`）、
+token 层护栏看不见它们——`.`/空格 算子链（右结合 `.` 每个操作数嵌套一层 `TyGeneric`）、
 尾部 `{...}`/`where{...}` 附件链（每个 body 包一层 wrapper）、链式类型段
 （`<T><U>...X`、`Trait<A> Trait<B>... X`、`#[a] #[b]... X`）。三者都在解析层封顶 128
-（`parse_binary_chain` 的操作数计数；`parse_primitive` 的附件计数与段深度），使下游
+（`parse_binary_chain` 的操作数计数与空格链的单位计数；`parse_primitive` 的附件计数与段深度），使下游
 所有递归遍历（`map_children` / `expand_splat_elems` / `hoist_type_params` /
 `ToTokens`）深度有界——此前约 850 个 `.` 链式单元即令 rustc 栈溢出
-（STATUS_STACK_OVERFLOW，实测；10000 个操作数的 `-` 链保持扁平从不溢出——证实深度
+（STATUS_STACK_OVERFLOW，实测；10000 个操作数的空格链保持扁平从不溢出——证实深度
 理论的差分探针）。
 
 **span 诊断**（0.6.2）：每个 `Ty` 节点携带源 span（`struct Ty { span, kind }`），

@@ -16,7 +16,7 @@ Every capability of batch-impl is built from three pillars (polished continuousl
 
 | Part | Notation | Role |
 |---|---|---|
-| **apply system** | `.` / `-` / `[]` / `()` | Type matrix: apply the left container/modifier to the right type, lists expand into multiple impls |
+| **apply system** | `.` / space / `[]` / `()` | Type matrix: apply the left container/modifier to the right type, lists expand into multiple impls |
 | **directive system** | `#name` / `#fill` / `#delegate` / `#blanket` | Copy signatures from the trait definition, fill bodies in bulk, delegate calls, blanket delegation |
 | **constant system** | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | Macro-meta layer: name and reuse type-matrix entries, pure lexical substitution |
 | **`*` operator** | `*[...]` / `*(...)` | Flatten: splice a container/generator into the enclosing list — new in 0.7.0, effective in every position |
@@ -52,11 +52,21 @@ The spec skeleton:
 
 Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 
-## 2. Type Matrix: `.` and `-`
+## 2. Type Matrix: the space (and `.`)
 
-`.` and `-` are **the same operation**: the left side is a modifier/container, the right side the target type. They differ only in associativity: `.` is right-associative (nesting), `-` is left-associative (accumulating params).
+**The space is the natural way to apply**: write the container/modifier and the types it takes side by side — chaining accumulates arguments left-associatively.
 
-Precedence from low to high: `;` < `,` < `-` < `.`; `()` grouping sits above all operators.
+| Writing                    | Expansion                            |
+|----------------------------|--------------------------------------|
+| `Box u32`                  | `Box<u32>`                           |
+| `HashMap u32 String`       | `HashMap<u32, String>` (left-associative accumulation) |
+| `Box u8 u16`               | `Box<u8, u16>`                       |
+| `fn.(A,B) C`               | `fn(A,B)->C` (or write `fn(A,B) -> C`) |
+| `& u8`                     | `&u8` (chained modifiers)            |
+| `Tr u8`                    | `impl Tr for u8` (a bare trait name) |
+| `[Box, Vec] u32`           | `Box<u32>, Vec<u32>` (lists expand)  |
+
+**`.` is the same operation with right-associative grouping** — use it when you want nesting instead of accumulation:
 
 | Writing                    | Expansion                            |
 |----------------------------|--------------------------------------|
@@ -64,18 +74,19 @@ Precedence from low to high: `;` < `,` < `-` < `.`; `()` grouping sits above all
 | `Box.<X,Y>`                | `Box<X, Y>` (multi-param container)  |
 | `Box.Box.T`                | `Box<Box<T>>` (right-associative nesting) |
 | `HashMap<K>.V`             | `HashMap<K, V>` (prefilled generics appended) |
-| `&.Box.T`                  | `&Box<T>` (chained modifiers)        |
-| `Vec-u32`                  | `Vec<u32>`                           |
-| `HashMap-u32-String`       | `HashMap<u32, String>` (left-associative accumulation) |
-| `fn.(A,B)-C`               | `fn(A,B)->C`                         |
+| `&.Box.T`                  | `&Box<T>`                            |
 | `[Box, Vec].T`             | `Box<T>, Vec<T>`                     |
 | `Box.[T1, T2]`             | `Box<T1>, Box<T2>`                   |
 | `[Box, Vec].[T1, T2]`      | Cartesian product, 4 entries         |
 | `[HashMap<K>, Vec<K>].V`   | `HashMap<K, V>, Vec<K, V>`           |
 
-> **Note**: `Box.Vec-u32` is wrong (it parses as `Box<Vec, u32>`); write `Box.Vec.u32` instead. When you miswrite it, rustc's E0107 error prints the rendered `Box<Vec, u32>` verbatim — the mistake is self-evident.
+**The bare trait name** applies as the impl trait: `Tr u8` = `impl Tr for u8`, `Tr<A> u8` = `impl Tr<A> for u8`. Write `Tr <u8>` (a separate angle-group unit) for the **type** `Tr<u8>`.
 
-> **Operand strictness**: both sides of `.`/`-`/`,` must have operands — `A.`, `.A`, `-A`, `,A`, `A,,B` all report `compile_error!`; only **trailing commas** (`A,` / `[A, B,]`) are allowed, and `()`/`[]` brackets are real tokens, not empty operands. `;` stays lenient as a `batch_trait!` section boundary.
+Precedence from low to high: `;` < `,` < space < `.`; `()` grouping sits above all operators.
+
+> **Note**: `Box.Vec u32` is wrong (it parses as `Box<Vec, u32>`); write `Box.Vec.u32` instead. When you miswrite it, rustc's E0107 error prints the rendered `Box<Vec, u32>` verbatim — the mistake is self-evident.
+
+> **Operand strictness**: both sides of `.`/space/`,` must have operands — `A.`, `.A`, `,A`, `A,,B` all report `compile_error!`; only **trailing commas** (`A,` / `[A, B,]`) are allowed, and `()`/`[]` brackets are real tokens, not empty operands. `;` stays lenient as a `batch_trait!` section boundary.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -157,9 +168,9 @@ The splat draws its intuition from Python's `*` unpacking — `[a, *b]` splices 
 # use batch_impl::batch_impl;
 struct T<A, B, C>(A, B, C);   // 3-arg container
 struct A; struct B; struct C;
-#[batch_impl(T-*(A, B, C).3)]  // splat-pow: unfold (A,B,C).3 into three arg positions
+#[batch_impl(T *(A, B, C).3)]  // splat-pow: unfold (A,B,C).3 into three arg positions
 trait Matrix27 {}
-// → 27 impls: T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（same as T-[A,B,C]-[A,B,C]-[A,B,C]）
+// → 27 impls: T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（same as T [A,B,C] [A,B,C] [A,B,C]）
 ```
 
 `*[...]` / `*(...)` splices a container/generator into the enclosing list. A splat stays a **whole unit** through parse/apply/expand and only flattens into its elements at codegen — one code path for every position.
@@ -344,7 +355,7 @@ Constant values are stored as **verbatim tokens**; reference sites splice and ex
 A leading `@name=value;` section defines reusable constants (values may chain
 references and embed DSL expressions). **`#[batch_impl]` / `#[batch_impl_only]`
 do not support custom constants** — the 0.7.2 feature was reverted in 0.8.0;
-write attribute-macro matrices directly with `.`/`-`/`*` instead:
+write attribute-macro matrices directly with `.`/space/`*` instead:
 
 ```rust
 # use batch_impl::batch_trait;
@@ -773,9 +784,11 @@ Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u1
 |---|---|---|
 | `&` / `&mut` | reference | `&.Box.T` = `&Box<T>` |
 | `*const` / `*mut` | raw pointer | `*const.T` = `*const T` |
-| `unsafe` | unsafe fn | `unsafe.fn.(A,B)-C` |
+| `unsafe` | unsafe fn / unsafe impl marker | `unsafe.fn.(A, B) C` = `unsafe impl ... for fn(A, B) -> C` |
 | `#[...]` attributes | attribute on the impl | `#[cfg(...)]` gating |
 | `!` | never type | `!.T` |
+
+> **`unsafe` has two roles** — `unsafe fn(A) -> B` is an *unsafe fn type*: the impl itself stays safe (`impl Tr for unsafe fn(A) -> B`). To mark the **impl** unsafe, apply `unsafe` with `.`: `unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`. If you find yourself writing `unsafe fn(...)` and expecting an unsafe impl, that is the wrong form.
 
 ## 11. Three Entry Points
 
@@ -807,9 +820,8 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
 - **Empty range** (`@u16..u8`): "no impls generated for empty range"
 - **`=`/`:` in concrete-type args**: bindings/bounds are trait-path/declaration-only — targeted error (`Assoc<Item = u32>` with a struct reports "binding args are only valid on a trait path")
-- **Adjacent types without an operator**: `A B` / `Vec<T>U` / `[A B]` — "missing `.` / `-` / `,`" instead of rendering invalid Rust
-- **Stray `;`/`=`/`@`/`#` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic)
-- **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `-B`)
+- **Stray `;`/`=`/`@`/`#`/`-` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic; a lone `-` is the retired operator — the exclusion lives only in directive lists)
+- **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `fn(A) B`)
 - **Blanket method returns `Self`**: `#blanket` cannot delegate a method returning `Self`/`Self::Assoc` (forwarding yields the inner type, not the wrapper's `Self`) — error with a `#name{...}` suggestion
 - **Empty binding/bound value**: `Conv<Item =>` / `Conv<T:> X` — "missing a value" / "missing a bound"
 - **Non-integer type literal**: `1.5` / `"hi"` / `'a'` — only an integer (usize) is a type

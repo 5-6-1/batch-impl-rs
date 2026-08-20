@@ -16,7 +16,7 @@ batch-impl 的一切能力由三根柱子（0.0→0.6 持续打磨）+ 一个操
 
 | 部分 | 记号 | 作用 |
 |---|---|---|
-| **apply 系统** | `.` / `-` / `[]` / `()` | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
+| **apply 系统** | `.` / 空格 / `[]` / `()` | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
 | **指令系统** | `#name` / `#fill` / `#delegate` / `#blanket` | 从 trait 定义抄签名、批量填 body、委托调用、覆盖式委托 |
 | **常量系统** | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | 宏元层：命名并复用类型矩阵条目，纯词法替换 |
 | **`*` 操作符** | `*[...]` / `*(...)` | 摊平：把容器/生成器展开拼入外层列表——0.7.0 新增，全位置生效 |
@@ -52,11 +52,11 @@ spec 的骨架：
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-## 2. 类型矩阵：`.` 与 `-`
+## 2. 类型矩阵：`.` 与空格
 
-`.` 与 `-` 是**同一运算**：左侧是修饰符/容器，右侧是目标类型。区别只在结合性：`.` 右结合（嵌套），`-` 左结合（累加参数）。
+`.`、空格与裸 trait 名是**同一运算**：左侧是修饰符/容器/trait，右侧是目标类型。区别只在结合性：`.` 右结合（嵌套），空格左结合（累加参数），裸 trait 名按 impl trait 应用。
 
-优先级从低到高：`;` < `,` < `-` < `.`，`()` 分组在所有运算符之上。
+优先级从低到高：`;` < `,` < 空格 < `.`，`()` 分组在所有运算符之上。
 
 | 写法                     | 展开                                 |
 |--------------------------|--------------------------------------|
@@ -65,17 +65,18 @@ spec 的骨架：
 | `Box.Box.T`              | `Box<Box<T>>`（右结合嵌套）          |
 | `HashMap<K>.V`           | `HashMap<K, V>`（预填泛型追加）      |
 | `&.Box.T`                | `&Box<T>`（修饰符链式应用）          |
-| `Vec-u32`                | `Vec<u32>`                           |
-| `HashMap-u32-String`     | `HashMap<u32, String>`（左结合累加） |
-| `fn.(A,B)-C`             | `fn(A,B)->C`                         |
+| `Box u32`                | `Box<u32>`                           |
+| `HashMap u32 String`     | `HashMap<u32, String>`（左结合累加） |
+| `fn.(A,B) C`             | `fn(A,B)->C`（也可写 `fn(A,B) -> C`）|
+| `Tr u8`                  | `impl Tr for u8`（裸 trait 名；要类型 `Tr<u8>` 写 `Tr <u8>`）|
 | `[Box, Vec].T`           | `Box<T>, Vec<T>`                     |
 | `Box.[T1, T2]`           | `Box<T1>, Box<T2>`                   |
 | `[Box, Vec].[T1, T2]`    | 笛卡尔积共 4 项                      |
 | `[HashMap<K>, Vec<K>].V` | `HashMap<K, V>, Vec<K, V>`           |
 
-> **注意**：`Box.Vec-u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box.Vec.u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
+> **注意**：`Box.Vec u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box.Vec.u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
 
-> **操作数严格性**：`.`/`-`/`,` 两侧必须有操作数——`A.`、`.A`、`-A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
+> **操作数严格性**：`.`/空格/`,` 两侧必须有操作数——`A.`、`.A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -158,9 +159,9 @@ splat 的直觉来自 Python 的 `*` 解包——`[a, *b]` 拼接列表、`f(*ar
 # use batch_impl::batch_impl;
 struct T<A, B, C>(A, B, C);   // 三参容器
 struct A; struct B; struct C;
-#[batch_impl(T-*(A, B, C).3)]  // splat 幂：把 (A,B,C).3 展开到三个参数位
+#[batch_impl(T *(A, B, C).3)]  // splat 幂：把 (A,B,C).3 展开到三个参数位
 trait Matrix27 {}
-// → 27 个 impl：T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（与 T-[A,B,C]-[A,B,C]-[A,B,C] 相同）
+// → 27 个 impl：T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（与 T [A,B,C] [A,B,C] [A,B,C] 相同）
 ```
 
 `*` 前缀把容器/生成器**展开拼入**（扁平化）外层列表——它是"参数位置列表"的通用摊平标记，**全位置生效**。
@@ -346,7 +347,7 @@ trait BoxRc {}
 
 ### 6.3 自定义常量段（仅 `batch_trait!`）
 
-前导 `@name=值;` 段定义复用的常量（值可含链式引用与 DSL 表达式）。**`#[batch_impl]` / `#[batch_impl_only]` 不支持自定义常量**——0.7.2 误加的特性已在 0.8.0 回退；属性宏矩阵直接用 `.`/`-`/`*` 书写：
+前导 `@name=值;` 段定义复用的常量（值可含链式引用与 DSL 表达式）。**`#[batch_impl]` / `#[batch_impl_only]` 不支持自定义常量**——0.7.2 误加的特性已在 0.8.0 回退；属性宏矩阵直接用 `.`/空格/`*` 书写：
 
 ```rust
 # use batch_impl::batch_trait;
@@ -752,6 +753,8 @@ trait FnT {}
 trait Attr {}
 ```
 
+> **`unsafe` 有两种角色**——`unsafe fn(A) -> B` 是 *unsafe fn 类型*：impl 本身保持安全（`impl Tr for unsafe fn(A) -> B`）。要把 **impl** 标记为 unsafe，用 `.` 应用 `unsafe`：`unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`。如果你写 `unsafe fn(...)` 却期待一个 unsafe impl，那就是写错了形式。
+
 **数组/切片 builder**：`[u8; 3]` 定长、`[u8]` 切片：
 
 ```rust
@@ -804,9 +807,8 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
 - **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
 - **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径与泛型声明——定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path"）
-- **相邻类型缺少操作符**：`A B` / `Vec<T>U` / `[A B]`——报 "missing `.` / `-` / `,`"（不渲染非法 Rust）
-- **类型位置的 `;`/`=`/`@`/`#` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断）
-- **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `-B`）
+- **类型位置的 `;`/`=`/`@`/`#`/`-` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断；孤 `-` 是已退役运算符——排除语义仅存于指令列表）
+- **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `fn(A) B`）
 - **blanket 方法返回 `Self`**：`#blanket` 无法委托返回 `Self`/`Self::Assoc` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`
 - **binding/bound 缺值**：`Conv<Item =>` / `Conv<T:> X`——报 "missing a value" / "missing a bound"
 - **非整数类型字面量**：`1.5` / `"hi"` / `'a'`——类型位置只能是整数（usize）

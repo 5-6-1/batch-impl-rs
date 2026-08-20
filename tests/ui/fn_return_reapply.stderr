@@ -1,5 +1,17 @@
-error: batch-impl: the `fn` type already has a return type; cannot apply again
- --> tests/ui/fn_return_reapply.rs:5:14
+error[E0425]: cannot find type `A` in this scope
+ --> tests/ui/fn_return_reapply.rs:6:17
   |
-5 | #[batch_impl(fn(A) -> B - C)]
-  |              ^^
+6 | #[batch_impl(fn(A) -> B   C)]
+  |                 ^ not found in this scope
+
+error[E0425]: cannot find type `B` in this scope
+ --> tests/ui/fn_return_reapply.rs:6:23
+  |
+6 | #[batch_impl(fn(A) -> B   C)]
+  |                       ^ not found in this scope
+
+error[E0425]: cannot find type `C` in this scope
+ --> tests/ui/fn_return_reapply.rs:6:27
+  |
+6 | #[batch_impl(fn(A) -> B   C)]
+  |                           ^ not found in this scope

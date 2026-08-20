@@ -1,5 +1,7 @@
-error: batch-impl: chained type segments exceed 129 levels (limit 128); split into separate impl-specs
- --> tests/ui/segments_too_deep.rs:3:531
+error: batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs
+ --> tests/ui/segments_too_deep.rs:3:1
   |
-3 | ...u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8> X)]
-  |                                                                    ^
+3 | #[batch_impl(<u8><u8><u8><u8><u8><u8><u8><u8>...><u8><u8><u8><u8><u8><u8><u8><u8><u8><u8> X)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

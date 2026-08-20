@@ -28,7 +28,7 @@ trait ArrRange {}
 #[batch_impl([u8].[1, 2, 4])]
 trait ArrList {}
 
-#[batch_impl(<const N: usize> []-[&, self, Box].[u8, i8, ().0..3]-N)]
+#[batch_impl(<const N: usize> [] [&, self, Box].[u8, i8, ().0..3] N)]
 trait ArrMatrix {}
 
 #[batch_impl(Box.().0..3)]

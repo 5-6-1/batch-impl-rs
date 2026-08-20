@@ -1,7 +1,7 @@
 error: batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name)
  --> tests/ui/error_aggregation_codegen.rs:6:1
   |
-6 | #[batch_impl(().1-().1 where{@5: Clone}, ().2 where{@3: Copy})]
+6 | #[batch_impl(().1 ().1 where{@5: Clone}, ().2 where{@3: Copy})]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -9,7 +9,7 @@ error: batch-impl: `@5` is out of range — this impl has 2 fresh generics (numb
 error: batch-impl: `@3` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name)
  --> tests/ui/error_aggregation_codegen.rs:6:1
   |
-6 | #[batch_impl(().1-().1 where{@5: Clone}, ().2 where{@3: Copy})]
+6 | #[batch_impl(().1 ().1 where{@5: Clone}, ().2 where{@3: Copy})]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

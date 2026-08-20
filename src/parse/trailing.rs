@@ -69,11 +69,39 @@ pub(crate) fn split_trailing_body(tokens: &[TokenTree]) -> TrailingBody<'_> {
 /// Wrapper kind (`WithAttr`/`WithPrefix` half-applied, inner `None`): empty
 /// rest keeps the half-applied node, otherwise apply to the parsed remainder.
 /// The remainder is operator-free by construction (the caller's segment cut
-/// stops at `.`/`-`/`,`), so the Prim level suffices. `depth` threads the
+/// stops at `.`/`,`), so the Prim level suffices. `depth` threads the
 /// chained-segment guard through the parse_primitive recursion.
 pub(crate) fn attach_wrapper(
     kind: TyKind, rest: &[TokenTree], trait_name: Option<&Ident>, depth: usize,
 ) -> Ty {
     let base = Ty { span: proc_macro2::Span::call_site(), kind };
     if rest.is_empty() { base } else { base.apply(parse_primitive(rest, trait_name, depth + 1)) }
+}
+
+/// Strips every trailing attachment (`{body}` / `where{...}` / `impl{...}`)
+/// off `tokens`, returning the wrappers **outside-in** (the first element is
+/// the outermost attachment) and the remaining base tokens. Shared by
+/// `parse_primitive` and the space chain so the two entries cannot drift.
+pub(crate) fn strip_attachments(tokens: &[TokenTree]) -> (Vec<Ty>, &[TokenTree]) {
+    let mut attaches = vec![];
+    let mut rest = tokens;
+    loop {
+        let split = split_trailing_body(rest);
+        match (split.body, split.is_where, split.is_impl) {
+            (Some(body), false, false) => {
+                attaches.push(TyWithCode(None, TyCodeBlock(body)).into());
+                rest = split.tokens;
+            }
+            (Some(w), true, false) => {
+                attaches.push(TyWithWhere(None, TyWhere(w)).into());
+                rest = split.tokens;
+            }
+            (Some(t), false, true) => {
+                attaches.push(TyWithImpl(None, TyImplTemplate(t)).into());
+                rest = split.tokens;
+            }
+            _ => break,
+        }
+    }
+    (attaches, rest)
 }

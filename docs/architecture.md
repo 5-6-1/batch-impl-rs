@@ -16,7 +16,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   ├── mod.rs            entry implementation: expand_attr_macro / expand_batch_trait + the shared pipeline run_pipeline
   │   ├── impl_entry.rs     Ext 1 ItemImpl entry: shape-template × matrix-source instantiation (attr preprocessing subset + `;`-spec split + assembly)
   │   ├── driver.rs         shared driver: BFS over the parallel list → generate_impl per leaf
-  │   ├── preview.rs        batch_preview!: expansion through the diagnostic channel + `.`/`-` miswrite notes
+  │   ├── preview.rs        batch_preview!: expansion through the diagnostic channel + `.`/space miswrite notes
   │   └── path_prefix.rs    external trait path prefix: #Path::to::Trait: state-machine parsing
   ├── analyze/              trait-definition semantic analysis
   │   └── trait_bounds.rs   TraitBounds / TraitParam + syn AST reference collection (where-predicate pass-through slots)
@@ -25,7 +25,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
   │   └── diagnostic.rs     unified compile_error_str(msg, span) / compile_err! / compile_err_at! for compile-time diagnostics (ident-span scheme: only the compile_error keyword gets the target span)
   ├── parse/                parsing layer
   │   ├── mod.rs            entry: parse_primitive + `@` reference resolution (119 lines)
-  │   ├── chain.rs          operator-chain parsing: `-`/`.` precedence climbing (parse_item / parse_operand)
+  │   ├── chain.rs          operator-chain parsing: space/`.` precedence climbing (parse_item / parse_operand / parse_space_chain)
   │   ├── primary.rs        primary types: groups, generic args (incl. array dispatch), splats, prefixes
   │   ├── trailing.rs       trailing `{body}` / `where{...}` split + wrapper attachment
   │   ├── parse_atom.rs     atom-level parsing: attributes / fn / prefixes / ranges / groups / lists
@@ -62,7 +62,7 @@ lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trai
 angle_collect pairs angle-bracket groups → directive preprocessing (each directive expands to 0..n
 tokens: existing directives produce exactly one `{...}` group, `#blanket` produces multi-segment
 specs) → bare-`where` rewrite → `A<>` pass-through expansion
-→ Cursor scanning extracts slices → parse_item precedence climbing (`.`/`-` combined via `Apply`:
+→ Cursor scanning extracts slices → parse_item precedence climbing (space/`.` combined via `Apply`:
 right-operand-structure-first dispatch) → Ty AST → worklist flattens the parallel list → per-leaf
 generate_impl**
 
@@ -85,13 +85,13 @@ The DSL consists of three **mutually non-penetrating syntax domains**; each doma
 
 | Domain | Tokens | Semantics | Parsed by |
 |----|------|------|----------|
-| **Type domain** (spec expressions) | `.`/`-` (the two associativities of the same apply: right-nesting / left-accumulation), `[...]` lists, `(...)` tuples, `*[...]`/`*(...)` splats, `<...>` generics, `where{...}` suffix, attached `{body}` | Describes a type matrix; each cell generates one impl | `parse/` + `apply/` + `codegen/` |
+| **Type domain** (spec expressions) | `.`/space (the two associativities of the same apply: right-nesting / left-accumulation, plus the bare trait name), `[...]` lists, `(...)` tuples, `*[...]`/`*(...)` splats, `<...>` generics, `where{...}` suffix, attached `{body}` | Describes a type matrix; each cell generates one impl | `parse/` + `apply/` + `codegen/` |
 | **Directive domain** (`#name{body}` / `#fill(args)` / `#delegate(args)` / `#blanket(@all){wrapper}` / open extension) | `,`-separated argument lists, `-name` exclusions, `@all` family markers | Copies signatures from the trait definition / fills bodies in bulk / delegates calls / blanket delegation | `preprocess/` (`parse_names_from_tokens` parses independently; DSL parsing never enters) |
 | **Macro-meta layer** (`@` constants) | `@u*`/`@i*`/`@f*` name families, `@scalar`/`@num`, `@u8..u128`/`@i8..i128`/`@f32..f64` range families, `batch_trait!` leading `@name=value;` custom sections | Names and reuses type-matrix entries; after lexical substitution into lists they follow the original pipeline, participating in no in-domain parsing | `consts.rs` (after angle_collect, before directive preprocessing) |
 
 ### Isolation Rules
 
-- **Same token, separate domains, distinct meanings**: `-` is an apply link in the type domain (`HashMap-K-V` = `HashMap<K, V>`) and an exclusion marker in the directive domain (`#fill(@all,-foo)`) — the two domains never enter each other's parsing, so the semantics never conflict;
+- **Same token, separate domains, distinct meanings**: the space is the left-assoc apply in the type domain (`HashMap K V` = `HashMap<K, V>`) and `-` is an exclusion marker in the directive domain (`#fill(@all,-foo)`) — the two domains never enter each other's parsing, so the semantics never conflict;
 - **Domain boundaries are module boundaries**: type-domain parsing (`parse_item` precedence climbing) never recurses into directive arguments; directive preprocessing (`expand_tokens`) only expands `#` directives and does not interpret DSL operators; `@` constants (`preprocess/consts.rs`) only do lexical substitution and enter no domain;
 - **Uniform pass-through guards**: the contents of `ident![...]` macro bodies and `#[...]` attributes are arbitrary Rust; the four recursive entries (`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`) never enter them, and the decision converges in `scan::bracket_is_passthrough` (in 0.5.7 a missing guard caused `#name` directives inside `#[...]` to be wrongly expanded).
 - **Generic-arg domain split**: bindings (`Item = u32`) and bounds (`T: Clone`) are valid only on a trait path (`Conv<Item = u32> X`) or in a generic declaration (`<T: Clone> Foo`) — a concrete type's args are a plain type list, so `=`/`:` there errors with a targeted message (`parse_angle_bracket_contents`' `allow_special` gate; previously the bound was silently dropped and a struct binding rendered invalid code).
@@ -104,7 +104,7 @@ Directive expansion output falls into two kinds: **single-group output** (`#name
 
 ### Extension Guidelines
 
-New syntax may only **extend existing mechanisms within existing domains** (e.g. adding set-difference to the `.`/`-` family, new directives to the directive domain, new constants to the macro-meta layer); it must not reuse tokens across domains or change the in-domain semantics of existing tokens. Both `@` bindings and `#blanket` follow this guideline: the former is a pure lexical substitution at the macro-meta layer, and the latter is the automated form of `#delegate` within the directive domain.
+New syntax may only **extend existing mechanisms within existing domains** (e.g. adding set-difference to the `.`/space family, new directives to the directive domain, new constants to the macro-meta layer); it must not reuse tokens across domains or change the in-domain semantics of existing tokens. Both `@` bindings and `#blanket` follow this guideline: the former is a pure lexical substitution at the macro-meta layer, and the latter is the automated form of `#delegate` within the directive domain.
 
 **Syntax freeze (0.7.2)**: the semantics of every existing token are final — future releases only add (new directives / constants / tools), refine diagnostics, and polish docs; any change to existing semantics is a deliberate breaking release (the `@N` stability commitment, now extended to the whole surface).
 
@@ -142,15 +142,16 @@ All DSL syntax errors emit friendly compile errors via `compile_error!()`, and t
 **Nesting-depth guard** (0.6.1): nested groups (`[[[...]]]`) and nested angle brackets (`Vec<Vec<...>>`) deeper than 128 levels report "nesting depth exceeds 128 levels" instead of a stack overflow (a promise restored from v0.1; `angle_collect` counts while pairing, `MAX_NEST_DEPTH = 128`).
 
 **Flat-chain depth guards** (0.8.0): three flat constructs build an equally deep `Ty` tree
-without any group nesting, so the token-level guard above cannot see them — `.`/`-`
+without any group nesting, so the token-level guard above cannot see them — `.`/space
 operator chains (right-assoc `.` nests one `TyGeneric` per operand), trailing
 `{...}`/`where{...}` attachment chains (one wrapper per body), and chained type segments
 (`<T><U>...X`, `Trait<A> Trait<B>... X`, `#[a] #[b]... X`). Each is capped at 128 in the
-parse layer (`parse_binary_chain`'s operand count; `parse_primitive`'s attachment count
+parse layer (`parse_binary_chain`'s operand count and the space chain's unit count;
+`parse_primitive`'s attachment count
 and segment depth), so every downstream recursive traversal (`map_children` /
 `expand_splat_elems` / `hoist_type_params` / `ToTokens`) is depth-bounded — previously
 ~850 `.`-chained units overflowed the rustc stack (STATUS_STACK_OVERFLOW, measured; a
-10000-operand `-` chain stays flat and never overflowed — the differential probe that
+10000-operand space chain stays flat and never overflowed — the differential probe that
 confirmed the depth theory).
 
 **Span diagnostics** (0.6.2): every `Ty` node carries its source span (`struct Ty { span, kind }`); `Ty::apply` takes the span at a single point and carries it through the combinator output — errors inside `apply` point at the left-operand position. `compile_error_str(msg, span)` / `compile_err_at!(span, ...)` accept an explicit span.

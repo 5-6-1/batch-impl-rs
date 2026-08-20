@@ -204,17 +204,16 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
     if let Some(e) = validate_start_punct(tokens) {
         return e;
     }
-    if let Some(e) = validate_adjacent(tokens) {
-        return e;
-    }
     TyPrimitive(tokens.iter().cloned().collect()).to_ty().with_span(span)
 }
 
-/// `;`/`=`/`@`/`#` at depth 0 in a type position are always invalid — `;` is
+/// `;`/`=`/`@`/`#`/`-` at depth 0 in a type position are always invalid — `;` is
 /// the `batch_trait!` segment boundary; `=`/`@`/`#` have no legal role in a
-/// type (they belong inside `<...>` or before parsing). The `=` of `..=` is
-/// part of the range operator, not a binding, so a leftover after an earlier
-/// error must not cascade a second diagnostic.
+/// type (they belong inside `<...>` or before parsing); `-` was retired as
+/// the infix apply operator (space took its place; the exclusion survives
+/// only in directive argument lists). The `=` of `..=` is part of the range
+/// operator, not a binding, so a leftover after an earlier error must not
+/// cascade a second diagnostic; the `-` of `->` is part of the fn arrow.
 fn validate_stray_punct(tokens: &[TokenTree]) -> Option<Ty> {
     for (i, tt) in tokens.iter().enumerate() {
         if let TokenTree::Punct(p) = tt {
@@ -238,6 +237,13 @@ fn validate_stray_punct(tokens: &[TokenTree]) -> Option<Ty> {
                     '#' => Some(
                         "batch-impl: `#` inside a type (attributes belong at the spec start \
                          as `#[...].T`; directives are expanded before parsing)",
+                    ),
+                    // a Joint `-` heads `->` (the fn arrow, parsed by
+                    // parse_function); a lone `-` is the retired operator
+                    '-' if p.spacing() != proc_macro2::Spacing::Joint => Some(
+                        "batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; \
+                         the `-` exclusion only works in directive argument lists \
+                         like `#fill(@all, -foo)`)",
                     ),
                     _ => None,
                 }
@@ -278,52 +284,6 @@ fn validate_start_punct(tokens: &[TokenTree]) -> Option<Ty> {
              (`+`/`?` belong in bounds; a type cannot start with `.`)",
             p.span(),
         ));
-    }
-    None
-}
-
-/// Adjacent type fragments without an operator (`A B`, `Vec<T>U`, `[A B]`)
-/// would otherwise render as invalid Rust with no guidance. Only true adjacent
-/// Ident/Literal/Group pairs trigger; paths (`a::b`) and ranges (`0..3`) carry
-/// a punct between the fragments, and generic application (`Vec<u32>`) is an
-/// Ident directly followed by a `<>`/`()` group — all excluded. Lifetime names
-/// (`'a` tokenizes as `'` + `a`) and trait-object heads (`dyn`) are not type
-/// fragments.
-fn validate_adjacent(tokens: &[TokenTree]) -> Option<Ty> {
-    let mut prev: Option<&TokenTree> = None;
-    let mut prev_is_lifetime_name = false;
-    for tt in tokens {
-        let is_lifetime_name = matches!(prev, Some(TokenTree::Punct(p)) if p.as_char() == '\'');
-        let prev_is_fragment = prev.is_some_and(|p| {
-            matches!(p, TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_))
-        }) && !prev_is_lifetime_name;
-        let is_fragment = !is_lifetime_name
-            && matches!(tt, TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_));
-        // `fn`/`unsafe`/`dyn` may head an fn type or trait object
-        // (`fn(A)->B` / `unsafe fn(A)` / `dyn Trait + Send`) — parse_function
-        // and the dyn path own those; reaching primitive is an anomaly, not
-        // two adjacent types.
-        let fn_head = matches!(tt, TokenTree::Ident(id) if id == "fn" || id == "unsafe" || id == "dyn")
-            || matches!(prev, Some(TokenTree::Ident(id)) if id == "fn" || id == "unsafe" || id == "dyn");
-        // `Vec<u32>` / `Fn(A)` — an Ident immediately followed by a `<>` group
-        // (an angle-collected `Delimiter::None` group) or a `()` group is
-        // generic application / trait-object call syntax, not adjacency.
-        let after_ident = matches!(prev, Some(TokenTree::Ident(_)));
-        let group_is_generic_or_call = matches!(
-            tt,
-            TokenTree::Group(g)
-                if g.delimiter() == proc_macro2::Delimiter::None
-                    || g.delimiter() == proc_macro2::Delimiter::Parenthesis
-        );
-        let generic_app = after_ident && group_is_generic_or_call;
-        if prev_is_fragment && is_fragment && !fn_head && !generic_app {
-            return Some(err_ty_at(
-                "batch-impl: adjacent types without an operator (missing `.` / `-` / `,`)",
-                tt.span(),
-            ));
-        }
-        prev = Some(tt);
-        prev_is_lifetime_name = is_lifetime_name;
     }
     None
 }

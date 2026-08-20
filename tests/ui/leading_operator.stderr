@@ -1,11 +1,11 @@
-error: batch-impl: missing operand before `-` (e.g. `T-U`)
- --> tests/ui/leading_operator.rs:5:14
+error: batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`)
+ --> tests/ui/leading_operator.rs:6:14
   |
-5 | #[batch_impl(-usize)]
+6 | #[batch_impl(-usize)]
   |              ^
 
 error: batch-impl: missing operand before `.` (e.g. `T.U`)
- --> tests/ui/leading_operator.rs:8:14
+ --> tests/ui/leading_operator.rs:9:14
   |
-8 | #[batch_impl(.isize)]
+9 | #[batch_impl(.isize)]
   |              ^

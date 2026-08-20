@@ -1,7 +1,7 @@
 use crate::apply::{err_ty, err_ty_at};
 use crate::ast::*;
 use crate::parse::generic::empty;
-use crate::parse::{parse_item, parse_primitive};
+use crate::parse::parse_item;
 use crate::util::{Cursor, contains_punct};
 use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
 
@@ -19,7 +19,7 @@ pub(crate) fn parse_attribute(tokens: &[TokenTree]) -> Option<(TokenStream, &[To
 
 /// `fn(A,B)->C` function type parsing (fn + parameter tuple + optional return type)
 pub(crate) fn parse_function(
-    tokens: &[TokenTree], trait_name: Option<&Ident>, depth: usize,
+    tokens: &[TokenTree], trait_name: Option<&Ident>, _depth: usize,
 ) -> Option<Ty> {
     let [TokenTree::Ident(name), TokenTree::Group(args), rest @ ..] = tokens else {
         return None;
@@ -57,7 +57,12 @@ pub(crate) fn parse_function(
                 && arrow.as_char() == '>'
                 && !return_tokens.is_empty() =>
         {
-            parse_primitive(return_tokens, trait_name, depth + 1).into()
+            // The return type is a full type expression (it may itself apply
+            // by space: `fn(A) -> Box u8` = returning `Box<u8>`), so it goes
+            // through the space chain.
+            parse_item(&mut Cursor::new(return_tokens), Op::Dash, trait_name)
+                .unwrap_or_else(empty)
+                .into()
         }
         // Anything else after the parameter list is not part of the fn type:
         // reject instead of silently dropping (`fn(A) B` / `fn(A)->`).
@@ -65,7 +70,7 @@ pub(crate) fn parse_function(
         _ => {
             return err_ty_at(
                 "batch-impl: unexpected tokens after the `fn` parameter list \
-                 (a return type is written `fn(A) -> B` or `fn(A)-B`)",
+                 (a return type is written `fn(A) -> B` or `fn(A) B`)",
                 rest[0].span(),
             )
             .into();

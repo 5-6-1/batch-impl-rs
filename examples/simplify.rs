@@ -62,12 +62,12 @@ trait DescribeTuple {
 }
 
 // ============================================================
-// 4. The `-` operator (left-associative, accumulates args): fn return types / HashMap<K, V>
+// 4. Space application (left-associative, accumulates args): fn return types / HashMap<K, V>
 // ============================================================
-#[batch_impl(fn(i32, u32)-String)]
+#[batch_impl(fn(i32, u32) String)]
 trait FnReturn {}
 
-#[batch_impl(HashMap-u8-u16)]
+#[batch_impl(HashMap u8 u16)]
 trait KvMarker {}
 
 // ============================================================

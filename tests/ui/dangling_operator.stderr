@@ -1,5 +1,5 @@
-error: batch-impl: missing operand after `-` (e.g. `T-U`)
- --> tests/ui/dangling_operator.rs:4:29
+error: batch-impl: missing operand after `.` (e.g. `T.U`)
+ --> tests/ui/dangling_operator.rs:4:28
   |
-4 | #[batch_impl(usize, f32 Vec.-)]
-  |                             ^
+4 | #[batch_impl(usize, f32 Vec. )]
+  |                            ^

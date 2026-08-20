@@ -1,5 +1,0 @@
-error: batch-impl: adjacent types without an operator (missing `.` / `-` / `,`)
- --> tests/ui/adjacent_types.rs:6:16
-  |
-6 | #[batch_impl(A B)]
-  |                ^

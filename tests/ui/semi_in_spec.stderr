@@ -1,4 +1,4 @@
-error: batch-impl: `;` is not valid in a type (it is the `batch_trait!` segment boundary; in `#[batch_impl]` specs are separated by `,`)
+error: batch-impl: unexpected `;` after the type
  --> tests/ui/semi_in_spec.rs:7:17
   |
 7 | #[batch_impl(A.B; C)]

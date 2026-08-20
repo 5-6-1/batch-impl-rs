@@ -139,6 +139,21 @@ or act as a bare impl marker (e.g. `unsafe.T`)",
         return parse_group(group, trait_name);
     }
 
+    // A bare trait name (`Tr u8` = `impl Tr for u8`): a single ident equal to
+    // the annotated trait's last ident parses as a trait head, so the space
+    // application folds to `WithTrait` instead of `Tr<u8>` (write `Tr <u8>`
+    // — the angle group as a separate space unit — for the generic type).
+    if let [TokenTree::Ident(id)] = tokens
+        && trait_name.is_some_and(|t| t == id)
+    {
+        return TyTrait(
+            proc_macro2::TokenStream::from(TokenTree::Ident(id.clone())),
+            TyTypeParam { params: vec![], bindings: vec![] },
+        )
+        .to_ty()
+        .with_span(id.span());
+    }
+
     if let Some((base, args, rest)) = parse_generic(tokens) {
         let args_vec = args.into_iter().collect::<Vec<TokenTree>>();
         let params =

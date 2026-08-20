@@ -81,7 +81,7 @@ fn ext1_slot_composite_subtree() {
 //    template keeps two slots; the trait signature stays slot-free)
 // ------------------------------------------------------------
 struct Pair2<A, B>(A, B);
-#[batch_impl(P<Q, R> : Pair2-[u8, u16]-[i8, i16])]
+#[batch_impl(P<Q, R> : Pair2 [u8, u16] [i8, i16])]
 impl NstMk4 for P<Q, R> {
     fn mk() -> P<Q, R> {
         P(Q::default(), R::default())

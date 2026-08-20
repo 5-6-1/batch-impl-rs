@@ -148,7 +148,7 @@ fn find_impl_attr(attrs: &[syn::Attribute]) -> Option<(TokenStream, bool)> {
 
 /// Collects the associativity-miswrite notes for a leaf: a known 1-arity
 /// container rendered with 2+ args (`Box<Vec, u32>`) is the shape of
-/// `Box.Vec-u32` (= `Box-Vec-u32`) — the note teaches the `.`/`-`
+/// `Box.Vec u32` (= `Box Vec u32`) — the note teaches the space
 /// identity and the nesting rewrite.
 fn miswrite_notes(ty: &Ty) -> Vec<String> {
     match &ty.kind {
@@ -177,7 +177,7 @@ fn miswrite_notes(ty: &Ty) -> Vec<String> {
 }
 
 /// The note for a single `TyGeneric` whose base is a known 1-arity container
-/// but whose args exceed one — the rendered shape of a `.`/`-` miswrite.
+/// but whose args exceed one — the rendered shape of a `.`/space miswrite.
 fn miswrite_note(g: &TyGeneric) -> Option<String> {
     let TyKind::Primitive(p) = &g.0.kind else {
         return None;
@@ -194,7 +194,7 @@ fn miswrite_note(g: &TyGeneric) -> Option<String> {
         return None;
     }
     Some(format!(
-        "batch-impl note: `{}<{}>` has {} args but `{}` takes 1 — `-` accumulates args side by side (`A.B-C` = `A-B-C` = `A<B, C>`); did you mean `{}.{}`?",
+        "batch-impl note: `{}<{}>` has {} args but `{}` takes 1 — space accumulates args side by side (`A.B C` = `A B C` = `A<B, C>`); did you mean `{}.{}`?",
         base,
         args.join(", "),
         args.len(),

@@ -4,11 +4,13 @@ mod chain;
 mod generic;
 mod parse_atom;
 mod primary;
+mod space;
 mod trailing;
 pub(crate) use chain::parse_item;
 pub(crate) use generic::split_at_depth0;
 pub(crate) use primary::parse_primary;
-pub(crate) use trailing::split_trailing_body;
+pub(crate) use space::*;
+pub(crate) use trailing::strip_attachments;
 
 use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 
@@ -93,26 +95,7 @@ pub(crate) fn parse_primitive(
         );
     }
     // Collect attachments outside-in (outer first); `rest` shrinks to the innermost base
-    let mut attaches = vec![];
-    let mut rest = tokens;
-    loop {
-        let split = split_trailing_body(rest);
-        match (split.body, split.is_where, split.is_impl) {
-            (Some(body), false, false) => {
-                attaches.push(TyWithCode(None, TyCodeBlock(body)).into());
-                rest = split.tokens;
-            }
-            (Some(w), true, false) => {
-                attaches.push(TyWithWhere(None, TyWhere(w)).into());
-                rest = split.tokens;
-            }
-            (Some(t), false, true) => {
-                attaches.push(TyWithImpl(None, TyImplTemplate(t)).into());
-                rest = split.tokens;
-            }
-            _ => break,
-        }
-    }
+    let (mut attaches, rest) = strip_attachments(tokens);
     // Attachment-chain guard: each attachment nests the type one wrapper
     // level, so a flat chain of bodies overflows the same downstream
     // traversals as a deep operator chain — capped at the same limit.

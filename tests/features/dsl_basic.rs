@@ -154,7 +154,7 @@ fn partial_unsafe() {
 #[batch_impl(fn.(i32, u32))]
 trait FnSimple {}
 
-#[batch_impl(fn(i32, u32)-String)]
+#[batch_impl(fn(i32, u32) String)]
 trait FnWithReturn {}
 
 #[test]
@@ -165,6 +165,28 @@ fn fn_types() {
     check_simple(&f);
     let fr: fn(i32, u32) -> String = |_, _| String::new();
     check_ret(&fr);
+}
+
+// `unsafe fn` is an unsafe fn type (the impl stays safe); `unsafe.fn` marks
+// the impl unsafe — the two forms must not be confused.
+#[batch_impl(unsafe fn(u8) -> u8)]
+trait UnsafeFnType {}
+
+/// # Safety
+///
+/// Marker trait for testing; no actual unsafe semantics.
+#[batch_impl(unsafe.fn(u8) -> u8)]
+unsafe trait UnsafeFnImpl {}
+
+#[test]
+fn unsafe_fn_vs_unsafe_impl() {
+    fn check_type<T: UnsafeFnType>(_: &T) {}
+    let f: unsafe fn(u8) -> u8 = |x| x;
+    check_type(&f);
+
+    unsafe fn check_impl<T: UnsafeFnImpl>(_: &T) {}
+    let g: fn(u8) -> u8 = |x| x;
+    unsafe { check_impl(&g) };
 }
 
 // ============================================================
@@ -215,7 +237,7 @@ trait UnsafeFnMarker {}
 #[batch_impl(unsafe fn.(u32, i32))]
 trait UnsafeFnPow {}
 
-#[batch_impl(unsafe fn.(u32, i32) - i64)]
+#[batch_impl(unsafe fn.(u32, i32)   i64)]
 trait UnsafeFnRet {}
 
 #[test]

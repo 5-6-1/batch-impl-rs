@@ -27,7 +27,7 @@ trait AtWhere<T: Clone> {
 trait JoinMarker {}
 impl JoinMarker for u8 {}
 
-#[batch_impl(().3-().3 where{@0: JoinMarker, @5: Copy})]
+#[batch_impl(().3 ().3 where{@0: JoinMarker, @5: Copy})]
 trait JoinAtNum {}
 
 #[test]
@@ -39,11 +39,11 @@ fn at_refs_numbered_match_in_join() {
 }
 
 // @all_fresh: every fresh generic gets the predicate tail (comma-separated)
-#[batch_impl(().2-().2 where{@all_fresh: Clone})]
+#[batch_impl(().2 ().2 where{@all_fresh: Clone})]
 trait AllFreshWhere {}
 
 // @N..=M: contiguous fresh range — `@0..=1` bounds the first two freshes
-#[batch_impl(().2-().2 where{@0..=1: Copy})]
+#[batch_impl(().2 ().2 where{@0..=1: Copy})]
 trait RangeWhere {}
 
 #[test]
@@ -62,7 +62,7 @@ fn at_all_fresh_and_range() {
 // @all_fresh and @N..=M in the *same* where group: the group is split into
 // predicates at depth-0 commas so the @all_fresh expansion must not swallow
 // the following @N..=M predicate.
-#[batch_impl(().3-().3 where{@all_fresh: Clone, @0..=2: Copy})]
+#[batch_impl(().3 ().3 where{@all_fresh: Clone, @0..=2: Copy})]
 trait CombinedBatchWhere {}
 
 #[test]
@@ -105,7 +105,7 @@ fn at_refs_across_generation_units() {
 // group's first (D = u64: Copy). Unlike `@N`, `@g_i` is stable across
 // array-dispatch impls (a group absent from an impl errors instead of
 // silently shifting).
-#[batch_impl(().3-().3 where{@0_0: JoinMarker, @1_0: Copy})]
+#[batch_impl(().3 ().3 where{@0_0: JoinMarker, @1_0: Copy})]
 trait JoinAtGroup {}
 
 #[test]

@@ -215,13 +215,14 @@ pub(crate) enum TyKind {
     Error(TyError),
 }
 
-/// Operator precedence levels (low→high: `;` < `,` < 空格 `-` < `.` `.`; `Prim` = atomic, no operator).
+/// Operator precedence levels (low→high: `;` < `,` < space < `.`; `Prim` = atomic, no operator).
 ///
 /// Each level defines "stop characters": when scanning at that level, `parse_operand`
 /// truncates at them, then hands the truncated slice to higher-precedence recursion.
-/// `.` is the apply operator (right-assoc, was `.`); `-` is the left-assoc apply
-/// (step 2 turns it into a space-adjacent application); the `.` stop skips `..`
-/// ranges (`1..=4` / `@1..` stay one unit).
+/// The Dash level is the space-application chain (left-assoc, the successor of
+/// `-` — the space is not a token, so it cuts units by adjacency instead of by
+/// stop chars; its `stop_chars` are unused). `.` is the apply operator
+/// (right-assoc); the `.` stop skips `..` ranges (`1..=4` / `@1..` stay one unit).
 #[derive(Copy, Clone)]
 pub(crate) enum Op {
     Semi,
@@ -249,8 +250,9 @@ impl Op {
             // Semi also stops at `,`: it cuts item/paragraph boundaries; the caller distinguishes them
             Op::Semi => &[',', ';'],
             Op::Comma => &[','],
-            Op::Dash => &['-', ','],
-            Op::Caret => &['.', '-', ','],
+            // the space chain cuts units itself (scan_space_unit); no stop chars
+            Op::Dash => &[],
+            Op::Caret => &['.', ','],
             Op::Prim => &[],
         }
     }
