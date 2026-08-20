@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.0**（unreleased）——apply 运算符重命名：`.` 是右结合 apply 运算符，**空格应用取代 `-`** 作为左结合组合（`Box u8` = `Box<u8>`、`<T: Clone> Vec<T>` = 声明应用到类型）；`-` 只保留指令域排除语义。DSL 是**块的任意组合**（声明 / 指令块 / 代码块 / 类型任意顺序，`apply` 折叠），同名泛型声明合并进 where（`<T: Clone><T: Copy> X` → `impl<T> ... where T: Clone, T: Copy`），`_` 是形状模板中永不替换的通配（`impl{B<_>}`），`X<>` 经开关模板（`impl{@trait<>}` / `impl{Tr<>}`，含路径限定）同步为本 spec trait 应用。
+**v0.9.0**（2026-08-21）——apply 运算符重命名：`.` 是右结合 apply 运算符，**空格应用取代 `-`** 作为左结合组合（`Box u8` = `Box<u8>`、`<T: Clone> Vec<T>` = 声明应用到类型）；`-` 只保留指令域排除语义。DSL 是**块的任意组合**（声明 / 指令块 / 代码块 / 类型任意顺序，`apply` 折叠），同名泛型声明合并进 where（`<T: Clone><T: Copy> X` → `impl<T> ... where T: Clone, T: Copy`），`_` 是形状模板中永不替换的通配（`impl{B<_>}`），`X<>` 经开关模板（`impl{@trait<>}` / `impl{Tr<>}`，含路径限定）同步为本 spec trait 应用。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 

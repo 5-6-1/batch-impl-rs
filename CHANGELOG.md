@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.0 (unreleased)
+## 0.9.0 (2026-08-21)
 
 - **Breaking: the apply operators are reworded** — `.` is now the right-associative apply operator (`HashMap K . V` was `HashMap<K>^V`-style under the old `^`; the matrix spellings `[Box, Rc].u8` are unchanged), and **space application replaces `-`** as the left-associative combination (`Box u8` = `Box<u8>`, `HashMap K V` = `HashMap<K, V>`, `<T: Clone> Vec<T>` = a declaration applied to a type). The `-` prefix keeps only its **exclusion** meaning in the directive domain (`#fill(@all,-foo)` — a directive argument, never a type operator); a bare `-` in the type domain now errors with a targeted message instead of being silently misparsed
 - **Block model** — the DSL is now a **bag of blocks**: declarations, directive blocks, code blocks and types appear in any order and the chain folds them with `apply` (there is no positional requirement — a `{...}` block need not be last, a declaration need not be first; `<T> #tag{"ab"} Box T` in any order yields the same impl). Space application = arbitrary combination of blocks (`<T> #foo{} Box T` = `<T>.apply({...}).apply(Box).apply(T)`, no hard-coded order)
