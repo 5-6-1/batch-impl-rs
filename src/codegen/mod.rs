@@ -17,6 +17,8 @@ mod shape;
 mod sync_trait;
 mod top_level;
 mod where_at;
+#[cfg(test)]
+mod where_at_tests;
 
 pub(crate) use fresh::*;
 pub(crate) use impl_parts::*;
