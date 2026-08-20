@@ -1,5 +1,7 @@
-error: cannot find macro `my_macro` in this scope
- --> tests/ui/top_level_manual_not_last.rs:8:21
+error: batch-impl: a `{! ...}` top-level block must be the last block
+ --> tests/ui/top_level_manual_not_last.rs:8:1
   |
 8 | #[batch_impl(u32 {! my_macro!{}} {fn other() {}})]
-  |                     ^^^^^^^^
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -38,6 +38,23 @@ impl<'a> Cursor<'a> {
         self.tokens.get(self.pos)
     }
 
+    /// Token at an offset from the current position (bounds-safe).
+    pub(crate) fn peek_at(&self, off: usize) -> Option<&'a TokenTree> {
+        self.tokens.get(self.pos + off)
+    }
+
+    /// Advance by `n` tokens (clamped to the end).
+    pub(crate) fn advance(&mut self, n: usize) {
+        self.pos = (self.pos + n).min(self.tokens.len());
+    }
+
+    /// The `n` tokens starting at absolute index `start` (independent of the
+    /// cursor position — used to collect a block's token extent).
+    pub(crate) fn slice_at(&self, start: usize, n: usize) -> &'a [TokenTree] {
+        let end = start.saturating_add(n).min(self.tokens.len());
+        &self.tokens[start.min(self.tokens.len())..end]
+    }
+
     pub(crate) fn is_punct(&self, ch: char) -> bool {
         is_punct_at(self.tokens, self.pos, ch)
     }

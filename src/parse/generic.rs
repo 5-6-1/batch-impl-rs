@@ -16,42 +16,6 @@ use crate::util::{Cursor, compile_error_ty, is_punct, is_single_colon, scan_stop
 // Angle brackets and generic parameters
 // ============================================================
 
-/// Find the angle-bracket group after base (`delimiter![<>]`, produced by `angle_collect` pairing),
-/// returning (base, args, rest). base must not be empty (empty = a type-parameter list,
-/// handled by [`parse_type_params`]).
-pub(crate) fn parse_generic(
-    tokens: &[TokenTree],
-) -> Option<(Vec<TokenTree>, TokenStream, Vec<TokenTree>)> {
-    for (i, token) in tokens.iter().enumerate() {
-        if let TokenTree::Group(g) = token
-            && g.delimiter() == delimiter![<>]
-        {
-            if i == 0 {
-                return None;
-            }
-            return Some((tokens[..i].to_vec(), g.stream(), tokens[i + 1..].to_vec()));
-        }
-    }
-    None
-}
-
-/// Parse a bare type-parameter list that starts with an angle-bracket group (`<'a, T: Clone>`).
-pub(crate) fn parse_type_params(tokens: &[TokenTree]) -> Option<(TokenStream, Vec<TokenTree>)> {
-    let TokenTree::Group(g) = tokens.first()? else {
-        return None;
-    };
-    if g.delimiter() != delimiter![<>] {
-        return None;
-    }
-    Some((g.stream(), tokens[1..].to_vec()))
-}
-
-/// Whether base ends with trait_name's ident (distinguishes `TraitName<T>` from plain generics)
-pub(crate) fn is_trait_base(base: &[TokenTree], trait_name: Option<&Ident>) -> bool {
-    trait_name
-        .is_some_and(|name| matches!(base.last(), Some(TokenTree::Ident(last)) if last == name))
-}
-
 /// Split by separator (angle brackets are already paired into opaque groups, so flat split)
 ///
 /// **Note**: a flat `<A, B>` would be wrongly cut by a depth-0 comma split (`T: Two<A, B>` →
@@ -140,8 +104,12 @@ pub(crate) fn parse_angle_bracket_contents(
                         ))
                         .to_ty()
                     } else {
-                        parse_item(&mut Cursor::new(&chunk[colon + 1..]), Op::Dash, trait_name)
-                            .unwrap_or_else(empty)
+                        // A bound is a `+`-chain (`Clone + Send + 'a`) — the
+                        // bound operator is not a space application.
+                        crate::parse::space::parse_bound_expr(
+                            &mut Cursor::new(&chunk[colon + 1..]),
+                            trait_name,
+                        )
                     }),
                 ));
             } else {

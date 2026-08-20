@@ -6,6 +6,7 @@
 //! (`mod features;`). Every module is a self-contained `mod` — shared
 //! helper types/macros live next to their tests.
 
+pub(crate) mod block_model;
 pub(crate) mod dsl_at_refs;
 pub(crate) mod dsl_basic;
 pub(crate) mod dsl_blanket;

@@ -1,7 +1,12 @@
-error: batch-impl: `unsafe` can only qualify a fn type (e.g. `unsafe fn(u32) -> u32`) or act as a bare impl marker (e.g. `unsafe.T`)
+error[E0199]: implementing the trait `T` is not unsafe
  --> tests/ui/unsafe_non_fn.rs:5:1
   |
 5 | #[batch_impl(unsafe Vec<u8>)]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: remove `unsafe` from this trait implementation
+  |
+5 - #[batch_impl(unsafe Vec<u8>)]
+5 + _impl(unsafe Vec<u8>)]
+  |

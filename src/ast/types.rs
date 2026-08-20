@@ -1,4 +1,5 @@
 use proc_macro2::{Span, TokenStream};
+use quote::ToTokens;
 use std::cell::Cell;
 
 #[derive(Clone, Debug)]
@@ -84,6 +85,16 @@ impl TyTypeParam {
     pub(crate) fn extend(&mut self, other: TyTypeParam) {
         self.params.extend(other.params);
         self.bindings.extend(other.bindings);
+    }
+
+    /// Whether this `<>` block is a **generic declaration** rather than a
+    /// plain type-argument list: any param carries a bound (`T: Clone` /
+    /// `const N: usize`) — a declaration can never be a type argument (Rust
+    /// has no `Trait<T: Bound>` syntax), so apply hoists it out.
+    pub(crate) fn is_declaration(&self) -> bool {
+        self.params
+            .iter()
+            .any(|(n, b)| b.is_some() || n.to_token_stream().to_string().starts_with("const"))
     }
 }
 #[derive(Clone, Debug)]

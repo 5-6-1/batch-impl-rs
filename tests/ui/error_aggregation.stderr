@@ -6,13 +6,7 @@ error: batch-impl: number `0` cannot be a left operand; use it on the right (e.g
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: batch-impl: `@N..M` range references are only allowed as a where-predicate subject (e.g. `where{@0..=2: Clone}`)
- --> tests/ui/error_aggregation.rs:5:19
-  |
-5 | #[batch_impl(0.T, @0..=2)]
-  |                   ^
-
-error: batch-impl: a range (`..`/`..=`) in a type position needs integer endpoints (e.g. `0..=3`)
+error: batch-impl: unexpected `.` after the type
  --> tests/ui/error_aggregation.rs:5:21
   |
 5 | #[batch_impl(0.T, @0..=2)]

@@ -49,27 +49,33 @@ pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool, trait_bounds: &TraitBounds,
     trait_param_names: &[Ident],
 ) -> TokenStream {
-    // bare code block: `{...}` as the whole spec → emit verbatim as a top-level item
-    // (not wrapped in an impl block). A `!`-marked block (top-level macro form)
-    // without an attached type has no spec body to prepend — error instead of
-    // emitting invalid Rust (`!` is not an item).
+    // Bare `{...}` as the whole spec. A `!`-marked block (top-level macro
+    // form) without an attached type has no spec body to prepend — error
+    // instead of emitting invalid Rust (`!` is not an item). Any other bare
+    // block (e.g. a `#name{...}` directive expansion) generates no impl —
+    // this crate only produces impl blocks, so error instead of emitting the
+    // block as a top-level item (top-level injection is the explicit
+    // `{! ...}` macro form only).
     if let Ty { kind: TyKind::WithCode(TyWithCode(None, code)), .. } = &ty {
         let is_top_marked = matches!(
             code.0.clone().into_iter().next(),
             Some(TokenTree::Punct(p)) if p.as_char() == '!'
         );
-        if is_top_marked {
-            return compile_error_str(
+        return compile_error_str(
+            if is_top_marked {
                 "batch-impl: a top-level `{! ...}` block needs an attached type \
-                 (the spec body is prepended to the macro input)",
-                code.0
-                    .clone()
-                    .into_iter()
-                    .next()
-                    .map_or_else(proc_macro2::Span::call_site, |t| t.span()),
-            );
-        }
-        return code.0.clone();
+                 (the spec body is prepended to the macro input)"
+            } else {
+                "batch-impl: a bare `{...}` block without an attached type \
+                 generates no impl (attach it to a type, e.g. `T { ... }`, or \
+                 use the top-level `{! ...}` macro form)"
+            },
+            code.0
+                .clone()
+                .into_iter()
+                .next()
+                .map_or_else(proc_macro2::Span::call_site, |t| t.span()),
+        );
     }
     // Top-level macro form: a chain ending in a `{! ...}` block (or the
     // `#cmd(args){body}` open-extension product) marks a macro call for

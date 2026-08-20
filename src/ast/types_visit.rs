@@ -94,37 +94,6 @@ pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypePar
     (flat, decl)
 }
 
-/// Whether a parameter list contains a generator (a `WithType` fresh
-/// declaration) anywhere — the generic-declaration position cannot carry one
-/// (`<*().N>` would render the fresh tuple as a parameter name).
-pub(crate) fn contains_generator(params: &TyTypeParam) -> bool {
-    params.params.iter().any(|(n, _)| ty_contains_generator(n))
-        || params.bindings.iter().any(|(n, v)| ty_contains_generator(n) || ty_contains_generator(v))
-}
-
-fn ty_contains_generator(ty: &Ty) -> bool {
-    match &ty.kind {
-        TyKind::WithType(_) => true,
-        TyKind::Generic(g) => {
-            ty_contains_generator(&g.0)
-                || g.1.params.iter().any(|(n, b)| {
-                    ty_contains_generator(n) || b.as_ref().is_some_and(ty_contains_generator)
-                })
-                || g.1
-                    .bindings
-                    .iter()
-                    .any(|(n, v)| ty_contains_generator(n) || ty_contains_generator(v))
-        }
-        TyKind::Array(a) => a.0.iter().any(ty_contains_generator),
-        TyKind::Tuple(t) => t.0.iter().any(ty_contains_generator),
-        TyKind::Splat(s) => s.elems().iter().any(ty_contains_generator),
-        TyKind::Group(g) => ty_contains_generator(&g.0),
-        TyKind::WithPrefix(w) => w.1.iter().any(|i| ty_contains_generator(i)),
-        TyKind::WithAttr(w) => w.1.iter().any(|i| ty_contains_generator(i)),
-        _ => false,
-    }
-}
-
 /// Merge two optional fresh declarations (`TyTypeParam::extend` semantics).
 pub(crate) fn merge_decls(a: Option<TyTypeParam>, b: Option<TyTypeParam>) -> Option<TyTypeParam> {
     match (a, b) {

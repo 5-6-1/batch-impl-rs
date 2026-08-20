@@ -156,6 +156,15 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
                 }
             },
             TyKind::Error(e) => Ty { span, kind: TyKind::Error(e) },
+            // A right-operand `<>` block **with bounds/const** is a generic
+            // declaration, not a type argument (`Trait<T: Bound>` is not Rust
+            // type syntax): hoist it outside the left operand —
+            // `Magma<Additive> <T: Magma<Additive>, const N: usize> X` =
+            // `impl<T: ..., const N: usize> Magma<Additive> for X`. A
+            // plain-type `<>` right operand stays an argument (extends).
+            TyKind::TypeParam(tp) if tp.is_declaration() => {
+                TyWithType(tp, Ty { span, kind: self.into() }.into()).to_ty().with_span(span)
+            }
             TyKind::Range(TyRange { start, end, inclusive }) => {
                 map_range(start, end, inclusive, span, |n| {
                     Ty { span, kind: self.clone().into() }.apply(TyNum(n).to_ty().with_span(span))
