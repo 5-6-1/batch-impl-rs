@@ -7,6 +7,7 @@
 
 mod fresh;
 mod impl_parts;
+mod match_ty;
 mod postprocess;
 mod repeat;
 mod repeat_drivers;
