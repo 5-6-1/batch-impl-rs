@@ -24,8 +24,10 @@
 //!    their position in the chain is irrelevant — the wrapper apply is
 //!    "combine the inner, then re-wrap".
 
+mod blocks;
 mod chain;
 mod generic;
+mod ident_blocks;
 mod parse_atom;
 mod space;
 pub(crate) use chain::parse_item;
