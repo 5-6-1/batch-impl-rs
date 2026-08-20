@@ -1,10 +1,10 @@
-//! `X<>` (same-named empty trait brackets) → the spec trait application:
-//! where predicates, `impl{...}` templates and impl-generic bounds write
-//! `Semiring<>` instead of repeating `Semiring<Additive, Multiplicative>`.
-//! `@trait<>` (preprocessing → trait path + `<>`) is equivalent. Body sync
-//! is opt-in via a template that actually carries `Tr<>` (see
-//! tests/ui/impl_trait_sync_* for the negative case). A `X<>` for any other
-//! trait errors.
+//! `X<>` (empty trait brackets) → `X<spec args>`: where predicates,
+//! `impl{...}` templates and impl-generic bounds write `Semiring<>` instead
+//! of repeating `Semiring<Additive, Multiplicative>` — on **any** ident, not
+//! just the spec's own trait (`impl{GenW<>}` fills like `impl{GenW<Additive,
+//! Multiplicative>}`). `@trait<>` (preprocessing → trait path + `<>`) is
+//! equivalent. Body sync is opt-in via a template that actually carries
+//! `Tr<>` (see tests/ui/impl_trait_sync_body_negative for the negative case).
 
 use batch_impl::batch_impl;
 
@@ -14,11 +14,12 @@ struct Multiplicative;
 // ------------------------------------------------------------
 // 1. where `Semiring<>` syncs to the spec trait application — end-to-end:
 //    the arity-2 impl gets `P1: Semiring<Additive, Multiplicative>` (the
-//    args written once, in the spec's trait part).
+//    args written once, in the spec's trait part). The switch template
+//    `impl{@trait<>}` turns replacement on.
 // ------------------------------------------------------------
 #[batch_impl(
     Semiring<Additive, Multiplicative> ().1..=2 where{@0..: Semiring<>}
-    impl{(A@..,)} #tag1{7},
+    impl{@trait<>} impl{(A@..,)} #tag1{7},
 )]
 trait Semiring<Oa, Om> {
     fn tag1(&self) -> u32;
@@ -37,12 +38,34 @@ fn where_trait_sync() {
 }
 
 // ------------------------------------------------------------
+// 1b. `X<>` for a **non-spec** ident also fills with the spec's args — a
+//     where predicate bound references the same args through empty brackets
+//     (`Marker<>` → `Marker<Additive, Multiplicative>`).
+// ------------------------------------------------------------
+#[batch_impl(
+    WrapSync<Additive, Multiplicative> (u8,) where{@0..: Marker<>}
+    impl{@trait<>} #tag1b{1},
+)]
+trait WrapSync<Oa, Om> {
+    fn tag1b(&self) -> u32;
+}
+
+#[allow(dead_code)]
+trait Marker<Oa, Om> {}
+impl Marker<Additive, Multiplicative> for u8 {}
+
+#[test]
+fn any_ident_fills() {
+    assert_eq!((7u8,).tag1b(), 1);
+}
+
+// ------------------------------------------------------------
 // 2. `@trait<>` is equivalent: preprocessing expands it to the trait path +
 //    `<>`, then the same sync fills the brackets.
 // ------------------------------------------------------------
 #[batch_impl(
     @trait<Additive, Multiplicative> ().1..=2 where{@0..: @trait<>}
-    impl{(A@..,)} #tag2{7},
+    impl{@trait<>} impl{(A@..,)} #tag2{7},
 )]
 trait AtTrait<Oa, Om> {
     fn tag2(&self) -> u32;
@@ -64,7 +87,7 @@ fn at_trait_sync() {
 // 3. A trait with no generic args: `Tr<>` syncs to the bare `Tr` (brackets
 //    dropped). The spec's trait is the annotated one (no trait name prefix).
 // ------------------------------------------------------------
-#[batch_impl(().1..=2 where{@0..: Tr<>} impl{(A@..,)} #tag3{7})]
+#[batch_impl(().1..=2 where{@0..: Tr<>} impl{@trait<>} impl{(A@..,)} #tag3{7})]
 trait Tr {
     fn tag3(&self) -> u32;
 }
@@ -87,7 +110,7 @@ fn no_args_trait_sync() {
 // ------------------------------------------------------------
 #[batch_impl(
     <T: BoundSync<>> BoundSync<Additive, Multiplicative> Vec<T>
-    { fn n(&self) -> usize { self.len() } },
+    impl{@trait<>} { fn n(&self) -> usize { self.len() } },
 )]
 trait BoundSync<Oa, Om> {
     fn n(&self) -> usize;

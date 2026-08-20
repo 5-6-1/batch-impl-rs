@@ -160,10 +160,8 @@ fn ui() {
     // a declared driver must not conflict with inner references
     t.compile_fail("tests/ui/impl_shape_repeat_cursor_multi.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_driver_conflict.rs");
-    // `X<>` (empty brackets) is only the spec's own trait application —
-    // any other trait's empty brackets error; body sync needs a template
-    // carrying `Tr<>`
-    t.compile_fail("tests/ui/impl_trait_sync_wrong_ident.rs");
+    // `X<>` (empty brackets) fills with the spec's trait args on any ident;
+    // body sync needs a template carrying `Tr<>`
     t.compile_fail("tests/ui/impl_trait_sync_body_negative.rs");
 
     // Ext 1 ItemImpl entry: for-Type shape mismatch / banned `@` and `#` /
