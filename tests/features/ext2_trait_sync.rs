@@ -43,7 +43,7 @@ fn where_trait_sync() {
 //     (`Marker<>` → `Marker<Additive, Multiplicative>`).
 // ------------------------------------------------------------
 #[batch_impl(
-    WrapSync<Additive, Multiplicative> (u8,) where{@0..: Marker<>}
+    WrapSync<Additive, Multiplicative> (u8,) where @0..: Marker<>
     impl{@trait<>} #tag1b{1},
 )]
 trait WrapSync<Oa, Om> {

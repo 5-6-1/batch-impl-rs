@@ -306,3 +306,31 @@ fn shape_cow_lifetime_wildcard() {
     fn assert_trait<T: ShapeCowWildcard>() {}
     assert_trait::<Cow<'static, u8>>();
 }
+
+// ------------------------------------------------------------
+// 18. `_` type wildcard: `Box<_>` matches ANY `Box<T>` — the `_` is a pure
+//     placeholder, it never binds a slot and never gets replaced
+// ------------------------------------------------------------
+#[batch_impl(Box<u8> impl{Box<_>} { fn val18(&self) -> u8 { **self } })]
+trait ShapeTypeWildcard {
+    fn val18(&self) -> u8;
+}
+
+#[batch_impl([u8; 3] impl{[A; _]} { fn n18(&self) -> usize { self.len() } })]
+trait ShapeLenWildcard {
+    fn n18(&self) -> usize;
+}
+
+#[test]
+fn shape_underscore_wildcard() {
+    let b = Box::new(9u8);
+    assert_eq!(b.val18(), 9);
+    // the same `Box<_>` template covers a different element type
+    fn assert_trait<T: ShapeTypeWildcard>() {}
+    assert_trait::<Box<u8>>();
+
+    let a = [1u8, 2, 3];
+    assert_eq!(a.n18(), 3);
+    fn assert_len<T: ShapeLenWildcard>() {}
+    assert_len::<[u8; 3]>();
+}

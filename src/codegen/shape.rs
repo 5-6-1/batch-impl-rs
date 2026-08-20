@@ -161,8 +161,9 @@ fn match_ty(
     template: &syn::Type, leaf: &syn::Type, map: &mut Mapping, segs: &mut Vec<VarSeg>,
 ) -> Result<(), ShapeError> {
     match template {
-        // Bare ident: equal leaf ident → literal; anything else → slot
-        // bound to the whole leaf subtree (the "0-arity → T := leaf" rule).
+        // Bare ident: `_` is a wildcard (matches any type, never binds a
+        // slot); an equal leaf ident → literal; anything else → slot bound
+        // to the whole leaf subtree (the "0-arity → T := leaf" rule).
         // A variadic-segment placeholder is legal only as a tuple element —
         // reaching the bare-ident arm means it sits elsewhere (rejected).
         syn::Type::Path(tp) if is_bare_ident(tp) => {
@@ -173,6 +174,9 @@ fn match_ty(
                      inside an `impl{...}` template"
                         .into(),
                 ));
+            }
+            if name == "_" {
+                return Ok(());
             }
             if let syn::Type::Path(lp) = leaf
                 && is_bare_ident(lp)
@@ -380,12 +384,17 @@ fn match_ty(
                     "the template is an array but the target is not".into(),
                 ));
             };
-            // Length: a bare const-param name in the template (`[A; N]`) is
-            // a slot bound to the leaf's length expression (any literal /
-            // const generic); anything else compares verbatim (`[A; 3]` ↔
+            // Length: `_` is a wildcard (matches any length, never binds);
+            // a bare const-param name in the template (`[A; N]`) is a slot
+            // bound to the leaf's length expression (any literal / const
+            // generic); anything else compares verbatim (`[A; 3]` ↔
             // `[u8; 3]`).
-            if let Some(name) = bare_path_ident(&t.len) {
-                map.bind(&name, l.len.to_token_stream())?;
+            if matches!(t.len, syn::Expr::Infer(_)) {
+                // `_` wildcard
+            } else if let Some(name) = bare_path_ident(&t.len) {
+                if name != "_" {
+                    map.bind(&name, l.len.to_token_stream())?;
+                }
             } else if t.len.to_token_stream().to_string() != l.len.to_token_stream().to_string() {
                 return Err(ShapeError::ShapeMismatch("array length differs".into()));
             }
@@ -432,6 +441,8 @@ fn match_ty(
             };
             match_ty(&t.elem, &l.elem, map, segs)
         }
+        // `_` infer wildcard: matches ANY type, never binds a slot
+        syn::Type::Infer(_) => Ok(()),
         // Everything else (fn pointers, trait objects, infer, macros...):
         // verbatim compare — templates only bind idents in path/container
         // positions; anything else must be written out exactly.
