@@ -96,19 +96,25 @@ fn sync_at(
 /// empty-bracket spec trait alone): it does not match Self like an ordinary
 /// shape template; it only syncs `Tr<>` → `Tr<...>` and turns on body sync.
 /// Both the flat `Ident < >` shape (impl templates are never angle-paired)
-/// and the paired empty-group shape are recognized.
+/// and the paired empty-group shape are recognized; the trait ident may be
+/// path-qualified (`impl{mod::Tr<>}` — `@trait` expands to the full path).
 pub(crate) fn is_switch_template(tokens: &[TokenTree], trait_ident: &Ident) -> bool {
-    matches!(
-        tokens,
-        [TokenTree::Ident(id), TokenTree::Group(g)]
-            if id == trait_ident
-                && g.delimiter() == delimiter![<>]
-                && g.stream().is_empty()
-    ) || matches!(
-        tokens,
-        [TokenTree::Ident(id), TokenTree::Punct(lt), TokenTree::Punct(gt)]
-            if id == trait_ident && lt.as_char() == '<' && gt.as_char() == '>'
-    )
+    // find the last ident — the (possibly path-qualified) trait name
+    let Some(idx) = tokens.iter().rposition(|t| matches!(t, TokenTree::Ident(_))) else {
+        return false;
+    };
+    let Some(TokenTree::Ident(id)) = tokens.get(idx) else {
+        return false;
+    };
+    if id != trait_ident {
+        return false;
+    }
+    // the ident must be followed by an empty `<>` pair (flat or group)
+    match &tokens[idx + 1..] {
+        [TokenTree::Punct(lt), TokenTree::Punct(gt)] => lt.as_char() == '<' && gt.as_char() == '>',
+        [TokenTree::Group(g)] => g.delimiter() == delimiter![<>] && g.stream().is_empty(),
+        _ => false,
+    }
 }
 
 /// Syncs an empty `X<>` in an impl-generic **bound** Ty (called only while a
@@ -181,6 +187,49 @@ mod tests {
         let ts = "impl { Semiring < > }".parse::<TokenStream>().unwrap();
         let out = sync_trait_application(ts, &args(&["Additive", "Multiplicative"])).unwrap();
         assert_eq!(out.to_string(), "impl { Semiring < Additive , Multiplicative > }");
+    }
+
+    #[test]
+    fn switch_template_flat() {
+        let ts = "Tr < >".parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        assert!(is_switch_template(&v, &Ident::new("Tr", proc_macro2::Span::call_site())));
+    }
+
+    #[test]
+    fn switch_template_group() {
+        let ts = "Tr < >".parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        assert!(is_switch_template(&v, &Ident::new("Tr", proc_macro2::Span::call_site())));
+    }
+
+    #[test]
+    fn switch_template_path_qualified() {
+        // `@trait` expands to the full path (batch_impl_only external paths):
+        // `mod :: Tr < >` — the switch must still be recognized
+        let ts = "mod :: Tr < >".parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        assert!(is_switch_template(&v, &Ident::new("Tr", proc_macro2::Span::call_site())));
+        // deeper path
+        let ts = "crate :: ext :: Tr < >".parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        assert!(is_switch_template(&v, &Ident::new("Tr", proc_macro2::Span::call_site())));
+    }
+
+    #[test]
+    fn switch_template_not_recognized() {
+        // a filled template is not a switch
+        let ts = "Tr < Additive >".parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        assert!(!is_switch_template(&v, &Ident::new("Tr", proc_macro2::Span::call_site())));
+        // a different name is not a switch
+        let ts = "Other < >".parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        assert!(!is_switch_template(&v, &Ident::new("Tr", proc_macro2::Span::call_site())));
+        // a plain ident (no brackets) is not a switch
+        let ts = "Tr".parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        assert!(!is_switch_template(&v, &Ident::new("Tr", proc_macro2::Span::call_site())));
     }
 
     #[test]
