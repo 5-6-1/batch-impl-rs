@@ -189,6 +189,46 @@ fn unsafe_fn_vs_unsafe_impl() {
     unsafe { check_impl(&g) };
 }
 
+// The space unit must accept every operand form `.` does: `&'a mut T`,
+// HRTB `for<'a> fn(...)`, `extern "C" fn(...)` all stay one unit.
+#[batch_impl(&'static mut u8 { fn tag(&self) -> &'static str { "m" } })]
+trait RefMutLt {
+    fn tag(&self) -> &'static str;
+}
+
+#[batch_impl(for<'a> fn(&'a u8) -> u8 { fn tag(&self) -> &'static str { "hrtb" } })]
+trait HrtbFn {
+    fn tag(&self) -> &'static str;
+}
+
+#[batch_impl(extern "C" fn(u8) -> u8 { fn tag(&self) -> &'static str { "c" } })]
+trait ExternFn {
+    fn tag(&self) -> &'static str;
+}
+
+#[test]
+fn space_accepts_dot_operands() {
+    fn check<T: RefMutLt>(t: T) {
+        assert_eq!(t.tag(), "m");
+    }
+    check(Box::leak(Box::new(0u8)));
+
+    fn check2<T: HrtbFn>(t: &T) {
+        assert_eq!(t.tag(), "hrtb");
+    }
+    let g: for<'a> fn(&'a u8) -> u8 = |x| *x;
+    check2(&g);
+
+    fn check3<T: ExternFn>(t: &T) {
+        assert_eq!(t.tag(), "c");
+    }
+    extern "C" fn c_fn(x: u8) -> u8 {
+        x
+    }
+    let h: extern "C" fn(u8) -> u8 = c_fn;
+    check3(&h);
+}
+
 // ============================================================
 // 11. Attribute support: #[allow(dead_code)].usize
 // ============================================================

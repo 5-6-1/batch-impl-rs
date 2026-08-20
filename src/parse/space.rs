@@ -11,10 +11,11 @@
 use proc_macro2::{Delimiter, Spacing, TokenTree};
 
 /// Whether an ident opens a prefix-taking type (`dyn Trait`, `impl Trait`,
-/// `fn(...)`, `for<'a>`, `unsafe fn`, `self`, `const`): the ident and the
-/// type it qualifies are one unit (no space-application boundary inside).
+/// `fn(...)`, `unsafe fn`, `self`, `const`, `&mut`, `async fn`): the ident
+/// and the type it qualifies are one unit (no space-application boundary
+/// inside).
 fn is_prefix_ident(s: &str) -> bool {
-    matches!(s, "dyn" | "impl" | "fn" | "for" | "unsafe" | "self" | "const")
+    matches!(s, "dyn" | "impl" | "fn" | "unsafe" | "self" | "const" | "mut" | "async")
 }
 
 /// Whether `tokens[i]` starts a new space-application unit: an atom, a
@@ -71,6 +72,20 @@ fn scan_unit_atom(tokens: &[TokenTree], mut i: usize) -> usize {
     // through to the suffix loop instead of returning the recursion result —
     // `fn.(A,B)` must keep the `.`-apply inside the unit.
     match &tokens[i] {
+        // `for<'a> Trait`: the bound-group and the qualified type join too
+        // (`for<'a> fn(&'a u8) -> u8` is one HRTB unit) — unlike the other
+        // prefixes, `for` always takes an angle group *then* a type.
+        TokenTree::Ident(id) if id == "for" => {
+            i = scan_unit_atom(tokens, scan_unit_atom(tokens, i + 1));
+        }
+        // `extern "C" fn(...)`: the ABI string literal joins the unit.
+        TokenTree::Ident(id) if id == "extern" => {
+            i += 1;
+            if matches!(tokens.get(i), Some(TokenTree::Literal(_))) {
+                i += 1;
+            }
+            i = scan_unit_atom(tokens, i);
+        }
         TokenTree::Ident(id) if is_prefix_ident(&id.to_string()) => {
             i = scan_unit_atom(tokens, i + 1);
         }
@@ -281,8 +296,8 @@ mod tests {
     #[test]
     fn prefix_punct_one_unit() {
         let (end, b) = cut("&mut u8 u16");
-        assert_eq!(end, 2, "&mut u8 is one unit");
-        assert_eq!(b, Some(2));
+        assert_eq!(end, 3, "&mut u8 is one unit");
+        assert_eq!(b, Some(3));
     }
 
     #[test]
