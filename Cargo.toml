@@ -12,7 +12,7 @@ readme = "README.md"
 keywords = ["macro", "trait", "impl", "batch", "codegen"]
 categories = ["development-tools::procedural-macro-helpers"]
 rust-version = "1.93.0"
-exclude = ["rustfmt.toml", ".github/", "proptest-regressions/", "todos.md"]
+exclude = ["rustfmt.toml", ".github/", "proptest-regressions/"]
 
 [lib]
 proc-macro = true

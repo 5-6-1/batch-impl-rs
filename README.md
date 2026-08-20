@@ -31,6 +31,16 @@ trait TupleTrait {}
 // → impl<A, B, C, D> TupleTrait for (A, B, C, D) {}
 ```
 
+## Built with batch-impl
+
+**[alga2](https://docs.rs/alga2) is a real user** — a modern abstract-algebra
+hierarchy for Rust (the successor to [alga](https://docs.rs/alga)), with
+**~900 impls generated from ~80 batch-impl DSL blocks** across 15+ types
+(numbers, tuples 1–16, arrays, `Option`, `Complex`, `Quaternion`, `ModN`,
+smart pointers, collections). **alga2 0.1.0 is about to be released** on
+crates.io; the batch-impl DSL has been its impl generator throughout
+development.
+
 ## Why use it
 
 Hand-writing the same trait implementation for multiple types means **repetition**: the signature is copied N times, the body is copied N times, generic parameters and associated types are each written separately, and changing one place misses three. batch-impl puts the **quantity** of impls into a description outside the human brain:

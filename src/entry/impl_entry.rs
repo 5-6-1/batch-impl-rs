@@ -47,7 +47,8 @@ pub(crate) fn expand_impl_entry(
         )
     })?;
 
-    // ---- preprocessing subset (todos impl entry §G) ----
+    // ---- preprocessing subset: angle pairing → `@trait` replacement →
+    // bare-`where` rewrite (see the entry module docs) ----
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
     let paired = angle_collect(&attr_vec)?;
     let paired = replace_trait_at(&paired, &trait_path)?;
@@ -89,7 +90,7 @@ fn expand_one_spec(
                         Span::call_site(),
                     )
                 })?;
-            // Shape-validity check (todos §I20): the impl's for-Type must
+            // Shape-validity check: the impl's for-Type must
             // match the template ident-for-ident (zero bindings) — a binding
             // means the for-Type doesn't carry the placeholder slot names.
             let for_type: syn::Type =

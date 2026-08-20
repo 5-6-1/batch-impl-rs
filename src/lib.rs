@@ -85,7 +85,7 @@ pub fn batch_impl(
 ) -> proc_macro::TokenStream {
     // impl entry (0.8.0): the attribute also accepts an `impl` block — batch
     // instantiation from a shape-template × matrix-source description. The
-    // trait branch is untouched (top-level dispatch only, per todos §A).
+    // trait branch is untouched (top-level dispatch only).
     if let Ok(trait_item) = syn::parse::<ItemTrait>(item.clone()) {
         return expand_attr_macro(attr.into(), trait_item, true)
             .map(proc_macro::TokenStream::from)
