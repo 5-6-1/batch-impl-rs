@@ -2,7 +2,9 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.9.0 (unreleased)
+## 0.9.1 (unreleased)
+
+## 0.9.0 (2026-08-21)
 
 - **Breaking：apply 运算符重命名**——`.` 成为右结合 apply 运算符（取代 `^`；矩阵写法 `[Box, Rc].u8` 不变，`^` token 整体从 DSL 移除）；**空格应用取代 `-`** 作为左结合组合。parse 层重构（`parse/space.rs`）：`parse_space`（低优先级左折叠块）→ `parse_dot`（高优先级右折叠）→ `parse_block`（原子单元 + 固定后缀）；`parse_item` 按首 token 分流（空格链 / 点链 / 原语）。`-` 前缀只保留指令域排除语义（`#fill(@all,-foo)`）；类型域裸 `-` 定向报错（`chain_boundary_error`——旧 `-` 应用与误放 where 的诊断合并）
 - **块模型**——DSL 是**块的任意组合**（声明 / 指令块 / 代码块 / 类型任意顺序，`apply` 折叠）；`parse_item` 不再按位置剥离附件——每个块都是链公民（`parse_chain` 的 Dash/Caret 层喂给 `parse_space_chain` / `parse_dot_chain`）。组件化由 `tests/features/block_model.rs` 锁定（`<A> <B> #tag{"ab"} HashMap<A, B>` 三种顺序产出同一 impl；const 声明与指令块交错）

@@ -1,6 +1,8 @@
 # batch-impl Tutorial
 
-**v0.9.0** (unreleased) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (see §2); the DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`); same-name generic declarations merge into a where clause; `_` is a never-replaced wildcard in `impl{...}` templates; `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`);
+**v0.9.1** (unreleased) — *placeholder*;
+
+**v0.9.0** (2026-08-21) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (see §2); the DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`); same-name generic declarations merge into a where clause; `_` is a never-replaced wildcard in `impl{...}` templates; `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`);
 
 **v0.8.3** (2026-08-19) — the builtin-directive typo guard is removed: single-item `#name{...}` may legitimately collide with `fill`/`delegate`/`blanket` (see §7);
 
@@ -57,6 +59,8 @@ Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 ## 2. Type Matrix: the space (and `.`)
 
 **The space is the natural way to apply**: write the container/modifier and the types it takes side by side — chaining accumulates arguments left-associatively.
+
+> **What the space actually is**: a space is **not a token** — it is the *gap between tokens* (proc-macro2 strips whitespace, so the DSL sees only adjacency). A space application therefore means "these tokens are adjacent, apply them" (`Box u8` = `Box<u8>`), which is exactly how Rust itself reads type syntax (`Box<u8>` is `Box` adjacent to `<u8>`). No explicit operator symbol is needed — the absence of a separator *is* the operator.
 
 | Writing                    | Expansion                            |
 |----------------------------|--------------------------------------|

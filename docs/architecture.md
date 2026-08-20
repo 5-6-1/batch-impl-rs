@@ -1,6 +1,8 @@
 # batch-impl Internal Architecture
 
-**v0.9.0** (unreleased) — apply operators reworded (`.` right-assoc, space replaces `-` as left-assoc; `^`/`-` gone from the type domain) + **block model**: the DSL is a bag of blocks folded by `apply`, no positional attachment peel — parse layer restructured (`parse/space.rs`: `parse_space` → `parse_dot` → `parse_block`; `parse_item` dispatches by leading token); same-name generic declarations merge into a where clause (`codegen::merge_dup_params`); `_` wildcard in shape templates (`shape.rs::match_ty` matches `Type::Infer` / array-length `Expr::Infer`, never binds); `X<>` → spec trait application (`codegen/sync_trait.rs`) with switch templates (`impl{Tr<>}`) controlling body sync, path-qualified included;
+**v0.9.1** (unreleased) — *placeholder*;
+
+**v0.9.0** (2026-08-21) — apply operators reworded (`.` right-assoc, space replaces `-` as left-assoc; `^`/`-` gone from the type domain) + **block model**: the DSL is a bag of blocks folded by `apply`, no positional attachment peel — parse layer restructured (`parse/space.rs`: `parse_space` → `parse_dot` → `parse_block`; `parse_item` dispatches by leading token); same-name generic declarations merge into a where clause (`codegen::merge_dup_params`); `_` wildcard in shape templates (`shape.rs::match_ty` matches `Type::Infer` / array-length `Expr::Infer`, never binds); `X<>` → spec trait application (`codegen/sync_trait.rs`) with switch templates (`impl{Tr<>}`) controlling body sync, path-qualified included;
 
 **v0.8.1** (unreleased) — the `where{...}` angle-pairing hotfix: `angle_collect` now enters `where{...}` predicate groups (two-arg bounds no longer split at the depth-0 comma); code bodies stay passthrough, `render_angles` restores the paired groups;
 

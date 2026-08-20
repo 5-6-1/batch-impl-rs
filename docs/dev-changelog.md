@@ -5,7 +5,9 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.0 (unreleased)
+## 0.9.1 (unreleased)
+
+## 0.9.0 (2026-08-21)
 
 - **Breaking: apply operators reworded** — `.` becomes the right-associative apply operator (replacing `^`; the matrix spellings `[Box, Rc].u8` are unchanged, and the `^` token is dropped from the DSL entirely); **space application replaces `-`** as the left-associative combination. Parse-layer restructure (`parse/space.rs`): `parse_space` (low-precedence left fold over blocks) → `parse_dot` (high-precedence right fold) → `parse_block` (atomic unit with fixed suffixes); `parse_item` dispatches by leading token (space chain / dot chain / primitive). The `-` prefix survives only as the directive-domain exclusion marker (`#fill(@all,-foo)`); a bare `-` in the type domain errors with a targeted message (`chain_boundary_error` — the old `-` application and misplaced-`where` diagnostics merged)
 - **Block model** — the DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`); `parse_item` no longer peels attachments positionally — every block is a chain citizen (`parse_chain`'s Dash/Caret levels feed `parse_space_chain` / `parse_dot_chain`). Componentization locked by `tests/features/block_model.rs` (three orders of `<A> <B> #tag{"ab"} HashMap<A, B>` yield identical impls; const declarations interleave with directive blocks)

@@ -1,6 +1,8 @@
 # batch-impl 内部架构
 
-**v0.9.0**（unreleased）——apply 运算符重命名（`.` 右结合、空格取代 `-` 作为左结合；`^`/`-` 退出类型域）+ **块模型**：DSL 是块的任意组合、`apply` 折叠，不再按位置剥离附件——parse 层重构（`parse/space.rs`：`parse_space` → `parse_dot` → `parse_block`；`parse_item` 按首 token 分流）；同名泛型声明合并进 where（`codegen::merge_dup_params`）；形状模板 `_` 通配（`shape.rs::match_ty` 匹配 `Type::Infer` / 数组长度 `Expr::Infer`，从不绑定）；`X<>` → 本 spec trait 应用（`codegen/sync_trait.rs`），开关模板（`impl{Tr<>}`）控制 body 同步，含路径限定；
+**v0.9.1**（unreleased）——*占位*；
+
+**v0.9.0**（2026-08-21）——apply 运算符重命名（`.` 右结合、空格取代 `-` 作为左结合；`^`/`-` 退出类型域）+ **块模型**：DSL 是块的任意组合、`apply` 折叠，不再按位置剥离附件——parse 层重构（`parse/space.rs`：`parse_space` → `parse_dot` → `parse_block`；`parse_item` 按首 token 分流）；同名泛型声明合并进 where（`codegen::merge_dup_params`）；形状模板 `_` 通配（`shape.rs::match_ty` 匹配 `Type::Infer` / 数组长度 `Expr::Infer`，从不绑定）；`X<>` → 本 spec trait 应用（`codegen/sync_trait.rs`），开关模板（`impl{Tr<>}`）控制 body 同步，含路径限定；
 
 **v0.8.1**（unreleased）——`where{...}` 尖括号配对 hotfix：`angle_collect` 现在进入 `where{...}` 谓词组（两参数 bound 不再被深度 0 逗号分裂）；代码体仍透传、`render_angles` 还原配对组；
 
