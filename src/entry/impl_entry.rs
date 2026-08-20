@@ -1,4 +1,4 @@
-//! Ext 1: the ItemImpl entry of `#[batch_impl]` — batch-instantiate a
+//! The impl entry of `#[batch_impl]` — batch-instantiate a
 //! hand-written `impl` block from a shape-template × matrix-source
 //! description.
 //!
@@ -39,7 +39,7 @@ pub(crate) fn expand_impl_entry(
         )
     })?;
 
-    // ---- preprocessing subset (todos Ext 1 §G) ----
+    // ---- preprocessing subset (todos impl entry §G) ----
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
     let paired = angle_collect(&attr_vec)?;
     let paired = replace_trait_at(&paired, &trait_path)?;

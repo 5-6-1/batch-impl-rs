@@ -26,7 +26,7 @@ pub(crate) struct ImplParts {
     /// where predicates from a `where{...}` suffix; multiple ones are joined into
     /// `where P1, P2, ...`, elements connected by commas.
     pub(crate) where_clauses: Vec<TokenStream>,
-    /// `impl{...}` Self-part shape templates (Ext 2), in attachment order —
+    /// `impl{...}` shape templates, in attachment order —
     /// matched against the leaf target type by `codegen::shape::match_shape`,
     /// the merged slot mapping rewrites the target/where/body.
     pub(crate) impl_templates: Vec<TokenStream>,

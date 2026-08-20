@@ -566,7 +566,7 @@ trait T { fn tag(&self) -> &'static str; }
 
 trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..=M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义），包进元组或分开写。
 
-### 8.4 `impl{...}` Self-part 形状模板（0.8.0，Ext 2）
+### 8.4 `impl{...}` shape template 形状模板（0.8.0）
 
 `where{...}` 与 `{body}` 之外的第三种尾随附件——Self-part 形状模板。
 三种附件**任意顺序**。块内是**标准 Rust 类型**（DSL 算子被拒绝）：与矩阵
@@ -684,7 +684,7 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 // → impl<A0, A1> TupleMagma for (A0, A1) where A0: Magma, A1: Magma { ... }
 ```
 
-### 8.5 ItemImpl 入口（0.8.0，Ext 1）
+### 8.5 impl entry（0.8.0，ItemImpl 入口）
 
 `#[batch_impl]` 同样接受 **`impl` 块**：DSL 描述**形状模板 × 矩阵源**，每个
 矩阵叶子产出一个 impl，槽映射（与 `impl{...}` 相同的"相同→保留、不同→绑定"规则）

@@ -1,4 +1,4 @@
-//! Ext 1 (0.8.0) conflict/overlap ItemImpl tests: "looks like a conflict
+//! The impl entry (0.8.0) conflict/overlap tests: "looks like a conflict
 //! but is legal" cases — fully-literal (zero-binding) templates, slot names
 //! colliding with real type names in the body (rewritten), and mixed slots
 //! in expressions. Compile-failing conflicts live in `tests/ui/implentry_*`.
@@ -23,7 +23,7 @@ trait CfMk1 {
 }
 
 #[test]
-fn ext1_literal_template_no_binding() {
+fn impl_entry_literal_template_no_binding() {
     let v: Vec<u8> = vec![1, 2, 3];
     assert_eq!(v.n(), 3);
 }
@@ -45,7 +45,7 @@ trait CfMk2 {
 }
 
 #[test]
-fn ext1_slot_name_overrides_body() {
+fn impl_entry_slot_name_overrides_body() {
     let b: Box<u8> = <Box<u8> as CfMk2>::mk();
     assert_eq!(*b, 0);
     let r: Rc<u8> = <Rc<u8> as CfMk2>::mk();
@@ -68,7 +68,7 @@ trait CfMk3 {
 }
 
 #[test]
-fn ext1_mixed_slots_expression() {
+fn impl_entry_mixed_slots_expression() {
     assert_eq!(*<Box<u8> as CfMk3>::mk(), 0);
     assert_eq!(*<Rc<u16> as CfMk3>::mk(), 0);
 }
@@ -99,7 +99,7 @@ trait CfMk4 {
 }
 
 #[test]
-fn ext1_where_slot_left_and_projection() {
+fn impl_entry_where_slot_left_and_projection() {
     let v: Vec<u8> = vec![1u8, 2];
     assert_eq!(v.a(), 2);
     let w: Vec<u16> = vec![1u16, 2, 3];

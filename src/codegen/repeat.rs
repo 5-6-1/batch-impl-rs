@@ -1,4 +1,4 @@
-//! Repeat-block expansion for impl bodies (Ext 2 variadic segments):
+//! Repeat-block expansion for impl bodies (shape template variadic segments):
 //! `@( <pattern>, )..` repeats the pattern once per element of the variadic
 //! segment(s) it references.
 //!

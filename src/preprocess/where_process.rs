@@ -6,8 +6,8 @@
 //! (excluding `ident!{...}` macro-call bodies) and rewrites it into the legacy
 //! `where{predicates}` suffix; a missing code
 //! block reports `compile_error!`. Shared by all three entries
-//! (`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`) and the Ext 1
-//! ItemImpl entry (`allow_end`); the parse layer need not know about the new
+//! (`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`) and the impl entry
+//! (`allow_end`); the parse layer need not know about the new
 //! syntax.
 //!
 //! **Boundary rule**: the scan operates on the top-level token list only —
@@ -16,10 +16,10 @@
 //! so nested code blocks like `Fn({code})` are never mistaken for the body
 //! boundary.
 //!
-//! Stop conditions (0.8.0 Ext 1): a depth-0 `;` ends the predicate region
-//! (the `;` stays in the stream — it is the Ext 1 spec separator / the
+//! Stop conditions (0.8.0 impl entry): a depth-0 `;` ends the predicate region
+//! (the `;` stays in the stream — it is the impl entry spec separator / the
 //! `batch_trait!` segment boundary), and with `allow_end` the end of the
-//! token stream ends it too (the Ext 1 ItemImpl attr has no body after the
+//! token stream ends it too (the impl entry attr has no body after the
 //! predicates).
 
 use proc_macro2::{Group, TokenStream, TokenTree};
@@ -72,10 +72,10 @@ pub(crate) fn where_process(
 
 /// The predicate-region boundary = the first `{...}` group (excluding
 /// `ident!{...}` macro bodies), an ident `where`, an `impl{...}` shape
-/// template (Ext 2 — `impl{...}` is a Self-part attachment, never a
-/// predicate), or a depth-0 `;` (Ext 1 spec separator / `batch_trait!`
+/// template (`impl{...}` is an attachment, never a
+/// predicate), or a depth-0 `;` (impl entry spec separator / `batch_trait!`
 /// segment boundary, left in the stream). With `allow_end` the end of the
-/// token stream is also a boundary (Ext 1 ItemImpl attr: no body follows).
+/// token stream is also a boundary (the impl entry attr: no body follows).
 fn scan_body_boundary(tokens: &[TokenTree], allow_end: bool) -> Option<(TokenTree, usize)> {
     let mut j = 0;
     let mut result: Vec<TokenTree> = vec![];
@@ -105,7 +105,7 @@ fn scan_body_boundary(tokens: &[TokenTree], allow_end: bool) -> Option<(TokenTre
         }
         j += 1;
     }
-    // End of the stream: legal only when the caller permits it (Ext 1).
+    // End of the stream: legal only when the caller permits it (impl entry).
     if allow_end {
         return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
     }

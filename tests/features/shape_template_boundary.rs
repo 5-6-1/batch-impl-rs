@@ -1,4 +1,4 @@
-//! Ext 2 (0.8.0) boundary-case `impl{...}` tests: three-plus merged
+//! The `impl{...}` shape templates (0.8.0) boundary-case tests: three-plus merged
 //! templates, redundant identical bindings, `@trait` inside the template,
 //! coexistence with unsafe impls / attributes, and `batch_trait!` support.
 //! (new test module; split-style organization per the features/ layout)

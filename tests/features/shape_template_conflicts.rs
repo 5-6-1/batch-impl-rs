@@ -1,4 +1,4 @@
-//! Ext 2 (0.8.0) conflict/overlap `impl{...}` tests: "looks like a conflict
+//! The `impl{...}` shape templates (0.8.0) conflict/overlap tests: "looks like a conflict
 //! but is legal" cases — slots bound to composite subtrees and reused in
 //! bodies, and equal-base templates with different args.
 //! Compile-failing conflicts (InconsistentBinding / shape mismatches) live

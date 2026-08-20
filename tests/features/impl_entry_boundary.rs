@@ -1,4 +1,4 @@
-//! Ext 1 (0.8.0) boundary-case ItemImpl tests: empty matrix source,
+//! The impl entry (0.8.0) boundary-case tests: empty matrix source,
 //! direct form without new-generic-decl, three-plus `;`-separated specs,
 //! matrix chains with modifiers, and the zero-slot template.
 //! (new test module; split-style organization per the features/ layout)
@@ -22,7 +22,7 @@ trait BndMk1 {
 }
 
 #[test]
-fn ext1_empty_matrix_source() {
+fn impl_entry_empty_matrix_source() {
     let b = Box::new(vec![1u8, 2, 3]);
     assert_eq!(b.n1(), 3);
 }
@@ -42,7 +42,7 @@ trait BndMk2 {
 }
 
 #[test]
-fn ext1_direct_no_generics() {
+fn impl_entry_direct_no_generics() {
     let v = vec![1u8, 2];
     assert_eq!(v.n2(), 2);
 }
@@ -62,7 +62,7 @@ trait BndMk3 {
 }
 
 #[test]
-fn ext1_three_specs() {
+fn impl_entry_three_specs() {
     assert_eq!(<u8 as BndMk3>::bits(), 8);
     assert_eq!(<u16 as BndMk3>::bits(), 16);
     assert_eq!(<u32 as BndMk3>::bits(), 32);
@@ -84,7 +84,7 @@ trait BndMk4 {
 }
 
 #[test]
-fn ext1_matrix_with_modifiers() {
+fn impl_entry_matrix_with_modifiers() {
     let b = Box::new(5u8);
     let rb = &b;
     assert_eq!(rb.get(), 5);
@@ -109,7 +109,7 @@ trait BndMk5 {
 }
 
 #[test]
-fn ext1_zero_slot_template() {
+fn impl_entry_zero_slot_template() {
     let v = vec![1u8];
     assert_eq!(v.n5(), 1);
 }

@@ -44,7 +44,7 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 /// - `Trait name<trait generics>` — the trait's generic args and associated type bindings
 /// - target type — wrapped in `[]` for a parallel list, `.`/`-` for generic application
 ///
-/// ## ItemImpl entry (0.8.0, Ext 1)
+/// ## The impl entry (0.8.0)
 ///
 /// The same attribute also accepts an `impl` block: the DSL describes a shape
 /// template × matrix source, and every matrix leaf instantiates the impl
@@ -83,7 +83,7 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 pub fn batch_impl(
     attr: proc_macro::TokenStream, item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    // Ext 1 (0.8.0): the attribute also accepts an `impl` block — batch
+    // impl entry (0.8.0): the attribute also accepts an `impl` block — batch
     // instantiation from a shape-template × matrix-source description. The
     // trait branch is untouched (top-level dispatch only, per todos §A).
     if let Ok(trait_item) = syn::parse::<ItemTrait>(item.clone()) {

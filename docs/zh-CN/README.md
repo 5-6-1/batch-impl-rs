@@ -142,7 +142,7 @@ trait Describe2 { fn describe(&self) -> String; }
 - **完整教程**：`docs/tutorial.md`（渐进式从一行 impl 到高级矩阵组合）
 - **三个入口**：`#[batch_impl]`（含 trait）/ `#[batch_impl_only]`（只出 impl）/
   `batch_trait!`（对已声明 trait 批量生成，支持多段）
-- **Ext 1 / Ext 2（0.8.0）**：**ItemImpl 入口**——`#[batch_impl]` 同样接受 `impl` 块，按形状模板 × 矩阵源批量实例化（教程 §8.5）；**`impl{...}` Self-part 形状模板**——绑定生成 impl 的目标形状，**每个形状族写一个原型实现**即可覆盖整个矩阵，含 `Cow` 这类含生命周期的族（教程 §8.4）
+- **impl entry / shape template（0.8.0）**：**ItemImpl 入口**——`#[batch_impl]` 同样接受 `impl` 块，按形状模板 × 矩阵源批量实例化（教程 §8.5）；**`impl{...}` Self-part 形状模板**——绑定生成 impl 的目标形状，**每个形状族写一个原型实现**即可覆盖整个矩阵，含 `Cow` 这类含生命周期的族（教程 §8.4）
 - **变长段 + 重复块（0.8.2）**：模板 `ident@..` 段 + body `@(...)..` 重复——alga2 风格 `().1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` 一条 spec 覆盖所有元组 arity（教程 §8.4）
 - **展开预览**：`batch_preview!`（把 `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` 原样包进去，展示真实展开 +
   `.`/空格 结合性误写提示）

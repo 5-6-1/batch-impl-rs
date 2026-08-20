@@ -160,7 +160,7 @@ pub(crate) struct TyWhere(pub(crate) TokenStream);
 pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 
 #[derive(Clone, Debug)]
-/// `impl{...}` — the Self-part shape template attached to a type (Ext 2):
+/// `impl{...}` — the shape template attached to a type:
 /// a standard Rust type inside the block (expanded by `expand_consts`,
 /// parsed by syn in codegen), matched against the leaf target type by
 /// `codegen::shape::match_shape`. Inner `None` means a bare `impl{...}`

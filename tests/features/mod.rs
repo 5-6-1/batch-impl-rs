@@ -1,7 +1,8 @@
-//! Split test modules for the batch-impl functional/regression/Ext suites.
+//! Split test modules for the batch-impl functional/regression/impl-entry
+//! and shape-template suites.
 //!
 //! The old single-file test crates (`dsl.rs`, `regression.rs`,
-//! `ext1_impl.rs`, `ext2_impl.rs`) were split into per-feature modules here
+//! `impl_entry_impl.rs`, `shape_template_impl.rs`) were split into per-feature modules here
 //! (each under 350 lines) and mounted by the thin entry `tests/dsl.rs`
 //! (`mod features;`). Every module is a self-contained `mod` — shared
 //! helper types/macros live next to their tests.
@@ -26,19 +27,19 @@ pub(crate) mod dsl_splat_basic;
 pub(crate) mod dsl_trait_args;
 pub(crate) mod dsl_where;
 pub(crate) mod dup_params;
-pub(crate) mod ext1_basic;
-pub(crate) mod ext1_boundary;
-pub(crate) mod ext1_conflicts;
-pub(crate) mod ext1_nested;
-pub(crate) mod ext1_trait_where;
-pub(crate) mod ext2_basic;
-pub(crate) mod ext2_boundary;
-pub(crate) mod ext2_conflicts;
-pub(crate) mod ext2_nested;
-pub(crate) mod ext2_shape_forms;
-pub(crate) mod ext2_trait_sync;
-pub(crate) mod ext2_varseg;
+pub(crate) mod impl_entry_basic;
+pub(crate) mod impl_entry_boundary;
+pub(crate) mod impl_entry_conflicts;
+pub(crate) mod impl_entry_nested;
+pub(crate) mod impl_entry_trait_where;
 pub(crate) mod regression_arrays_prefix;
 pub(crate) mod regression_basics;
 pub(crate) mod regression_consistency;
 pub(crate) mod regression_macros_path;
+pub(crate) mod shape_template_basic;
+pub(crate) mod shape_template_boundary;
+pub(crate) mod shape_template_conflicts;
+pub(crate) mod shape_template_nested;
+pub(crate) mod shape_template_shape_forms;
+pub(crate) mod shape_template_trait_sync;
+pub(crate) mod shape_template_varseg;

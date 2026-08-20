@@ -1,7 +1,7 @@
-//! Ext 1 (0.8.0) ItemImpl trait/where tests: `@trait` in generic-decl
+//! The impl entry (0.8.0) trait/where tests: `@trait` in generic-decl
 //! bounds and where predicates, the impl's own generics/where preservation,
 //! and shape-template slots rewritten in where predicates.
-//! (split from the former single-file `tests/ext1_impl.rs`)
+//! (split from the former single-file `tests/impl_entry_impl.rs`)
 
 use batch_impl::batch_impl;
 
@@ -26,7 +26,7 @@ trait Mk4 {
 }
 
 #[test]
-fn ext1_at_trait_bound() {
+fn impl_entry_at_trait_bound() {
     assert_eq!(<Box<u8> as Mk4>::tag(&Box::new(1)), 4);
 }
 
@@ -51,7 +51,7 @@ trait Mk5 {
 }
 
 #[test]
-fn ext1_at_trait_where() {
+fn impl_entry_at_trait_where() {
     assert_eq!(<Box<u8> as Mk5>::tag(&Box::new(1)), 5);
 }
 
@@ -70,7 +70,7 @@ trait Mk6 {
 }
 
 #[test]
-fn ext1_impl_own_generics_where() {
+fn impl_entry_impl_own_generics_where() {
     assert_eq!(<Box<u8> as Mk6>::n(&Box::new(1)), 6);
 }
 
@@ -89,7 +89,7 @@ trait Mk8 {
 }
 
 #[test]
-fn ext1_where_slot_rewrite() {
+fn impl_entry_where_slot_rewrite() {
     let v: Vec<u8> = vec![1, 2, 3];
     assert_eq!(v.n(), 3);
 }

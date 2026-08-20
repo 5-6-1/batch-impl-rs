@@ -1,4 +1,4 @@
-//! Ext 2 shape-match coverage for the full range of `syn::Type` forms:
+//! The `impl{...}` shape templates: shape-match coverage for the full range of `syn::Type` forms:
 //! slices `[A]`, fixed arrays with literal lengths `[A; 3]`, tuples
 //! `(A, B, C)`, references with lifetimes `&'static A`, parenthesized
 //! types, nested arrays, multi-segment paths, and verbatim forms that must

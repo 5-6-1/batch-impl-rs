@@ -1,4 +1,4 @@
-//! Ext 1 (0.8.0) nested/multi-dimensional ItemImpl tests: nested matrix
+//! The impl entry (0.8.0) nested/multi-dimensional tests: nested matrix
 //! sources (inner array distribution), multi-level generic templates, and
 //! slot binding to composite subtrees.
 //! (new test module; split-style organization per the features/ layout)
@@ -22,7 +22,7 @@ trait NstMk1 {
 }
 
 #[test]
-fn ext1_nested_matrix_distribution() {
+fn impl_entry_nested_matrix_distribution() {
     let _: Box<u8> = <Box<u8> as NstMk1>::mk();
     let _: Box<u16> = <Box<u16> as NstMk1>::mk();
     let _: Box<u32> = <Box<u32> as NstMk1>::mk();
@@ -47,7 +47,7 @@ trait NstMk2 {
 }
 
 #[test]
-fn ext1_multi_level_template() {
+fn impl_entry_multi_level_template() {
     let v: Box<Vec<u8>> = Box::new(vec![7u8]);
     assert_eq!(v.head(), 7);
 }
@@ -68,7 +68,7 @@ trait NstMk3 {
 }
 
 #[test]
-fn ext1_slot_composite_subtree() {
+fn impl_entry_slot_composite_subtree() {
     let v: Vec<u8> = <Vec<u8> as NstMk3>::mk();
     assert!(v.is_empty());
     let s: Vec<String> = <Vec<String> as NstMk3>::mk();
@@ -93,7 +93,7 @@ trait NstMk4 {
 }
 
 #[test]
-fn ext1_multi_dimensional_matrix() {
+fn impl_entry_multi_dimensional_matrix() {
     let p = <Pair2<u8, i8> as NstMk4>::mk();
     assert_eq!(p.0, 0);
     assert_eq!(p.1, 0);
@@ -118,7 +118,7 @@ trait NstMk5 {
 }
 
 #[test]
-fn ext1_matrix_where_combined() {
+fn impl_entry_matrix_where_combined() {
     let v: Vec<u8> = vec![1, 2];
     assert_eq!(v.n(), 2);
     let w: Vec<u16> = vec![1u16];

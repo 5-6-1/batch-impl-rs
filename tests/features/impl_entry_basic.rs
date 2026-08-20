@@ -1,6 +1,6 @@
-//! Ext 1 (0.8.0) basic ItemImpl entry tests: single-level matrix, the
+//! The impl entry (0.8.0) basic tests: single-level matrix, the
 //! direct form, `;`-separated multi-spec, and `unsafe impl` preservation.
-//! (split from the former single-file `tests/ext1_impl.rs`)
+//! (split from the former single-file `tests/impl_entry_impl.rs`)
 
 use batch_impl::batch_impl;
 use std::rc::Rc;
@@ -20,7 +20,7 @@ trait Mk1 {
 }
 
 #[test]
-fn ext1_basic_matrix() {
+fn impl_entry_basic_matrix() {
     let b: Box<u8> = <Box<u8> as Mk1>::mk();
     assert_eq!(*b, 0);
     let r: Rc<u16> = <Rc<u16> as Mk1>::mk();
@@ -44,7 +44,7 @@ trait Mk2 {
 }
 
 #[test]
-fn ext1_direct_form() {
+fn impl_entry_direct_form() {
     assert_eq!(<Box<i32> as Mk2>::tag(&Box::new(5)), 2);
     assert_eq!(<Box<u16> as Mk2>::tag(&Box::new(5)), 2);
 }
@@ -64,7 +64,7 @@ trait Mk3 {
 }
 
 #[test]
-fn ext1_multi_spec_semicolon() {
+fn impl_entry_multi_spec_semicolon() {
     assert_eq!(<u8 as Mk3>::bits(), 8);
     assert_eq!(<u16 as Mk3>::bits(), 16);
 }
@@ -85,7 +85,7 @@ unsafe trait Mk7 {
 }
 
 #[test]
-fn ext1_unsafe_impl() {
+fn impl_entry_unsafe_impl() {
     assert_eq!(<u8 as Mk7>::TAG, 8);
     assert_eq!(<u16 as Mk7>::TAG, 16);
 }

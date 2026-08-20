@@ -1,7 +1,7 @@
-//! Ext 2 (0.8.0) basic `impl{...}` tests: single-slot binding, equal-base
+//! The `impl{...}` shape templates (0.8.0) basic tests: single-slot binding, equal-base
 //! literals, different-base slots, matrix distribution, and any-order
 //! attachments.
-//! (split from the former single-file `tests/ext2_impl.rs`)
+//! (split from the former single-file `tests/shape_template_impl.rs`)
 
 use batch_impl::batch_impl;
 use std::rc::Rc;

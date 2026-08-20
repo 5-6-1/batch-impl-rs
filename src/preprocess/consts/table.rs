@@ -209,7 +209,7 @@ fn expand_consts_at(
                     i += 1;
                 }
             }
-            // `impl{...}` Self-part shape template (Ext 2): a Brace group
+            // `impl{...}` shape template: a Brace group
             // right after the `impl` ident is the shape template, entered to
             // expand `@trait` / `@` constants — the remaining tokens form a
             // standard Rust type parsed by syn in codegen. Bodies are never

@@ -1,4 +1,4 @@
-//! Ext 2 (0.8.0) nested/container-template `impl{...}` tests: multi-level
+//! The `impl{...}` shape templates (0.8.0) nested/container-template tests: multi-level
 //! generic templates, reference/pointer templates, tuple templates, and
 //! array/slice templates.
 //! (new test module; split-style organization per the features/ layout)

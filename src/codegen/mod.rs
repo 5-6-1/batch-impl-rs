@@ -219,7 +219,7 @@ pub(crate) fn generate_impl(
     if !errs.is_empty() {
         return errs.into_iter().collect();
     }
-    // Ext 2: `impl{...}` Self-part shape templates — match each template
+    // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
     // rewrites (where predicates + body here; the target type at render,
     // where the final tokens are in hand). An empty template list is the
@@ -345,7 +345,7 @@ fn merge_dup_params(parts: &mut ImplParts) {
 
 /// Renders the final `impl<...> Trait<...> for Target where ... { ... }`
 /// block from the extracted parts (bounds inherited, `@` refs resolved).
-/// `shape_entries` (Ext 2 `impl{...}` slot mapping) rewrites the target
+/// `shape_entries` (the `impl{...}` shape-template slot mapping) rewrites the target
 /// type at render — the where predicates and body were already rewritten by
 /// the caller.
 fn render_impl(
@@ -375,7 +375,7 @@ fn render_impl(
         quote!(<#(#names),*>)
     };
 
-    // target type — Ext 2 slot mapping applied at render (the leaf tokens
+    // target type — shape template slot mapping applied at render (the leaf tokens
     // are in hand here; slot names in the target are replaced with the
     // bound subtrees, e.g. `A<B>` → `Box<usize>`).
     let target = if shape_entries.is_empty() {

@@ -1,4 +1,4 @@
-//! Ext 2 variadic-segment (`ident@..`) integration: template segments bound
+//! The `impl{...}` shape templates: variadic-segment (`ident@..`) integration: template segments bound
 //! to tuple elements (name numbering aligned with the leaf position), body
 //! repeat blocks (`@(...)..`) with `@ident` name references and `@N` index
 //! cursors, and the `@all_fresh` where selector on the generated impls.

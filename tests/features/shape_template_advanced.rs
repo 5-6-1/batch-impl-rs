@@ -1,6 +1,6 @@
-//! Ext 2 (0.8.0) advanced `impl{...}` tests: merged templates, body-type
+//! The `impl{...}` shape templates (0.8.0) advanced tests: merged templates, body-type
 //! rewrites, coexistence with trait generics / where, and `batch_impl_only`.
-//! (split from the former single-file `tests/ext2_impl.rs`)
+//! (split from the former single-file `tests/shape_template_impl.rs`)
 
 use batch_impl::{batch_impl, batch_impl_only};
 

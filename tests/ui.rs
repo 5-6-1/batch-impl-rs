@@ -137,14 +137,14 @@ fn ui() {
     t.compile_fail("tests/ui/attach_too_deep.rs");
     t.compile_fail("tests/ui/segments_too_deep.rs");
 
-    // Ext 2 `impl{...}` Self-part shape templates: DSL operators / shape
+    // the `impl{...}` shape templates: DSL operators / shape
     // mismatch / inconsistent merged bindings / attachment depth
     t.compile_fail("tests/ui/impl_template_dsl_ops.rs");
     t.compile_fail("tests/ui/impl_shape_mismatch.rs");
     t.compile_fail("tests/ui/impl_inconsistent_binding.rs");
     t.compile_fail("tests/ui/impl_attach_too_deep.rs");
     // shape-match verbatim limits: lifetime args / fn-pointer slots cannot
-    // bind (array lengths and `'_` wildcards DO bind — see ext2_shape_forms)
+    // bind (array lengths and `'_` wildcards DO bind — see shape_template_shape_forms)
     t.compile_fail("tests/ui/impl_shape_lifetime_arg.rs");
     t.compile_fail("tests/ui/impl_shape_fn_bound.rs");
     // variadic segments (`ident@..`): placement / duplicate prefixes / uneven
@@ -164,7 +164,7 @@ fn ui() {
     // body sync needs a template carrying `Tr<>`
     t.compile_fail("tests/ui/impl_trait_sync_body_negative.rs");
 
-    // Ext 1 ItemImpl entry: for-Type shape mismatch / banned `@` and `#` /
+    // the impl entry (ItemImpl): for-Type shape mismatch / banned `@` and `#` /
     // non-type direct form
     t.compile_fail("tests/ui/implentry_shape_mismatch.rs");
     t.compile_fail("tests/ui/implentry_at_const_banned.rs");

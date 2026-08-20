@@ -147,7 +147,7 @@ proptest! {
         let _ = expand_attr_macro(ts, trait_def, false);
     }
 
-    /// Full pipeline through the Ext 1 ItemImpl entry (`expand_impl_entry`):
+    /// Full pipeline through the impl entry (`expand_impl_entry`):
     /// random attr tokens fed against a fixed dummy impl — the no-panic
     /// promise covers the impl branch of the top-level dispatch too (the
     /// `;` spec split, `@trait` replacement, shape matching and assembly

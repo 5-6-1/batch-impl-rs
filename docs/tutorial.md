@@ -569,7 +569,7 @@ trait T { fn tag(&self) -> &'static str; }
 
 Trait-level `where` clauses inherit into the impl; renaming/composite predicates referencing undeclared params error explicitly.
 
-### 8.4 `impl{...}` Self-part shape templates (0.8.0, Ext 2)
+### 8.4 The `impl{...}` shape templates (0.8.0)
 
 A third trailing attachment beside `where{...}` and `{body}` — the Self-part
 shape template. The three kinds attach in **any order**. The block holds a
@@ -725,7 +725,7 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 // → impl<A0, A1> TupleMagma for (A0, A1) where A0: Magma, A1: Magma { ... }
 ```
 
-### 8.5 The ItemImpl entry (0.8.0, Ext 1)
+### 8.5 The impl entry (0.8.0, ItemImpl)
 
 `#[batch_impl]` also accepts an **`impl` block**: the DSL describes a
 **shape template × matrix source**, every matrix leaf emits one impl, and
@@ -807,7 +807,7 @@ trait Conv<T> { fn conv() -> T; }
 ```
 
 - **`batch_trait!`** — a function-like macro for an already-declared trait, multi-section support, custom `@name=value;` constant sections, no directives.
-- **ItemImpl entry (0.8.0, Ext 1)** — `#[batch_impl]` also accepts an `impl` block: batch-instantiate a hand-written impl from a shape template × matrix source (see §8.5).
+- **The impl entry (0.8.0, ItemImpl)** — `#[batch_impl]` also accepts an `impl` block: batch-instantiate a hand-written impl from a shape template × matrix source (see §8.5).
 
 ## 12. Error Hints
 

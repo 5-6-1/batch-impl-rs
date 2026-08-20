@@ -5,7 +5,7 @@
 已于 0.8.0 回退：`ConstCtx::Attribute` 移除 `user_table`，属性宏内 `@name=value;` 定义段报
 "custom constants are not supported"；`batch_trait!` 的支持保留。
 
-## ~~Ext 1 语义任务清单（冻结）~~（0.8.0 已实现）
+## ~~impl entry 语义任务清单（冻结）~~（0.8.0 已实现）
 
 已落地：lib.rs 顶层分流（trait 分支不动）、`entry/impl_entry.rs`（shape 形态 `:` 分隔 + 直接形态、
 `;` 分隔多 spec、零绑定 for-Type 校验、矩阵叶子展开、装配重写 for-Type/where/body、原始 impl
@@ -38,7 +38,7 @@ impl Tr for A<B>{
 
 - 单条 statement 对应一个 ItemImpl；多 spec 用 `;` 分隔（`A:usize; A:isize`；用户定稿：不引入 `,` 分隔的多段——`,` 归段内 DSL 矩阵/参数），每条 spec 是独立生成任务，共享该 ItemImpl 的 trait path / for-Type / body。
 - 字段含义无歧义锁定：
-    - **shape-template**（shape 形态，`:` 前）：`syn::Type` 形态，作为绑定槽骨架。绑定规则与 Ext 2 `impl{...}` 模板同一内核（`codegen::shape::match_shape`）：模板与目标（矩阵叶子 / for-Type）**逐位比较**——对应位置**相同**（ident 文本一致）→ 该 ident 是字面，不进映射、不做替换；**不同** → 该 ident 是绑定槽，映射为目标对应子树。composite 只比较结构形状（generic arity、嵌套、分隔符、路径段数；不路径归一化），非 ident token 逐字相等。**必须与 ItemImpl 的 `for-Type` 整体同形**——只允许整体匹配，不允许只写 for-Type 的局部子树（零绑定校验，见 §I20）。
+    - **shape-template**（shape 形态，`:` 前）：`syn::Type` 形态，作为绑定槽骨架。绑定规则与 shape template `impl{...}` 模板同一内核（`codegen::shape::match_shape`）：模板与目标（矩阵叶子 / for-Type）**逐位比较**——对应位置**相同**（ident 文本一致）→ 该 ident 是字面，不进映射、不做替换；**不同** → 该 ident 是绑定槽，映射为目标对应子树。composite 只比较结构形状（generic arity、嵌套、分隔符、路径段数；不路径归一化），非 ident token 逐字相等。**必须与 ItemImpl 的 `for-Type` 整体同形**——只允许整体匹配，不允许只写 for-Type 的局部子树（零绑定校验，见 §I20）。
     - **new-generic-decl**：可选，形式 `< name : bound , ... >`。bound 位置允许写 `@trait`，展开期替换为 ItemImpl trait path 真值。无则整个 `<>` 省略。
     - **matrix-source**（shape 形态，`:` 后）：可选，现有矩阵 DSL（`^`/`-`/`[]`/`()`/`*`/`<>`）展开 N 个叶子。无则 N=1（空矩阵源 → 仅 1 个叶子即 shape 本身）。
     - **直接形态**（无 `:`）：`<new-generic-decl>?` 后直接是 for-type（即生成目标的 Self 类型），无绑定槽匹配，N=1；new-generic-decl 声明 for-type 引用的泛型参数。
@@ -57,7 +57,7 @@ impl Tr for A<B>{
     - `@name=value;` 自定义常量（理由：无跨 trait 复用需求，应走 apply 系统）
     - `@all*` 选择器（`@all_fresh` / `@all_raw` / `@N..M` 等）——ItemImpl 入口没有 trait-aware fresh 重命名机制，无对应语义。
     - `@N` / `@g_i` 位置引用——同上，无 fresh 名引用对象。
-    - `@trait<...>` 形式（这是 Ext 2 才涉及的）。
+    - `@trait<...>` 形式（这是 shape template 才涉及的）。
 6. where 谓词内出现禁止的 `@` 构造 → 报错。
 
 ### D. `#` 域约束（ItemImpl 入口）
@@ -105,7 +105,7 @@ impl Tr for A<B>{
     - 同名槽已在映射里 → 新绑定的叶子子树须与旧子树同形，否则 `InconsistentBinding`
     - 0-arity（模板整体是裸 ident）→ 绑定整个叶子（`T := leaf`）
     - 语义依据（用户澄清，2025 定稿）："与将写的 impl 块的 Self 位置处匹配不同就替换，相同就不做处理"——同名 ident 是字面意图，异名 ident 是绑定槽。**H 节早期"composite token 逐字比较"表述作废。**
-19. 该函数 Ext 1 与 Ext 2 共用，不耦合任何入口私有状态。
+19. 该函数 impl entry 与 shape template 共用，不耦合任何入口私有状态。
 
 ### I. shape-template 与 for-Type 校验
 
@@ -130,17 +130,17 @@ impl Tr for A<B>{
 28. 不引入多 statement / 多 shape 语法——ItemImpl 入口一条 attr = 一个 shape = 一个生成 task（多矩阵叶子是其内置的 N 倍产出，不是多条 attr）。
 
 
-## ~~Ext 2 语义任务清单（冻结）~~（0.8.0 已实现）
+## ~~shape template 语义任务清单（冻结）~~（0.8.0 已实现）
 
 已落地：`codegen::shape` 共享内核（match_shape 逐位匹配，H 节语义）、`TyKind::WithImpl` 件、
 `impl{...}` 任意顺序 attachment（split_trailing_body + 深度计数）、预处理判别（`expand_consts`
 进入模板、`where_process` 视 `impl{...}` 为边界；判别中心化于 `util::is_impl_template`）、
-codegen 多模板合并映射 + 目标/where/body 重写、4 个 ui fixture + tests/ext2_impl.rs（9 测试）。
+codegen 多模板合并映射 + 目标/where/body 重写、4 个 ui fixture + tests/shape_template_impl.rs（9 测试）。
 
 ### A. 入口位与定位
 
-1. Ext 2 是**对现有 trait 入口（`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`）的扩展**——不是新入口位。三个 trait 入口等价支持 Ext 2，无批差异。
-2. Ext 2 与 Ext 1 共用 shape-matching 内核 `codegen::shape::match_shape`（Ext 1 §H 已写）。
+1. shape template 是**对现有 trait 入口（`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`）的扩展**——不是新入口位。三个 trait 入口等价支持 shape template，无批差异。
+2. shape template 与 impl entry 共用 shape-matching 内核 `codegen::shape::match_shape`（impl entry §H 已写）。
 
 ### B. 语法：`impl{...}` Self-part 容器
 
@@ -177,7 +177,7 @@ trait Tr{const MAX:Self;}
 
 ### E. impl{} 模板与矩阵 leaf 的匹配
 
-11. `impl{...}` 内是模板：bare ident = 绑定槽，composite 节点逐字结构比较（与 Ext 1 共用 `match_shape`）。
+11. `impl{...}` 内是模板：bare ident = 绑定槽，composite 节点逐字结构比较（与 impl entry 共用 `match_shape`）。
 12. 一条 spec 内**先展开矩阵**得 N 个 leaf，**再对每个 leaf** 跑 `impl{}` 的 shape-match。`impl{}` 不跨 leaf 共享映射——单 leaf 单映射。
 13. `impl{}` 模板与生成 leaf 的 for-Type 跑 `match_shape`：
     - 成功 → `Self`-part 替换映射 `M_impl`
@@ -201,7 +201,7 @@ trait Tr{const MAX:Self;}
 
 ### H. attachment 深度计数
 
-20. attachment 链深度计必须**把 `impl{}` 也计入**。现有 trait 入口 attachment 深度上限 128（针对 `where{...}`/`{body}` 链）；Ext 2 加上 `impl{}` 后三者在同一深度链上，**总深仍上限 128**（不分项计数）。
+20. attachment 链深度计必须**把 `impl{}` 也计入**。现有 trait 入口 attachment 深度上限 128（针对 `where{...}`/`{body}` 链）；shape template 加上 `impl{}` 后三者在同一深度链上，**总深仍上限 128**（不分项计数）。
 21. 深度超限报错（与现有 "trailing attachment chain exceeds 128" 同质，仅扩展报错信息覆盖 `impl{}`）。
 
 ### I. 名字空间：绑定槽名与泛型名同名
@@ -211,8 +211,8 @@ trait Tr{const MAX:Self;}
 
 ### J. `impl{}` 替换映射与 body 重写的关系
 
-24. `impl{}` 的替换映射 `M_impl` **会落入 body 重写**——body 走 `visit_mut` 替换时，命中 `M_impl` key 的标识按映射替换。**与 Ext 1 同行为**：默认替换，后处理无从也不去区分标识来源（不区分是来自指令系统还是来自 `impl{}` 模板）。
-25. `#name`-copied 的 trait 方法签名里的方法名：**会被替换**（与 §J24 同——body 替换一律执行，包括方法名）。**确认：与 Ext 1 行为完全相同，不保留 trait 方法名。**
+24. `impl{}` 的替换映射 `M_impl` **会落入 body 重写**——body 走 `visit_mut` 替换时，命中 `M_impl` key 的标识按映射替换。**与 impl entry 同行为**：默认替换，后处理无从也不去区分标识来源（不区分是来自指令系统还是来自 `impl{}` 模板）。
+25. `#name`-copied 的 trait 方法签名里的方法名：**会被替换**（与 §J24 同——body 替换一律执行，包括方法名）。**确认：与 impl entry 行为完全相同，不保留 trait 方法名。**
 
 ### K. `impl{}` 替换映射与 where 谓词、impl 头的关系
 
@@ -240,10 +240,10 @@ trait Tr{const MAX:Self;}
 
 ### N. 共享内核延伸
 
-37. `codegen::shape::match_shape`（Ext 1 §H 锁定的）在 Ext 2 被调用：`match_shape(impl_template: &syn::Type, leaf_for_type: &syn::Type) -> Result<Mapping, ShapeError>`。
-38. `Mapping` 数据结构 Ext 1/Ext 2 共用（槽名 → 子树），不二份实现。
+37. `codegen::shape::match_shape`（impl entry §H 锁定的）在 shape template 被调用：`match_shape(impl_template: &syn::Type, leaf_for_type: &syn::Type) -> Result<Mapping, ShapeError>`。
+38. `Mapping` 数据结构 impl entry / shape template 共用（槽名 → 子树），不二份实现。
 
-### O. Ext 2 测试策略（语义列在此，实现期落地）
+### O. shape template 测试策略（语义列在此，实现期落地）
 
 39. 测试用例：
     - `impl{T}` + i32 → `T := i32`
@@ -270,7 +270,7 @@ trait Tr{const MAX:Self;}
 
 44. 不改 trait 入口主流程结构，仅加 `impl{}` 件与判别。
 45. 不引入新依赖。
-46. 不改 Ext 1（Ext 1 与 Ext 2 共享 `codegen::shape`，但不互改对方入口）。
-47. 不引入 `impl{}` body 重写规则变更——沿用 Ext 1 的 body 替换同行为。
+46. 不改 impl entry（impl entry 与 shape template 共享 `codegen::shape`，但不互改对方入口）。
+47. 不引入 `impl{}` body 重写规则变更——沿用 impl entry 的 body 替换同行为。
 
 

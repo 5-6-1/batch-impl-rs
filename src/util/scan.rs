@@ -153,8 +153,8 @@ pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool
             if p.as_char() == '!' || p.as_char() == '#')
 }
 
-/// Whether `tokens[index]` is the `impl` ident of an `impl{...}` Self-part
-/// shape template (Ext 2): an `impl` ident directly followed by a Brace
+/// Whether `tokens[index]` is the `impl` ident of an `impl{...}` shape
+/// template: an `impl` ident directly followed by a Brace
 /// group. The single authority for the `impl{...}` discrimination shared by
 /// `expand_consts` (which enters the template to expand `@`/`@trait`) and
 /// `where_process` (which treats it as a predicate-region boundary).

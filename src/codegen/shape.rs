@@ -1,5 +1,5 @@
-//! The shape-matching kernel shared by Ext 1 (`#[batch_impl]` ItemImpl
-//! entry) and Ext 2 (`impl{...}` Self-part shape binding on the trait
+//! The shape-matching kernel shared by the impl entry (`#[batch_impl]` ItemImpl
+//! entry) and the shape templates (`impl{...}` shape binding on the trait
 //! entries): matches a shape template (`syn::Type`) against a leaf type
 //! (a matrix leaf / the for-Type) and produces the slot mapping.
 //!

@@ -4,7 +4,7 @@
 
 **v0.8.1**（unreleased）——`where{...}` 尖括号配对 hotfix：`angle_collect` 现在进入 `where{...}` 谓词组（两参数 bound 不再被深度 0 逗号分裂）；代码体仍透传、`render_angles` 还原配对组；
 
-**v0.8.0**（2026-08-18）——风格打底（移除 rustfmt 宽度上限、全库重排）+ 文档更新（示例注释英文化、测试数字更正）+ 扁平链深度护栏（`.`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（`@name=value;` 段仅 `batch_trait!` 可用）+ **Ext 2 `impl{...}` Self-part 形状模板**（新 `codegen::shape` 内核 + `TyKind::WithImpl` + `expand_consts` 进入模板、`where_process` 视为边界）+ **Ext 1 ItemImpl 入口**（`#[batch_impl]` 同样接受 `impl` 块；`entry/impl_entry.rs` + 顶层分流；形状模板 × 矩阵源实例化、`;` 分隔 spec、`@` 域仅 `@trait`；`where_process` 新增 `;` 停止与 `allow_end` 参数）；
+**v0.8.0**（2026-08-18）——风格打底（移除 rustfmt 宽度上限、全库重排）+ 文档更新（示例注释英文化、测试数字更正）+ 扁平链深度护栏（`.`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（`@name=value;` 段仅 `batch_trait!` 可用）+ **`impl{...}` shape template 形状模板**（新 `codegen::shape` 内核 + `TyKind::WithImpl` + `expand_consts` 进入模板、`where_process` 视为边界）+ **impl entry（ItemImpl 入口）**（`#[batch_impl]` 同样接受 `impl` 块；`entry/impl_entry.rs` + 顶层分流；形状模板 × 矩阵源实例化、`;` 分隔 spec、`@` 域仅 `@trait`；`where_process` 新增 `;` 停止与 `allow_end` 参数）；
 
 **v0.7.2**——0.7.2 已发布：`@` 诊断用户语言化 + `batch_preview!` + trait 实参生成器 splat 提升 + `#blanket` 按值修复 + 属性宏自定义 `@` 常量（0.8.0 已回退）；0.7.1 已发布：定向诊断 + 单一真相源笛卡尔积（`util::cartesian`）+ 指令分发迁入 `directives/`；0.7.0：**splat** `*` 前缀（`TySplat{Tuple,Array}` 枚举镜像来源括号，完整委托 `TyTuple`/`TyArray` apply + 包回）、数组分发传播、parse 层拆分 `chain`/`primary`/`trailing`；0.6.x：预处理顺序 `@ <> # where`、宏元层完整化、`@N` fresh 引用、receiver 过滤、blanket 委托、span 诊断。
 
@@ -16,7 +16,7 @@
 lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait! / 测试宏）+ 模块树
   ├── entry/                入口与驱动
   │   ├── mod.rs            入口实现：expand_attr_macro / expand_batch_trait + 公共管线 run_pipeline
-  │   ├── impl_entry.rs     Ext 1 ItemImpl 入口：形状模板 × 矩阵源实例化（attr 预处理子集 + `;` spec 切分 + 装配）
+  │   ├── impl_entry.rs     impl entry（ItemImpl 入口）：形状模板 × 矩阵源实例化（attr 预处理子集 + `;` spec 切分 + 装配）
   │   ├── driver.rs         共享驱动：BFS 展开并列列表 → 逐叶子 generate_impl
   │   ├── preview.rs        batch_preview!：诊断通道展开预览 + `.`/空格 误写提示
   │   └── path_prefix.rs    外部 trait 路径前缀：#Path::to::Trait: 状态机解析
@@ -50,7 +50,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── mod.rs            extract_impl_parts → 后处理 → hoist_type_params → generate_impl（含 where 谓词附加与引用检查）
   │   ├── impl_parts.rs     ImplParts 结构 + TyKind 变体遍历（extract / hoist）
   │   ├── postprocess.rs    ImplParts 上的 trait 泛型替换（`From<bool>`：指令 body 里 `value: T` → `value: bool`）
-  │   ├── shape.rs          Ext 2/Ext 1 共享内核：match_shape（模板 vs 叶子逐位匹配）+ Mapping + ShapeError——对每种 syn::Type 形态结构递归（切片/元组/数组/引用/指针/Paren/路径）；裸 const 参数数组长度与 `'_'` 生命周期通配可绑定；fn 指针/trait 对象模板与跨类（生命周期/const vs 类型）实参逐字比较
+  │   ├── shape.rs          shape template / impl entry 共享内核：match_shape（模板 vs 叶子逐位匹配）+ Mapping + ShapeError——对每种 syn::Type 形态结构递归（切片/元组/数组/引用/指针/Paren/路径）；裸 const 参数数组长度与 `'_'` 生命周期通配可绑定；fn 指针/trait 对象模板与跨类（生命周期/const vs 类型）实参逐字比较
   │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
   │   ├── fresh.rs          fresh 名清扫（`_Param_{g}_{i}_` → 每个 impl 的 `_Param_0..N_`）+ `@N`/`@g_i` 引用校验（目标类型 / trait 实参）
   │   └── where_at.rs       `@` where 谓词解析（`@N`/`@g_i`/`@all_fresh`/`@N..M`）
@@ -249,7 +249,7 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景                                                                                         |
 | `src/`      | `fuzz.rs`       | proptest 属性测试：随机 token 序列喂 `where_process` / `parse_item`，验证"不因作者输入 panic"（`cargo test --lib`）                                                          |
 | `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
-| `tests/`    | `features/`     | 35 个按功能域拆分的测试模块（每个 <350 行；由原单文件 `dsl.rs` / `regression.rs` / `ext1_impl.rs` / `ext2_impl.rs` 拆分）：`dsl_*`（82）、`regression_*`（26）、`ext1_*`（17，含嵌套/边界/冲突）、`ext2_*`（50，含嵌套/边界/冲突/形状形态/原型模式/交叉组合/变长段与重复块）——共 **175 个 `#[test]`** |
+| `tests/`    | `features/`     | 35 个按功能域拆分的测试模块（每个 <350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分）：`dsl_*`（82）、`regression_*`（26）、`impl_entry_*`（17，含嵌套/边界/冲突）、`shape_template_*`（50，含嵌套/边界/冲突/形状形态/原型模式/交叉组合/变长段与重复块）——共 **175 个 `#[test]`** |
 | `tests/`    | `ui.rs`         | `trybuild` UI 测试：81 个 `compile_fail` fixture 锁定诊断措辞 + 1 个 `pass` fixture |
 
 运行：
