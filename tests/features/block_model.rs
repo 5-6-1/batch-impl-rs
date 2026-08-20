@@ -1,58 +1,68 @@
-//! Block-model verification: arbitrary block composition (`<T> {body} Box<T>`),
-//! mid-chain attachments, and the apply-declared `<>` positions.
+//! Componentization: the DSL is a **bag of blocks** — declarations, directive
+//! blocks, code blocks and types can appear in any order, and the chain folds
+//! them with `apply`. There is no positional requirement (a `{...}` block
+//! does not have to be last, a declaration does not have to be first): the
+//! same spec written in three orders yields the same impl.
+//!
+//! (The question.rs experiment that motivated this: `<T> {body} Box T` used
+//! to fail with "unexpected `{`" — attachments were stripped from the tail
+//! only. The block model made every block a chain citizen.)
 
 use batch_impl::batch_impl;
+use std::collections::HashMap;
 
-// The question.rs case: declaration + attachment block + target, any order.
-#[batch_impl(<T> { fn tag(&self) -> u32 { 1 } } Box<T>)]
-trait BlockOrder1 {
-    fn tag(&self) -> u32;
+// declarations + directive block + target, three orders — identical impls
+#[batch_impl(<A> <B> #tag{"ab"} HashMap<A, B>)]
+trait ComposeA {
+    fn tag(&self) -> &'static str;
 }
 
-#[batch_impl({ fn tag(&self) -> u32 { 2 } } <T> Box<T>)]
-trait BlockOrder2 {
-    fn tag(&self) -> u32;
+#[batch_impl(#tag{"ab"} <A> <B> HashMap<A, B>)]
+trait ComposeB {
+    fn tag(&self) -> &'static str;
 }
 
-#[batch_impl(<T> Box<T> { fn tag(&self) -> u32 { 3 } })]
-trait BlockOrder3 {
-    fn tag(&self) -> u32;
+#[batch_impl(<A> #tag{"ab"} <B> HashMap<A, B>)]
+trait ComposeC {
+    fn tag(&self) -> &'static str;
 }
 
-// Mid-chain attachment with a following block.
-#[batch_impl(Box { fn tag(&self) -> u32 { 4 } } u8)]
-trait BlockMid {
-    fn tag(&self) -> u32;
+// const declaration interleaved with a directive block
+#[batch_impl(<A> #tag{"c"} <const N: usize> [A; N])]
+trait ComposeD {
+    fn tag(&self) -> &'static str;
 }
 
-// `<>` positions: leading declaration / trailing args of a plain generic.
-#[batch_impl(<T: Clone> Pair<T> { fn tag(&self) -> u32 { 5 } })]
-trait BlockDecl {
-    fn tag(&self) -> u32;
+// two attachment blocks in a row (directive body + extra code block)
+#[batch_impl(#tag{"d"} <A> Box<A> { fn extra() -> u32 { 7 } })]
+trait ComposeE {
+    fn tag(&self) -> &'static str;
+    fn extra() -> u32;
 }
-
-struct Pair<T>(T);
 
 #[test]
-fn block_composition() {
-    fn c1<T: BlockOrder1>(t: &T) {
-        assert_eq!(t.tag(), 1);
+fn componentization() {
+    fn check_a<T: ComposeA>(t: &T) {
+        assert_eq!(t.tag(), "ab");
     }
-    c1(&Box::new(0u8));
-    fn c2<T: BlockOrder2>(t: &T) {
-        assert_eq!(t.tag(), 2);
+    check_a(&HashMap::<u8, u16>::new());
+    fn check_b<T: ComposeB>(t: &T) {
+        assert_eq!(t.tag(), "ab");
     }
-    c2(&Box::new(0u8));
-    fn c3<T: BlockOrder3>(t: &T) {
-        assert_eq!(t.tag(), 3);
+    check_b(&HashMap::<u16, u8>::new());
+    fn check_c<T: ComposeC>(t: &T) {
+        assert_eq!(t.tag(), "ab");
     }
-    c3(&Box::new(0u8));
-    fn c4<T: BlockMid>(t: &T) {
-        assert_eq!(t.tag(), 4);
+    check_c(&HashMap::<i8, i16>::new());
+
+    fn check_d<T: ComposeD>(a: T) {
+        assert_eq!(a.tag(), "c");
     }
-    c4(&Box::new(0u8));
-    fn c5<T: BlockDecl>(t: &T) {
-        assert_eq!(t.tag(), 5);
+    check_d([1u8, 2, 3]);
+
+    fn check_e<T: ComposeE>(b: T) {
+        assert_eq!(b.tag(), "d");
     }
-    c5(&Pair(0u8));
+    check_e(Box::new(0u8));
+    assert_eq!(<Box<u8> as ComposeE>::extra(), 7);
 }
