@@ -9,6 +9,9 @@ mod fresh;
 mod impl_parts;
 mod postprocess;
 mod repeat;
+mod repeat_drivers;
+#[cfg(test)]
+mod repeat_tests;
 mod shape;
 mod sync_trait;
 mod top_level;
