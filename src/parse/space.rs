@@ -11,11 +11,12 @@
 use proc_macro2::{Delimiter, Spacing, TokenTree};
 
 /// Whether an ident opens a prefix-taking type (`dyn Trait`, `impl Trait`,
-/// `fn(...)`, `unsafe fn`, `self`, `const`, `&mut`, `async fn`): the ident
-/// and the type it qualifies are one unit (no space-application boundary
-/// inside).
+/// `fn(...)`, `unsafe fn`, `self`, `const`, `&mut`): the ident and the type
+/// it qualifies are one unit (no space-application boundary inside).
+/// Note: `async` is deliberately absent — `async fn` is item syntax, not a
+/// type, so it gets no prefix treatment.
 fn is_prefix_ident(s: &str) -> bool {
-    matches!(s, "dyn" | "impl" | "fn" | "unsafe" | "self" | "const" | "mut" | "async")
+    matches!(s, "dyn" | "impl" | "fn" | "unsafe" | "self" | "const" | "mut")
 }
 
 /// Whether `tokens[i]` starts a new space-application unit: an atom, a
