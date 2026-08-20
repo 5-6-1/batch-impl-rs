@@ -28,6 +28,7 @@ use crate::entry::driver::parse_batch_trait_entry;
 
 pub(crate) mod driver;
 pub(crate) mod impl_entry;
+pub(crate) mod impl_spec;
 pub(crate) mod path_prefix;
 mod preprocess_test;
 mod preview;

@@ -29,12 +29,10 @@ use proc_macro2::{Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::ItemImpl;
 
-use crate::ast::{Op, Ty};
-use crate::codegen::{Mapping, apply_mapping, match_shape, sync_trait_application};
-use crate::entry::driver::collect_spec_leaves;
+use crate::codegen::{Mapping, apply_mapping, match_shape};
 use crate::parse::split_at_depth0;
 use crate::preprocess::{angle_collect, render_angles, where_process};
-use crate::util::{Cursor, compile_error_str, is_single_colon};
+use crate::util::compile_error_str;
 
 /// Entry: expand `#[batch_impl(<dsl>)] impl ...` into N `impl` blocks.
 pub(crate) fn expand_impl_entry(
@@ -72,8 +70,8 @@ fn expand_one_spec(
     spec: &[TokenTree], item: &ItemImpl, trait_path: &syn::Path,
 ) -> Result<TokenStream, TokenStream> {
     // `where{...}` (where_process output) is the tail.
-    let (spec, where_preds) = peel_where(spec);
-    match find_shape_colon(spec) {
+    let (spec, where_preds) = crate::entry::impl_spec::peel_where(spec);
+    match crate::entry::impl_spec::find_shape_colon(spec) {
         Some(colon) => {
             // ---- shape form: `shape-template : new-generic-decl? matrix-source?` ----
             // The angle groups must be restored to flat `<...>` before syn
@@ -111,11 +109,11 @@ fn expand_one_spec(
                     Span::call_site(),
                 ));
             }
-            let (new_gen, matrix) = split_new_gen(&spec[colon + 1..]);
+            let (new_gen, matrix) = crate::entry::impl_spec::split_new_gen(&spec[colon + 1..]);
             if matrix.is_empty() {
                 // Empty matrix source → N = 1, the shape itself (no slot
                 // mapping; the for-Type is emitted verbatim).
-                return assemble_impl(
+                return crate::entry::impl_spec::assemble_impl(
                     item,
                     trait_path,
                     new_gen.as_ref(),
@@ -124,7 +122,7 @@ fn expand_one_spec(
                     item.self_ty.to_token_stream(),
                 );
             }
-            let leaves = parse_matrix_leaves(&matrix)?;
+            let leaves = crate::entry::impl_spec::parse_matrix_leaves(&matrix)?;
             let mut out = quote![];
             for leaf in leaves {
                 let leaf_tokens = leaf.to_token_stream();
@@ -140,7 +138,7 @@ fn expand_one_spec(
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                 // for-Type: slot names rewritten to the bound leaf subtrees.
                 let for_ty = apply_mapping(item.self_ty.to_token_stream(), m.entries());
-                out.extend(assemble_impl(
+                out.extend(crate::entry::impl_spec::assemble_impl(
                     item,
                     trait_path,
                     new_gen.as_ref(),
@@ -153,7 +151,7 @@ fn expand_one_spec(
         }
         None => {
             // ---- direct form: `new-generic-decl? for-type` (no matrix, N = 1) ----
-            let (new_gen, for_tokens) = split_new_gen(spec);
+            let (new_gen, for_tokens) = crate::entry::impl_spec::split_new_gen(spec);
             let for_tokens = render_angles(for_tokens.iter().cloned().collect::<TokenStream>());
             let _for_ty: syn::Type = syn::parse2(for_tokens.clone()).map_err(|_| {
                 compile_error_str(
@@ -162,7 +160,7 @@ fn expand_one_spec(
                     Span::call_site(),
                 )
             })?;
-            assemble_impl(
+            crate::entry::impl_spec::assemble_impl(
                 item,
                 trait_path,
                 new_gen.as_ref(),
@@ -174,118 +172,6 @@ fn expand_one_spec(
     }
 }
 
-/// Assembles one generated impl: generics (attr new-generic-decl first, then
-/// the impl's own params), trait path, rewritten for-Type, merged where
-/// clause, rewritten body. `m` is the slot mapping (empty for the direct
-/// form / empty matrix).
-#[allow(clippy::too_many_arguments)]
-fn assemble_impl(
-    item: &ItemImpl, trait_path: &syn::Path, new_gen: Option<&TokenStream>,
-    where_preds: &[TokenTree], m: &Mapping, for_ty: TokenStream,
-) -> Result<TokenStream, TokenStream> {
-    let entries = m.entries();
-    let item_params = item.generics.params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
-    // Generics: the attr new-generic-decl first, then the impl's own params.
-    let gen_tokens = match new_gen {
-        Some(ng) => {
-            let ng_empty = ng.clone().into_iter().next().is_none();
-            match (ng_empty, item_params.is_empty()) {
-                (true, true) => quote!(),
-                (true, false) => quote!(<#(#item_params),*>),
-                (false, true) => quote!(<#ng>),
-                (false, false) => quote!(<#ng, #(#item_params),*>),
-            }
-        }
-        None => {
-            if item_params.is_empty() {
-                quote!()
-            } else {
-                quote!(<#(#item_params),*>)
-            }
-        }
-    };
-    // `X<>` sync: every `X<>` in the where predicates fills with the impl's
-    // trait args (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
-    // `Marker<Additive, Multiplicative>`). The body is not synced: it is
-    // ordinary Rust (the impl block parses verbatim), so an empty bracket
-    // there is a real Rust type, not a DSL trait reference.
-    let trait_args = trait_path
-        .segments
-        .last()
-        .map(|seg| match &seg.arguments {
-            syn::PathArguments::AngleBracketed(ab) => {
-                ab.args.iter().map(|a| a.to_token_stream()).collect::<Vec<_>>()
-            }
-            _ => vec![],
-        })
-        .unwrap_or_default();
-    let mut preds = vec![];
-    if !where_preds.is_empty() {
-        let p = sync_trait_application(where_preds.iter().cloned().collect(), &trait_args)?;
-        preds.push(apply_mapping(p, entries));
-    }
-    if let Some(wc) = &item.generics.where_clause {
-        let p = sync_trait_application(wc.predicates.to_token_stream(), &trait_args)?;
-        preds.push(apply_mapping(p, entries));
-    }
-    let where_clause = if preds.is_empty() { quote!() } else { quote!(where #(#preds),*) };
-    let items = item
-        .items
-        .iter()
-        .map(|it| apply_mapping(it.to_token_stream(), entries))
-        .collect::<Vec<_>>();
-    let unsafe_kw = if item.unsafety.is_some() { quote!(unsafe) } else { quote!() };
-    Ok(quote! {
-        #unsafe_kw impl #gen_tokens #trait_path for #for_ty #where_clause {
-            #(#items)*
-        }
-    })
-}
-
-/// Parses a matrix-source (DSL expression) into its leaf types.
-fn parse_matrix_leaves(matrix: &[TokenTree]) -> Result<Vec<Ty>, TokenStream> {
-    let mut cursor = Cursor::new(matrix);
-    let (leaves, errors) = collect_spec_leaves(&mut cursor, Op::Comma, None);
-    if !errors.is_empty() {
-        return Err(errors.into_iter().collect());
-    }
-    Ok(leaves)
-}
-
-/// `where{...}` tail (the where_process output shape) → (spec without the
-/// where, predicate tokens).
-fn peel_where(spec: &[TokenTree]) -> (&[TokenTree], Vec<TokenTree>) {
-    if spec.len() >= 2
-        && let Some(TokenTree::Group(g)) = spec.last()
-        && g.delimiter() == proc_macro2::Delimiter::Brace
-        && let Some(TokenTree::Ident(w)) = spec.get(spec.len() - 2)
-        && *w == "where"
-    {
-        (&spec[..spec.len() - 2], g.stream().into_iter().collect())
-    } else {
-        (spec, vec![])
-    }
-}
-
-/// The depth-0 single `:` that separates the shape template from the rest.
-fn find_shape_colon(spec: &[TokenTree]) -> Option<usize> {
-    spec.iter().enumerate().find_map(|(i, tt)| {
-        matches!(tt, TokenTree::Punct(_) if is_single_colon(spec, i)).then_some(i)
-    })
-}
-
-/// `new-generic-decl?` at the head: a `delimiter![<>]` group. Returns (decl
-/// contents, rest).
-fn split_new_gen(tokens: &[TokenTree]) -> (Option<TokenStream>, Vec<TokenTree>) {
-    match tokens.first() {
-        Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>] => {
-            (Some(g.stream()), tokens[1..].to_vec())
-        }
-        _ => (None, tokens.to_vec()),
-    }
-}
-
-/// `@trait` → the impl's trait path; every other `@` construct and every `#`
 /// directive is rejected (custom constants / selectors / position refs are
 /// all banned on this entry). `#[...]` attributes pass through.
 fn replace_trait_at(
