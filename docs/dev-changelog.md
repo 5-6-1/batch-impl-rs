@@ -1202,7 +1202,7 @@
 ## Project evolution history
 
 > One-line mainline per generation (official releases):
-> **0.1 release** · **0.2 attributes and prefixes** (fn/pointers/`#[attr]`/assoc) · **0.3 rewrite** (unified model rebuilt by hand) · **0.4 directive system** (`#fill`/`#delegate`/open extension) · **0.5 where system** (`where{...}` + bound inheritance + `A<>` verbatim copy) · **0.6 constant system** (`@` name family/range family/custom).
+> **0.1 release** · **0.2 attributes and prefixes** (fn/pointers/`#[attr]`/assoc) · **0.3 rewrite** (unified model rebuilt by hand) · **0.4 directive system** (`#fill`/`#delegate`/open extension) · **0.5 where system** (`where{...}` + bound inheritance + `A<>` verbatim copy) · **0.6 constant system** (`@` name family/range family/custom) · **0.7 splat** (`*` flatten — born from the no-repetition principle) + user-language diagnostics · **0.8 shape templates + the impl entry** (`impl{...}` / `#[batch_impl]` on an impl block — the body-modification knot, untied) · **0.9 apply operators reworded + block model** (`.` right-assoc, space = left-assoc adjacency, bag of blocks — from typing pain to a marriage made in heaven).
 > The two prototype generations before 0.1.0 (crate originally named `auto_impl`) and the motivation for the 0.2 rewrite are below.
 
 ### Early-structure comparison (from the crate's original name auto_impl, up to before the 0.2 rewrite)
@@ -1238,6 +1238,159 @@
 - **Automatic trait-generic completion**: present in 0.-1 → cut in 0.0 (`<...>` after the trait name became ambiguous once `.` was introduced) → brought back by 0.5.5's `A<>` verbatim copy;
 - **Recursion guard**: present in 0.0 → lost in the 0.3 rewrite's fresh start (not rebuilt) → restored in 0.6.1 (`MAX_NEST_DEPTH`, see the 0.6.1 section);
 - **Body-merge semantics**: 0.-1/0.0/0.1.1 children override the list level → 0.2 changed to concatenation (standalone bodies merge with shared bodies; same-named methods are reported by the compiler).
+
+### 0.7 (2026-08, splat + diagnostics)
+
+- **The splat `*` prefix — born from the no-repetition principle.** The trigger
+  was a capability gap: `A-@u*-@u*` generates `A<u8,u8>`, `A<u8,u16>`, ... —
+  but writing `@u*` twice violated the author's **no-repetition principle**.
+  The mathematical intuition: use the tuple `^N` power (`(A,B).2`) so one
+  `???` expands the family × power (`(???)@u*)^2`) into what is wanted. That
+  needed an operation to *flatten* the power's Cartesian result into the
+  enclosing argument list — and the flatten semantics emerged, immediately
+  borrowing Python's `*` unpacking. A bonus discovery fell out: the
+  `(*@u*)` spelling (a lone splat group).
+  - *On the symbol:* `*` was a borrowed decoration, and alternatives clash —
+    `..`/`...` are taken by ranges and the `.` chain; `_*` collides with the
+    later `_` shape wildcard. `*` was free in this DSL (no deref/mul
+    ambiguity) and already meant "whole family" in `@u*`, so `*@u*` reads
+    "unpack the whole family" — accidentally coherent, not an import.
+  - *The apply decision:* the right-side semantics are obvious (flatten),
+    but the **left side** was a genuine fork — tuple-tail-append? array
+    distribute-each? The author decided to **delegate to the mirrored
+    container's own rules** (`TySplat::Tuple` → `TyTuple`, `TySplat::Array`
+    → `TyArray`), because `*` is only decoration (a look); the semantics
+    belong to the container. This is the project philosophy's earliest
+    explicit form: symbols don't carry semantics, structure does.
+  - **The lifetime lesson.** The first definition was *eager* —
+    `(A,B,*(C,D))` → `(A,B,C,D)` immediately at container entry. That was a
+    **design mistake, not a bug**: a type should live through the whole
+    apply process — until codegen — because any later combination may
+    consume it. The concrete symptom surfaced in 0.7.0 development (and was
+    caught only right before release): `consume_splats` flattened **array
+    elements** at parse time, so `Pair^[*(SplatA),*(SplatB)]^2` (the `^`
+    spelling, pre-0.9) — meant to repeat each kept splat and drive both
+    generic positions (`Pair<SplatA,SplatA>` / `Pair<SplatB,SplatB>`) —
+    instead applied the power to already-flattened elements and produced the
+    wrong impls: the splat was dead before any right operand or power ever
+    saw it. The finding was nearly lost: the implementer recorded it in the
+    docs but did not report it, then forgot — the author rediscovered it by
+    going back through the changelog. The resolution (user-confirmed): **a
+    splat is a whole unit through parse/apply/expand and flattens only at
+    codegen** — the lifecycle lasts until consumption (`expand_splat_elems`,
+    one single expansion point; array elements keep their splat until
+    apply-right or codegen). The deferred-lifecycle design later proved
+    load-bearing for the block model: a block must survive as a unit until
+    it is consumed, or the whole "bag of blocks" idea collapses.
+- **Diagnostics in user language** — out-of-range / dangling `@N` / `@g_i`
+  references no longer leak the reserved `_Param_*_BatchGen_` names;
+  `batch_preview!` (the DSL-aware expansion preview) lands; the no-panic
+  guarantee is hardened crate-wide.
+- **Flat-chain depth guards** — `.`/`-` chains, attachment chains, and
+  chained type segments capped at 128 levels (a few hundred chained units
+  previously overflowed the compiler stack).
+
+### 0.8 (2026-08, shape templates + the impl entry)
+
+- **The long-unresolved knot: modifying the body.** Since 0.4–0.6 the
+  author had intermittently wanted the DSL to reach *inside* `{ body }` —
+  the body is ordinary Rust and the macro's hand stops at its boundary.
+  The first idea was a post-processing placeholder (`$Self` for `A<B>`),
+  but it kept being shelved: its capability was tiny (other than printing,
+  what could it do?) and `std::any` had better answers — for a while the
+  author believed body modification might simply not fit this library.
+  The doubt was then tested by experience: developing an **interval-arithmetic
+  library** (after the last 0.7 release), the author found the impls needed
+  `macro_rules!` *combined with* this crate — precisely because of body
+  details — and abandoned that library. The knot was untied by a search:
+  looking up "batch impl" (and finding this crate itself), the author
+  drifted into the body-modification question and met **trait-gen**, a
+  friendly rival. Its move — adding macro elements *inside legal code
+  blocks*, explicitly — was the missing frame: body modification is
+  possible, not by turning the body into DSL, but by marking DSL elements
+  explicitly inside legal Rust.
+- **The `impl{...}` shape templates** — a third trailing attachment on the
+  trait entries: the block holds a standard Rust type template, matched
+  against the leaf target type position-by-position by the shared
+  `codegen::shape` kernel ("equal → literal, different → slot"). One
+  prototype impl per shape family covers a whole matrix, incl.
+  lifetime-bearing families like `Cow`. The `impl{...}` attachment is the
+  explicit marker the trait-gen lesson demanded: a macro element living
+  inside legal code, stating "the Self shape is programmable".
+- **The impl entry** — `#[batch_impl]` also accepts an `impl` block and
+  batch-instantiates it from a shape-template × matrix-source. The impl
+  block itself stays **ordinary Rust** (syn-parseable); only the attribute
+  is DSL. This is the other half of "modify the impl itself": the whole
+  block — including its body — becomes the thing being templated.
+- **Where-predicate angle pairing** — `where{...}` groups are entered by
+  `angle_collect` (two-arg bounds no longer split at the depth-0 comma);
+  code bodies stay passthrough.
+- **Variadic segments + repeat blocks** — `ident@..` in `impl{...}`
+  templates covers every remaining tuple position; `@(...)..` in bodies
+  repeats per segment element. One spec now covers every tuple arity of a
+  shape (the alga2 `().1..=4 where{@all_fresh: Magma} impl{(A@..,)}`
+  pattern).
+- **Shape-match enhancement** — every `syn::Type` form
+  (slices/tuples/arrays/references/pointers/paths), bare const-param array
+  lengths bind, `'_` anonymous lifetimes are wildcards.
+
+### 0.9 (2026-08-21, apply operators reworded + block model)
+
+- **The operator rework — from typing pain to a marriage made in heaven.**
+  The real origin was *input ergonomics*: `^` was structurally painful to
+  type (shift sits at the far ends of the keyboard, `6` in the middle —
+  shift+6 is guaranteed awkward). The author wanted a right-associative
+  operator, but almost no symbol is naturally right-associative. Then `.`
+  appeared out of thin air — the author didn't even think about its
+  associativity at first; only later did it click: as composition, `.` is
+  right-associative in Haskell, and the author is someone who loves
+  functional languages, advanced types, and abstract constraints — the
+  symbol resonated with the mental model, a **marriage made in heaven**
+  (the author's words). When presented to others, the objections were
+  dismantled one by one: "semantic conflict" was a failure of their
+  understanding; "conflicts with Rust's `a.b` intuition" missed that the
+  scopes are different. In the end even they conceded the one solid point:
+  it's easier to type.
+- **The space — stumbled into, then proven.** While discussing aesthetics,
+  the author thought: what is more beautiful than `.`? The space. So the
+  space was proposed outright (at first even as "replace `^` with space").
+  The pushback was a chorus of "ambiguity" — which inverted the logic: the
+  apply system exists precisely to *resolve* ambiguity; calling the space
+  ambiguous was arguing with the very problem the system solves. What the
+  space actually is: not a token but the **gap between tokens**
+  (proc-macro2 strips whitespace; the DSL sees only adjacency) — space
+  application = "these tokens are adjacent, apply them" (`Box u8` =
+  `Box<u8>`), exactly how Rust itself reads type syntax. No explicit symbol
+  is needed — the absence of a separator *is* the operator. Put in the
+  `-` position, the space proved more elegant *and* safer (the `-` prefix
+  kept only its directive-domain exclusion meaning, freeing it from the
+  dual role of application-and-exclusion).
+- **The block model** — the DSL became a **bag of blocks**: declarations,
+  directive blocks, code blocks and types appear in any order and the chain
+  folds them with `apply` (no positional attachment peel). Parse layer
+  restructured: `parse_space` (low-precedence left fold) → `parse_dot`
+  (high-precedence right fold) → `parse_block` (atomic unit with fixed
+  suffixes). The parse layer delegates to `apply` — the burden never sits
+  on the parser.
+- **`X<>` sync — one path, no implicit** — empty trait brackets
+  (`Semiring<>`) in where predicates / impl templates / impl-generic
+  bounds / (via a switch template `impl{Tr<>}`) the body fill with the
+  spec's trait application; `@trait<>` is equivalent. The principle was
+  settled from the start: **`impl{...}` is the only path into the body,
+  and there is no implicit sync** (the body is ordinary Rust — a `Vec<>`
+  there is not a trait reference). The history of the feature is
+  instructive: the author had stated this clearly, but the implementer,
+  failing to ask when in doubt, rushed ahead and needed three corrections
+  (where/bounds unconditional, body opt-in via the switch template, impl
+  entry syncing only its where predicates). The lesson — ask before
+  charging into a design with settled semantics.
+- **Same-name generic declarations merge** — `<T: Clone><T: Copy> X` →
+  `impl<T> ... where T: Clone, T: Copy`.
+- **`_` wildcard in shape templates** — a placeholder that is never
+  replaced (`impl{B<_>}` / `impl{[A; _]}`).
+- **Rename** — "Ext 1"/"Ext 2" became **impl entry** / **shape template**
+  (the names now describe what the features are, not that they are
+  extensions).
 
 ### Line-count evolution
 
