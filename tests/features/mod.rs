@@ -25,6 +25,7 @@ pub(crate) mod dsl_splat_advanced;
 pub(crate) mod dsl_splat_basic;
 pub(crate) mod dsl_trait_args;
 pub(crate) mod dsl_where;
+pub(crate) mod dup_params;
 pub(crate) mod ext1_basic;
 pub(crate) mod ext1_boundary;
 pub(crate) mod ext1_conflicts;

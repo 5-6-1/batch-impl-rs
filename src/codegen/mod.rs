@@ -29,7 +29,7 @@ use crate::ast::*;
 use crate::util::compile_error_str;
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Generates one impl block (for a single flattened leaf `Ty`).
 ///
@@ -127,6 +127,12 @@ pub(crate) fn generate_impl(
     let mut nested_params = vec![];
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
+
+    // Same-name declaration merge: chained `<>` blocks (`<T: Clone><T: Copy> X`)
+    // would declare `T` twice (invalid Rust). Keep a single bare declaration and
+    // move every bound of that name into a where predicate
+    // (`impl<T> ... where T: Clone, T: Copy`); single declarations are untouched.
+    merge_dup_params(&mut parts);
 
     // Impl generic names, normalized for const params (`const N` in the parse
     // layer — the keyword is needed to render `const N: usize`; bare `N` here
@@ -289,6 +295,52 @@ fn bare_param_name(name: &TokenStream) -> TokenStream {
         }
         _ => name.clone(),
     }
+}
+
+/// Merges same-name impl generic declarations from chained `<>` blocks.
+///
+/// `<T: Clone><T: Copy> X` would render `impl<T: Clone, T: Copy>` — a
+/// duplicate `T` declaration (E0415). Duplicate names collapse into one
+/// **bare** declaration and every bound of that name moves into a where
+/// predicate (`impl<T> ... where T: Clone, T: Copy`); the duplicate names
+/// themselves are dropped. Names declared once are untouched (`<T: Clone>`
+/// stays `impl<T: Clone>`). Const params (`const N: usize`) keep their full
+/// declaration (the type annotation lives in the name tokens — there is
+/// nowhere else for it to go; the later duplicates are simply dropped).
+fn merge_dup_params(parts: &mut ImplParts) {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for (name, _) in &parts.impl_generics {
+        *counts.entry(bare_param_name(name).to_string()).or_insert(0) += 1;
+    }
+    let mut merged: Vec<(TokenStream, Option<Ty>)> = Vec::new();
+    let mut extra_where: Vec<TokenStream> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (name, bound) in std::mem::take(&mut parts.impl_generics) {
+        let name_str = name.to_string();
+        let is_const = name_str.starts_with("const");
+        let key = bare_param_name(&name).to_string();
+        if counts.get(&key).copied().unwrap_or(0) > 1 {
+            // duplicate name: bare single declaration (or the first full
+            // const declaration), every bound moved into a where predicate
+            if is_const {
+                if !seen.insert(key) {
+                    continue; // drop later const duplicates entirely
+                }
+                merged.push((name, bound));
+            } else {
+                if seen.insert(key.clone()) {
+                    merged.push((name.clone(), None));
+                }
+                if let Some(b) = bound {
+                    extra_where.push(quote!(#name: #b));
+                }
+            }
+        } else {
+            merged.push((name, bound));
+        }
+    }
+    parts.impl_generics = merged;
+    parts.where_clauses.extend(extra_where);
 }
 
 /// Renders the final `impl<...> Trait<...> for Target where ... { ... }`
