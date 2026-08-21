@@ -220,6 +220,16 @@ trait Conv<T, U>: Sized { fn cv(_v: T, _o: U) -> Self; }
 // → impl Conv<A, B> for Pair<A, B> { fn cv(_v: A, _o: B) -> Self { unimplemented!() } }
 ```
 
+泛型实参内的 splat 幂把笛卡尔结果逐对分发为一个 impl：
+
+```rust
+# use batch_impl::batch_impl;
+struct Frac<T, U>(T, U);
+#[batch_impl(Frac<*(*@u*).2>)]
+trait Pow {}
+// → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}（36 个 impl）
+```
+
 ### 4.4 容器规则
 
 `(...)` / `[...]` 组内是孤立 splat 时解析为对应容器、splat 作为**一个元素**保持——`(*(a,b))` 是元组 `( *(a,b) )`、`[*(a,b)]` 是数组 `[ *(a,b) ]`。splat 元素全程保持整体（**splat 存续**）只在 codegen 展开——最终渲染结果是 `(a, b)` / `[a, b]`。`(a)` 保持透明组、`[a]` 是切片。
@@ -233,20 +243,19 @@ trait C {}
 
 ### 4.5 generator 重包
 
-`T<*().2>`——空 splat 的幂——生成 fresh 参数并摊平：
+`*(().N)`——生成器 splat——提升 fresh 声明并把元组摊平进容器：
 
 ```rust
 # use batch_impl::batch_impl;
 struct Pair2<A, B>(A, B);
 #[batch_impl(Pair2<*().2>)]
 trait GSplat {}
-// → impl<_Param_0_BatchGen_, _Param_1_BatchGen_> GSplat for Pair2<..., ...> {}
-//   （= <A,B> Pair2<A,B>——两个 fresh 实参）
+// → impl<P0, P1> GSplat for Pair2<P0, P1>（摊平成两个实参）
 ```
 
 ### 4.6 合法位置与限制
 
-splat 是"参数位置列表"——凡是要元素列表的地方都展开：泛型实参（`Foo<*(a,b)>`）、元组/数组元素（`(a, *(b,c))`、`[*(a),*(b)]`）、fn 参数（`fn(*(A,B))`）、spec 列表（`[*(a,b)]`）。裸 splat 作 **where 谓词主体**没有定义语义（`*(A,B): Trait` 会展开成 `A, B: Trait`）——明确报错——包进元组（`(*(A,B)): Trait`）或分开写谓词；谓词**内部**的 splat（`X: Trait<*(A,B)>`）合法。
+splat 是"参数位置列表"——凡是要元素列表的地方都展开：泛型实参（`Foo<*(a,b)>`）、元组/数组元素（`(a, *(b,c))`、`[*(a),*(b)]`）、泛型声明、fn 参数（`fn(*(A,B))`）、spec 列表（`[*(a,b)]`）。裸 splat 作 **where 谓词主体**没有定义语义（`*(A,B): Trait` 会展开成 `A, B: Trait`）——明确报错——包进元组（`(*(A,B)): Trait`）或分开写谓词；谓词**内部**的 splat（`X: Trait<*(A,B)>`）合法。
 
 两条规则：`T.*(A,B,...)` ≡ `T-A-B-...`（右 splat = 扁平参数追加——与 `-` 链等价，来源无关）；左 splat 按来源——`*[A,B].T` = `*[A.T,B.T]`（分配律）、`*(A,B).T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
 
@@ -761,6 +770,17 @@ trait Attr {}
 
 > **`unsafe` 有两种角色**——`unsafe fn(A) -> B` 是 *unsafe fn 类型*：impl 本身保持安全（`impl Tr for unsafe fn(A) -> B`）。要把 **impl** 标记为 unsafe，用 `.` 应用 `unsafe`：`unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`。如果你写 `unsafe fn(...)` 却期待一个 unsafe impl，那就是写错了形式。
 
+**`self` 前缀**是早期 DSL 遗留的恒等前缀（`self.T` = `T`，无实际效果，保留兼容）：
+
+**`!`（never）作 fn 返回类型**：`fn(A) -> !` 合法——`!` 块没有 apply 语义，尾随 `{...}` 归属 impl：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(fn(u8) -> ! { fn call(&self, _: u8) -> ! { unreachable!() } })]
+trait NeverRet { fn call(&self, x: u8) -> !; }
+// → impl NeverRet for fn(u8) -> ! { fn call(&self, _: u8) -> ! { unreachable!() } }
+```
+
 **数组/切片 builder**：`[u8; 3]` 定长、`[u8]` 切片：
 
 ```rust
@@ -776,14 +796,14 @@ trait Slices {}
 | 入口 | 语义 | trait 定义 |
 |---|---|---|
 | `#[batch_impl]` | 标准：impl + **重发 trait 定义** | 标注在 trait 上 |
-| `#[batch_impl_only]` | 只生成 impl，trait 由外部定义（可加 `# Path: ` 前缀） | 标注在 dummy trait 上 |
-| `batch_trait!` | 多段宏：多 trait + 段级 `@` 常量 + `#` 指令 | 段内联 |
+| `#[batch_impl_only]` | 只生成 impl，trait 由外部定义（可加 `# 路径::到::Trait:` 前缀声明外部 trait 的真实路径，要求至少一个 `::`） | 标注在 dummy trait 上 |
+| `batch_trait!` | 多段宏：多 trait + 段级 `@` 常量（不支持 `#` 指令） | 段内联 |
 
 ```rust
 # use batch_impl::batch_impl_only;
+# mod path { pub mod to { pub trait Conv<T> { fn conv() -> T; } } }
 # struct Wrapper<T>(T);
-# trait Conv<T> { fn conv() -> T; }
-#[batch_impl_only(Conv<bool> Wrapper<bool> #conv{false})]
+#[batch_impl_only(# path::to::Conv: Conv<bool> Wrapper<bool> #conv{false})]
 trait Conv<T> { fn conv() -> T; }
 // → impl Conv<bool> for Wrapper<bool> { fn conv() -> bool { false } }（trait 不重发）
 ```
@@ -820,6 +840,6 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **非整数类型字面量**：`1.5` / `"hi"` / `'a'`——类型位置只能是整数（usize）
 - **range 端点非整数**：`1..x` / `A..B`——报 "needs integer endpoints"
 - **数组长度畸形**：`[u8; 3; 4]` / `[u8;]`——报 "missing or malformed"
-- **类型起始 `+`/`?`/`.`**：`+A` / `?Sized` / `.foo`——报 "not valid at the start of a type"
+- **类型起始 `+`**：`+A`——报 "not valid at the start of a type"（`+` 属于 bound，如 `T: Clone + Send`）；前导 `.` 报操作数缺失；`?` 前缀类型（`?Sized`）透传由 rustc 报错
 - **未知指令拼写建议**：`#delgate` / `#blanlet`——报 "did you mean `#delegate`?"（开放扩展名距离 >2 不报）
 

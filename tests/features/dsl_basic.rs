@@ -178,6 +178,15 @@ trait UnsafeFnType {}
 #[batch_impl(unsafe.fn(u8) -> u8)]
 unsafe trait UnsafeFnImpl {}
 
+// `!` (never) as a fn return type: the `!` prefix punct is a passthrough
+// block, and the trailing `{...}` attachment belongs to the impl, not the
+// return type.
+#[batch_impl(fn(u8) -> ! { #[allow(dead_code)] fn call(&self, _: u8) -> ! { unreachable!() } })]
+trait NeverReturning {
+    #[allow(dead_code)]
+    fn call(&self, x: u8) -> !;
+}
+
 #[test]
 fn unsafe_fn_vs_unsafe_impl() {
     fn check_type<T: UnsafeFnType>(_: &T) {}
@@ -187,6 +196,10 @@ fn unsafe_fn_vs_unsafe_impl() {
     unsafe fn check_impl<T: UnsafeFnImpl>(_: &T) {}
     let g: fn(u8) -> u8 = |x| x;
     unsafe { check_impl(&g) };
+
+    fn check_never<T: NeverReturning>(_: &T) {}
+    let n: fn(u8) -> ! = |_| unreachable!();
+    check_never(&n);
 }
 
 // The space unit must accept every operand form `.` does: `&'a mut T`,

@@ -36,6 +36,10 @@ fn ui() {
     t.compile_fail("tests/ui/leading_operator.rs");
     t.compile_fail("tests/ui/leading_comma.rs");
 
+    // `+` cannot start a type (belongs in a bound) — a silent empty spec
+    // would generate 0 impls with no diagnostic
+    t.compile_fail("tests/ui/plus_at_type_start.rs");
+
     // `unsafe` juxtaposed with a non-fn type (should be unsafe^T or unsafe fn(...))
     t.compile_fail("tests/ui/unsafe_non_fn.rs");
 

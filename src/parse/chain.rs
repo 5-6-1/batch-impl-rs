@@ -65,6 +65,17 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, trait_name: Option<&Ident>)
                 cursor.span(),
             ));
         }
+        // A token that cannot open a block at the *start* of a type gets a
+        // targeted message instead of a silent empty spec (`+A` used to
+        // generate 0 impls with no diagnostic).
+        if let Some(t) = cursor.peek()
+            && matches!(t, TokenTree::Punct(p) if p.as_char() == '+')
+        {
+            return Some(err_ty_at(
+                "batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`)",
+                t.span(),
+            ));
+        }
         return None;
     };
     let mut count = 1;

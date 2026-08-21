@@ -13,7 +13,51 @@ use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::ast::{Ty, TyGeneric, TyKind, TyPrimitive, TyTrait, TyTypeParam};
+use crate::codegen::extract::ImplParts;
 use crate::util::is_punct_at;
+
+/// `X<>` sync across an [`ImplParts`]: where predicates, `impl{...}`
+/// templates and impl-generic bounds fill unconditionally; a **switch
+/// template** (`impl{@trait<>}` / `impl{Tr<>}` — the empty-bracket spec
+/// trait alone) additionally turns on **body** sync. The switch itself is
+/// consumed (it does not match Self like an ordinary shape template).
+/// Returns `Err` on a sync error (reported by the caller).
+pub(crate) fn sync_impl_parts(
+    parts: &mut ImplParts, trait_name: &TokenStream,
+) -> Result<(), TokenStream> {
+    let Some(trait_ident) = trait_last_ident(trait_name) else {
+        return Ok(());
+    };
+    let trait_args = parts.trait_generic_names.clone();
+    let mut body_sync = false;
+    let mut matched = Vec::new();
+    for t in std::mem::take(&mut parts.impl_templates) {
+        let is_switch = is_switch_template(&t.clone().into_iter().collect::<Vec<_>>(), &trait_ident);
+        let s = sync_trait_application(t, &trait_args)?;
+        if is_switch {
+            body_sync = true;
+        } else {
+            matched.push(s);
+        }
+    }
+    parts.impl_templates = matched;
+    let mut synced = Vec::with_capacity(parts.where_clauses.len());
+    for w in &parts.where_clauses {
+        synced.push(sync_trait_application(w.clone(), &trait_args)?);
+    }
+    parts.where_clauses = synced;
+    // bounds: the empty brackets are lost in the Ty parse (render drops
+    // them), so the sync works on the Ty structure — see `sync_bound_ty`.
+    for (_, bound) in &mut parts.impl_generics {
+        if let Some(b) = bound {
+            *b = sync_bound_ty(b, &trait_args)?;
+        }
+    }
+    if body_sync && let Some(b) = &mut parts.body {
+        *b = sync_trait_application(b.clone(), &trait_args)?;
+    }
+    Ok(())
+}
 
 /// The spec trait's last path-segment ident — the name that marks a
 /// **switch template** (`impl{Tr<>}` triggers body sync).

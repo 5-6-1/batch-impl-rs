@@ -186,58 +186,12 @@ pub(crate) fn generate_impl(
 
     // inherit trait generic bounds: same-name inheritance vs. mismatch errors; see trait_bounds docs
     let mut errs = inherit_trait_bounds(&mut parts, trait_bounds, &trait_args, &impl_names);
-    // `X<>` (empty angle brackets) → `X<spec args>` — every `X<>` fills with
-    // the spec's trait args **outside code bodies**: where predicates,
-    // `impl{...}` templates and impl-generic bounds. A **switch template**
-    // (`impl{@trait<>}` / `impl{Tr<>}` — the empty-bracket spec trait
-    // alone) additionally turns on **body** sync (the body is arbitrary
-    // Rust — a `Vec<>` there is not a trait reference, so it needs the
-    // explicit switch). The switch itself does not match Self like an
-    // ordinary shape template. Bounds sync on the Ty structure (the DSL
-    // parse drops the empty brackets on render — see `sync_bound_ty`).
-    if let Some(trait_ident) = trait_last_ident(trait_name) {
-        let trait_args = parts.trait_generic_names.clone();
-        let mut body_sync = false;
-        let mut matched = Vec::new();
-        for t in std::mem::take(&mut parts.impl_templates) {
-            let is_switch =
-                is_switch_template(&t.clone().into_iter().collect::<Vec<_>>(), &trait_ident);
-            match sync_trait_application(t, &trait_args) {
-                Ok(s) => {
-                    if is_switch {
-                        body_sync = true;
-                    } else {
-                        matched.push(s);
-                    }
-                }
-                Err(e) => return e,
-            }
-        }
-        parts.impl_templates = matched;
-        let mut synced = Vec::with_capacity(parts.where_clauses.len());
-        for w in &parts.where_clauses {
-            match sync_trait_application(w.clone(), &trait_args) {
-                Ok(s) => synced.push(s),
-                Err(e) => return e,
-            }
-        }
-        parts.where_clauses = synced;
-        // bounds: the empty brackets are lost in the Ty parse (render drops
-        // them), so the sync works on the Ty structure — see `sync_bound_ty`.
-        for (_, bound) in &mut parts.impl_generics {
-            if let Some(b) = bound {
-                *b = match sync_bound_ty(b, &trait_args) {
-                    Ok(t) => t,
-                    Err(e) => return e,
-                };
-            }
-        }
-        if body_sync && let Some(b) = &mut parts.body {
-            *b = match sync_trait_application(b.clone(), &trait_args) {
-                Ok(s) => s,
-                Err(e) => return e,
-            };
-        }
+    // `X<>` (empty angle brackets) → `X<spec args>` — where predicates,
+    // `impl{...}` templates and impl-generic bounds fill unconditionally; a
+    // **switch template** (`impl{@trait<>}` / `impl{Tr<>}`) additionally
+    // turns on **body** sync (see `sync.rs`).
+    if let Err(e) = sync_impl_parts(&mut parts, trait_name) {
+        return e;
     }
     // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
     let where_resolved = match resolve_where_predicates(&parts.where_clauses, &impl_name_streams) {

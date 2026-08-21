@@ -1,0 +1,5 @@
+error: batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`)
+ --> tests/ui/plus_at_type_start.rs:5:14
+  |
+5 | #[batch_impl(+A)]
+  |              ^

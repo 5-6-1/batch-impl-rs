@@ -104,10 +104,24 @@ pub(crate) fn fn_block(cursor: &mut Cursor, trait_name: Option<&Ident>, is_unsaf
 /// `extern "C" fn(...)` — one passthrough block (the ABI literal is not a
 /// TyFn field).
 pub(crate) fn extern_fn_block(cursor: &mut Cursor) -> Ty {
+    // `extern` `"C"` `fn` — then the shared passthrough tail
+    passthrough_block(cursor, 3)
+}
+
+/// `Fn(A) -> B` — fn-trait call block, rendered as a passthrough.
+pub(crate) fn fn_trait_block(cursor: &mut Cursor, _id: &Ident) -> Ty {
+    passthrough_block(cursor, 1) // `Fn`
+}
+
+/// Shared tail of the passthrough fn blocks (`extern "C" fn` / `Fn` /
+/// `FnMut` / `FnOnce`): the already-bumped leading tokens, an optional
+/// `(params)` group, and an optional `-> Ret` return expression are consumed
+/// as one opaque token slice — the whole block is a passthrough.
+fn passthrough_block(cursor: &mut Cursor, n_leading: usize) -> Ty {
     let start = cursor.pos();
-    cursor.bump(); // `extern`
-    cursor.bump(); // `"C"`
-    cursor.bump(); // `fn`
+    for _ in 0..n_leading {
+        cursor.bump();
+    }
     if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
     {
         cursor.bump();
@@ -116,23 +130,6 @@ pub(crate) fn extern_fn_block(cursor: &mut Cursor) -> Ty {
         cursor.advance(2);
         // the return expression — consume its blocks without keeping them
         // structurally (the whole block is a passthrough)
-        parse_return_expr_tokens(cursor);
-    }
-    let n = cursor.pos() - start;
-    let tokens = cursor.slice_at(start, n).to_vec();
-    TyPrimitive(tokens.into_iter().collect()).to_ty()
-}
-
-/// `Fn(A) -> B` — fn-trait call block, rendered as a passthrough.
-pub(crate) fn fn_trait_block(cursor: &mut Cursor, _id: &Ident) -> Ty {
-    let start = cursor.pos();
-    cursor.bump(); // `Fn`
-    if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
-    {
-        cursor.bump();
-    }
-    if cursor_is_arrow(cursor) {
-        cursor.advance(2);
         parse_return_expr_tokens(cursor);
     }
     let n = cursor.pos() - start;

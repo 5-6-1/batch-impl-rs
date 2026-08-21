@@ -97,3 +97,46 @@ pub(crate) fn parse_primitive(tokens: &[TokenTree], trait_name: Option<&Ident>) 
     let mut cursor = Cursor::new(tokens);
     parse_block(&mut cursor, trait_name).unwrap_or_else(|| crate::parse::generic::primitive(tokens))
 }
+
+#[cfg(test)]
+mod tests {
+    // Verify the fn-family / trait-object block branches parse without error.
+    // These run the real parse pipeline (angle_collect -> parse_item).
+    fn parse_ok(s: &str) {
+        let ts: proc_macro2::TokenStream = s.parse().unwrap();
+        let v = crate::preprocess::angle_collect(&ts.into_iter().collect::<Vec<_>>()).unwrap();
+        let mut c = crate::util::Cursor::new(&v);
+        let ty = super::parse_item(&mut c, crate::ast::Op::Comma, None);
+        assert!(ty.is_some(), "parse failed for: {s}");
+    }
+
+    #[test]
+    fn fn_mut_parses() {
+        parse_ok("dyn FnMut(u8) -> u8");
+    }
+
+    #[test]
+    fn fn_once_parses() {
+        parse_ok("dyn FnOnce(u8) -> u8");
+    }
+
+    #[test]
+    fn impl_trait_parses() {
+        parse_ok("impl Fn(u8) -> u8");
+        parse_ok("impl Iterator + Clone");
+    }
+
+    #[test]
+    fn for_hrtb_parses() {
+        parse_ok("for<'a> fn(&'a u8) -> &'a u8");
+    }
+
+    #[test]
+    fn prefix_puncts_parse() {
+        // `?` / `!` prefix puncts are passthrough blocks; `self` is a legacy
+        // identity prefix (`self.T` => `T`).
+        parse_ok("?Sized");
+        parse_ok("! u8");
+        parse_ok("self u8");
+    }
+}

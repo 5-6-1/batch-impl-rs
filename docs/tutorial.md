@@ -510,6 +510,8 @@ trait MyLen { fn d_len(&self) -> usize; }
 
 ### 7.4 `#blanket(@all_methods){wrapper matrix}` — blanket delegation
 
+Wraps any type (smart pointers included); a `:N` suffix marks the deref depth:
+
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(#blanket(@all_methods){Box})]
@@ -792,20 +794,30 @@ Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u1
 | `*const` / `*mut` | raw pointer | `*const.T` = `*const T` |
 | `unsafe` | unsafe fn / unsafe impl marker | `unsafe.fn.(A, B) C` = `unsafe impl ... for fn(A, B) -> C` |
 | `#[...]` attributes | attribute on the impl | `#[cfg(...)]` gating |
-| `!` | never type | `!.T` |
+| `!` | never as a fn return type | `fn(A) -> !` (a `!` block has no apply meaning; a trailing `{...}` belongs to the impl) |
+| `self` | legacy identity prefix (no effect) | `self.T` = `T` (kept from the early DSL; no current use) |
+
+> **`!` (never) as a fn return type**: `fn(A) -> !` is legal — the `!` block has no apply meaning, and a trailing `{...}` belongs to the impl:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(fn(u8) -> ! { fn call(&self, _: u8) -> ! { unreachable!() } })]
+trait NeverRet { fn call(&self, x: u8) -> !; }
+// → impl NeverRet for fn(u8) -> ! { fn call(&self, _: u8) -> ! { unreachable!() } }
+```
 
 > **`unsafe` has two roles** — `unsafe fn(A) -> B` is an *unsafe fn type*: the impl itself stays safe (`impl Tr for unsafe fn(A) -> B`). To mark the **impl** unsafe, apply `unsafe` with `.`: `unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`. If you find yourself writing `unsafe fn(...)` and expecting an unsafe impl, that is the wrong form.
 
 ## 11. Three Entry Points
 
 - **`#[batch_impl]`** — annotates the trait definition, re-emits it and generates impls (one trait per macro).
-- **`#[batch_impl_only]`** — generates impls only, the trait comes from outside (for traits you don't own, or already declared):
+- **`#[batch_impl_only]`** — generates impls only, the trait comes from outside (for traits you don't own, or already declared). A `# path::To::Trait:` prefix declares the external trait's real path (requires at least one `::`; `@trait` and path references then use it):
 
 ```rust
 # use batch_impl::batch_impl_only;
+# mod path { pub mod to { pub trait Conv<T> { fn conv() -> T; } } }
 # struct Wrapper<T>(T);
-# trait Conv<T> { fn conv() -> T; }
-#[batch_impl_only(Conv<bool> Wrapper<bool> #conv{false})]
+#[batch_impl_only(# path::to::Conv: Conv<bool> Wrapper<bool> #conv{false})]
 trait Conv<T> { fn conv() -> T; }
 // → impl Conv<bool> for Wrapper<bool> { fn conv() -> bool { false } }（trait not re-emitted）
 ```
@@ -833,5 +845,5 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Non-integer type literal**: `1.5` / `"hi"` / `'a'` — only an integer (usize) is a type
 - **Non-integer range endpoint**: `1..x` / `A..B` — "needs integer endpoints"
 - **Malformed array length**: `[u8; 3; 4]` / `[u8;]` — "missing or malformed"
-- **`+`/`?`/`.` at a type start**: `+A` / `?Sized` / `.foo` — "not valid at the start of a type"
+- **`+` at a type start**: `+A` — "not valid at the start of a type" (`+` belongs in a bound, e.g. `T: Clone + Send`); a leading `.` reports a missing operand; `?`-prefixed types (`?Sized`) pass through and rustc reports them
 - **Unknown-directive typo suggestion**: `#delgate` / `#blanlet` — "did you mean `#delegate`?" (open-extension names farther than 2 stay silent)
