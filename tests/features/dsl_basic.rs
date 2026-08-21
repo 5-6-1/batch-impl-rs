@@ -313,6 +313,7 @@ fn unsafe_fn_type() {
 //     a bare-type placeholder (`[Box, self] u8` = `Box<u8>` + bare `u8`).
 // ============================================================
 #[batch_impl([Box, self] u8 { fn tag(&self) -> &'static str { "x" } })]
+#[allow(dead_code)]
 trait WrapOrBare {
     fn tag(&self) -> &'static str;
 }
