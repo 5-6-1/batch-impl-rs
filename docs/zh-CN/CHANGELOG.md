@@ -2,7 +2,11 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## 0.9.1 (unreleased)
+## 0.9.1 (2026-08-21)
+
+- **类型起始运算符定向诊断**——`+A` 位于 spec 开头时此前会**静默生成 0 个 impl**、无任何诊断；现在报 "`+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`)"。`!`（never）块不再吞掉尾随 `{...}` body：`fn(A) -> ! { body }` 的 body 归属 impl 而非丢失
+- **文档化 `self` 恒等前缀**——`self.T` = `T`；在矩阵中作**裸类型占位**（`[Box, self] u8` 同时生成 `Box<u8>` 与裸 `u8`）。0.9.0 文档未提及；§10 修饰符大全现已有
+- **文档稳定性修订**——zh-CN 教程修正：§4.5 splat 幂示例不再泄露内部 `_Param_*_BatchGen_` 名（现为 `impl<P0, P1>`）、§4.3 补 `Frac<*(*@u*).2>` 36 impl 示例、§10 补 `!` 作 fn 返回类型、§11 `batch_trait!` 行不再声称支持 `#` 指令（实际拒绝）；`# path::to::Trait:` 外部路径前缀与 `:N` deref 深度也补入英文教程
 
 ## 0.9.0 (2026-08-21)
 

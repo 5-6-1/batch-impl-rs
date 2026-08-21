@@ -5,7 +5,11 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.1 (unreleased)
+## 0.9.1 (2026-08-21)
+
+- **Targeted diagnostics for type-start operators** — `+A` at the start of a spec used to **silently generate 0 impls** with no diagnostic; it now reports "`+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`)". The `!` (never) block no longer swallows a trailing `{...}` body: `fn(A) -> ! { body }` attaches the body to the impl instead of losing it
+- **Documented `self` as the identity prefix** — `self.T` = `T`; in a matrix it acts as a **bare-type placeholder** (`[Box, self] u8` generates both `Box<u8>` and the bare `u8`). The 0.9.0 docs did not mention it; the §10 modifier gallery now does
+- **Stability pass on the docs** — zh-CN tutorial fixes: the §4.5 splat-power example no longer leaks the internal `_Param_*_BatchGen_` names (now `impl<P0, P1>`), §4.3 gains the `Frac<*(*@u*).2>` 36-impl example, §10 documents `!` as a fn return type, §11's `batch_trait!` row no longer claims `#` directives (which it rejects); the `# path::to::Trait:` external-path prefix and the `:N` deref depth are now covered in the English tutorial too
 
 ## 0.9.0 (2026-08-21)
 

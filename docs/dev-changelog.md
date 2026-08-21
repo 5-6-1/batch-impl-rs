@@ -5,7 +5,17 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.1 (unreleased)
+## 0.9.1 (2026-08-21)
+
+> 0.9.1 is the **long-term stability release** — no new features, a five-dimensional audit (gaps / untested paths / ambiguities / duplicate code / architecture) over the whole codebase before freezing the surface. Findings and fixes:
+
+- **`+A` silently generated 0 impls** (`parse/chain.rs`): a `+` at the start of a spec is not a block-start token, so `parse_space_chain` returned `None` and the spec vanished without a diagnostic. The chain now reports "`+` is not valid at the start of a type (it belongs in a bound)". The pre-existing `validate_start_punct` guard was unreachable for `+` (it only fires in the primitive fallback, and `+` never reaches it through the chain) — the real fix belongs at the chain boundary. UI fixture `plus_at_type_start`
+- **The `!` prefix swallowed a trailing `{...}`** (`parse/space.rs`): `fn(u8) -> ! { body }` parsed the body into the return type (`!{body}`), and the impl lost it ("macro expansion ignores `{`"). The `?`/`!` prefix branch now checks `cursor_at_attachment` and leaves an attachment block for the impl. The tutorial's old claim `!.T` = never type was wrong — `!` has no apply meaning; its only legal use is a fn return type. New dsl test `NeverReturning`
+- **Untested fn-family branches** — `dyn FnMut` / `dyn FnOnce` / `impl Trait` parsing had zero tests (only `dyn Fn` / `for<'a> fn` were covered). Added the parse layer's first inline unit-test module (`parse/mod.rs::tests`, 5 tests: fn_mut / fn_once / impl_trait / for_hrtb / prefix puncts), moved out of the `lib.rs` staging module
+- **`self` documented as the identity prefix** — `self.T` = `T`; in a matrix it is a **bare-type placeholder** (`[Box, self] u8` = `Box<u8>` + the bare `u8`). It is not a legacy leftover: the identity element of the matrix algebra has a real use, and the 0.9.0 docs' silence about it was the actual gap. New dsl test `self_identity_in_matrix`
+- **Docs stability pass** (zh-CN tutorial): the §4.5 splat-power example leaked the internal `_Param_*_BatchGen_` names (contradicting §12's "no reserved names leaked" promise); §4.3 lacked the `Frac<*(*@u*).2>` 36-impl example; §10 lacked `!`; §11's `batch_trait!` row claimed `#` directives it rejects. The `# path::to::Trait:` prefix and `:N` deref depth were missing from the English tutorial. Both tutorial versions' `# Path:` example is now a compilable doctest
+- **Codegen architecture** — the 40-line inline `X<>` sync in `generate_impl` moved into `codegen/sync.rs::sync_impl_parts` (the sync concern now owns its whole integration; the `?` simplification removed 4 nested matches). The two near-duplicate passthrough fn blocks (`extern_fn_block` / `fn_trait_block`) merged into a shared `passthrough_block(cursor, n_leading)`
+- The recurring full-suite fuzz OOM (26 GB allocation failure under parallel `cargo test`) is an environment issue, not a regression — verified repeatedly with a capped proptest run
 
 ## 0.9.0 (2026-08-21)
 
@@ -29,7 +39,7 @@
   - `codegen/mod.rs` — `collect_shape_mapping` returns the segments; `generate_impl` expands the body's repeat blocks (with the segments) before the slot-mapping rewrite
   - tests: `tests/features/shape_template_varseg.rs` (5 integration tests — the alga2-style `().1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` covering arities 1..4, fixed-element offset starts with `@1` cursors, nested tuples with explicit `self.0.@0` paths, two same-level segments with one shared cursor, single-element segments with direct slot-name use) + 7 ui fixtures (segment outside tuple / duplicate prefix / uneven split / unknown segment / no driver / bare `@` / unequal lengths) + unit tests in varseg.rs (marking, prefix roundtrip, body passthrough, const-range untouched) and repeat.rs (rounds, offsets, multi-segment, nested Cartesian, float-literal repair)
 
-## 0.8.1 (unreleased)
+## 0.8.1 (2026-08-18)
 
 - **Fix: `where{...}` predicate groups are angle-paired** (`preprocess/angle.rs`): reported from real use (alga2 — a two-arg bound `Semiring<Additive, Multiplicative>` inside `where{...}` was split at its depth-0 comma into a bad predicate, because Brace groups were passthrough and the `<...>` stayed flat). `is_where_group` recognizes a Brace group directly preceded by the `where` keyword; `angle_collect` now enters those groups and pairs the `<...>` inside (code bodies stay passthrough — comparison `<` untouched, verified by the body-boundary test); `render_angles` rebuilds them (spans restored like the Paren/Bracket rebuild). Scope note: the fix covers the block-form `where{...}` predicates of the trait entries and impl entry (which go through the depth-0 predicate split); blanket wrapper where and impl entry's whole-group merge never split, and `impl{...}` templates are parsed by syn (no pairing needed). 2 unit tests in angle.rs + 1 end-to-end DSL test (`dsl_where.rs::where_two_arg_bound_not_split` — the exact alga2 scenario, 171 dsl tests)
 

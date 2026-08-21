@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.0** (2026-08-21) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (`Box u8` = `Box<u8>`, `<T: Clone> Vec<T>` = a declaration applied to a type); `-` keeps only its directive-domain exclusion meaning. The DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`), same-name generic declarations merge into a where clause (`<T: Clone><T: Copy> X` → `impl<T> ... where T: Clone, T: Copy`), `_` is a never-replaced wildcard in shape templates (`impl{B<_>}`), and `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`, path-qualified included).
+**v0.9.1** (2026-08-21) — a stability release: `+A` at the start of a spec no longer **silently generates 0 impls** (targeted "not valid at the start of a type" diagnostic), the `!` (never) block no longer swallows a trailing `{...}` body (`fn(A) -> ! { body }` works), and `self` is documented as the identity prefix — in a matrix it is a **bare-type placeholder** (`[Box, self] u8` = `Box<u8>` + the bare `u8`). Docs stability pass: the zh-CN tutorial no longer leaks the internal `_Param_*_BatchGen_` names and the `# path::to::Trait:` prefix / `:N` deref depth are covered in the English tutorial.
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 

@@ -1,10 +1,10 @@
 # batch-impl 内部架构
 
-**v0.9.1**（unreleased）——*占位*；
+**v0.9.1**（2026-08-21）——稳定性发布：类型起始运算符诊断（`+A` 不再静默生成 0 个 impl；`!` 前缀不再吞掉尾随 `{...}` body——`parse/space.rs` 附件守卫）、`self` 文档化为恒等前缀（矩阵中的裸类型占位）、codegen `X<>` sync 抽入 `sync.rs::sync_impl_parts`、passthrough fn 块合并为 `passthrough_block`；文档稳定性修订（zh-CN 教程泄露修复、英文补 `# path::to::Trait:` 前缀与 `:N` 深度）；
 
 **v0.9.0**（2026-08-21）——apply 运算符重命名（`.` 右结合、空格取代 `-` 作为左结合；`^`/`-` 退出类型域）+ **块模型**：DSL 是块的任意组合、`apply` 折叠，不再按位置剥离附件——parse 层重构（`parse/space.rs`：`parse_space` → `parse_dot` → `parse_block`；`parse_item` 按首 token 分流）；同名泛型声明合并进 where（`codegen::merge_dup_params`）；形状模板 `_` 通配（`shape.rs::match_ty` 匹配 `Type::Infer` / 数组长度 `Expr::Infer`，从不绑定）；`X<>` → 本 spec trait 应用（`codegen/sync_trait.rs`），开关模板（`impl{Tr<>}`）控制 body 同步，含路径限定；
 
-**v0.8.1**（unreleased）——`where{...}` 尖括号配对 hotfix：`angle_collect` 现在进入 `where{...}` 谓词组（两参数 bound 不再被深度 0 逗号分裂）；代码体仍透传、`render_angles` 还原配对组；
+**v0.8.1**（2026-08-18）——`where{...}` 尖括号配对 hotfix：`angle_collect` 现在进入 `where{...}` 谓词组（两参数 bound 不再被深度 0 逗号分裂）；代码体仍透传、`render_angles` 还原配对组；
 
 **v0.8.0**（2026-08-18）——风格打底（移除 rustfmt 宽度上限、全库重排）+ 文档更新（示例注释英文化、测试数字更正）+ 扁平链深度护栏（`.`/`-` 链、附件链、链式类型段统一 128 层上限）+ 回退 0.7.2 误加的属性宏自定义 `@` 常量（`@name=value;` 段仅 `batch_trait!` 可用）+ **`impl{...}` shape template 形状模板**（新 `codegen::shape` 内核 + `TyKind::WithImpl` + `expand_consts` 进入模板、`where_process` 视为边界）+ **impl entry（ItemImpl 入口）**（`#[batch_impl]` 同样接受 `impl` 块；`entry/impl_entry.rs` + 顶层分流；形状模板 × 矩阵源实例化、`;` 分隔 spec、`@` 域仅 `@trait`；`where_process` 新增 `;` 停止与 `allow_end` 参数）；
 

@@ -2,7 +2,17 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.9.1 (unreleased)
+## 0.9.1 (2026-08-21)
+
+> 0.9.1 是**长期稳定版**——无新功能，对全代码库做五维盘查（遗漏 / 未测路径 / 歧义 / 重复代码 / 架构）后冻结表面。发现与修复：
+
+- **`+A` 静默生成 0 个 impl**（`parse/chain.rs`）：spec 开头的 `+` 不是 block 起始 token，`parse_space_chain` 返回 `None`、spec 无声消失。现在链边界报 "`+` is not valid at the start of a type"。既有的 `validate_start_punct` 守卫对 `+` 不可达（它只在 primitive 兜底触发，而 `+` 经链永远到不了那里）——真正修复在链边界。UI fixture `plus_at_type_start`
+- **`!` 前缀吞掉尾随 `{...}`**（`parse/space.rs`）：`fn(u8) -> ! { body }` 把 body 解析进返回类型（`!{body}`），impl 丢失 body（"macro expansion ignores `{`"）。`?`/`!` 前缀分支现在检查 `cursor_at_attachment`，附件块留给 impl。教程旧声称 `!.T` = never 类型是错的——`!` 没有 apply 语义，唯一合法用途是 fn 返回类型。新 dsl 测试 `NeverReturning`
+- **fn 族未测分支**——`dyn FnMut` / `dyn FnOnce` / `impl Trait` 解析零测试（只有 `dyn Fn` / `for<'a> fn` 被覆盖）。补上 parse 层第一个内联单测模块（`parse/mod.rs::tests`，5 个测试：fn_mut / fn_once / impl_trait / for_hrtb / prefix puncts），从 `lib.rs` 暂存模块迁出
+- **`self` 文档化为恒等前缀**——`self.T` = `T`；矩阵中作**裸类型占位**（`[Box, self] u8` = `Box<u8>` + 裸 `u8`）。它不是遗留废物：矩阵代数的恒等元有真实用途，0.9.0 文档对它的沉默才是真正的缺口。新 dsl 测试 `self_identity_in_matrix`
+- **文档稳定性修订**（zh-CN 教程）：§4.5 splat 幂示例泄露内部 `_Param_*_BatchGen_` 名（与 §12「不泄露保留名」承诺矛盾）；§4.3 缺 `Frac<*(*@u*).2>` 36 impl 示例；§10 缺 `!`；§11 `batch_trait!` 行声称支持它拒绝的 `#` 指令。`# path::to::Trait:` 前缀与 `:N` deref 深度英文教程缺失。两版教程的 `# Path:` 示例现为可编译 doctest
+- **codegen 架构**——`generate_impl` 里 40 行内联 `X<>` sync 移入 `codegen/sync.rs::sync_impl_parts`（sync 关注点现在拥有其完整集成；`?` 简化去掉 4 个嵌套 match）。两个近乎重复的 passthrough fn 块（`extern_fn_block` / `fn_trait_block`）合并为共享 `passthrough_block(cursor, n_leading)`
+- 全量测试偶发 fuzz OOM（并行 `cargo test` 下 26 GB 分配失败）是环境问题而非回归——已用限制 proptest 用例数多次验证
 
 ## 0.9.0 (2026-08-21)
 
@@ -26,7 +36,7 @@
   - `codegen/mod.rs`——`collect_shape_mapping` 返回段表；`generate_impl` 在槽映射重写之前先展开 body 重复块
   - 测试：`tests/features/shape_template_varseg.rs`（5 个集成测试——alga2 风格 `().1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` 覆盖 arity 1..4、固定元素前置的 `@1` 游标、嵌套元组显式路径 `self.0.@0`、同层两段共享游标、单元素段直接使用槽名）+ 7 个 ui fixture（段在元组外 / 前缀重复 / 无法均分 / 未知段 / 无驱动 / 裸 `@` / 不等长）+ varseg.rs 与 repeat.rs 单元测试（标记、前缀回环、body 透传、常量范围不受影响；轮次、偏移、多段、嵌套笛卡尔、float 修复）
 
-## 0.8.1 (unreleased)
+## 0.8.1 (2026-08-18)
 
 - **修复：`where{...}` 谓词组配对尖括号**（`preprocess/angle.rs`）：真实使用中发现（alga2——`where{...}` 内的两参数 bound `Semiring<Additive, Multiplicative>` 被深度 0 逗号分裂成坏谓词，因 Brace 组透传、`<>` 保持扁平）。`is_where_group` 识别 `where` 关键字直跟的 Brace 组；`angle_collect` 进入该组并配对组内 `<...>`（代码体仍透传——比较 `<` 不受影响，body 边界测试验证）；`render_angles` 重建（span 还原，与 Paren/Bracket 重建一致）。范围说明：修复覆盖 trait 入口与 impl entry 的块形式 `where{...}` 谓词（走深度 0 谓词切分）；blanket wrapper where 与 impl entry 的整组拼接从不切分，`impl{...}` 模板由 syn 解析（无需配对）。angle.rs 2 个单元测试 + 1 个 DSL 端到端回归（`dsl_where.rs::where_two_arg_bound_not_split`——alga2 精确场景，dsl 171 测试）
 

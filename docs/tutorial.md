@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.9.1** (unreleased) — *placeholder*;
+**v0.9.1** (2026-08-21) — a stability release: `+A` at the start of a spec gets a targeted "not valid at the start of a type" diagnostic instead of silently generating 0 impls; `fn(A) -> ! { body }` attaches the body to the impl (the `!` block no longer swallows a trailing `{...}`); `self` is the identity prefix — a **bare-type placeholder** in matrices (`[Box, self] u8` = `Box<u8>` + the bare `u8`, see §10);
 
 **v0.9.0** (2026-08-21) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (see §2); the DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`); same-name generic declarations merge into a where clause; `_` is a never-replaced wildcard in `impl{...}` templates; `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`);
 
