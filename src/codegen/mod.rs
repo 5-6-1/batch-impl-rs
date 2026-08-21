@@ -4,29 +4,61 @@
 //! into an [`ImplParts`] (impl generics, trait generics, associated type bindings,
 //! target type, body, attrs, unsafe flag), then renders the final
 //! `impl<...> Trait<...> for Target { ... }` block.
+//!
+//! ## Concern layers (order of application, as orchestrated by [`generate_impl`])
+//!
+//! The codegen pipeline is split by **concern** — each file owns one focused
+//! concern that stays within a single processing stage; the *order* is
+//! described here (and lives only here), mirroring how `preprocess` documents
+//! its pass order:
+//!
+//! 1. `extract` — `Ty` → [`ImplParts`]: dismantle metadata (`extract_impl_parts`),
+//!    substitute trait params in directive bodies (`substitute_trait_generics`),
+//!    hoist nested fresh generics (`hoist_type_params`);
+//! 2. `splat` — splat expansion on the Ty structure (`expand_splat_elems`), the
+//!    deferred flattening of `*()` / `*[]` (they survive parse/apply/expand as
+//!    whole units and expand here, one code path for every position);
+//! 3. `generics` — impl-generic concerns: same-name declaration merging
+//!    (`merge_dup_params`), trait-bound inheritance (`inherit_trait_bounds`),
+//!    impl-name normalization (`bare_param_name`);
+//! 4. `sync` — `X<>` (empty trait brackets) → the spec's trait application,
+//!    with the switch-template body opt-in (`impl{Tr<>}`);
+//! 5. `where_at` — where-predicate macro-meta replacement (`@N` → impl generic
+//!    N) and dangling-`@` validation;
+//! 6. `shape` + `match_ty` — the `impl{...}` shape-template kernel (slot
+//!    mapping + variadic segments), and `repeat` (`@(...)..` blocks) +
+//!    `repeat_drivers`;
+//! 7. `render` — the final `impl<...>` block assembly (`render_impl` +
+//!    `collect_shape_mapping`).
+//!
+//! `top_level` handles the top-level macro form (`{! ...}`); `fresh` the
+//! fresh-generic name sweeper. Tests live beside their concern (`repeat_tests`,
+//! `where_at_tests`).
 
+mod extract;
 mod fresh;
-mod impl_parts;
+mod generics;
 mod match_ty;
-mod postprocess;
 mod render;
 mod repeat;
 mod repeat_drivers;
 #[cfg(test)]
 mod repeat_tests;
 mod shape;
-mod sync_trait;
+mod splat;
+mod sync;
 mod top_level;
 mod where_at;
 #[cfg(test)]
 mod where_at_tests;
 
+pub(crate) use extract::*;
 pub(crate) use fresh::*;
-pub(crate) use impl_parts::*;
-pub(crate) use postprocess::*;
+pub(crate) use generics::*;
 pub(crate) use repeat::*;
 pub(crate) use shape::*;
-pub(crate) use sync_trait::*;
+pub(crate) use splat::*;
+pub(crate) use sync::*;
 pub(crate) use top_level::*;
 pub(crate) use where_at::*;
 
@@ -137,7 +169,7 @@ pub(crate) fn generate_impl(
     // would declare `T` twice (invalid Rust). Keep a single bare declaration and
     // move every bound of that name into a where predicate
     // (`impl<T> ... where T: Clone, T: Copy`); single declarations are untouched.
-    crate::codegen::render::merge_dup_params(&mut parts);
+    crate::codegen::generics::merge_dup_params(&mut parts);
 
     // Impl generic names, normalized for const params (`const N` in the parse
     // layer — the keyword is needed to render `const N: usize`; bare `N` here
@@ -146,7 +178,7 @@ pub(crate) fn generate_impl(
     let impl_name_streams = parts
         .impl_generics
         .iter()
-        .map(|(n, _)| crate::codegen::render::bare_param_name(n))
+        .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
         .collect::<Vec<TokenStream>>();
     let impl_names = impl_name_streams.iter().map(|n| n.to_string()).collect::<HashSet<String>>();
     let trait_args =

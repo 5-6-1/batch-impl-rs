@@ -1,14 +1,12 @@
-//! Impl metadata extraction: recursively pulls out the parts an impl block needs
-//! (generics / bindings / attrs / unsafe).
+//! The extraction concern: `Ty` → [`ImplParts`] — dismantle impl metadata,
+//! substitute trait params in directive bodies, and hoist nested fresh
+//! generics. Order of application is described in `mod.rs`.
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
-use std::collections::HashSet;
 
-use crate::TraitBounds;
 use crate::ast::*;
 use crate::parse::split_at_depth0;
-use crate::util::compile_err;
 
 /// Recursively extracts all parts an impl block needs from `Ty`.
 ///
@@ -201,67 +199,55 @@ pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>
     }
 }
 
-/// Inherits trait generic bounds onto impl generic params **without a written
-/// bound** (same-name inheritance, positional match) and appends the trait's
-/// unmerged where predicates to the impl (after a reference check). Returns
-/// the collected errors; on any error the caller emits only the errors — no
-/// partial impl. Rules: see the `TraitBounds` docs.
-pub(crate) fn inherit_trait_bounds(
-    parts: &mut ImplParts, trait_bounds: &TraitBounds, trait_args: &[String],
-    impl_names: &HashSet<String>,
-) -> Vec<TokenStream> {
-    let mut errs = vec![];
-    for (name, bound) in &mut parts.impl_generics {
-        if bound.is_some() {
-            continue;
-        }
-        let key = name.to_string();
-        // where this param appears as a trait argument (absent = trait-unrelated, no inherit)
-        let Some(pos) = trait_args.iter().position(|a| a == &key) else {
-            continue;
-        };
-        let Some(tp) = trait_bounds.params.get(pos) else {
-            continue;
-        };
-        let Some(b) = &tp.bound else {
-            continue;
-        };
-        if tp.name != key {
-            errs.push(compile_err!(
-                "batch-impl: trait argument `{}` maps to parameter `{}` (bound `{}`); automatic \
-                 inheritance requires the same name; rename to `{}` or write the bound manually",
-                key,
-                tp.name,
-                b,
-                tp.name
-            ));
-            continue;
-        }
-        if let Some(r) = tp.refs.iter().find(|r| !impl_names.contains(*r)) {
-            errs.push(compile_err!(
-                "batch-impl: inherited bound `{}` references parameter `{}`, but the impl declares \
-                 no such name; declare `{}` or write the bound manually",
-                b,
-                r,
-                r
-            ));
-            continue;
-        }
-        *bound = Some(TyPrimitive(b.clone()).to_ty());
+/// Substitute each trait generic param with its concrete arg in the impl body
+/// (the directive-copied fn signature plus the user's code block).
+///
+/// `trait_param_names` comes from the entry trait definition (`From<T>` →
+/// `[T]`), paired positionally with `ImplParts::trait_generic_names` (the
+/// spec-level args, `From<bool>` → `[bool]`). Token-level recursive: syn's
+/// quote groups parameter tokens, so the replacement descends into groups.
+/// Limitation: a *function* generic param that happens to share a trait
+/// param's name would be substituted too (rare; renamed params avoid it).
+pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names: &[Ident]) {
+    let Some(body) = parts.body.take() else {
+        return;
+    };
+    if trait_param_names.is_empty() || parts.trait_generic_names.is_empty() {
+        parts.body = Some(body);
+        return;
     }
-    // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
-    for (pred, refs) in &trait_bounds.extra_predicates {
-        if let Some(r) = refs.iter().find(|r| !impl_names.contains(*r)) {
-            errs.push(compile_err!(
-                "batch-impl: inherited where predicate `{}` references parameter `{}`, \
-                 but the impl declares no such name; declare `{}` or hand-write the where clause",
-                pred,
-                r,
-                r
-            ));
-            continue;
-        }
-        parts.where_clauses.push(pred.clone());
-    }
-    errs
+    // Pair type/const param names with their concrete args, skipping lifetime
+    // args (`'static` — a TokenStream starting with a `'` punct): bodies
+    // reference their own impl lifetimes, never substituted trait args.
+    let map = trait_param_names
+        .iter()
+        .zip(parts.trait_generic_names.iter().filter(|ts| {
+            !matches!(
+                (*ts).clone().into_iter().next(),
+                Some(TokenTree::Punct(p)) if p.as_char() == '\''
+            )
+        }))
+        .map(|(name, arg)| (name.clone(), arg.clone()))
+        .collect::<Vec<_>>();
+    parts.body = Some(replace_idents(body, &map));
+}
+
+/// Recursively replace every ident equal to a mapped trait param name.
+fn replace_idents(ts: TokenStream, map: &[(Ident, TokenStream)]) -> TokenStream {
+    ts.into_iter()
+        .flat_map(|tt| match &tt {
+            TokenTree::Ident(id) => map
+                .iter()
+                .find(|(name, _)| name == id)
+                .map(|(_, repl)| repl.clone())
+                .unwrap_or_else(|| TokenStream::from(tt.clone())),
+            TokenTree::Group(g) => {
+                let inner = replace_idents(g.stream(), map);
+                let mut ng = proc_macro2::Group::new(g.delimiter(), inner);
+                ng.set_span(g.span());
+                TokenStream::from(TokenTree::Group(ng))
+            }
+            other => TokenStream::from(other.clone()),
+        })
+        .collect()
 }

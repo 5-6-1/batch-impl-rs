@@ -1,15 +1,12 @@
-//! Impl rendering and impl-generic postprocessing: the helpers of
-//! `generate_impl` (in `mod.rs`) — shape-template slot-mapping collection,
-//! same-name generic declaration merging, and the final `impl` block render.
+//! The output concern: shape-template slot-mapping collection and the final
+//! `impl<...>` block render. Split by concern — order of application is
+//! described in `mod.rs`.
 
-use std::collections::{HashMap, HashSet};
-
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 
-use crate::ast::Ty;
 use crate::ast::types_render::render_param;
-use crate::codegen::impl_parts::ImplParts;
+use crate::codegen::extract::ImplParts;
 use crate::codegen::shape::{Mapping, ShapeError, VarSeg, match_shape};
 
 /// Matches every `impl{...}` template against the leaf target type and
@@ -43,71 +40,6 @@ pub(crate) fn collect_shape_mapping(
         segs.extend(s);
     }
     Ok((merged, segs))
-}
-
-/// Renders an impl generic name with the `const` keyword stripped (the parse
-/// layer keeps `const` so `const N: usize` renders correctly; the bare name is
-/// used for trait-arg matching and where-predicate references). Names are
-/// always a single ident or the `const` ident pair; the fallback arm keeps the
-/// token stream as-is so this helper can never panic (defensive — unreachable
-/// in practice, kept to uphold the no-panic promise).
-pub(crate) fn bare_param_name(name: &TokenStream) -> TokenStream {
-    let mut tokens = name.clone().into_iter();
-    match (tokens.next(), tokens.next()) {
-        (Some(TokenTree::Ident(id)), None) => quote!(#id),
-        (Some(TokenTree::Ident(kw)), Some(TokenTree::Ident(id)))
-            if kw == "const" && tokens.next().is_none() =>
-        {
-            quote!(#id)
-        }
-        _ => name.clone(),
-    }
-}
-
-/// Merges same-name impl generic declarations from chained `<>` blocks.
-///
-/// `<T: Clone><T: Copy> X` would render `impl<T: Clone, T: Copy>` — a
-/// duplicate `T` declaration (E0415). Duplicate names collapse into one
-/// **bare** declaration and every bound of that name moves into a where
-/// predicate (`impl<T> ... where T: Clone, T: Copy`); the duplicate names
-/// themselves are dropped. Names declared once are untouched (`<T: Clone>`
-/// stays `impl<T: Clone>`). Const params (`const N: usize`) keep their full
-/// declaration (the type annotation lives in the name tokens — there is
-/// nowhere else for it to go; the later duplicates are simply dropped).
-pub(crate) fn merge_dup_params(parts: &mut ImplParts) {
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for (name, _) in &parts.impl_generics {
-        *counts.entry(bare_param_name(name).to_string()).or_insert(0) += 1;
-    }
-    let mut merged: Vec<(TokenStream, Option<Ty>)> = Vec::new();
-    let mut extra_where: Vec<TokenStream> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    for (name, bound) in std::mem::take(&mut parts.impl_generics) {
-        let name_str = name.to_string();
-        let is_const = name_str.starts_with("const");
-        let key = bare_param_name(&name).to_string();
-        if counts.get(&key).copied().unwrap_or(0) > 1 {
-            // duplicate name: bare single declaration (or the first full
-            // const declaration), every bound moved into a where predicate
-            if is_const {
-                if !seen.insert(key) {
-                    continue; // drop later const duplicates entirely
-                }
-                merged.push((name, bound));
-            } else {
-                if seen.insert(key.clone()) {
-                    merged.push((name.clone(), None));
-                }
-                if let Some(b) = bound {
-                    extra_where.push(quote!(#name: #b));
-                }
-            }
-        } else {
-            merged.push((name, bound));
-        }
-    }
-    parts.impl_generics = merged;
-    parts.where_clauses.extend(extra_where);
 }
 
 /// Renders the final `impl<...> Trait<...> for Target where ... { ... }`
