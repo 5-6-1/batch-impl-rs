@@ -110,6 +110,43 @@ pub(crate) fn resolve_where_at(
                 }
                 Some(TokenTree::Literal(lit)) => {
                     let s = lit.to_string();
+                    // `@L_N..` grouped open range / `@L_N..M` / `@L_N..=M` —
+                    // within generator group L (stable across array dispatch,
+                    // like `@g_i`). Slices the group's fresh entries by
+                    // in-group position.
+                    if let Some((group, start)) = parse_group_start(&s)
+                        && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                        && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                    {
+                        let slice = crate::codegen::range_refs::group_fresh(
+                            &fresh_sorted, group, tokens[i].span(),
+                        )?;
+                        let mut consumed = 4;
+                        if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=') {
+                            consumed += 1;
+                        }
+                        let end = match tokens.get(i + consumed) {
+                            Some(TokenTree::Literal(el)) => {
+                                let Some(e) = el.to_string().parse::<usize>().ok() else {
+                                    return Err(compile_error_str(
+                                        "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
+                                        tokens[i].span(),
+                                    ));
+                                };
+                                consumed += 1;
+                                Some(e)
+                            }
+                            _ => None,
+                        };
+                        let range = crate::ast::fresh::FreshRange { group: Some(group), start, end };
+                        let count = crate::codegen::range_refs::range_count(
+                            range, slice.len(), tokens[i].span(),
+                        )?;
+                        let tail = resolve_tail(&tokens[i + consumed..], impl_names)?;
+                        emit_fresh_predicates(&mut out, &slice[start..start + count], &tail);
+                        i = tokens.len();
+                        continue;
+                    }
                     // `@N..` open range: from N to the last fresh — empty
                     // when N is past the end (legal: an arity-1 impl
                     // contributes no "from the second element" predicate,
@@ -286,4 +323,11 @@ fn parse_fresh_range(
     }
     let tail = tokens[end_idx + 1..].to_vec();
     Ok((count, end_idx, tail))
+}
+
+/// Parses a grouped range literal `L_N` (the part after `@`) into
+/// `(group, start)`; `None` for a plain digit (that is the flat `@N` form).
+fn parse_group_start(s: &str) -> Option<(usize, usize)> {
+    let (l, n) = s.split_once('_')?;
+    Some((l.parse::<usize>().ok()?, n.parse::<usize>().ok()?))
 }

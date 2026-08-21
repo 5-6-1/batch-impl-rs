@@ -111,3 +111,41 @@ fn range_decl_position() {
     fn check<T: GenConvDecl<u8, u16>>(_: &T) {}
     check(&DeclTarget);
 }
+
+// ============================================================
+// 8. Grouped ranges `@L_N..` / `@L_N..M`: a range **within** one generator
+//    group (stable across array dispatch, like `@g_i`). Two generators
+//    (`<*().2>` → group 0, `<*().3>` → group 1); `@1_0..: Clone` constrains
+//    only group 1's three fresh.
+// ============================================================
+struct MultiTarget;
+
+#[batch_impl(
+    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where{@1_0..: Clone}
+    { fn m(&self) {} }
+)]
+#[allow(dead_code)]
+trait PairGen<A, B, C, D, E> { fn m(&self); }
+
+#[test]
+fn grouped_range_where() {
+    fn check<T: PairGen<u8, u16, u32, u64, u128>>(_: &T) {}
+    check(&MultiTarget);
+}
+
+// ============================================================
+// 9. Grouped range in the declaration position: `<@1_1..>` declares only
+//    group 1 from position 1 onward (the group tail).
+// ============================================================
+#[batch_impl(
+    <@0..> <@1_1..> PairGenDecl<*().2, *().3> MultiTarget
+    { fn m(&self) {} }
+)]
+#[allow(dead_code)]
+trait PairGenDecl<A, B, C, D, E> { fn m(&self); }
+
+#[test]
+fn grouped_range_decl() {
+    fn check<T: PairGenDecl<u8, u16, u32, u64, u128>>(_: &T) {}
+    check(&MultiTarget);
+}

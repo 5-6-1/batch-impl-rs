@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.2** (unreleased) — `@N..` / `@N..M` fresh ranges work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone`, the tail copied per fresh), `<>` generic args, tuple targets; variadic segments no longer need a trailing comma (`impl{(A@..)}`). Pre-0.9 changelog entries use the `^` operator of their time again (the 0.9.0 release pass had rewritten them to `.`).
+**v0.9.2** (unreleased) — `@N..` / `@N..M` fresh ranges work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone`, the tail copied per fresh), `<>` generic args, the impl-generic declaration (`<@0..>`), tuple targets — plus **grouped ranges** `@L_N..` / `@L_N..M` within one generator group (stable across array dispatch). Variadic segments no longer need a trailing comma (`impl{(A@..)}`). Pre-0.9 changelog entries use the `^` operator of their time again (the 0.9.0 release pass had rewritten them to `.`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 

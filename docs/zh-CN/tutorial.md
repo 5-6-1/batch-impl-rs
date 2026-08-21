@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.9.2**（unreleased）——`@N..` / `@N..M` 范围引用现在可以在**任何单个 `@N` 能出现的位置**使用：where 谓词（`@1..::Output: Clone`——范围后的尾部逐 fresh 复制）、`<>` 泛型实参（`Wrapper<@0..>`——一个位置重新展开为多个）、元组目标；变长段不再需要尾随逗号（`impl{(A@..)}`）；见 §6.4 / §8.4；
+**v0.9.2**（unreleased）——`@N..` / `@N..M` 范围引用现在可以在**任何单个 `@N` 能出现的位置**使用：where 谓词（`@1..::Output: Clone`——范围后的尾部逐 fresh 复制）、`<>` 泛型实参（`Wrapper<@0..>`——一个位置重新展开为多个）、impl 泛型声明（`<@0..>`）、元组目标；**组内范围** `@L_N..` / `@L_N..M` 在单个生成器组内切片；变长段不再需要尾随逗号（`impl{(A@..)}`）；见 §6.4 / §8.4；
 
 **v0.9.1**（2026-08-21）——稳定性发布：`+A` 位于 spec 开头得到定向诊断 "not valid at the start of a type" 而非静默生成 0 个 impl；`fn(A) -> ! { body }` 的 body 归属 impl（`!` 块不再吞掉尾随 `{...}`）；`self` 是恒等前缀——矩阵中的**裸类型占位**（`[Box, self] u8` = `Box<u8>` + 裸 `u8`，见 §10）；
 
@@ -457,6 +457,25 @@ trait GenConv<T, U> { fn m(&self); }
 
 （空的 `<@0..>`——spec 无 fresh 生成器——不产生任何参数，如同空的
 `@1..` 谓词。）
+
+**组内范围 `@L_N..`**（0.9.2）在**单个生成器组内**切片——`@g_i` 的组内对应物，
+跨数组分发稳定。一个 spec 里有多个生成器（`<*().2>` → 组 0、`<*().3>` → 组 1）
+时，`@1_0..` 只约束组 1 的 fresh：
+
+```rust
+# use batch_impl::batch_impl;
+struct MultiTarget;
+#[batch_impl(
+    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where{@1_0..: Clone}
+    { fn m(&self) {} }
+)]
+trait PairGen<A, B, C, D, E> { fn m(&self); }
+// → impl<P0,P1,P2,P3,P4> PairGen<P0,P1,P2,P3,P4> for MultiTarget
+//     where P2: Clone, P3: Clone, P4: Clone   ← 仅组 1（P0,P1 无约束）
+```
+
+`@L_N..`（到组尾开放）、`@L_N..M` / `@L_N..=M`（闭合）都可用；未知组报错
+如同 `@g_i`。
 
 `@N` 在**值位置**同样解析——`:` 后的类型可在尖括号组内携带 `@N`，例如关联
 类型绑定引用另一个 fresh 的关联类型（alga2 元组 `Module` 标量相等约束）：

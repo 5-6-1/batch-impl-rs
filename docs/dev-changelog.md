@@ -38,6 +38,15 @@
   or target), and an overlapping range declaration collapses cleanly with
   the generator's own declarations (same grouped names). An empty `<@0..>`
   (no generators) contributes nothing, mirroring an empty `@1..` predicate.
+- **Grouped ranges `@L_N..` / `@L_N..M` / `@L_N..=M`** — a range **within one
+  generator group**, the in-group counterpart of `@g_i` (stable across array
+  dispatch). `FreshRange` gains a `group: Option<usize>`; the placeholder is
+  `_Param_{L}_{N}_With[_M]_BatchGen_` (the group prefix precedes the
+  position, like `@g_i`). Parse (`resolve_at_refs`) and where (`where_at.rs`)
+  both recognize the `L_N` literal shape; codegen slices the group's sorted
+  entries (`range_refs::group_fresh`) instead of the flattened list. An
+  unknown group errors (like `@g_i`); a closed range past the group's end
+  errors.
 - **Variadic segments auto-complete a trailing comma** (`preprocess/varseg.rs`):
   `impl{(A@..)}` (no comma) now marks to `(__batch_varseg_A_0,)` — a segment
   at the end of a tuple element list supplies its own comma, so syn parses

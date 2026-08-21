@@ -54,12 +54,16 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                 match tokens.get(i + 1) {
                     Some(TokenTree::Literal(lit)) => {
                         let lit_str = lit.to_string();
-                        // `@N..` open range / `@N..M` / `@N..=M` closed range →
-                        // a single range placeholder ident (codegen expands it
-                        // against the impl's fresh list). The placeholder is an
-                        // atomic token, so a range may appear anywhere a single
-                        // `@N` can (`Wrapper<@0..>`, `<@0.. as T>::Scalar`).
-                        if let Ok(start) = lit_str.parse::<usize>()
+                        // `@N..` open range / `@N..M` / `@N..=M` closed range, or
+                        // the grouped forms `@L_N..` / `@L_N..M` / `@L_N..=M`
+                        // (within generator group L — stable across array
+                        // dispatch) → a single range placeholder ident (codegen
+                        // expands it against the impl's fresh list). The
+                        // placeholder is an atomic token, so a range may appear
+                        // anywhere a single `@N` can (`Wrapper<@0..>`,
+                        // `<@0.. as T>::Scalar`).
+                        let range_lit = parse_range_literal(&lit_str);
+                        if let Some((group, start)) = range_lit
                             && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
                             && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
                         {
@@ -82,7 +86,7 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                                 }
                                 _ => None,
                             };
-                            let range = crate::ast::fresh::FreshRange { start, end };
+                            let range = crate::ast::fresh::FreshRange { group, start, end };
                             let name = crate::ast::fresh::range_fresh_name(range);
                             let ident = Ident::new(&name, at_span);
                             out.push(TokenTree::Ident(ident));
@@ -123,6 +127,18 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
         }
     }
     Ok(out)
+}
+
+/// Parses the literal after `@` in a range reference: `N` (flat) or `L_N`
+/// (grouped, like `@g_i`). Returns `(group, start)` — `group: None` for the
+/// flat form. Only digits-with-optional-underscore shapes qualify; anything
+/// else (a bare digit is handled by the single-`@N` path) returns `None`.
+fn parse_range_literal(s: &str) -> Option<(Option<usize>, usize)> {
+    if let Ok(n) = s.parse::<usize>() {
+        return Some((None, n));
+    }
+    let (l, n) = s.split_once('_')?;
+    Some((Some(l.parse::<usize>().ok()?), n.parse::<usize>().ok()?))
 }
 
 /// The Prim level parses one block — a stable entry (reachable via

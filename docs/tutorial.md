@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.9.2** (unreleased) — `@N..` / `@N..M` range references now work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh), `<>` generic args (`Wrapper<@0..>` — one position re-opens into several), tuple targets; variadic segments no longer need a trailing comma (`impl{(A@..)}`); see §6.4 / §8.4;
+**v0.9.2** (unreleased) — `@N..` / `@N..M` range references now work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh), `<>` generic args (`Wrapper<@0..>` — one position re-opens into several), the impl-generic declaration (`<@0..>`), and tuple targets; **grouped ranges** `@L_N..` / `@L_N..M` slice within one generator group; variadic segments no longer need a trailing comma (`impl{(A@..)}`); see §6.4 / §8.4;
 
 **v0.9.1** (2026-08-21) — a stability release: `+A` at the start of a spec gets a targeted "not valid at the start of a type" diagnostic instead of silently generating 0 impls; `fn(A) -> ! { body }` attaches the body to the impl (the `!` block no longer swallows a trailing `{...}`); `self` is the identity prefix — a **bare-type placeholder** in matrices (`[Box, self] u8` = `Box<u8>` + the bare `u8`, see §10);
 
@@ -447,6 +447,26 @@ trait GenConv<T, U> { fn m(&self); }
 
 (An empty `<@0..>` — no fresh generators in the spec — contributes no
 parameters, like an empty `@1..` predicate.)
+
+**Grouped ranges `@L_N..`** (0.9.2) slice **within one generator group** —
+the in-group counterpart of `@g_i`, stable across array dispatch. With
+several generators in one spec (`<*().2>` → group 0, `<*().3>` → group 1),
+`@1_0..` constrains only group 1's fresh:
+
+```rust
+# use batch_impl::batch_impl;
+struct MultiTarget;
+#[batch_impl(
+    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where{@1_0..: Clone}
+    { fn m(&self) {} }
+)]
+trait PairGen<A, B, C, D, E> { fn m(&self); }
+// → impl<P0,P1,P2,P3,P4> PairGen<P0,P1,P2,P3,P4> for MultiTarget
+//     where P2: Clone, P3: Clone, P4: Clone   ← group 1 only (P0,P1 unconstrained)
+```
+
+`@L_N..` (open to the group's end), `@L_N..M` and `@L_N..=M` (closed) all
+work; an unknown group errors like `@g_i`.
 
 `@N` also resolves in **value positions** — the type after `:` may carry
 `@N` inside angle groups, e.g. an associated-type binding referencing

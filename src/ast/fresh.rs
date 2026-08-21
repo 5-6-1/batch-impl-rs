@@ -71,44 +71,56 @@ pub(crate) fn parse_numbered_fresh(s: &str) -> Option<usize> {
 /// them — they are recognized only by [`parse_range_fresh`].
 pub(crate) const RANGE_WITH_INFIX: &str = "_With_";
 
-/// A resolved `@N..` / `@N..M` range reference: `start` with an optional
-/// inclusive `end` (`None` = open to the last fresh).
+/// A resolved `@N..` / `@N..M` range reference: an optional `group` (a
+/// `@L_N..` range is **within** generator group L — stable across array
+/// dispatch, like `@g_i`; `None` is the flattened `@N..` form), `start`
+/// (flattened index or in-group position), and an optional inclusive `end`
+/// (`None` = open to the last fresh of the scope).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FreshRange {
+    pub(crate) group: Option<usize>,
     pub(crate) start: usize,
     pub(crate) end: Option<usize>,
 }
 
-/// The range placeholder name for `@N..` / `@N..M`: `_Param_{N}_With_BatchGen_`
-/// (open) or `_Param_{N}_With_{M}_BatchGen_` (closed, `end` inclusive).
+/// The range placeholder name: flattened `_Param_{N}_With[_M]_BatchGen_`, or
+/// grouped `_Param_{L}_{N}_With[_M]_BatchGen_` (`@L_N..` — the group prefix
+/// precedes the position like `@g_i`).
 pub(crate) fn range_fresh_name(range: FreshRange) -> String {
+    let head = match range.group {
+        Some(l) => format!("{}{}_{}", FRESH_PREFIX, l, range.start),
+        None => format!("{}{}", FRESH_PREFIX, range.start),
+    };
     match range.end {
-        Some(end) => {
-            format!("{}{}{}{}{}", FRESH_PREFIX, range.start, RANGE_WITH_INFIX, end, FRESH_SUFFIX)
-        }
+        Some(end) => format!("{}{}{}{}", head, RANGE_WITH_INFIX, end, FRESH_SUFFIX),
         // open: `_With` (no end; the `_BatchGen_` suffix provides the tail `_`)
-        None => format!("{}{}_With{}", FRESH_PREFIX, range.start, FRESH_SUFFIX),
+        None => format!("{}_With{}", head, FRESH_SUFFIX),
     }
 }
 
-/// Parses a range placeholder ident (`_Param_N_With_BatchGen_` /
-/// `_Param_N_With_M_BatchGen_`); `None` for anything else (including the
-/// plain fresh forms — those belong to `parse_grouped_fresh` /
+/// Parses a range placeholder ident: `_Param_{N}_With[_M]_BatchGen_` (flat) or
+/// `_Param_{L}_{N}_With[_M]_BatchGen_` (grouped); `None` for anything else
+/// (including the plain fresh forms — those belong to `parse_grouped_fresh` /
 /// `parse_numbered_fresh`).
 pub(crate) fn parse_range_fresh(s: &str) -> Option<FreshRange> {
-    // `_Param_{N}_With[_M]_BatchGen_` → strip the fixed head/suffix, then
+    // `_Param_{...}_With[_M]_BatchGen_` → strip the fixed head/suffix, then
     // split the middle on the `_With_` / `_With` marker.
     let rest = s.strip_prefix(FRESH_PREFIX)?.strip_suffix(FRESH_SUFFIX)?;
-    if let Some((start_str, tail)) = rest.split_once("_With_") {
-        // closed: `N_With_M`
-        let start = start_str.parse::<usize>().ok()?;
-        let end = tail.parse::<usize>().ok()?;
-        return (start <= end).then_some(FreshRange { start, end: Some(end) });
-    }
-    // open: `N_With` (no trailing `_` — the suffix already consumed it)
-    let (start_str, marker) = rest.rsplit_once("_With")?;
-    (marker.is_empty())
-        .then_some(FreshRange { start: start_str.parse().ok()?, end: None })
+    let (pos_str, end) = if let Some((pos_str, tail)) = rest.split_once("_With_") {
+        // closed: `..._With_M`
+        (pos_str, Some(tail.parse::<usize>().ok()?))
+    } else {
+        // open: `..._With` (no trailing `_` — the suffix already consumed it)
+        let (pos_str, marker) = rest.rsplit_once("_With")?;
+        (pos_str, if marker.is_empty() { None } else { return None })
+    };
+    // `pos_str` is either `N` (flat) or `L_N` (grouped)
+    let (group, start) = match pos_str.split_once('_') {
+        Some((l, n)) => (Some(l.parse::<usize>().ok()?), n.parse::<usize>().ok()?),
+        None => (None, pos_str.parse::<usize>().ok()?),
+    };
+    let range = FreshRange { group, start, end };
+    (range.end.is_none_or(|e| range.start <= e)).then_some(range)
 }
 
 /// Whether an identifier matches the reserved fresh pattern
@@ -124,10 +136,15 @@ mod tests {
     #[test]
     fn range_placeholder_roundtrip() {
         for (range, expect) in [
-            (FreshRange { start: 0, end: None }, "_Param_0_With_BatchGen_"),
-            (FreshRange { start: 1, end: None }, "_Param_1_With_BatchGen_"),
-            (FreshRange { start: 0, end: Some(2) }, "_Param_0_With_2_BatchGen_"),
-            (FreshRange { start: 1, end: Some(3) }, "_Param_1_With_3_BatchGen_"),
+            (FreshRange { group: None, start: 0, end: None }, "_Param_0_With_BatchGen_"),
+            (FreshRange { group: None, start: 1, end: None }, "_Param_1_With_BatchGen_"),
+            (FreshRange { group: None, start: 0, end: Some(2) }, "_Param_0_With_2_BatchGen_"),
+            (FreshRange { group: None, start: 1, end: Some(3) }, "_Param_1_With_3_BatchGen_"),
+            // grouped (`@L_N..`): the group prefix precedes the position
+            (FreshRange { group: Some(0), start: 0, end: None }, "_Param_0_0_With_BatchGen_"),
+            (FreshRange { group: Some(0), start: 2, end: None }, "_Param_0_2_With_BatchGen_"),
+            (FreshRange { group: Some(1), start: 0, end: Some(1) }, "_Param_1_0_With_1_BatchGen_"),
+            (FreshRange { group: Some(2), start: 1, end: Some(3) }, "_Param_2_1_With_3_BatchGen_"),
         ] {
             let name = range_fresh_name(range);
             assert_eq!(name, expect);
@@ -138,7 +155,11 @@ mod tests {
     #[test]
     fn range_placeholder_not_confused_with_plain_fresh() {
         // The `_With` infix must keep the sweeper's strict matchers away.
-        for name in ["_Param_0_With_BatchGen_", "_Param_1_With_2_BatchGen_"] {
+        for name in [
+            "_Param_0_With_BatchGen_",
+            "_Param_1_With_2_BatchGen_",
+            "_Param_0_1_With_BatchGen_",
+        ] {
             assert_eq!(parse_grouped_fresh(name), None, "{name}");
             assert_eq!(parse_numbered_fresh(name), None, "{name}");
         }
@@ -153,6 +174,8 @@ mod tests {
         assert_eq!(parse_range_fresh("_Param_x_With_BatchGen_"), None);
         assert_eq!(parse_range_fresh("_Param_2_With_1_BatchGen_"), None); // start > end
         assert_eq!(parse_range_fresh("_Param_0_With_x_BatchGen_"), None);
+        assert_eq!(parse_range_fresh("_Param_0_2_With_1_BatchGen_"), None); // grouped start > end
+        assert_eq!(parse_range_fresh("_Param_x_0_With_BatchGen_"), None); // bad group
         assert_eq!(parse_range_fresh("plain"), None);
     }
 }
