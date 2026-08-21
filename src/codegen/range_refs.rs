@@ -10,7 +10,7 @@
 //! (target type, trait args, impl-generic bounds) whose placeholders were
 //! produced by `parse::resolve_at_refs`.
 
-use proc_macro2::{Group, Ident, TokenStream, TokenTree};
+use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::ast::fresh::{FreshRange, parse_range_fresh};
 use crate::ast::{MAX_EXPAND, parse_grouped_fresh};

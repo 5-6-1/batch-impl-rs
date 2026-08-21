@@ -56,7 +56,6 @@ mod where_at_tests;
 pub(crate) use extract::*;
 pub(crate) use fresh::*;
 pub(crate) use generics::*;
-pub(crate) use range_refs::*;
 pub(crate) use repeat::*;
 pub(crate) use shape::*;
 pub(crate) use splat::*;

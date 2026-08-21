@@ -99,6 +99,22 @@ fn mark_template(
             out.push(TokenTree::Ident(placeholder));
             i += 4;
             seq += 1;
+            // A variadic segment at the end of a tuple/list element list is
+            // normally written with a trailing comma (`(A@..,)`) — the comma
+            // keeps syn from parsing `(A@..)` as a parenthesized group. When
+            // the user omits it (`impl{(A@..)}`), supply it here so the
+            // template still parses as a tuple. Only the *last* element of
+            // the enclosing group needs this — a middle segment already has
+            // the following comma in the stream.
+            if i >= tokens.len() && !out.is_empty() {
+                let last_is_comma = matches!(
+                    out.last(),
+                    Some(TokenTree::Punct(p)) if p.as_char() == ','
+                );
+                if !last_is_comma {
+                    out.push(TokenTree::Punct(proc_macro2::Punct::new(',', proc_macro2::Spacing::Alone)));
+                }
+            }
             continue;
         }
         if let TokenTree::Group(g) = &tokens[i] {
@@ -151,6 +167,27 @@ mod tests {
     #[test]
     fn top_level_segment_marked() {
         assert_eq!(mark("impl{(A@..,)}"), "impl { (__batch_varseg_A_0 ,) }");
+    }
+
+    #[test]
+    fn trailing_segment_without_comma() {
+        // `impl{(A@..)}` — no trailing comma: the marker supplies one so the
+        // template still parses as a tuple, not a parenthesized group.
+        assert_eq!(mark("impl{(A@..)}"), "impl { (__batch_varseg_A_0 ,) }");
+    }
+
+    #[test]
+    fn fixed_then_trailing_segment_without_comma() {
+        assert_eq!(mark("impl{(u8, A@..)}"), "impl { (u8 , __batch_varseg_A_0 ,) }");
+    }
+
+    #[test]
+    fn middle_segment_keeps_stream_comma() {
+        // `(A@.., B@..)` — the first segment is followed by the real comma.
+        assert_eq!(
+            mark("impl{(A@.., B@..)}"),
+            "impl { (__batch_varseg_A_0 , __batch_varseg_B_1 ,) }"
+        );
     }
 
     #[test]
