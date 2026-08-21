@@ -110,7 +110,16 @@ fn to_token(tok: &Tok) -> TokenTree {
     }
 }
 
+/// A fixed proptest config for the fuzz suite: `cases` caps the per-test
+/// random corpus, so a run is reproducible in time/memory on any machine
+/// (the default 256 cases can occasionally balloon into a multi-GB
+/// allocation on adversarial inputs, hanging CI instead of failing).
+fn fuzz_config() -> proptest::test_runner::Config {
+    proptest::test_runner::Config { cases: 64, ..Default::default() }
+}
+
 proptest! {
+    #![proptest_config(fuzz_config())]
     /// Bare where rewrite: no panic on arbitrary token input
     #[test]
     fn where_process_no_panic(toks in tokens(3)) {
