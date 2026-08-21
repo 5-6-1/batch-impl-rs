@@ -8,13 +8,31 @@
 //! Where-predicate ranges are handled by `resolve_where_at` on the raw `@N..`
 //! form (predicate-subject expansion); this file covers the **type positions**
 //! (target type, trait args, impl-generic bounds) whose placeholders were
-//! produced by `parse::resolve_at_refs`.
+//! produced by `parse::resolve_at_refs` — plus the **impl-generic declaration
+//! position** (`<@0..>` declares every fresh as an impl param).
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::ast::fresh::{FreshRange, parse_range_fresh};
 use crate::ast::{MAX_EXPAND, parse_grouped_fresh};
 use crate::util::compile_error_str;
+
+/// The impl's fresh names in document order: grouped fresh names
+/// (`_Param_{g}_{i}_BatchGen_`) sorted by (group, position) — exactly the
+/// order `@N` uses (the sweeper renumbers to `_Param_0..N_BatchGen_`
+/// afterwards). Anything else is a user-written param and does not
+/// participate in `@N` indexing.
+fn sorted_fresh_names(impl_names: &[TokenStream]) -> Vec<&TokenStream> {
+    let mut fresh_sorted: Vec<(usize, usize, &TokenStream)> = impl_names
+        .iter()
+        .filter_map(|n| {
+            let (g, i) = parse_grouped_fresh(&n.to_string())?;
+            Some((g, i, n))
+        })
+        .collect();
+    fresh_sorted.sort_by_key(|&(g, i, _)| (g, i));
+    fresh_sorted.iter().map(|&(_, _, n)| n).collect()
+}
 
 /// Expands every `@N..` / `@N..M` range placeholder in `tokens` against the
 /// impl's fresh names: `_Param_0_With_BatchGen_` → `P0, P1, P2, ...` (each
@@ -24,24 +42,38 @@ use crate::util::compile_error_str;
 pub(crate) fn expand_range_refs(
     tokens: TokenStream, impl_names: &[TokenStream],
 ) -> Result<TokenStream, TokenStream> {
-    // The impl's fresh names in document order: grouped fresh names
-    // (`_Param_{g}_{i}_BatchGen_`) sorted by (group, position) — exactly the
-    // order `@N` uses (the sweeper renumbers to `_Param_0..N_BatchGen_`
-    // afterwards). Anything else is a user-written param and does not
-    // participate in `@N` indexing.
-    let mut fresh_sorted: Vec<(usize, usize, &TokenStream)> = impl_names
-        .iter()
-        .filter_map(|n| {
-            let (g, i) = parse_grouped_fresh(&n.to_string())?;
-            Some((g, i, n))
-        })
-        .collect();
-    fresh_sorted.sort_by_key(|&(g, i, _)| (g, i));
-    let names: Vec<&TokenStream> = fresh_sorted.iter().map(|&(_, _, n)| n).collect();
+    let names = sorted_fresh_names(impl_names);
 
     let v = tokens.into_iter().collect::<Vec<_>>();
     let out = expand_at(&v, &names, 0)?;
     Ok(out.into_iter().collect())
+}
+
+/// Expands a range placeholder in the **impl-generic declaration position**:
+/// `<@0..>` declares every fresh the range covers as an impl generic param.
+/// The declaration list is rebuilt in place — a placeholder entry
+/// (`_Param_N_With[_M]_BatchGen_`, with its bound) becomes one bare entry per
+/// fresh name. Runs before `merge_dup_params`, so a range declaration that
+/// overlaps a generator's fresh declarations collapses cleanly.
+pub(crate) fn expand_range_decls(
+    impl_generics: &mut Vec<(TokenStream, Option<crate::ast::Ty>)>,
+    impl_names: &[TokenStream],
+) -> Result<(), TokenStream> {
+    let names = sorted_fresh_names(impl_names);
+    let mut out: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![];
+    for (name, bound) in impl_generics.iter() {
+        let s = name.to_string();
+        if let Some(range) = parse_range_fresh(&s) {
+            let count = range_len(range, names.len())?;
+            for k in 0..count {
+                out.push((names[range.start + k].clone(), None));
+            }
+        } else {
+            out.push((name.clone(), bound.clone()));
+        }
+    }
+    *impl_generics = out;
+    Ok(())
 }
 
 fn expand_at(
@@ -179,5 +211,47 @@ mod tests {
         let ts: TokenStream = "Wrapper < _Param_0_BatchGen_ >".parse().unwrap();
         let out = expand_range_refs(ts, &names()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_0_BatchGen_ >");
+    }
+
+    #[test]
+    fn decl_position_open_range() {
+        // `<@0..>` — a range placeholder as an impl-generic declaration
+        // expands into one bare declaration per fresh.
+        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
+            vec![("_Param_0_With_BatchGen_".parse().unwrap(), None)];
+        expand_range_decls(&mut gens, &names()).unwrap();
+        let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
+        assert_eq!(got, ["_Param_0_0_BatchGen_", "_Param_1_0_BatchGen_", "_Param_1_1_BatchGen_"]);
+    }
+
+    #[test]
+    fn decl_position_closed_range() {
+        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
+            vec![("_Param_1_With_2_BatchGen_".parse().unwrap(), None)];
+        expand_range_decls(&mut gens, &names()).unwrap();
+        let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
+        assert_eq!(got, ["_Param_1_0_BatchGen_", "_Param_1_1_BatchGen_"]);
+    }
+
+    #[test]
+    fn decl_position_mixed_with_plain() {
+        // A user param and a range declaration coexist; the plain one stays.
+        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![
+            ("X".parse().unwrap(), None),
+            ("_Param_0_With_BatchGen_".parse().unwrap(), None),
+        ];
+        expand_range_decls(&mut gens, &names()).unwrap();
+        let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
+        assert_eq!(
+            got,
+            ["X", "_Param_0_0_BatchGen_", "_Param_1_0_BatchGen_", "_Param_1_1_BatchGen_"]
+        );
+    }
+
+    #[test]
+    fn decl_position_closed_out_of_bounds_errors() {
+        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
+            vec![("_Param_0_With_5_BatchGen_".parse().unwrap(), None)];
+        assert!(expand_range_decls(&mut gens, &names()).is_err());
     }
 }

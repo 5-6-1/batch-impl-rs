@@ -166,6 +166,23 @@ pub(crate) fn generate_impl(
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
 
+    // `@0..` in the impl-generic declaration position (`<@0..>` declares every
+    // fresh the range covers). The fresh list is whatever the spec's
+    // generators already declared (`*().N` / `().N`); a range with no fresh
+    // coverage errors. Runs before `merge_dup_params` so overlapping
+    // declarations collapse cleanly.
+    {
+        let names = parts
+            .impl_generics
+            .iter()
+            .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
+            .collect::<Vec<_>>();
+        if let Err(e) = crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &names)
+        {
+            return e;
+        }
+    }
+
     // Same-name declaration merge: chained `<>` blocks (`<T: Clone><T: Copy> X`)
     // would declare `T` twice (invalid Rust). Keep a single bare declaration and
     // move every bound of that name into a where predicate

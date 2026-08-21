@@ -432,6 +432,22 @@ trait RangeAssoc { fn m(&self); }
 The fresh list a range indexes comes from the spec's generators (`*().N` /
 `().N`); a range in a spec with no fresh generics reports "out of range".
 
+**The impl-generic declaration position** works too: `<@0..>` declares every
+fresh the range covers as an impl param — so a spec can put the generator in
+the trait args (`GenConv<*().2>`) and reference the same fresh batch in the
+declaration and the predicates:
+
+```rust
+# use batch_impl::batch_impl;
+struct DeclTarget;
+#[batch_impl(<@0..> GenConv<*().2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+trait GenConv<T, U> { fn m(&self); }
+// → impl<P0,P1> GenConv<P0,P1> for DeclTarget where P0: Clone, P1: Clone
+```
+
+(An empty `<@0..>` — no fresh generators in the spec — contributes no
+parameters, like an empty `@1..` predicate.)
+
 `@N` also resolves in **value positions** — the type after `:` may carry
 `@N` inside angle groups, e.g. an associated-type binding referencing
 another fresh's associated type (the alga2 tuple `Module` scalar-equality

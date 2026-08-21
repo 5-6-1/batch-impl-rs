@@ -31,6 +31,13 @@
   path (`resolve_where_at` on the raw `@N..` form — subject expansion), which
   already supported `@1..::Output: Clone` (the tail after the range is
   copied per fresh).
+- **Impl-generic declaration position** (`codegen/range_refs.rs::expand_range_decls`):
+  `<@0..>` declares every fresh the range covers as an impl param. Runs in
+  `generate_impl` after hoisting, before `merge_dup_params` — the fresh list
+  is whatever the spec's generators already declared (`*().N` in trait args
+  or target), and an overlapping range declaration collapses cleanly with
+  the generator's own declarations (same grouped names). An empty `<@0..>`
+  (no generators) contributes nothing, mirroring an empty `@1..` predicate.
 - **Variadic segments auto-complete a trailing comma** (`preprocess/varseg.rs`):
   `impl{(A@..)}` (no comma) now marks to `(__batch_varseg_A_0,)` — a segment
   at the end of a tuple element list supplies its own comma, so syn parses

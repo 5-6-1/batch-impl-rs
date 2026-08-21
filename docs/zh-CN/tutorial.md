@@ -443,6 +443,21 @@ trait RangeAssoc { fn m(&self); }
 范围索引的 fresh 列表来自本 spec 的生成器（`*().N` / `().N`）；spec 无
 fresh 泛型时范围报 "out of range"。
 
+**impl 泛型声明位置同样可用**：`<@0..>` 把范围覆盖的每个 fresh 声明为
+impl 参数——生成器放在 trait 实参（`GenConv<*().2>`），声明与谓词引用
+同一批 fresh：
+
+```rust
+# use batch_impl::batch_impl;
+struct DeclTarget;
+#[batch_impl(<@0..> GenConv<*().2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+trait GenConv<T, U> { fn m(&self); }
+// → impl<P0,P1> GenConv<P0,P1> for DeclTarget where P0: Clone, P1: Clone
+```
+
+（空的 `<@0..>`——spec 无 fresh 生成器——不产生任何参数，如同空的
+`@1..` 谓词。）
+
 `@N` 在**值位置**同样解析——`:` 后的类型可在尖括号组内携带 `@N`，例如关联
 类型绑定引用另一个 fresh 的关联类型（alga2 元组 `Module` 标量相等约束）：
 

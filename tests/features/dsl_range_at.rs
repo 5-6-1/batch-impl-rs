@@ -93,3 +93,21 @@ fn range_all_fresh_equivalence() {
     fn check<T: RangeAllFreshEq>(_: &T) {}
     check(&Wrap2(0u8, 1u16));
 }
+
+// ============================================================
+// 7. `@0..` in the impl-generic **declaration** position: `<@0..>` declares
+//    every fresh the range covers as an impl param. The fresh list comes
+//    from the trait-arg generator (`GenConv<*().2>`); the declaration and
+//    the where predicate reference the same batch.
+// ============================================================
+struct DeclTarget;
+
+#[batch_impl(<@0..> GenConvDecl<*().2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+#[allow(dead_code)]
+trait GenConvDecl<T, U> { fn m(&self); }
+
+#[test]
+fn range_decl_position() {
+    fn check<T: GenConvDecl<u8, u16>>(_: &T) {}
+    check(&DeclTarget);
+}
