@@ -795,7 +795,16 @@ Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u1
 | `unsafe` | unsafe fn / unsafe impl marker | `unsafe.fn.(A, B) C` = `unsafe impl ... for fn(A, B) -> C` |
 | `#[...]` attributes | attribute on the impl | `#[cfg(...)]` gating |
 | `!` | never as a fn return type | `fn(A) -> !` (a `!` block has no apply meaning; a trailing `{...}` belongs to the impl) |
-| `self` | legacy identity prefix (no effect) | `self.T` = `T` (kept from the early DSL; no current use) |
+| `self` | identity prefix | `self.T` = `T` — in a matrix, `[Box, self] u8` = `Box<u8>` + bare `u8` |
+
+**`self`** is the identity prefix: `self.T` = `T`. In a matrix it acts as a **bare-type placeholder** — `[Box, self] u8` generates both `Box<u8>` and the bare `u8`:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl([Box, self] u8 { fn tag(&self) -> &'static str { "x" } })]
+trait WrapOrBare { fn tag(&self) -> &'static str; }
+// → impl WrapOrBare for Box<u8> {} / impl WrapOrBare for u8 {}
+```
 
 > **`!` (never) as a fn return type**: `fn(A) -> !` is legal — the `!` block has no apply meaning, and a trailing `{...}` belongs to the impl:
 

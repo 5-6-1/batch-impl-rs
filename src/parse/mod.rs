@@ -133,10 +133,11 @@ mod tests {
 
     #[test]
     fn prefix_puncts_parse() {
-        // `?` / `!` prefix puncts are passthrough blocks; `self` is a legacy
+        // `?` / `!` prefix puncts are passthrough blocks; `self` is the
         // identity prefix (`self.T` => `T`).
         parse_ok("?Sized");
         parse_ok("! u8");
         parse_ok("self u8");
+        parse_ok("self.Box u8");
     }
 }

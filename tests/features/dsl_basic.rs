@@ -307,3 +307,19 @@ fn unsafe_fn_type() {
     let h: unsafe fn(u32, i32) -> i64 = |a, b| a as i64 + b as i64;
     check_ret(&h);
 }
+
+// ============================================================
+// 30. `self` identity prefix: `self.T` = `T` — in a matrix it acts as
+//     a bare-type placeholder (`[Box, self] u8` = `Box<u8>` + bare `u8`).
+// ============================================================
+#[batch_impl([Box, self] u8 { fn tag(&self) -> &'static str { "x" } })]
+trait WrapOrBare {
+    fn tag(&self) -> &'static str;
+}
+
+#[test]
+fn self_identity_in_matrix() {
+    fn check<T: WrapOrBare>(_: &T) {}
+    check(&Box::new(0u8));
+    check(&0u8);
+}

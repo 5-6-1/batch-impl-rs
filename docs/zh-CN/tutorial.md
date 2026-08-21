@@ -770,7 +770,14 @@ trait Attr {}
 
 > **`unsafe` 有两种角色**——`unsafe fn(A) -> B` 是 *unsafe fn 类型*：impl 本身保持安全（`impl Tr for unsafe fn(A) -> B`）。要把 **impl** 标记为 unsafe，用 `.` 应用 `unsafe`：`unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`。如果你写 `unsafe fn(...)` 却期待一个 unsafe impl，那就是写错了形式。
 
-**`self` 前缀**是早期 DSL 遗留的恒等前缀（`self.T` = `T`，无实际效果，保留兼容）：
+**`self` 前缀**是恒等前缀——`self.T` = `T`。在矩阵里作"裸类型占位"：`[Box, self] u8` 生成 `Box<u8>` 与裸 `u8` 两个 impl（表达"包装 + 目标本身"）：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl([Box, self] u8 { fn tag(&self) -> &'static str { "x" } })]
+trait WrapOrBare { fn tag(&self) -> &'static str; }
+// → impl WrapOrBare for Box<u8> {} / impl WrapOrBare for u8 {}
+```
 
 **`!`（never）作 fn 返回类型**：`fn(A) -> !` 合法——`!` 块没有 apply 语义，尾随 `{...}` 归属 impl：
 
