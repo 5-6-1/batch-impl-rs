@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.2 (unreleased)
+## 0.9.2 (2026-08-21)
 
 > The `@N..` range work — driven by the user's observation that `<>` and
 > where predicates should address fresh generics uniformly.

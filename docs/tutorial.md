@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.9.2** (unreleased) — `@N..` / `@N..M` range references now work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh), `<>` generic args (`Wrapper<@0..>` — one position re-opens into several), the impl-generic declaration (`<@0..>`), and tuple targets; **grouped ranges** `@L_N..` / `@L_N..M` slice within one generator group; variadic segments no longer need a trailing comma (`impl{(A@..)}`); see §6.4 / §8.4;
+**v0.9.2** (2026-08-21) — `@N..` / `@N..M` range references now work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh), `<>` generic args (`Wrapper<@0..>` — one position re-opens into several), the impl-generic declaration (`<@0..>`), and tuple targets; **grouped ranges** `@L_N..` / `@L_N..M` slice within one generator group; variadic segments no longer need a trailing comma (`impl{(A@..)}`); see §6.4 / §8.4;
 
 **v0.9.1** (2026-08-21) — a stability release: `+A` at the start of a spec gets a targeted "not valid at the start of a type" diagnostic instead of silently generating 0 impls; `fn(A) -> ! { body }` attaches the body to the impl (the `!` block no longer swallows a trailing `{...}`); `self` is the identity prefix — a **bare-type placeholder** in matrices (`[Box, self] u8` = `Box<u8>` + the bare `u8`, see §10);
 

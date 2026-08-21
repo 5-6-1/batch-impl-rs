@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.2 (unreleased)
+## 0.9.2 (2026-08-21)
 
 - **`@N..` range references everywhere** — an open (`@1..`) or closed (`@0..=1`) fresh range now works in **any position a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh, so an associated-type path rides along), `<>` generic args (`Wrapper<@0..>` — one placeholder position re-opens into several), tuple targets, and the **impl-generic declaration position** (`<@0..>` declares every fresh the range covers as an impl param — the generator lives in the trait args, e.g. `<@0..> GenConv<*().2> T`). **Grouped ranges** `@L_N..` / `@L_N..M` / `@L_N..=M` slice **within one generator group** (the in-group counterpart of `@g_i`, stable across array dispatch). The range folds into a single placeholder ident at parse time and re-opens against the impl's fresh list at codegen; the old restriction ("range references are only valid as a where-predicate subject") is gone
 - **Variadic segments no longer need a trailing comma** — `impl{(A@..)}` (previously `impl{(A@..,)}`) is now accepted: a segment at the end of a tuple template supplies its own comma so the template still parses as a tuple

@@ -1,6 +1,6 @@
 # batch-impl 内部架构
 
-**v0.9.2**（unreleased）——`@N..` / `@N..M` fresh 范围在 parse 时折叠为单 token 占位符（`_Param_{N}_With[_M]_BatchGen_`，`ast/fresh.rs`）、codegen 时对照 impl 的 fresh 列表重新展开（`codegen/range_refs.rs::expand_range_refs`）——范围现在可以在任何单个 `@N` 能出现的位置使用（where 谓词、`<>` 泛型实参、元组目标）；变长段在元组模板中自动补尾随逗号（`preprocess/varseg.rs`）；0.9 之前 changelog 条目恢复当时的 `^` 运算符；
+**v0.9.2**（2026-08-21）——`@N..` / `@N..M` fresh 范围在 parse 时折叠为单 token 占位符（`_Param_{N}_With[_M]_BatchGen_`，`ast/fresh.rs`）、codegen 时对照 impl 的 fresh 列表重新展开（`codegen/range_refs.rs::expand_range_refs`）——范围现在可以在任何单个 `@N` 能出现的位置使用（where 谓词、`<>` 泛型实参、impl 泛型声明、元组目标）；**组内范围** `@L_N..` 在单个生成器组内切片；变长段在元组模板中自动补尾随逗号（`preprocess/varseg.rs`）；0.9 之前 changelog 条目恢复当时的 `^` 运算符；
 
 **v0.9.1**（2026-08-21）——稳定性发布：类型起始运算符诊断（`+A` 不再静默生成 0 个 impl；`!` 前缀不再吞掉尾随 `{...}` body——`parse/space.rs` 附件守卫）、`self` 文档化为恒等前缀（矩阵中的裸类型占位）、codegen `X<>` sync 抽入 `sync.rs::sync_impl_parts`、passthrough fn 块合并为 `passthrough_block`；文档稳定性修订（zh-CN 教程泄露修复、英文补 `# path::to::Trait:` 前缀与 `:N` 深度）；
 
