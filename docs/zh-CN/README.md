@@ -35,7 +35,7 @@ trait TupleTrait {}
 （[alga](https://docs.rs/alga) 的继任者，2020 起停止维护），**~900 个 impl
 由 ~80 条 batch-impl DSL 生成**，覆盖 15+ 类型（数值、元组 1–16、数组、
 `Option`、`Complex`、`Quaternion`、`ModN`、智能指针、集合）。**alga2 0.1.0
-即将在 crates.io 发布**；开发全程以 batch-impl DSL 为 impl 生成器。
+已在 crates.io 发布**；开发全程以 batch-impl DSL 为 impl 生成器。
 
 ## 为什么要用它
 
@@ -70,15 +70,11 @@ trait TupleTrait {}
 | `*[...]` / `*(...)` | splat：摊平进外层列表 | `[a, *[b,c]]` = `[a,b,c]`；左操作数 `*[...]` 分配 / `*(...)` 追加 |
 | `#name`   | 指令：从 trait 定义自动抄 item 签名   | body 不用手写签名            |
 
-`.`、空格与裸 trait 名是**同一运算**（左侧是修饰符/容器/trait，右侧是目标类型），区别只在结合方向：
+**空格是主推的写法**（左侧是修饰符/容器/trait，右侧是目标类型，链式累加参数，左结合）：`HashMap u32 String` = `HashMap<u32, String>`，`fn(A, B) C` = `fn(A, B) -> C`，`Tr u8` = `impl Tr for u8`（裸 trait 名按 impl trait 应用；要类型 `Tr<u8>` 直接写 `Tr<u8>`）。
 
-- `.` **右结合**，链式产生嵌套：`Box.Box.T` = `Box<Box<T>>`，`HashMap.K.V` = `HashMap<K<V>>`
-- 空格 **左结合**，链式累加参数：`HashMap K V` = `HashMap<K, V>`，`fn(A, B) C` = `fn(A, B) -> C`
-- 裸 trait 名按 impl trait 应用：`Tr u8` = `impl Tr for u8`（要类型 `Tr<u8>` 写 `Tr <u8>`）
+`. ` 是同一运算的**右结合**形态，只在需要**嵌套**时用：`Box.Box u8` = `Box<Box<u8>>`，`HashMap<K> String` = `HashMap<K, String>`（空格同样可以）。
 
-所以选哪个只看你想要的分组形状：想套娃用 `.`，想并列参数用空格。
-
-`[A, B].[X, Y]` = 2×2 矩阵（4 个 impl）；`(T1, T2).2` = 排列（4 个有序对）。
+`[A, B] [X, Y]` = 2×2 矩阵（4 个 impl）；`(T1, T2).2` = 排列（4 个有序对）。
 
 ## 快速开始
 

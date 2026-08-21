@@ -34,7 +34,7 @@
   - `codegen/shape.rs`——`match_shape` 返回 `(Mapping, Vec<VarSeg>)`；元组分支识别占位元素并把剩余叶子位置**均分**给各段（无法均分报错；段名前缀重复报错；元组元素位置之外的占位符由裸 ident 分支报错）。每段绑定名字序列到叶子元素，名字**对齐叶子位置**（`(u8, A@..,)` 匹配 `(u8, u16, u32)` → `A1 := u16, A2 := u32`；同层多段均分；段递归进嵌套元组）
   - `codegen/repeat.rs`——body 重复块展开：`@( <模式>, )..` 按驱动段（`@ident` 引用；全部等长否则报错）元素数逐轮输出。每轮替换 `@ident` → 第 i 个槽名（`前缀` + `起始 + i`）、`@N` → 数字 `N + i`（纯索引游标——路径前缀由用户书写）。嵌套块先展开、独立轮次（笛卡尔积）；块体尾部 `,` 为每轮分隔符（并列块之间不写逗号）。`数字.@` 的 token 化修复：拆开 `0.` + `@`（tokenizer 把 `self.0.@0` 读成 `self . 0. @ 0`，`0.` 成了 float literal），让自然写法可用。块长度有三个来源：块内 `@ident` 引用、**前置段声明**（`@A(...)..`——`@` 后直接写段名，用户决策，解决纯游标块长度问题）、或纯游标块用模板**唯一段**（多段模板的纯游标形式报"请声明驱动段"诊断；前置段与块内引用冲突报错）
   - `codegen/mod.rs`——`collect_shape_mapping` 返回段表；`generate_impl` 在槽映射重写之前先展开 body 重复块
-  - 测试：`tests/features/shape_template_varseg.rs`（5 个集成测试——alga2 风格 `().1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` 覆盖 arity 1..4、固定元素前置的 `@1` 游标、嵌套元组显式路径 `self.0.@0`、同层两段共享游标、单元素段直接使用槽名）+ 7 个 ui fixture（段在元组外 / 前缀重复 / 无法均分 / 未知段 / 无驱动 / 裸 `@` / 不等长）+ varseg.rs 与 repeat.rs 单元测试（标记、前缀回环、body 透传、常量范围不受影响；轮次、偏移、多段、嵌套笛卡尔、float 修复）
+  - 测试：`tests/features/shape_template_varseg.rs`（5 个集成测试——alga2 风格 `()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` 覆盖 arity 1..4、固定元素前置的 `@1` 游标、嵌套元组显式路径 `self.0.@0`、同层两段共享游标、单元素段直接使用槽名）+ 7 个 ui fixture（段在元组外 / 前缀重复 / 无法均分 / 未知段 / 无驱动 / 裸 `@` / 不等长）+ varseg.rs 与 repeat.rs 单元测试（标记、前缀回环、body 透传、常量范围不受影响；轮次、偏移、多段、嵌套笛卡尔、float 修复）
 
 ## 0.8.1 (2026-08-18)
 
@@ -42,8 +42,8 @@
 
 ## 0.8.0 (2026-08-18)
 
-- **打磨（impl entry / shape template）**——fuzz 覆盖 ItemImpl 入口（`impl_entry_full_pipeline_no_panic`：随机 attr token 配固定 dummy impl——no-panic 承诺覆盖 `;` spec 切分 / `@trait` 替换 / shape 匹配 / 装配）；`batch_preview!` 接受 ItemImpl 形式（顶层分流镜像 `batch_impl`，渲染真实 `expand_impl_entry` 输出）；交叉组合测试锁定：`impl{...}` + `#fill`（指令拷贝体被槽映射重写）、`impl{...}` + `@N` where 引用（模板匹配生成器元组叶子 `().2` → `(P0, P1)`）、`#blanket` + `impl{...}`（blanket spec 携带模板作尾随附件）
-- **shape-match 增强（the `impl{...}` shape templates / the impl entry）**（`codegen/shape.rs`）：定长数组长度写成裸 const 参数名时绑定叶子长度（`[A; N]` → `N := 3`，body 可引用 `N`；字面长度仍逐字）；`'_'` 匿名生命周期为通配，匹配任意叶子生命周期（具名生命周期仍逐字——`'a` vs `'b` 报错）；fn 指针 / trait 对象模板与跨类实参（生命周期/const vs 类型）保持逐字并定向诊断（ui fixture `impl_shape_lifetime_arg` / `impl_shape_fn_bound`；原 `impl_shape_const_len` 失败 fixture 转为成功用例）；新增 `tests/features/shape_template_shape_forms.rs`（17 测试：完整 `syn::Type` 形态矩阵、原型实现模式 `[Box,Rc].@num impl{Box<u8>} #max{...}`、用户的多原型列表写法 `[[Box,Rc] impl{Box<u8>}, Cow<'_> impl{Cow<'_,u8>}].@num`）
+- **打磨（impl entry / shape template）**——fuzz 覆盖 ItemImpl 入口（`impl_entry_full_pipeline_no_panic`：随机 attr token 配固定 dummy impl——no-panic 承诺覆盖 `;` spec 切分 / `@trait` 替换 / shape 匹配 / 装配）；`batch_preview!` 接受 ItemImpl 形式（顶层分流镜像 `batch_impl`，渲染真实 `expand_impl_entry` 输出）；交叉组合测试锁定：`impl{...}` + `#fill`（指令拷贝体被槽映射重写）、`impl{...}` + `@N` where 引用（模板匹配生成器元组叶子 `()^2` → `(P0, P1)`）、`#blanket` + `impl{...}`（blanket spec 携带模板作尾随附件）
+- **shape-match 增强（the `impl{...}` shape templates / the impl entry）**（`codegen/shape.rs`）：定长数组长度写成裸 const 参数名时绑定叶子长度（`[A; N]` → `N := 3`，body 可引用 `N`；字面长度仍逐字）；`'_'` 匿名生命周期为通配，匹配任意叶子生命周期（具名生命周期仍逐字——`'a` vs `'b` 报错）；fn 指针 / trait 对象模板与跨类实参（生命周期/const vs 类型）保持逐字并定向诊断（ui fixture `impl_shape_lifetime_arg` / `impl_shape_fn_bound`；原 `impl_shape_const_len` 失败 fixture 转为成功用例）；新增 `tests/features/shape_template_shape_forms.rs`（17 测试：完整 `syn::Type` 形态矩阵、原型实现模式 `[Box,Rc]^@num impl{Box<u8>} #max{...}`、用户的多原型列表写法 `[[Box,Rc] impl{Box<u8>}, Cow<'_> impl{Cow<'_,u8>}]^@num`）
 - **测试拆分进 `tests/features/`**——单文件测试 crate（`dsl.rs` ~2400 行、`regression.rs` 569、`impl_entry_impl.rs`、`shape_template_impl.rs`）拆为 34 个按功能域划分的模块（每个 <350 行）放 `tests/features/`，由薄入口 `tests/dsl.rs`（`mod features;`）挂载；impl entry / shape template 新增嵌套/边界/冲突套件（impl_entry_nested / impl_entry_boundary / impl_entry_conflicts / shape_template_nested / shape_template_boundary / shape_template_conflicts——26 个新测试，共 151）；`cargo test --test dsl` 跑全部，CI MSRV job 更新（`--test dsl --test regression` → `--test dsl`）；architecture 测试矩阵数字刷新（含 shape-forms 模块 167 个 dsl 测试、ui 74）
 - **impl entry：`#[batch_impl]` ItemImpl 入口**（`entry/impl_entry.rs` + `lib.rs` 顶层分流）：属性宏同样接受 `impl` 块——形状模板 × 矩阵源批量实例化。trait 分支不动（仅顶层分流）。attr 语法：shape 形态 `shape-template : new-generic-decl? matrix-source? (where ...)?` / 直接形态 `new-generic-decl? for-type (where ...)?`；`;` 分隔多 spec（单 spec 常见，用户定稿）；预处理子集：`angle_collect` → `@trait` 替换（仅允许 `@trait`——自定义常量 / `@N` / `@g_i` / `#` 指令全部定向报错，`#[...]` 属性放行）→ `where_process(allow_end = true)`；共享 `codegen::shape` 内核匹配模板与每叶子（先与 impl for-Type 跑零绑定形状校验）；槽映射重写 for-Type / where 谓词 / body，泛型 = attr new-generic-decl 在前 + impl 自身参数，`unsafe impl` 保留，原始 impl withhold；`where_process` 新增深度 0 `;` 停止（impl entry spec 分隔 / `batch_trait!` 段边界——顺带修复 batch_trait! 的 where + `;`）与 `allow_end` 参数（trait 入口保持"必须跟代码块"行为）；新增 `tests/impl_entry_impl.rs`（8 测试）+ 5 个 ui fixture（形状不匹配 / `@` 常量禁用 / `#` 禁用 / `@N` 禁用 / 直接形态非类型）
 - **shape template：`impl{...}` Self-part 形状模板**——第三种尾随附件（与 `{body}`/`where{...}` 并列，任意顺序，同一剥离循环）：新 `codegen::shape` 共享内核（`match_shape` 模板-叶子逐位匹配 + `Mapping` + `ShapeError`；与目标同位置 ident 相同→字面、不同→绑定槽——用户定稿语义，取代旧"composite 逐字"表述）+ 新 `TyKind::WithImpl` 件（20 变体；`(Option<Box<Ty>>, TyImplTemplate)` 与 WithCode/WithWhere 同构；`map_children`/`expand`/`render`/`apply`/`expand_splat_elems` 全覆盖）+ `split_trailing_body` 识别 `impl` ident + Brace + 预处理判别（`expand_consts` 进入模板展开 `@trait`/`@`；`angle_collect`/`expand_tokens`/`where_process` 透传；`where_process` 把 `impl{...}` 视为谓词区边界；判别中心化于 `util::is_impl_template`）+ codegen 多模板合并为单一映射（同形冗余合法、异形 `InconsistentBinding`），渲染时替换目标/where/body，模板内 DSL 算子/形状不匹配/非标准目标类型定向报错；附件深度守卫消息覆盖 `impl{...}`；新增 `tests/shape_template_impl.rs`（9 测试）+ 4 个 ui fixture（DSL 算子 / 形状不匹配 / 绑定冲突 / 129 层附件链）
@@ -58,13 +58,13 @@
 ## 0.7.2 (2026-08-14)
 
 - **@ 引用诊断用户化 + 类型位置校验**（`codegen/fresh.rs` + `where_at.rs`）：`@g_i` 越界报错移除 `_Param_{g}_{i}_BatchGen_` 协议名泄露，显示文本 `@{}_{}` 由解析出的 (g, pos) 推导（单一真相源，措辞无法漂移）；新增 `validate_at_refs`——目标类型/trait 实参中悬空的 `@N`（编号 < fresh 数）与 `@g_i`（组成员）此前穿透 sweep 以保留名泄露为 rustc E0412 裸错，现在按 impl 声明的 fresh 泛型集合统一校验，与 where 侧同一规则；`at_group_out_of_range`/`at_num_out_of_range` 两个构造器为 where 与类型位置共用
-- **测试**：dsl 新增 at_refs_in_target_type（`(().2).Box<@0>` / `@0_1` 正向，锁校验不误伤）；2 个新 ui fixture（at_num_in_type / at_group_in_type）锁用户语言措辞
-- **`batch_preview!` 展开预览**（`entry/preview.rs`）：真实管线（`prepare_attr_expansion` + `collect_spec_leaves` 共享 refactor，预览与三个入口同一预处理/解析路径）→ 逐 impl 渲染进 `compile_error!` 诊断通道（唯一稳定终端通道）——trait + impl 每项一行，DSL 错误原样呈现；预览独有 `.`/`-` 结合性误写提示（`ONE_ARITY_CONTAINERS` 一元容器表 + 目标类型递归收集，`Box<Vec, u32>` → 建议 `Box.Vec.u32` 并附恒等式 `A.B-C` = `A-B-C`）；编译器路径零启发式
+- **测试**：dsl 新增 at_refs_in_target_type（`(()^2)^Box<@0>` / `@0_1` 正向，锁校验不误伤）；2 个新 ui fixture（at_num_in_type / at_group_in_type）锁用户语言措辞
+- **`batch_preview!` 展开预览**（`entry/preview.rs`）：真实管线（`prepare_attr_expansion` + `collect_spec_leaves` 共享 refactor，预览与三个入口同一预处理/解析路径）→ 逐 impl 渲染进 `compile_error!` 诊断通道（唯一稳定终端通道）——trait + impl 每项一行，DSL 错误原样呈现；预览独有 `.`/`-` 结合性误写提示（`ONE_ARITY_CONTAINERS` 一元容器表 + 目标类型递归收集，`Box<Vec, u32>` → 建议 `Box^Vec^u32` 并附恒等式 `A^B-C` = `A-B-C`）；编译器路径零启发式
 - **driver/entry 重构**：`parse_batch_trait_entry` 抽出 `collect_spec_leaves`（parse/expand/错误聚合单一真相源，三入口与预览共用）；`expand_attr_macro` 抽出 `prepare_attr_expansion` → `PreparedAttr`（预处理一次性，渲染延后）；行为等价，测试全绿
-- **trait 实参生成器 splat 声明提升**（`codegen/impl_parts.rs`）：`extract_impl_parts` 的 WithTrait 分支此前丢弃 `flat_splat_params` 返回的声明（"Declarations are dropped here"）——`Conv<*().2> X` 以 E0412 裸错泄露 fresh 名；现在声明并入 impl 泛型，与泛型实参位置同一规则；`parse/generic.rs` 的过时 "acknowledged oddity" 注释同步修正（实测 `Foo<*(().N)>` 早在结构层 refactor 后已工作）
-- **泛型声明位置生成器定向报错**（`parse/primary.rs` + `ast/types_visit.rs::contains_generator`）：`<*().N>` / `<*(().N)>` 的 fresh 声明无载体（声明位置本身就是载体），此前渲染 `impl <<P0,..> *(P0,..)>` 垃圾——parse 层定向报错并建议 `T.().2`；dsl 新增 gen_splat_trait_args_hoist（trait 实参提升 + `*(().3)` 括号形式）+ ui fixture decl_generator_splat
+- **trait 实参生成器 splat 声明提升**（`codegen/impl_parts.rs`）：`extract_impl_parts` 的 WithTrait 分支此前丢弃 `flat_splat_params` 返回的声明（"Declarations are dropped here"）——`Conv<*()^2> X` 以 E0412 裸错泄露 fresh 名；现在声明并入 impl 泛型，与泛型实参位置同一规则；`parse/generic.rs` 的过时 "acknowledged oddity" 注释同步修正（实测 `Foo<*(()^N)>` 早在结构层 refactor 后已工作）
+- **泛型声明位置生成器定向报错**（`parse/primary.rs` + `ast/types_visit.rs::contains_generator`）：`<*()^N>` / `<*(()^N)>` 的 fresh 声明无载体（声明位置本身就是载体），此前渲染 `impl <<P0,..> *(P0,..)>` 垃圾——parse 层定向报错并建议 `T^()^2`；dsl 新增 gen_splat_trait_args_hoist（trait 实参提升 + `*(()^3)` 括号形式）+ ui fixture decl_generator_splat
 - **`#blanket` 按值接收者修复 + doc 提示**（`directives/blanket.rs`）：委托体 deref 数按接收者种类分派——`&self`/`&mut self` 走 depth+1（`**self`，穿透引用+包装层），按值 `self` 本身就是包装、走 depth（`*self`）——此前统一 `**self` 对按值方法多解引用内部类型（E0614，Box 探针实证）；doc 提示保留：按值方法移出共享包装（`&`/`Rc`）不可过检查，选中集非空时每 spec 注入 `#[doc]`（attr 走既有 `WithAttr` → `ImplParts.attrs` 通道，零新机制）；dsl 新增 blanket_by_value_receiver（`Box::new(9u8).consume()` 真实演练按值转发）
-- **`TyWithAttr::apply` 内层保持修复**（`apply/apply_tuple.rs`）：`#[attr]` 已有内层时运算符作用于内层（`#[attr] Box.u8` = `#[attr] Box<u8>`），此前 `TyWithAttr(self.0, o.into())` 静默替换内层——`#[doc]` 注入暴露的既有 bug；dsl 新增 attr_wrapper_chain 回归
+- **`TyWithAttr::apply` 内层保持修复**（`apply/apply_tuple.rs`）：`#[attr]` 已有内层时运算符作用于内层（`#[attr] Box^u8` = `#[attr] Box<u8>`），此前 `TyWithAttr(self.0, o.into())` 静默替换内层——`#[doc]` 注入暴露的既有 bug；dsl 新增 attr_wrapper_chain 回归
 - **开放扩展协议收敛（文档）**：内嵌形态 `T {m!{...}}`（无 `!`，输出关联项）标注弃用、保留兼容，顶层 `{! m!{...}}` 四段协议为唯一推荐——tutorial §7.5 加收敛注、`directive_open.md`/`batch_preprocess_test.md` crate 文档同步、architecture 附着语义节补"仅顶层"
 - **语法面冻结承诺（文档）**：`@N` 稳定性承诺推广为整个语法面——README 新增"语法面冻结承诺（0.7.2 起）"节、architecture 扩展准则节补冻结条款、tutorial §6.4 将 `@g_i`/`@all_fresh`/`@N..M` 标注为 power-user tier；后续版本只加法/诊断/文档，改动既有语义 = 刻意破坏性发布
 - **属性宏自定义 `@` 常量**（**0.8.0 已回退**）（`consts/ctx.rs` + `entry/mod.rs`）：`ConstCtx::Attribute` 增 `user_table` 字段——`prepare_attr_expansion` 在路径前缀解析后调用 `collect_user_consts` 收集前导 `@name=value;`（与 `batch_trait!` 同一规则/同一校验：保留名、内建冲突、循环、前向引用）；`try_expand_at` 定义分支消息统一（两入口都有用户表后不再分支）；未知常量消息统一带"定义须先于引用"后缀（const_unknown.stderr 更新）；dsl 新增 attr_custom_consts（链式引用 + DSL 表达式值）+ ui 新增 const_def_position（非前导定义报错）
@@ -94,27 +94,27 @@
 - **新能力**：spec 级 trait 段带具体实参（`Conv<bool> [Pair<A, A>, Pair<B, B>] #conv{...}`）现在会把 trait 的泛型参数替换进指令抄写的 body——生成的 impl 里 `fn conv(value: T)` 变成 `fn conv(value: bool)`（此前裸 `T` 会泄漏进 impl，E0425）。`#[batch_impl]` 与 `#[batch_impl_only]` 都支持；trait 定义是参数名的来源。
 - **codegen 后处理层**（`codegen/postprocess.rs`）：trait 泛型替换从 preprocess 移出（preprocess 不再通过 `expand_tokens`/`expand_directive`/`build_from_item` 穿参数映射），改为对 `ImplParts` 的后处理——把 `ImplParts::trait_generic_names`（具体实参）与入口 trait 的 type/const 参数名（经 `run_pipeline` → `parse_batch_trait_entry` → `generate_impl` 传递）配对，重写 body（fn 签名 + 用户代码块）。lifetime 实参（`'static`）与 lifetime 参数排除——body 引用的是自身 impl 的 lifetime。这与 `sweep_fresh_names` 一起构成"codegen 后处理"概念：提取之后、渲染之前的复杂 token 重写，`ImplParts` 携带全部所需上下文。
 - 测试：`trait_generic_args`（dsl）——真实（非丢弃）trait 的泛型替换，验证 impl 编译通过且方法可引用；`trait_generic_args_to_impl_generic`——实参指向 impl 泛型（`<U>A<U>()` → `fn foo(_: U)`）。
-- **已修复 edge（trait 段 + 右 splat）**：`Conv<bool> Pair.*(A, B)` 此前误解析成 `Pair<A<B>>`；splat 延迟展开重构（见下）让 `*(A,B)` 在 parse/apply 全程保持整体、仅在 codegen 展开——同一输入现在产出 `Pair<A, B>`（dsl `splat_scenarios` 的 `assert_cv::<Pair<SplatA, SplatB>>()` 验证）。数组 splat 替代 `Pair.[*(A),*(B)].2` 仍照常工作。
+- **已修复 edge（trait 段 + 右 splat）**：`Conv<bool> Pair^*(A, B)` 此前误解析成 `Pair<A<B>>`；splat 延迟展开重构（见下）让 `*(A,B)` 在 parse/apply 全程保持整体、仅在 codegen 展开——同一输入现在产出 `Pair<A, B>`（dsl `splat_scenarios` 的 `assert_cv::<Pair<SplatA, SplatB>>()` 验证）。数组 splat 替代 `Pair^[*(A),*(B)]^2` 仍照常工作。
 
 ### splat 展开延迟到 codegen（parse/apply/expand 全程保持 `*()`/`*[]` 整体）
 
-- **原则（用户拍板）**：splat（`*(...)` / `*[...]`）在 parse/apply/expand 是**整体**——只在 codegen 后处理摊平成元素。此前 apply 层直接摊平右 splat 操作数（`T.*(A,B)` → 扁平 `T-A-B-...` 链），与 trait 段（`Conv<bool> Pair.*(A,B)` → `Pair<A<B>>`）和尾部代码块（`Pair.*(A,B) {body}` → rest 解析路径产出 `Pair<*const (A,B)>`）组合时误解析。
+- **原则（用户拍板）**：splat（`*(...)` / `*[...]`）在 parse/apply/expand 是**整体**——只在 codegen 后处理摊平成元素。此前 apply 层直接摊平右 splat 操作数（`T^*(A,B)` → 扁平 `T-A-B-...` 链），与 trait 段（`Conv<bool> Pair^*(A,B)` → `Pair<A<B>>`）和尾部代码块（`Pair^*(A,B) {body}` → rest 解析路径产出 `Pair<*const (A,B)>`）组合时误解析。
 - **现在 splat 摊平的位置**（codegen 内单一展开点）：
-  - `expand_splat_elems`（Ty 结构层）：`TyTuple` 内的 splat 元素摊平且 fresh 声明提升——`(A, *(B,C))` → `(A,B,C)`、`(*(().3))` → `<P0,P1,P2>(P0,P1,P2)`。在 `hoist_type_params` 之前运行。
+  - `expand_splat_elems`（Ty 结构层）：`TyTuple` 内的 splat 元素摊平且 fresh 声明提升——`(A, *(B,C))` → `(A,B,C)`、`(*(()^3))` → `<P0,P1,P2>(P0,P1,P2)`。在 `hoist_type_params` 之前运行。
   - 泛型实参与 trait 实参的 splat 在同一趟经 `expand_tp` 摊平（TyTypeParam 的 params 现在是 `Box<Ty>`，splat 保持结构）：`T<*(A,B)>` → `T<A,B>`、`Map<*(K,V)>` → `Map<K,V>`（嵌套递归）、`Conv<*(A,B)> X` → `impl Conv<A,B> for X`（trait 路径 splat 在 `extract_impl_parts` 展开，即 trait 实参渲染处）。原先的 token 层 `expand_splats` 已删除——body 不经过任何展开器，fn 里的 `a * b` 保持乘法；`*const T` / `*mut T` 保持原始指针。
-  - spec 列表位置的 splat（`[*(A),*(B)]`、`*[Vec,Box].T`）仍在 expand 阶段摊平（`TyKind::Splat` → `Expand::Many`）——那是 impl 列表生成，不是类型结构展开。
-  - 泛型实参里的 splat（`Foo<*(a,b)>`）不需要 parse 特例——chunk 走默认路径、作为单个 `*(a,b)` 实参存活、结构层经 `expand_tp` 展开——`Foo<*(a,b)>` → `Foo<a,b>`（专门的 Splat-arg 分支与 `contains_generator` 已删；ui `gen_splat_arg` 移除）。generator splat 在这里（`Foo<*(().N)>` / `<*().3>`）作为裸实参存活、由 rustc 报缺失声明——已知怪异，不做专门诊断。
-  - **泛型实参里的 splat 幂**（`Frac<*(*@u*).2>`）：幂结果（`TyArray([*(u8,u8), ...])`）进入 params 后，在 `expand` 的 Generic 分支分发成逐对 impl（36 个，与右 splat 链 `Frac.*(*@u*).2` 等价）。**数组实参分发统一为单一路径**（用户原则"规则不通用就不是规则"落地）：字面 `T<[A,B]>`、常量 `T<@u*>`（展开成 `[u8,...]`）、幂结果全部进 params 成 `TyArray`，在 `expand` 的 Generic 分支统一分发——parse 层 `has_array_arg` 与 `split_arg_candidates` 已删（dsl `splat_pow_arg` 验证；`[[A,B],C]` 嵌套数组从"递归摊平到叶子"变为"一层分发"——与 splat 一层展开一致）。
+  - spec 列表位置的 splat（`[*(A),*(B)]`、`*[Vec,Box]^T`）仍在 expand 阶段摊平（`TyKind::Splat` → `Expand::Many`）——那是 impl 列表生成，不是类型结构展开。
+  - 泛型实参里的 splat（`Foo<*(a,b)>`）不需要 parse 特例——chunk 走默认路径、作为单个 `*(a,b)` 实参存活、结构层经 `expand_tp` 展开——`Foo<*(a,b)>` → `Foo<a,b>`（专门的 Splat-arg 分支与 `contains_generator` 已删；ui `gen_splat_arg` 移除）。generator splat 在这里（`Foo<*(()^N)>` / `<*()^3>`）作为裸实参存活、由 rustc 报缺失声明——已知怪异，不做专门诊断。
+  - **泛型实参里的 splat 幂**（`Frac<*(*@u*)^2>`）：幂结果（`TyArray([*(u8,u8), ...])`）进入 params 后，在 `expand` 的 Generic 分支分发成逐对 impl（36 个，与右 splat 链 `Frac^*(*@u*)^2` 等价）。**数组实参分发统一为单一路径**（用户原则"规则不通用就不是规则"落地）：字面 `T<[A,B]>`、常量 `T<@u*>`（展开成 `[u8,...]`）、幂结果全部进 params 成 `TyArray`，在 `expand` 的 Generic 分支统一分发——parse 层 `has_array_arg` 与 `split_arg_candidates` 已删（dsl `splat_pow_arg` 验证；`[[A,B],C]` 嵌套数组从"递归摊平到叶子"变为"一层分发"——与 splat 一层展开一致）。
   - **容器规则**（`parse_group`）：组内是孤立 splat 解析为容器、splat 作为一个元素保持——`(*(a,b))` = `( *(a,b) )`（元组）、`[*(a,b)]` = `[ *(a,b) ]`（数组）——splat 元素只在 codegen 展开（渲染结果 `(a, b)` / `[a, b]`），尾逗号形式与裸形式共用一条代码路径（`lone_splat` 门控 parse_list；原先按定界符分的 `TyKind::Splat` 特判分支已删）。`(a)` 保持透明组、`[a]` 是切片。
   - **具体类型实参拒绝 binding/bound**（用户拍板"有 `Item=u32` 就是 trait"）：`parse_angle_bracket_contents` 加 `allow_special` 门控——binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<Item = u32> X`）与泛型声明（`<T: Clone> Foo`）；具体类型实参遇 `=`/`:` 报 targeted 错误（此前 bound 被静默丢弃、struct binding 渲染非法代码）。新增 `compile_error_ty`（类型位置无分号版——`compile_error!` 在泛型实参内带分号是语法错）。顺带修了两个潜伏问题：`scan_stop` 跳过 `..=`（range 的 `=` 不是 binding 分隔符——`Vec<@0..=2>` 此前被误判成 binding）；`@N..M` 范围引用在类型位置报 targeted 错误（where 谓词专用，ui `concrete_binding`/`concrete_bound`/`at_range_in_type` 更新）。
   - **where 谓词约束**：裸 splat 作谓词主体（`where{*(A,B): Trait}`）在 codegen 明确拒绝——谓词是约束不是参数列表，结构展开器会产出非法的 `A, B: Trait`。元组谓词（`(*(A,B)): Trait`）与谓词内部 splat（`X: Trait<*(A,B)>`）保持合法（ui `where_splat_bad`）。
-- **splat 存续不变**：`Pair.[*(A),*(B)].2` 仍重复每个元素（`[Pair<A,A>, Pair<B,B>]`）；splat 幂（`*(A,B).2` 笛卡尔积）与左 splat 追加/分配（`*[...].T`、`*(...).T`）在 `TySplat::apply_help` 照常。
+- **splat 存续不变**：`Pair^[*(A),*(B)]^2` 仍重复每个元素（`[Pair<A,A>, Pair<B,B>]`）；splat 幂（`*(A,B)^2` 笛卡尔积）与左 splat 追加/分配（`*[...]^T`、`*(...)^T`）在 `TySplat::apply_help` 照常。
 - `TySplat::Tuple` 渲染改为 `*(A,B)`（原 `(*(A,B))`）——外括号只服务于旧的 parse 时消费；codegen 展开器匹配裸标记。
-- **`<>` 内的 generator 实参**：`flat_splat_params`（共享 splat 摊平器）现在也提升 `WithType`（fresh generator）实参——`().N` 保持内层元组为单个实参（`T<().2>` = `impl<P0,P1> T for T<(P0,P1)>`）、splat 重包（`*().N`）则摊平（`T<*().2>` = `impl<P0,P1> T for T<P0,P1>`）。此前 `Pair<().2>` / `Pair<*().2>` 把声明漏进实参导致编译失败。测试：dsl `gen_args_in_angle`。
+- **`<>` 内的 generator 实参**：`flat_splat_params`（共享 splat 摊平器）现在也提升 `WithType`（fresh generator）实参——`()^N` 保持内层元组为单个实参（`T<()^2>` = `impl<P0,P1> T for T<(P0,P1)>`）、splat 重包（`*()^N`）则摊平（`T<*()^2>` = `impl<P0,P1> T for T<P0,P1>`）。此前 `Pair<()^2>` / `Pair<*()^2>` 把声明漏进实参导致编译失败。测试：dsl `gen_args_in_angle`。
 - **`TyTypeParam` 全面 Ty 化**：`params` 改为 `Vec<(Box<Ty>, Option<Ty>)>`、`bindings` 改为 `Vec<(Box<Ty>, Box<Ty>)>`——每个元素都是 `Ty`，非类型 token（参数名、`const N`、生命周期、数字 const 实参、绑定名）统一用 `TyPrimitive` 包裹。泛型实参因此结构化：`T<Map<K,V>>` 保持 `TyGeneric(T, [TyGeneric(Map, [K,V])])`、splat 实参（`T<*(A,B)>`）以 `TySplat` 存活并在 codegen（`expand_tp`）摊平、`@N` 仍在 parse 前解析。渲染/提取/apply 对 params 统一按结构化类型处理；声明与实参的区分仍在所用的渲染函数（`params_to_tokens` vs `params_to_tokens_no_base`）。
 - 删除 `consume_splats`（parse 时摊平 splat 的 `parse_group` 逻辑）；`(a, *(b,c))` 与 `(*(a,b))` 现在保持 splat 直到 codegen。
 - 测试：现有 splat 套件（SplatArgs / SplatConcat / SplatGen / SplatGenFlat / SplatSurvival / SplatLeft / 尾逗号 / 中间空 / 幂等）全部原样通过；新增 dsl `SplatGenericArg`（`SplatMap<*(A,B)>` → `SplatMap<A,B>`）与 `assert_cv`（trait 段 + 右 splat）覆盖延迟展开路径。
-- **splat 存续（数组元素）**：数组/列表元素若是 splat，现在**保持到消费**而非 parse 时摊平（`parse_atom.rs` 不再对 `[...]` 列表或孤立 `[*(...)]` 元素调 `consume_splats`）——splat 活到 apply 右操作数或 codegen，所以 `[*(A),*(B)].2` 会重复每个元素（`[*(A,A),*(B,B)]`），`Pair.[*(SplatA),*(SplatB)].2` = `[Pair<SplatA,SplatA>, Pair<SplatB,SplatB>]`（splat 幂驱动两个泛型位）。裸数组/切片（`[u8]`、`[u8; 3]`）与无右操作数的目标（`[a, *[b,c]]` = `[a,b,c]`）不变（codegen 末尾摊平）。**有右操作数时**，保持的 splat 元素走自身 splat 语义（与独立 splat 一致）：`[A,B,C].D` = `[A.D, B.D, C.D]`（裸列表：分发）、`[A,*(B,C)].D` = `[A.D, *(B,C,D)]` = `[A.D, B, C, D]`（元组 splat：追加）、`[A,*[B,C]].D` = `[A.D, *[B.D,C.D]]` = `[A.D, B.D, C.D]`（数组 splat：分发）、`[*(A)].2` = `[*(A,A)]` = `[A, A]`（幂：重复）。要纯分发请写裸列表 `[A,B,C].D`。元组仍在 parse 时摊平 splat（本次范围外）。测试：dsl `SplatSurvival`。
+- **splat 存续（数组元素）**：数组/列表元素若是 splat，现在**保持到消费**而非 parse 时摊平（`parse_atom.rs` 不再对 `[...]` 列表或孤立 `[*(...)]` 元素调 `consume_splats`）——splat 活到 apply 右操作数或 codegen，所以 `[*(A),*(B)]^2` 会重复每个元素（`[*(A,A),*(B,B)]`），`Pair^[*(SplatA),*(SplatB)]^2` = `[Pair<SplatA,SplatA>, Pair<SplatB,SplatB>]`（splat 幂驱动两个泛型位）。裸数组/切片（`[u8]`、`[u8; 3]`）与无右操作数的目标（`[a, *[b,c]]` = `[a,b,c]`）不变（codegen 末尾摊平）。**有右操作数时**，保持的 splat 元素走自身 splat 语义（与独立 splat 一致）：`[A,B,C]^D` = `[A^D, B^D, C^D]`（裸列表：分发）、`[A,*(B,C)]^D` = `[A^D, *(B,C,D)]` = `[A^D, B, C, D]`（元组 splat：追加）、`[A,*[B,C]]^D` = `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]`（数组 splat：分发）、`[*(A)]^2` = `[*(A,A)]` = `[A, A]`（幂：重复）。要纯分发请写裸列表 `[A,B,C]^D`。元组仍在 parse 时摊平 splat（本次范围外）。测试：dsl `SplatSurvival`。
 - **不诊断（刻意）**：fn 泛型参数与被替换的 trait 实参重名（`impl<U> A<U>` 里的 `fn foo<U>(_: T)`）是 Rust 自身的泛型遮蔽禁令——`E0403` 已经同时指向两个 `U`（spec 的 `<U>` 与 fn 的 `<U>`）。用户改名后宏输出合法代码；不加后处理检查（语言级规则，rustc 的诊断已足够精确）。
 
 ### 核心重组：codegen 拆分 + fresh 名协议统一
@@ -133,17 +133,17 @@
 ### splat（`*` 前缀）
 
 - 新增 `*[...]` / `*(...)` splat：把容器/生成器展开拼入外层列表——元组/数组内拼接
-  （`[a, *[d,e,f]]` = `[a,d,e,f]`）、`.`/`-` 右操作数扁平追加（`T.*(A,B)` ≡ `T-A-B`）、
+  （`[a, *[d,e,f]]` = `[a,d,e,f]`）、`.`/`-` 右操作数扁平追加（`T^*(A,B)` ≡ `T-A-B`）、
   泛型实参多实参（`Foo<*(a,b)>` = `Foo<a,b>`）、嵌套幂等（`*(*[a,b])` = `[a,b]`）、
   空无操作（`[a, *()]` = `[a]`）；
 - **左操作数按来源分语义**：`TySplat` 是镜像 parse 定界符的枚举——`TySplat::Array`
-  分配 `.T`（`*[A.T,B.T]`——集合，对标 `TyArray`，包回以便右 splat 链摊平进容器）、`TySplat::Tuple` 追加
+  分配 `.T`（`*[A^T,B^T]`——集合，对标 `TyArray`，包回以便右 splat 链摊平进容器）、`TySplat::Tuple` 追加
   （`*(A,B,...,T)`——列表，对标 `TyTuple`，包回）；**splat 上的 `.N` 幂把每个笛卡尔组合包回
-  splat**：`*(A,B).2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]`——每个组合是参数位列表，右 splat 链摊平进
-  容器（`A.*(*@u*).2` = `A<u8,u8>`/`A<u8,u16>`/...——`A<@u*,@u*>` 的重复列表简写；`*(A,B).2`
-  单独作目标摊平成重复，E0119——元组 impl 用 `(A,B).2`）；**splat 只展开一层**：元组是类型保持
+  splat**：`*(A,B)^2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]`——每个组合是参数位列表，右 splat 链摊平进
+  容器（`A^*(*@u*)^2` = `A<u8,u8>`/`A<u8,u16>`/...——`A<@u*,@u*>` 的重复列表简写；`*(A,B)^2`
+  单独作目标摊平成重复，E0119——元组 impl 用 `(A,B)^2`）；**splat 只展开一层**：元组是类型保持
   （`*((a,b),)` = 一个 `(a,b)` impl；`*(a,(b,c))` 保持 `(b,c)`），数组/嵌套 splat/生成器/组摊平；
-  `*().N`（空 splat）把 fresh 元组包回 splat 以便载体追加参数（`T.*().2` = `<A,B>T<A,B>`；裸 `*().N` 单独作目标会被
+  `*()^N`（空 splat）把 fresh 元组包回 splat 以便载体追加参数（`T^*()^2` = `<A,B>T<A,B>`；裸 `*()^N` 单独作目标会被
   rustc 拒绝——多个 impl 共享一份泛型声明但各自只用其中一个参数，E0207）；裸 `*()` 单独作目标产生**零
   impl**（空列表无元素）；左操作数
   `apply_help` **委托 `TyArray`/`TyTuple::apply_help`** 再把结果包回对应 splat 变体
@@ -162,7 +162,7 @@
   内部递归统一调 `.apply()`（完整右操作数分发），绝不直接调 `apply_help`。
   `TySplat::apply_help` 现在是纯委托：`TySplat::Array(a) => a.apply(o)` /
   `TySplat::Tuple(t) => t.apply(o)`，再把返回的容器包回（splat 保持到消费）；
-  `*().N` 经 `WithType` 透传保持 splat 形态（`*().2` = `<A,B>*(A,B)`）。
+  `*()^N` 经 `WithType` 透传保持 splat 形态（`*()^2` = `<A,B>*(A,B)`）。
 - 构造风格统一：`Ty::new(span, TyKind::X(sub))` 嵌套包装全库清除（`Ty::new`
   删除——49 处调用点改 `X(...).to_ty().with_span(...)`；透传用
   `Ty { span, kind }`）；值处包装用 `val.into()`（`Some(Box::new(x))` →
@@ -189,18 +189,18 @@
   (组次, 位次) 序重编号为 `_Param_0..N_BatchGen_`——即目标类型文档序；
 - **每 impl 独立编号修复单元漂移**：每个 impl 独立清扫，`@N` 恒指
   *本 impl* 的第 N 个 fresh——跨 spec 与 range 生成可用
-  （`().1..=3 where{@0: Clone}` 与 `(().2, ().2 where{@0: Clone})`
+  （`()^1..=3 where{@0: Clone}` 与 `(()^2, ()^2 where{@0: Clone})`
   此前在后续单元报 "out of range"——计数器跨单元延续；现在每单元从 0
   开始）。`@N` 是纯构造（`@N` → `_Param_{N}_BatchGen_`）——无需查表，
   恒与清扫后名字匹配；
-- **组合场景**（`().3-().3`）：`@0` 是左元组首元素（文档序——此前是
+- **组合场景**（`()^3-()^3`）：`@0` 是左元组首元素（文档序——此前是
   声明序第一个——hoist 先声明嵌套元组——Breaking）；
 - **目标类型 `@N` 通道**：`@N` 位置引用在类型域边界消解为 fresh 名
   （`parse_operand` + 尖括号扁平 chunk 的 `resolve_at_refs`——`Box<@0>`
   可用）。blanket 不再自行替换包装的 `@0` 位置标记（`replace_at0` 删除；
   `has_at0` 只保留位置决策——有 `@0` 原样发射、parse 层消解标记）；
 - **声明序 = 文档序**：apply 双方都带泛型声明时（fresh-fresh 链如
-  `().3-().3`）params 左先合并，hoist 按目标类型文档序收集；inner 只取
+  `()^3-()^3`）params 左先合并，hoist 按目标类型文档序收集；inner 只取
   左的 inner 部分（否则 hoist 重复收集左声明——E0403）；
 - 标记占位方案评估（决策）：曾考虑"泛型名占位、codegen 统一生成"——
   否决：分组名 + 每 impl 清扫即达可预测，无需标记 token 系统（其需
@@ -272,15 +272,15 @@
 
 ## 0.6.6 (2026-08-07)
 
-### 元组/fn 语法边界修正（`(T).2 = T.2`）
+### 元组/fn 语法边界修正（`(T)^2 = T^2`）
 
-- `(T).2 = T.2` 规则确认：分组剥离后幂 = const 泛型实参（`(u8).2 = u8<2>`），
-  TyGroup 恢复剥离语义（元组生成须 `(T,).N`）；
-- `(<T>).2` 报错锁定（`(` 后 `<` 不是合法类型）——ui fixture group_angle_bare；
+- `(T)^2 = T^2` 规则确认：分组剥离后幂 = const 泛型实参（`(u8)^2 = u8<2>`），
+  TyGroup 恢复剥离语义（元组生成须 `(T,)^N`）；
+- `(<T>)^2` 报错锁定（`(` 后 `<` 不是合法类型）——ui fixture group_angle_bare；
 - 数字/范围渲染改 unsuffixed literal：`u8<2>` / `[u8; 3]`
   （原 `u8<2usize>` / `[u8; 3usize]`）；
 - 教程修正：fn-arrow 说明（`fn(A,B)-C = fn(A,B)->C`，`->` 不是 DSL 操作符）、
-  元组注意块（`(T)` 分组非元组 / `(<u8>)` 错误语法 / `(<Clone>).N` 不支持）。
+  元组注意块（`(T)` 分组非元组 / `(<u8>)` 错误语法 / `(<Clone>)^N` 不支持）。
 
 ### 输入校验四连（评测员发现）
 
@@ -549,7 +549,7 @@
   是特例；
 - 破坏点：B1 测试 `where{@0: @trait<T>}` → `where{T: @trait<T>}`；
   tutorial AtWhere 示例同理；越界报错文案更新；
-- 测试：`().2 where{@0: Clone, @1: Copy}`、`().3 where{@2: Clone}`（纯 fresh）
+- 测试：`()^2 where{@0: Clone, @1: Copy}`、`()^3 where{@2: Clone}`（纯 fresh）
   不变全绿。
 
 ### 泛型参数族 + 分离声明顺序修复
@@ -560,8 +560,8 @@
   类型参数只名字（bound 走同名继承）、const 完整（裸名 E0747）、生命周期原样；
   try_expand_at 在 @all 分支后分发（batch_impl-only，batch_trait! 报错）；
   无该类参数时报错；
-- **顺带修复真实 bug**：`TyKind::apply` 的 WithType hoist 分支（`T.<A>X` →
-  `<A>(T.X)`）对"声明 apply 声明"（`<'a> <T> X` 连续声明）错误地把内层参数
+- **顺带修复真实 bug**：`TyKind::apply` 的 WithType hoist 分支（`T^<A>X` →
+  `<A>(T^X)`）对"声明 apply 声明"（`<'a> <T> X` 连续声明）错误地把内层参数
   提到外层 → 生成 `<T, 'a>`（lifetime must be prior）。修复：self 是
   `TyKind::TypeParam` 时走 `apply_help` 保持声明顺序（`<'a, T>` lifetimes
   first）。手写 `<'a> <T>` 此前也炸——测试 `generic_param_families` 锁定
@@ -578,15 +578,15 @@
   `tokens[2]` 为 `*`，lookup = `name*`，consumed 3）；`check_value_refs` 同步
   通配识别（`@uints=@u*` 值内引用曾误报 "unknown @u"——修后懒展开链完整）。
   错误消息 builtins 列表与 `@` 后缺名示例更新；ui `const_unknown` 快照重生成。
-- 测试：dsl `@uints=@u*`（batch_trait 值内通配引用）、`[Box, Rc].@u*`（宏变量
+- 测试：dsl `@uints=@u*`（batch_trait 值内通配引用）、`[Box, Rc]^@u*`（宏变量
   None 组内通配）全部更新通过；直接 `@u*` 探针验证 usize 含入。
 ## 0.6.3 (2026-08-05)
 
 ### 文档修正
 
-- 作者指出 README 头部示例错误：`#[batch_impl(().4)]` 的 `// →` 注释声称展开为
-  4 个不同长度的元组 impl（`(A,)` 到 `(A, B, C, D)`）——实际 `().N` 是**单个**
-  N 元组（`().4` → `(A, B, C, D)`），多长度是 `().1..=4` 范围语法（教程 §11 表
+- 作者指出 README 头部示例错误：`#[batch_impl(()^4)]` 的 `// →` 注释声称展开为
+  4 个不同长度的元组 impl（`(A,)` 到 `(A, B, C, D)`）——实际 `()^N` 是**单个**
+  N 元组（`()^4` → `(A, B, C, D)`），多长度是 `()^1..=4` 范围语法（教程 §11 表
   一直正确，测试 `tuple_pow_basic` 锁定语义）。实测探针确认后修正 README 中英
   两版的注释（`impl<A, B, C, D> TupleTrait for (A, B, C, D) {}`）。仅注释修正，
   无行为变化。
@@ -789,7 +789,7 @@
   并列合并）；trait 形参 inline bound 由 codegen 继承逻辑处理（曾转移导致
   X: Clone 重复——继承按位置补 bound，见 `gen_where_probe` 实测）；
 - `@0` 通用化：codegen 渲染 where 谓词时替换 `@N`（→ impl 泛型第 N 位名字）与
-  `@trait`（→ trait 名）——元组 `().2 where{@0: Clone}` 与普通 spec
+  `@trait`（→ trait 名）——元组 `()^2 where{@0: Clone}` 与普通 spec
   `where{@0: Default}` 可用（此前仅 blanket 包装 where 特化：`@0` 恒指
   目标泛型 fresh T，由 resolve_target_predicates 预替换，两处不冲突）；
   越界/格式错误并入 errs 收集报错（generate_impl 非 Result 返回）；
@@ -812,7 +812,7 @@
   `None`（原样保留、不触发懒展开递归——展开为原样→再遇→栈溢出的死循环，
   实测 STATUS_STACK_OVERFLOW）；check_value_refs 跳过 `@trait`（特殊记号
   非常量引用）；测试 dsl `trait_const_segment`（教训：trait 定义须带泛型
-  匹配 spec 的 `<T> Trait<T>`；`Box.[T,(T,)]` 泛型重叠 E0119 是用户写法
+  匹配 spec 的 `<T> Trait<T>`；`Box^[T,(T,)]` 泛型重叠 E0119 是用户写法
   问题，测试改用 `[T, Vec<T>]`）。
 
 - 测试：dsl `macro_meta_complete`（@trait/@Cow/blanket where/[a,b]/where
@@ -852,13 +852,13 @@
   blanket 只 required 三场景；E0034 教训：三个 trait 须各占一个整数类型）；
 - 三指令（fill/delegate/blanket）共享 `parse_names_from_tokens`，一处改全部获得。
 
-### 旧测试用例抽查（git 历史）——发现并修复 `T.<A,B>` 参数丢失
+### 旧测试用例抽查（git 历史）——发现并修复 `T^<A,B>` 参数丢失
 
 - 对照 v0.5.0 删除的 examples/{tests,ds_tests,my_tests,debug_tests}.rs
   （~4800 行）与当前 dsl/regression 测试矩阵，4 个候选盲区实测：
-  - `[&, self].[u32, i64]`（前缀混合列表叉积）、
+  - `[&, self]^[u32, i64]`（前缀混合列表叉积）、
     `()-[usize, isize]-[u32, i32]`（空元组双列表减法链）——行为正确，已覆盖；
-  - `HashMap.<u32, String>`（caret 后跟泛型参数列表）——**真 bug**；
+  - `HashMap^<u32, String>`（caret 后跟泛型参数列表）——**真 bug**；
   - `[usize #fill(@all){..}, isize #fill(@all){..}]`（列表元素独立指令）——
     与 dsl `directive_fill` 重叠，未单独补。
 - **bug 根因**：parse_primary 顺序缺陷——单个 `Group(<>)` 输入在
@@ -869,7 +869,7 @@
   无任何诊断（不带 body 则报"`.` 后缺少操作数"，行为分裂）；
 - **修复**：`[Group] → parse_group` 分支排除 `delimiter![<>]`，尖括号组
   落到 parse_type_params——按 apply/mod.rs 注释既定语义
-  `T.<A,B> => T<A,B>`（`HashMap.<u32, String>` → `HashMap<u32, String>`）；
+  `T^<A,B> => T<A,B>`（`HashMap^<u32, String>` → `HashMap<u32, String>`）；
 - 测试：regression `caret_angle_param_list`（`contains_key` 断言 impl 落在
   泛型完整类型上，防退化为裸 `HashMap`）。
 
@@ -901,10 +901,10 @@
   `is_single_colon` 区分 `::` 路径）、fresh 泛型、逐包装生成
   `<T: Trait> 包装.T { 委托体 }` 多段 spec
 - 委托体 `*` 数量 = depth + 1（`"*".repeat(depth + 1) + "self"` parse）；
-  目标类型 = 包装 `.T`（`Box.Arc:2` → `Box<Arc<T>>`、`Cow<'_>` → `Cow<'_, T>`）
+  目标类型 = 包装 `.T`（`Box^Arc:2` → `Box<Arc<T>>`、`Cow<'_>` → `Cow<'_, T>`）
 - **泛型 trait**：trait 形参照抄为 impl 泛型（形参在前、fresh `T` 在后，
   `T: Trait<X>` 反序 E0401）+ trait 实参填参数名 + where 谓词透传；
-  spec 的 trait 名部分仅泛型时输出（非泛型省略——`Trait &.T` 前缀目标
+  spec 的 trait 名部分仅泛型时输出（非泛型省略——`Trait &^T` 前缀目标
   跟在 trait 名后无法解析，回归曾破坏 `{&,Box,Rc}`）
 - **assoc type/const 委托**：`TraitItem::Fn` 窄匹配放开，Type/Const 走
   `build_from_item` 既有输出形态，body 用 `<T as Trait<X>>::name` 投影
@@ -1094,7 +1094,7 @@
   `apply::check_expand_limit` 统一入口
 - **数组链式展开产物上限**：`count_leaves` 叶子数校验
 - **元组笛卡尔积 bound 修复**：`instantiate_combo` 误把参数名当 bound
-  （`(A: Clone, T).N` 生成 `_Param: A`），改为保留真正的 bound
+  （`(A: Clone, T)^N` 生成 `_Param: A`），改为保留真正的 bound
 - **逻辑精简重构**（行为零变化）：`Ty::expand` 包装样板抽为
   `expand_wrapped` / `expand_rebuild`；指令展开骨架合并为 `expand_many`
 - **文档漂移修复**：README 元组生成 u8 范围删除、测试矩阵计数更新、
@@ -1123,7 +1123,7 @@
 
 - 合并 `TySlice` 与 `TyFixedArray` 为
   `TyPrimitiveArray(Option<Box<Ty>>, Option<TokenStream>)`
-- `().N` fresh 泛型元组自动外提（`T.<A>X` => `<A>(T.X)`，嵌套 `WithType`
+- `()^N` fresh 泛型元组自动外提（`T^<A>X` => `<A>(T^X)`，嵌套 `WithType`
   参数并入 impl 泛型）
 - `TyNum` / `TyRange` 由 `u8` 改为 `usize`
 
@@ -1211,7 +1211,7 @@
 
 ### 修复与代码审查
 
-- `fn.i32` 自动生成括号
+- `fn^i32` 自动生成括号
 - 统一 `->` 处理（`has_top_level_char` / `parse_balanced` /
   `find_top_level_colon` / `split_at_punct` 排除 `->` 中的 `>`）
 - P0：`split_raw` 检测多余 `>`；`parse_balanced` 详细错误（"未闭合的 `<`（还有
@@ -1226,8 +1226,8 @@
 - BUG-1：`expand_caret` 右侧在第一个顶层 `-` 处分割（`.` 优先级高于 `-`）
 - BUG-2：`parse_target_items` 丢弃 `<>` 之后内容（`parse_balanced` 的 pos 被
   丢弃）
-- BUG-3：`expand_single` 未过滤 Attribute/Unsafe 前缀（`unsafe.#[attr].T`）
-- fn 类型优先级：`fn.(u32,i32)-usize` 的 `-` 作为返回类型
+- BUG-3：`expand_single` 未过滤 Attribute/Unsafe 前缀（`unsafe^#[attr]^T`）
+- fn 类型优先级：`fn^(u32,i32)-usize` 的 `-` 作为返回类型
 - 嵌套 caret 保留 `Fn` 前缀
 
 ### Code Quality
@@ -1278,30 +1278,30 @@
 ### 0.-1 (2026-07 原型，684 行单文件)
 
 - **静态类型列表**：spec 是"泛型 + trait泛型 + 目标 + body"的顺序结构，
-  无 `.`/`-` 运算符、无元组生成、无前缀系统——目标类型是 token 透传的静态类型
+  无 `^`/`-` 运算符、无元组生成、无前缀系统——目标类型是 token 透传的静态类型
 - 但 **80% 的设计已定稿**：`[]` 歧义（逗号=列表/无=切片）、`()` 分组 vs 元组、
   泛型继承（子项追加父级）、body 继承（列表级共享/子项覆盖）、
   trait 泛型悬空诊断（"`MyTrait<T>` 被解析为 trait 泛型参数，但缺少目标类型"）、
   `compile_error_at` span 定位、中文错误消息
 - **trait 泛型自动补全**：trait 有泛型时从 `trait_generics` 自动补全
-  （`#trait_name<#(#params),*>`）——0.0 因 `.` 引入砍掉，0.5.5 的 `A<>` 照抄回归
+  （`#trait_name<#(#params),*>`）——0.0 因 `^` 引入砍掉，0.5.5 的 `A<>` 照抄回归
 
 ### 0.0 (2026-07 原型，1961 行单文件)
 
-- **灵光一跃：类型组合运算符化**——`.`（右结合：`A.B=A<B>`、`&.T=&T`、
-  `[A].[B]` 笛卡尔积）、`-`（左结合元组构建）、`().N`/`.M..N` 元组生成、
+- **灵光一跃：类型组合运算符化**——`^`（右结合：`A^B=A<B>`、`&^T=&T`、
+  `[A]^[B]` 笛卡尔积）、`-`（左结合元组构建）、`()^N`/`^M..N` 元组生成、
   fresh 泛型（`A_7f3a_` span 位置哈希后缀）、前缀系统（`&`/`&mut`/`self`/`unsafe`）、
   递归护栏（`RecursionGuard` 128 层，第一天就有）——DSL 的全部核心概念在此定稿，
   之后 0.1→0.6 未再引入新概念，只有精化与外围系统
 - 已埋的缺陷（0.2.1/0.2.2 才修）：`split_raw` 无 `->` 守卫、
-  `expand_caret` 右侧无 dash 分割（`HashMap.K-V` 解析成嵌套而非并列）
+  `expand_caret` 右侧无 dash 分割（`HashMap^K-V` 解析成嵌套而非并列）
 
 ### 0.1.x (2026-07 首个发布系列)
 
 - **模块拆分完成**：0.0 单文件分节直接切为 `core/` 9 文件
   （types/recursion/utils/codegen/tuple/caret/dash/parser + lib.rs 入口）——
   0.2 的 9 文件结构就是它；
-- **prefill 预填泛型**（`HashMap<K>.V → HashMap<K, V>`）：`PrefixItem::Container`
+- **prefill 预填泛型**（`HashMap<K>^V → HashMap<K, V>`）：`PrefixItem::Container`
   加 `prefill` 字段，caret 与 dash 两条路径都接入；
 - 递归护栏原样保留（`RecursionGuard` 与 0.0 逐字相同）；
 - 0.1.1 尚无：fn/指针/属性前缀（PrefixItem 仅 6 变体）、assoc 绑定
@@ -1325,7 +1325,7 @@
 
 ### 三条"砍掉又回归"暗线
 
-- **trait 泛型自动补全**：0.-1 有 → 0.0 砍（`.` 引入后 trait 名后 `<...>` 歧义）
+- **trait 泛型自动补全**：0.-1 有 → 0.0 砍（`^` 引入后 trait 名后 `<...>` 歧义）
   → 0.5.5 `A<>` 照抄回归；
 - **递归护栏**：0.0 有 → 0.3 重写从零开始时丢失（未重建）→ 0.6.1 恢复
   （`MAX_NEST_DEPTH`，见 0.6.1 段）；
@@ -1336,12 +1336,12 @@
 
 - **splat `*` 前缀——从无重复原则里长出来。** 起因是一次盘点功能缺口：
   `A-@u*-@u*` 能生成 `A<u8,u8>`、`A<u8,u16>`…… 但把 `@u*` 写两遍，违背了
-  作者的**无重复原则**。数学直觉：用元组 `^N` 幂（`(A,B).2`），让一个 `???`
+  作者的**无重复原则**。数学直觉：用元组 `^N` 幂（`(A,B)^2`），让一个 `???`
   同时展开"族 × 幂"（`(???)@u*)^2` 生成想要的内容）——这需要一个把幂的
   笛卡尔结果**摊平**进外层参数列表的操作，于是展平语义就出来了，
   立马想到 Python 的 `*` 解包。还意外收获了 `(*@u*)` 这种写法。
   - *关于符号*：`*` 是借来的装饰。候选其实都碰壁——`..`/`...` 被范围与
-    `.` 链占了；`_*` 会撞后来 `_` 形状通配。`*` 在本 DSL 里是清空的
+    `^` 链占了；`_*` 会撞后来 `_` 形状通配。`*` 在本 DSL 里是清空的
     （无解引用/乘法歧义），且 `@u*` 里的 `*` 已有"全集/全部"的含义——
     所以 `*@u*` 读作"展开 `@u*` 全集"，是碰巧协调，不算强行借用。
   - *apply 决策点*：右侧语义明（展平），但**左侧**怎么办？元组尾插？

@@ -56,29 +56,40 @@ spec 的骨架：
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-## 2. 类型矩阵：`.` 与空格
+## 2. 类型矩阵：空格（与 `.`）
 
-`.`、空格与裸 trait 名是**同一运算**：左侧是修饰符/容器/trait，右侧是目标类型。区别只在结合性：`.` 右结合（嵌套），空格左结合（累加参数），裸 trait 名按 impl trait 应用。
+**空格是主推的写法**：容器/修饰符与它接收的类型并排写——链式累加参数（左结合）。
 
 > **空格到底是什么**：空格**不是 token**——它是 token 之间的**间隔**（proc-macro2 会剥掉空白，DSL 只看到相邻性）。因此空格应用的意思就是"这些 token 相邻，应用它们"（`Box u8` = `Box<u8>`），这与 Rust 自身读取类型语法的方式完全一致（`Box<u8>` 就是 `Box` 与 `<u8>` 相邻）。不需要任何显式运算符符号——**没有分隔符这件事本身就是运算符**。
 
-优先级从低到高：`;` < `,` < 空格 < `.`，`()` 分组在所有运算符之上。
+| 写法                     | 展开                                 |
+|--------------------------|--------------------------------------|
+| `Box u32`                | `Box<u32>`                           |
+| `HashMap u32 String`     | `HashMap<u32, String>`（左结合累加） |
+| `Box u8 u16`             | `Box<u8, u16>`                       |
+| `fn.(A,B) C`             | `fn(A,B)->C`（也可写 `fn(A,B) -> C`）|
+| `& u8`                   | `&u8`（修饰符链式应用）              |
+| `Tr u8`                  | `impl Tr for u8`（裸 trait 名）      |
+| `[Box, Vec] u32`         | `Box<u32>, Vec<u32>`（列表展开）     |
+| `HashMap<u8> String`     | `HashMap<u8, String>`（预填泛型追加）|
+| `Box [u8, u16]`          | `Box<u8>, Box<u16>`（列表分发）      |
+| `[Box, Vec] [u8, u16]`   | 笛卡尔积共 4 项                      |
+
+**`.` 是同一运算的右结合形态**——只在需要**嵌套**而非累加时使用。空格累加会把参数并排（`Box Box u8` = `Box<Box, u8>`——对多数容器是笔误）；`.` 嵌套把类型组合（`Box.Box u8` = `Box<Box<u8>>`）：
 
 | 写法                     | 展开                                 |
 |--------------------------|--------------------------------------|
-| `Box.T`                  | `Box<T>`                             |
-| `Box.<X,Y>`              | `Box<X, Y>`（多参容器）              |
-| `Box.Box.T`              | `Box<Box<T>>`（右结合嵌套）          |
-| `HashMap<K>.V`           | `HashMap<K, V>`（预填泛型追加）      |
-| `&.Box.T`                | `&Box<T>`（修饰符链式应用）          |
-| `Box u32`                | `Box<u32>`                           |
-| `HashMap u32 String`     | `HashMap<u32, String>`（左结合累加） |
-| `fn.(A,B) C`             | `fn(A,B)->C`（也可写 `fn(A,B) -> C`）|
-| `Tr u8`                  | `impl Tr for u8`（裸 trait 名；要类型 `Tr<u8>` 写 `Tr <u8>`）|
+| `Box.Box u8`             | `Box<Box<u8>>`（右结合嵌套）         |
+| `&.Box u8`               | `&Box<u8>`（修饰符作用于嵌套类型）   |
 | `[Box, Vec].T`           | `Box<T>, Vec<T>`                     |
 | `Box.[T1, T2]`           | `Box<T1>, Box<T2>`                   |
-| `[Box, Vec].[T1, T2]`    | 笛卡尔积共 4 项                      |
 | `[HashMap<K>, Vec<K>].V` | `HashMap<K, V>, Vec<K, V>`           |
+
+> **什么时候用哪个**：一个容器/修饰符 + 一个类型——并排写（`Box u8`、`& u8`、`HashMap<u8> String`）。当类型本身需要是组合类型（`Box<Box<u8>>`、`&Box<u8>`）时，用 `.` 连接组合——空格会把每一部分当作独立参数。
+
+优先级从低到高：`;` < `,` < 空格 < `.`，`()` 分组在所有运算符之上。
+
+**裸 trait 名**按 impl trait 应用：`Tr u8` = `impl Tr for u8`、`Tr<A> u8` = `impl Tr<A> for u8`。要**类型** `Tr<u8>` 直接写 `Tr<u8>`。
 
 > **注意**：`Box.Vec u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box.Vec.u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
 
@@ -87,9 +98,9 @@ spec 的骨架：
 ```rust
 # use batch_impl::batch_impl;
 # use std::collections::HashMap;
-#[batch_impl(Box.Vec.u32, HashMap<u8>.String)]
+#[batch_impl(Box.Vec.u32, HashMap<u8> String)]
 trait T {}
-// → impl T for Box<Vec<u32>> {}
+// → impl T for Box<Vec<u32>> {}   ← `.` 嵌套：Box 应用到 Vec<u32>
 // → impl T for HashMap<u8, String> {}
 ```
 
@@ -156,10 +167,10 @@ splat 的直觉来自 Python 的 `*` 解包——`[a, *b]` 拼接列表、`f(*ar
 | Python | batch-impl |
 |---|---|
 | `[a, *b]` | `[A, *[B, C]]`——把列表拼入外层列表 |
-| `f(*args)` | `T-*(A, B, C)`——把生成器展开到参数位 |
+| `f(*args)` | `T *(A, B, C)`——把生成器展开到参数位 |
 | 单层解包 | `*((a,b),)` = 一个 `(a,b)` impl（元组保持完整） |
 
-**动机**：`*` 把嵌套生成器压缩进多参容器。与其手写 `T-[A,B,C]-[A,B,C]-[A,B,C]`（27 组合的嵌套列表），一行得到同样 27 个 impl：
+**动机**：`*` 把嵌套生成器压缩进多参容器。与其手写 `T [A,B,C] [A,B,C] [A,B,C]`（27 组合的嵌套列表），一行得到同样 27 个 impl：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -188,17 +199,17 @@ trait SplatConcat {}
 
 ### 4.2 左操作数：分配与追加
 
-左 splat 按来源括号分语义——`*[A,B].T` **分配**（`*[A.T,B.T]`——集合，对标 `TyArray`）、`*(A,B).T` **追加**（`*(A,B,...,T)`——列表，对标 `TyTuple`）。`[]` 是**集合**、`()` 是**序列**——splat 只是保留来源括号的基础容器语义，**不是新规则**；`TySplat::Array`/`TySplat::Tuple` 镜像 `TyArray`/`TyTuple`：
+左 splat 按来源括号分语义——`*[A,B] T` **分配**（`*[A.T,B.T]`——集合，对标 `TyArray`）、`*(A,B) T` **追加**（`*(A,B,...,T)`——列表，对标 `TyTuple`）。`[]` 是**集合**、`()` 是**序列**——splat 只是保留来源括号的基础容器语义，**不是新规则**；`TySplat::Array`/`TySplat::Tuple` 镜像 `TyArray`/`TyTuple`：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(*[Vec, Box].u8)]
+#[batch_impl(*[Vec, Box] u8)]
 trait Dist {}
-// → impl Dist for Vec<u8> {} / Box<u8>（分配：每个元素各自 .u8）
+// → impl Dist for Vec<u8> {} / Box<u8>（分配：每个元素各自应用 u8）
 
 # struct Pair<X, Y>(X, Y);
 # struct A; struct B;
-#[batch_impl(Pair.*(A, B))]
+#[batch_impl(Pair *(A, B))]
 trait Concat {}
 // → impl Concat for Pair<A, B> {}（右 splat = 多实参）
 ```
@@ -257,7 +268,7 @@ trait GSplat {}
 
 splat 是"参数位置列表"——凡是要元素列表的地方都展开：泛型实参（`Foo<*(a,b)>`）、元组/数组元素（`(a, *(b,c))`、`[*(a),*(b)]`）、泛型声明、fn 参数（`fn(*(A,B))`）、spec 列表（`[*(a,b)]`）。裸 splat 作 **where 谓词主体**没有定义语义（`*(A,B): Trait` 会展开成 `A, B: Trait`）——明确报错——包进元组（`(*(A,B)): Trait`）或分开写谓词；谓词**内部**的 splat（`X: Trait<*(A,B)>`）合法。
 
-两条规则：`T.*(A,B,...)` ≡ `T-A-B-...`（右 splat = 扁平参数追加——与 `-` 链等价，来源无关）；左 splat 按来源——`*[A,B].T` = `*[A.T,B.T]`（分配律）、`*(A,B).T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
+两条规则：`T.*(A,B,...)` ≡ `T<A, B, ...>`（右 splat = 扁平参数追加）；左 splat 按来源——`*[A,B] T` = `*[A.T,B.T]`（分配律）、`*(A,B) T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
 
 ## 5. 泛型 `<>`：从声明到可编程实参
 
@@ -514,15 +525,17 @@ trait MyLen { fn d_len(&self) -> usize; }
 
 ### 7.4 `#blanket(methods){包装列表}` — 覆盖式委托
 
-包装任意类型（含智能指针），`:N` 标注 deref 深度：
+包装任意类型（含智能指针），逗号分隔，`:N` 标注 deref 深度（默认 1，`&`/`Box` 这类单层包装不用写）：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(#blanket(@all_methods){[&, Box]})]
+#[batch_impl(#blanket(@all_methods){&, Box})]
 trait Len { fn len(&self) -> usize; }
 // → impl<T: Len> Len for &T { fn len(&self) -> usize { (*self).len() } }
 // → impl<T: Len> Len for Box<T> { fn len(&self) -> usize { (**self).len() } }
 ```
+
+> **`:N` deref 深度**——委托体要解引用多少层才能到达内部 `T`。单层包装（`&`、`Box`、`Rc`）默认 **1**，不用写：body 解引用 N+1 次（`&`/`Box` → `**self`）。`:2` 表示包装本身嵌套两层——`Box.Arc:2` = `Box<Arc<T>>`，委托体 `***self`。只有嵌套包装才写 `:N`；单层包装什么都不用写。
 
 > **按值接收者**：`fn consume(self)` 的委托体是 `(*self).consume()`——按值 `self` 本身就是包装，少一层 deref（`&self` 方法才是 `(**self)`，穿透引用再穿包装）。移出语义对共享包装（`&`/`Rc`）不可过类型检查，生成物会带一条 `#[doc]` 提示（proc macro 无稳定 warning 通道，E0658）；跳过这类方法用 `@all_ref_methods`（保留 trait 默认），或手写 `#name{...}`。
 
@@ -581,10 +594,9 @@ trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`w
 
 ### 8.4 `impl{...}` shape template 形状模板（0.8.0）
 
-`where{...}` 与 `{body}` 之外的第三种尾随附件——Self-part 形状模板。
-三种附件**任意顺序**。块内是**标准 Rust 类型**（DSL 算子被拒绝）：与矩阵
-叶子目标类型**逐位匹配**——与目标同位置的 ident **相同** → 字面保留，
-**不同** → 绑定槽，替换进目标类型、where 谓词与 body。一个 body 适配所有叶子：
+**一句话：模式匹配 + 文本替换。** 你写一个 `impl{...}` 块放**原型类型**，
+宏把它与每个叶子目标类型**逐位匹配**——**相同**的 ident 原样保留，
+**不同**的变成命名槽，槽名随后被**替换进** body（与 where 谓词）。一个 body 适配所有叶子：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -595,13 +607,21 @@ trait Make { fn mk(x: u32) -> Self; }
 // → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
 ```
 
-- `impl{T}` + `i32` → `T := i32`（裸 ident 模板绑定整个叶子）；
-- `impl{Rc<T>}` + `Rc<i32>` → `T := i32`（`Rc` 相同 → 字面）；
-- `impl{Rc<T>}` + `Box<i32>` → `Rc := Box, T := i32`（base 不同 → 槽）；
-- 多个 `impl{...}` 合并为单一映射——同形冗余绑定合法、异形冲突报错
-  （`impl{X}` 绑定整个叶子、`impl{X<u32>}` 绑定 base → `InconsistentBinding`）；
-- 附件深度上限把 `impl{...}` 与另两类一并计数；
+匹配怎么工作，用大白话讲：
+
+- **模板是作用在叶子类型上的模式**，逐位比较：`impl{W<T>}` 对叶子 `Box<u32>`——
+  `W` ≠ `Box` 所以 `W` 是槽（`W := Box`）、`T` ≠ `u32` 所以 `T` 是槽
+  （`T := u32`）；对 `Rc<u32>` 则 `W := Rc`、`T := u32`。模板本身**不是
+  impl 目标**——它只声明槽。
+- **槽被替换**——body（和 where 谓词）里出现的每个 `W`/`T` 都被替换成
+  绑定的叶子部分。机制就这么多：匹配叶子、收集槽、替换。
+- 裸 `impl{T}` 绑定**整个叶子**（`impl{T}` + `i32` → `T := i32`）；
+  `impl{Rc<T>}` + `Rc<i32>` → 只有 `T := i32`（`Rc` 匹配、保留）。
+- 多个 `impl{...}` 合并为单一映射——同形冗余绑定合法、异形冲突报错。
 - 模板内 `@trait` 在匹配前展开为 trait path。
+
+模板块内是**标准 Rust 类型**——DSL 算子被拒绝；`_` 是**通配**，匹配任意
+东西且保持 `_`（详见下方模板匹配表）。
 
 #### 模板匹配：哪些能绑定、哪些不能
 
@@ -699,21 +719,26 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 
 ### 8.5 impl entry（0.8.0，ItemImpl 入口）
 
-`#[batch_impl]` 同样接受 **`impl` 块**：DSL 描述**形状模板 × 矩阵源**，每个
-矩阵叶子产出一个 impl，槽映射（与 `impl{...}` 相同的"相同→保留、不同→绑定"规则）
-重写 for-Type / where 谓词 / body。原始 impl（for-Type 含占位槽名）被 withhold：
+**同一个思路，更大的模板：整个 impl 块成为模式。** 不再用独立的
+`impl{...}` 附件——你把一个普通 `impl` 块交给 `#[batch_impl]`，其 for-Type
+持有占位槽名（`impl Make for A<B>`），再加一个 `模板 : 矩阵` 源。每个矩阵
+叶子与 for-Type（`A<B>`）匹配，槽（`A := Box, B := usize`）被替换进整个块——
+for-Type、where 谓词与 body——每个叶子产出一个 impl。原始 impl（含槽）被 withhold：
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
 # trait Make { fn make() -> Self; }
-#[batch_impl(A<B> : [Box, Rc].[usize, isize])]
+#[batch_impl(A<B> : [Box, Rc] [usize, isize])]
 impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 // → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
 // → ... × 4
 ```
 
-- attr 语法：shape 形态 `A<B> : [Box,Rc].[usize,isize]`（模板 `:` 矩阵）或直接形态
+一句话：**写一个带占位符的 impl，每个矩阵格子得到一个 impl——与 §8.4
+相同的匹配与替换，只是作用于整个块而非仅 body。**
+
+- attr 语法：shape 形态 `A<B> : [Box,Rc] [usize,isize]`（模板 `:` 矩阵）或直接形态
   `<T> Box<T>`（泛型声明 + for-type，N = 1）；`;` 分隔多个 spec（`W:u8; W:u16`），
   单 spec 为常见形态；
 - `@trait`（→ impl 的 trait path）允许在泛型声明 bound 与 where 谓词中；自定义
@@ -740,12 +765,12 @@ trait TuplePow {}
 
 ### 9.2 笛卡尔积
 
-`[A, B].[C, D]` 全组合；`*(A,B).2` splat 幂产生笛卡尔组合列表：
+`[A, B] [C, D]` 全组合；`*(A,B).2` splat 幂产生笛卡尔组合列表：
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc].[u8, u16])]
+#[batch_impl([Box, Rc] [u8, u16])]
 trait Matrix {}
 // → impl Matrix for Box<u8> {} / Box<u16> / Rc<u8> / Rc<u16>（4 项）
 ```
@@ -770,7 +795,7 @@ trait Attr {}
 
 > **`unsafe` 有两种角色**——`unsafe fn(A) -> B` 是 *unsafe fn 类型*：impl 本身保持安全（`impl Tr for unsafe fn(A) -> B`）。要把 **impl** 标记为 unsafe，用 `.` 应用 `unsafe`：`unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`。如果你写 `unsafe fn(...)` 却期待一个 unsafe impl，那就是写错了形式。
 
-**`self` 前缀**是恒等前缀——`self.T` = `T`。在矩阵里作"裸类型占位"：`[Box, self] u8` 生成 `Box<u8>` 与裸 `u8` 两个 impl（表达"包装 + 目标本身"）：
+**`self` 前缀**是恒等前缀——`self T` = `T`。在矩阵里作"裸类型占位"：`[Box, self] u8` 生成 `Box<u8>` 与裸 `u8` 两个 impl（表达"包装 + 目标本身"）：
 
 ```rust
 # use batch_impl::batch_impl;

@@ -43,7 +43,7 @@
 ## 0.7.2 (2026-08-14)
 
 - 诊断语言用户化：`@N`/`@g_i` 越界或悬空引用不再泄露 `_Param_*_BatchGen_` 保留名——where 谓词与目标类型/trait 实参位置统一按用户语言定向报错（此前类型位置的悬空引用会以 rustc E0412 裸错暴露内部命名）
-- **`batch_preview!`**：DSL 感知的展开预览——把 `#[batch_impl(...)] trait` 原样包进去，通过诊断通道逐 impl 展示真实展开（走真实管线）；附带预览独有提示：已知一元容器渲染出 2+ 实参（`Box<Vec, u32>`）即 `.`/`-` 结合性误写形状（`A.B-C` = `A-B-C`），提示嵌套改写（`Box.Vec.u32`）；编译器路径从不猜测
+- **`batch_preview!`**：DSL 感知的展开预览——把 `#[batch_impl(...)] trait` 原样包进去，通过诊断通道逐 impl 展示真实展开（走真实管线）；附带预览独有提示：已知一元容器渲染出 2+ 实参（`Box<Vec, u32>`）即 `.`/`-` 结合性误写形状（`A^B-C` = `A-B-C`），提示嵌套改写（`Box^Vec^u32`）；编译器路径从不猜测
 - **trait 实参中的生成器 splat 声明提升**：`Conv<*().2> X` 现在生成 `impl<P0,P1> Conv<P0,P1> for X`（此前声明被丢弃 → rustc E0412 裸错暴露 fresh 名），与泛型实参位置同一规则；泛型声明位置的生成器（`<*().3>` / `<*(().3)>`）改为定向报错（fresh 声明无载体），不再渲染 `impl <<P0,..> *(P0,..)>` 垃圾代码
 - **`#blanket` 按值接收者修复 + doc 提示**：`fn consume(self)` 的委托体 deref 少一层——按值 `self` 本身就是包装，此前统一 `**self` 多解引用了一层内部类型（E0614）；现在 `(*self).consume()` 对 `Box` 等可移动包装正常通过（`&`/`Rc` 等共享包装移出仍不可过，生成的 impl 携带 `#[doc]` 提示：建议 `@all_ref_methods` 或 `#name{...}`；proc macro 无稳定 warning 通道 E0658，doc 通道零编译风险）
 - **开放扩展协议收敛**：顶层 `{! m!{...}}` 为唯一推荐形态，内嵌 `T {m!{...}}`（无 `!`，输出关联项）标注弃用、保留兼容——proc macro 无 warning 通道，收敛落在文档层（tutorial §7.5 / crate 文档 / architecture）
@@ -58,21 +58,21 @@
 
 ### splat 展开延迟到 codegen（bug 修复 + 语义明确）
 
-splat（`*(...)` / `*[...]`）现在在 parse/apply 全程保持整体，只在生成 impl 时摊平成元素。常规场景行为不变（`T.*(A,B)` → `T<A,B>`、`[a, *[b,c]]` = `[a,b,c]`），两个此前损坏的组合现在正常工作：
+splat（`*(...)` / `*[...]`）现在在 parse/apply 全程保持整体，只在生成 impl 时摊平成元素。常规场景行为不变（`T^*(A,B)` → `T<A,B>`、`[a, *[b,c]]` = `[a,b,c]`），两个此前损坏的组合现在正常工作：
 
-- `Conv<bool> Pair.*(A, B)` → `impl Conv<bool> for Pair<A, B>`（原误解析成 `Pair<A<B>>`）；
-- `Pair.*(A, B) #method{...}`（右 splat 后跟指令 body）→ `Pair<A, B>`（原产出 `Pair<*const (A, B)>`）。
+- `Conv<bool> Pair^*(A, B)` → `impl Conv<bool> for Pair<A, B>`（原误解析成 `Pair<A<B>>`）；
+- `Pair^*(A, B) #method{...}`（右 splat 后跟指令 body）→ `Pair<A, B>`（原产出 `Pair<*const (A, B)>`）。
 
 ### splat 存续：数组元素保持 splat 到消费
 
 数组/列表元素若是 splat，不再 parse 时摊平——splat 活到右操作数 apply 或 codegen 摊平。这让 splat 幂驱动重复位置：
 
 ```rust
-#[batch_impl(Pair.[*(SplatA),*(SplatB)].2)]
+#[batch_impl(Pair^[*(SplatA),*(SplatB)]^2)]
 // → impl Pair<SplatA, SplatA> + impl Pair<SplatB, SplatB>
 ```
 
-有右操作数时，保持的 splat 走自身语义：`[A,B,C].D` = `[A.D, B.D, C.D]`（裸列表分发）、`[A,*(B,C)].D` = `[A.D, *(B,C,D)]` = `[A.D, B, C, D]`（元组 splat 追加）、`[A,*[B,C]].D` = `[A.D, *[B.D,C.D]]` = `[A.D, B.D, C.D]`（数组 splat 分发）。无右操作数时，数组目标照常摊平（`[a, *[b,c]]` = `[a,b,c]`）。要纯分发请写裸列表（`[A,B,C].D`）。
+有右操作数时，保持的 splat 走自身语义：`[A,B,C]^D` = `[A^D, B^D, C^D]`（裸列表分发）、`[A,*(B,C)]^D` = `[A^D, *(B,C,D)]` = `[A^D, B, C, D]`（元组 splat 追加）、`[A,*[B,C]]^D` = `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]`（数组 splat 分发）。无右操作数时，数组目标照常摊平（`[a, *[b,c]]` = `[a,b,c]`）。要纯分发请写裸列表（`[A,B,C]^D`）。
 
 ### trait 泛型实参：具体实参替换进指令 body
 
@@ -93,7 +93,7 @@ pub trait From<T>: Sized { fn from(value: T) -> Self; }
 
 ### 泛型实参内的 splat 幂
 
-`Frac<*(*@u*).2>` 现在把幂的笛卡尔结果分发成逐对 impl——36 个，与右 splat 链 `Frac.*(*@u*).2` 等价。数组实参分发只有一个权威位置：字面（`T<[A,B]>`）、常量（`T<@u*>`）与幂结果全部进 params 成 `TyArray`，在 `expand` 统一分发。
+`Frac<*(*@u*)^2>` 现在把幂的笛卡尔结果分发成逐对 impl——36 个，与右 splat 链 `Frac^*(*@u*)^2` 等价。数组实参分发只有一个权威位置：字面（`T<[A,B]>`）、常量（`T<@u*>`）与幂结果全部进 params 成 `TyArray`，在 `expand` 统一分发。
 
 ### 具体类型实参拒绝 binding/bound
 
@@ -102,14 +102,14 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
 ### splat：`*` 前缀展开
 
 - `*` 把容器/生成器**展开拼入**（只出现在 `[]`/`()` 之前）：
-  - 列表内拼入：`[a, *[d,e,f]]` = `[a,d,e,f]`；`.`/`-` 右操作数扁平追加：`(a,b,c).*(d,e,f)` = `(a,b,c,d,e,f)`（拼接）；`Vec.*(a,b)` = `Vec<a,b>`（多实参）
-  - 生成器 splat：`(*(().3))` = `(A,B,C)`（组变元组 + fresh 声明提升）
-- 嵌套幂等、空 splat 无操作；**左操作数按来源括号分语义**：`*[...].T` 分配（`*[A.T,B.T]`——集合，对标 `TyArray`）、`*(...).T` 追加（`*(A,B,...,T)`——列表，对标 `TyTuple`）；**`*(A,B).N` 幂把每个笛卡尔组合包回 splat**——`*(A,B).2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]`；右 splat 链把组合摊平进容器——`A.*(*@u*).2` = `A<u8,u8>`/`A<u8,u16>`/...（`A<@u*,@u*>` 的重复列表简写）；`*(A,B).2` 单独作目标会摊平成重复（E0119）——元组 impl 用 `(A,B).2`；**splat 只展开一层**——元组保持（`*((a,b),)` = 一个 `(a,b)` impl）、数组/嵌套 splat/生成器摊平；`*().N` 保持 splat 形态供载体——`T.*().2` = `<A,B>T<A,B>`；`#fill` 单元素推荐——写 `#name{body}` 而非 `#fill(name){body}`；`*const`/`*mut` 指针不受影响
+  - 列表内拼入：`[a, *[d,e,f]]` = `[a,d,e,f]`；`^`/`-` 右操作数扁平追加：`(a,b,c)^*(d,e,f)` = `(a,b,c,d,e,f)`（拼接）；`Vec^*(a,b)` = `Vec<a,b>`（多实参）
+  - 生成器 splat：`(*(()^3))` = `(A,B,C)`（组变元组 + fresh 声明提升）
+- 嵌套幂等、空 splat 无操作；**左操作数按来源括号分语义**：`*[...]^T` 分配（`*[A^T,B^T]`——集合，对标 `TyArray`）、`*(...)^T` 追加（`*(A,B,...,T)`——列表，对标 `TyTuple`）；**`*(A,B)^N` 幂把每个笛卡尔组合包回 splat**——`*(A,B)^2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]`；右 splat 链把组合摊平进容器——`A^*(*@u*)^2` = `A<u8,u8>`/`A<u8,u16>`/...（`A<@u*,@u*>` 的重复列表简写）；`*(A,B)^2` 单独作目标会摊平成重复（E0119）——元组 impl 用 `(A,B)^2`；**splat 只展开一层**——元组保持（`*((a,b),)` = 一个 `(a,b)` impl）、数组/嵌套 splat/生成器摊平；`*()^N` 保持 splat 形态供载体——`T^*()^2` = `<A,B>T<A,B>`；`#fill` 单元素推荐——写 `#name{body}` 而非 `#fill(name){body}`；`*const`/`*mut` 指针不受影响
 
 ### 分发传播与生成器修复
 
 - 数组（分发列表）在嵌套位置（元组元素/泛型实参/pow_cartesian 组合）按笛卡尔积分发——`(u8, [u16, u32])` → `(u8,u16)`/`(u8,u32)`；`Vec<[u8,u16]>` → `Vec<u8>`/`Vec<u16>`
-- 修复：`(T,).N` 克隆含生成器的 T（如 `(().3,).3`）时同名 fresh 声明重复 hoist → E0403；现同名 fresh 只声明一次（共享语义）
+- 修复：`(T,)^N` 克隆含生成器的 T（如 `(()^3,)^3`）时同名 fresh 声明重复 hoist → E0403；现同名 fresh 只声明一次（共享语义）
 
 ## 0.6.7 (2026-08-08)
 
@@ -119,7 +119,7 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
   把自身 fresh 参数按文档序重编号为 `_Param_0..N_BatchGen_`，`@N` 恒指
   *本 impl* 的第 N 个 fresh。这修复了单元漂移：`@0` 现可在跨 spec 与
   range 生成的 impl 中使用（此前计数器跨单元延续，后续单元 `@0` 报错）。
-  组合场景（如 `().3-().3`）下 `@0` 是生成类型中第一个出现的 fresh
+  组合场景（如 `()^3-()^3`）下 `@0` 是生成类型中第一个出现的 fresh
   （此前按声明顺序，与文档序不一致）；
 - `@N` 现可直接用于目标类型（`Box<@0>`）；blanket 包装的位置标记
   （`(u32, @0)`）走同一通道。
@@ -146,12 +146,12 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
 
 ## 0.6.6 (2026-08-07)
 
-### `(T).N` 分组剥离语义 + 数字渲染无后缀
+### `(T)^N` 分组剥离语义 + 数字渲染无后缀
 
-- **破坏性变更**：`(T).N` 此前（0.2.0 起）生成长度 N 的重复元组 `(T, T, ...)`；
-  现改为剥离分组等价 `T.N`（普通类型 `.N` 是 const 泛型实参：`(W).2 = W<2>`，
-  其中 `W` 为带 const 泛型的类型）。依赖 `(T).N` 生成元组的升级用户须改用
-  `(T,).N`；
+- **破坏性变更**：`(T)^N` 此前（0.2.0 起）生成长度 N 的重复元组 `(T, T, ...)`；
+  现改为剥离分组等价 `T^N`（普通类型 `^N` 是 const 泛型实参：`(W).2 = W<2>`，
+  其中 `W` 为带 const 泛型的类型）。依赖 `(T)^N` 生成元组的升级用户须改用
+  `(T,)^N`；
 - `(<T>)` 是错误语法（`(` 后 `<` 不是合法类型）；
 - 数字/范围渲染不带 `usize` 后缀（`W<2>` 而非 `W<2usize>`、`[u8; 3]` 而非
   `[u8; 3usize]`）。
@@ -277,9 +277,9 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
 
 ### 修正文档
 
-- README（中文 + 英文）头部示例：`().4` 的展开注释错误——`().N` 是**单个** N 元组
-  （`().4` → 单个 `(A, B, C, D)`），原注释误写为 4 个不同长度的 impl；长度范围
-  应使用 `().1..=4`。仅修正注释，无行为变化。
+- README（中文 + 英文）头部示例：`()^4` 的展开注释错误——`()^N` 是**单个** N 元组
+  （`()^4` → 单个 `(A, B, C, D)`），原注释误写为 4 个不同长度的 impl；长度范围
+  应使用 `()^1..=4`。仅修正注释，无行为变化。
 ## 0.6.2 (2026-08-05)
 
 ### 基于 span 的诊断
@@ -365,7 +365,7 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
   `@Cow`（`Cow<'_>` + 固有约束打包）；
 - **blanket 包装约束谓词**：`{Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}`
   ——解决 deref target ≠ T 的包装（`Cow` 的 deref target 是 `T::Owned`），
-  `@0` 指目标泛型；普通 where 谓词中 `@N` 为通用位置引用（元组\n  `().2 where{@0: Clone}` 等）；「`<>` 只留名字、约束全进 where」后约束合并 =
+  `@0` 指目标泛型；普通 where 谓词中 `@N` 为通用位置引用（元组\n  `()^2 where{@0: Clone}` 等）；「`<>` 只留名字、约束全进 where」后约束合并 =
   并列谓词（零分析）；普通 impl 的 `<T: Clone>` 写法保持兼容。
 
 ### 文档修正：`batch_trait!` 的指令边界明确化
@@ -392,7 +392,7 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
   宽度校验；`@u8..u128` = `[u8, u16, u32, u64, u128]`）；
 - **用户自定义**（仅 `batch_trait!`）：前导 `@name=值;` 段，后续段落跨
   trait 复用。值是**任意 token**（**懒展开**——原样入库，引用处拼接后递归
-  展开），可直接写 DSL 运算（`@wrapped=[Box,Rc].@num`）或链式引用其他常量
+  展开），可直接写 DSL 运算（`@wrapped=[Box,Rc]^@num`）或链式引用其他常量
   （`@chain=@wrapped`）；循环引用（`@a=@a`）与前向引用（`@a=@b` 定义在后）
   在定义处报错；
 - 未知 `@xxx`、范围端点非法、自定义与内置重名均 `compile_error!`。
@@ -404,8 +404,8 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
 （`impl<T: Trait> Trait for Box<T>` 等）。
 
 - **包装元素为任意类型表达式**：`&`/`&mut`/`Box`/`Rc`/`Arc`/自定义智能指针/
-  嵌套（`Box.Arc:2` → `Box<Arc<T>>`）/预填（`Cow<'_>` → `Cow<'_, T>`）；
-- **`:N` 深度标注**：委托体 `*` 数量 = N + 1（`Box.Arc:2` → `***self`），
+  嵌套（`Box^Arc:2` → `Box<Arc<T>>`）/预填（`Cow<'_>` → `Cow<'_, T>`）；
+- **`:N` 深度标注**：委托体 `*` 数量 = N + 1（`Box^Arc:2` → `***self`），
   默认 1——宏不猜包装内部 Deref 层数，嵌套须显式标注；
 - **泛型 trait 支持**（`trait Foo<X: Clone>`）：trait 形参照抄为 impl 泛型 +
   实参填参数名 + trait 级 where 谓词透传（`impl<X: Clone, T: Foo<X>>
@@ -502,7 +502,7 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
 ### 新特性
 
 - **`unsafe fn(...)` 类型**：`unsafe` 紧跟 `fn` 时修饰 fn 类型本身
-  （`unsafe fn(u32)->u32`、`unsafe fn.(A,B)-C`）；`unsafe X`（X 非 fn，并列）
+  （`unsafe fn(u32)->u32`、`unsafe fn^(A,B)-C`）；`unsafe X`（X 非 fn，并列）
   报错（忘写 `.` 的笔误）；裸 `unsafe` 后跟 `.`/`-` 仍是 unsafe impl 标记。
 - **开放扩展机制修复**：不认识的 `#name(args){body}` 展开为函数式宏调用
   `name!{(args){body} trait ...}`——把方法名列表、body 与整个 trait 交给
@@ -514,7 +514,7 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
 - **`#delegate` 参数转发加固**：解构模式参数（`(a, b)` / `_`）无法委托转发，
   此前被静默丢弃生成错误调用，现报 `compile_error!`（含 trait 名与方法名）。
 - **空范围诊断**：`().3..2` 等空范围此前静默生成零个 impl，现报错。
-- **尾随运算符静默吞段修复**：`A.`、`f32 Vec.-` 等尾随运算符此前整段静默
+- **尾随运算符静默吞段修复**：`A.`、`f32 Vec^-` 等尾随运算符此前整段静默
   消失（下游 E0599 定位模糊），现报 `compile_error!`。
 - **空操作数严格化**：`-A`（左空静默吞段）、`.A`（生成垃圾类型）、`,A`、
   `A,,B` 均报错；尾随逗号（`A,`）与 `()`/`[]` 真实 token 不受影响。
@@ -522,19 +522,19 @@ binding（`Item = u32`）与 bound（`T: Clone`）只属 trait 路径（`Conv<It
 
 ### 行为约束：组合展开数量上限
 
-`.N` / 笛卡尔积 / 范围批量等展开超过 1024 产物（如 `().100000`、
-`[A,B].[C,D].[E,F]`）报 `compile_error!`，防止误写挂死编译。
+`^N` / 笛卡尔积 / 范围批量等展开超过 1024 产物（如 `().100000`、
+`[A,B]^[C,D]^[E,F]`）报 `compile_error!`，防止误写挂死编译。
 
 ## 0.5.2 (2026-08-01)
 
 ### 新特性：数组/切片 builder
 
-- `[].T` → `[T]`（空基座包出切片）
-- `[T].N` → `[T; N]`（定长数组；`N` 可为数字字面量、const 泛型标识符、范围或列表）
+- `[]^T` → `[T]`（空基座包出切片）
+- `[T]^N` → `[T; N]`（定长数组；`N` 可为数字字面量、const 泛型标识符、范围或列表）
 - `<const N: usize> []-X-N` → `[X; N]`：`[]` 作 `-` 累加链基座，把整个类型矩阵
   包进 const 泛型定长数组
-- `().N` 的 fresh 泛型元组作为泛型实参/数组元素时自动外提
-  （修复 `Box.().N` 与矩阵嵌入的既有 bug）
+- `()^N` 的 fresh 泛型元组作为泛型实参/数组元素时自动外提
+  （修复 `Box^()^N` 与矩阵嵌入的既有 bug）
 
 ## 0.5.1 (2026-07-31)
 
@@ -596,36 +596,36 @@ v0.3.0 是从零开始的完全重写。公开 API 和 DSL 语法与 v0.2.x 保�
 - `.`（右结合）/ `-`（左结合）运算符：泛型应用、类型组合
 - `[A, B, C]` 并列列表 + `{ body }` 独立/共享实现体合并
 - `<T: Clone, Item=V>` 泛型参数与关联类型绑定
-- `().N` 元组生成 + `(<Bound>).N` 带约束元组 + `(T1,T2).N` 笛卡尔积 + 范围语法
+- `()^N` 元组生成 + `(<Bound>)^N` 带约束元组 + `(T1,T2)^N` 笛卡尔积 + 范围语法
 - `&` / `&mut` / `*const` / `*mut` / `fn` / `self` / `unsafe` / `#[attr]` 前缀修饰符
 - `fn(A,B)->C` 函数类型
-- `HashMap<K>.V` 预填泛型追加
-- `unsafe.T` 单条 unsafe + `unsafe trait` 自动 unsafe
+- `HashMap<K>^V` 预填泛型追加
+- `unsafe^T` 单条 unsafe + `unsafe trait` 自动 unsafe
 - `compile_error!` 错误输出（不 panic、不 ICE）
 
 ### 修复（相对于 v0.2.x）
 
 - `batch_trait!` 中 `fn(i32) -> bool` 等含 `->` 的 spec 不再误断段落边界
-- `().0` 正确生成空元组 `()`
+- `()^0` 正确生成空元组 `()`
 
 ## 0.2.2 (2026-07-20)
 
 ### 修复
 
-- `fn.i32` 正确生成 `fn(i32)` 而非 `fn i32`
-- 所有工具函数统一排除 `->` 中的 `>`（`HashMap.<u32>-String` 等含 `->` 的
+- `fn^i32` 正确生成 `fn(i32)` 而非 `fn i32`
+- 所有工具函数统一排除 `->` 中的 `>`（`HashMap^<u32>-String` 等含 `->` 的
   类型不再误判尖括号）
 
 ## 0.2.1 (2026-07-20)
 
 ### 修复
 
-- **优先级**：`HashMap.K-V` 现在正确解析为 `HashMap<K, V>`（此前被解析为
-  `HashMap<K<V>>`）。注意：`Box.Vec-u32` 仍是错误写法，应写 `Box.Vec.u32`
-- `HashMap.<u32>-String` 中 `-String` 不再被静默丢弃
-- `unsafe.#[attr].T` 不再报"属性 . 的内部错误"
-- `fn.(u32,i32)-usize` 正确生成 `fn(u32,i32)->usize`（此前返回类型被当参数追加）
-- 嵌套 `fn.(u32,i32).i64-usize` 不再丢失 `Fn` 前缀
+- **优先级**：`HashMap^K-V` 现在正确解析为 `HashMap<K, V>`（此前被解析为
+  `HashMap<K<V>>`）。注意：`Box^Vec-u32` 仍是错误写法，应写 `Box^Vec^u32`
+- `HashMap^<u32>-String` 中 `-String` 不再被静默丢弃
+- `unsafe^#[attr]^T` 不再报"属性 . 的内部错误"
+- `fn^(u32,i32)-usize` 正确生成 `fn(u32,i32)->usize`（此前返回类型被当参数追加）
+- 嵌套 `fn^(u32,i32)^i64-usize` 不再丢失 `Fn` 前缀
 
 ## 0.2.0 (2026-07-19)
 
@@ -634,19 +634,19 @@ v0.3.0 是从零开始的完全重写。公开 API 和 DSL 语法与 v0.2.x 保�
 - **关联类型简洁写法**：`TraitName<AssocType=value>`（支持多绑定与复杂类型，
   可与 `.`/`-`/unsafe 组合）
 - **独立/共享 body 合并**：`[A{bodyA}, B{bodyB}]{shared}`（支持多层嵌套）
-- **元组生成规则修改**：`().N` 生成带 N 个泛型参数的元组；`(T).N` 生成长度
-  N 的重复元组；`(T1,T2).N` 笛卡尔积；范围语法 `().M..N` / `().M..=N`
-- **`*const`/`*mut` 指针**：`*const.T` → `*const T`，支持链式
-- **引用修饰符特殊行为**：`&.A.B` → `&A<B>`（先绑定再应用）
-- **fn 关键字**：`fn.(A,B)` 创建、`fn(A,B).T` 追加返回类型、`fn-(A,B).N` 组合
-- **`#[...]` 属性**：`#[attr].T` 在 impl 块前添加属性
+- **元组生成规则修改**：`()^N` 生成带 N 个泛型参数的元组；`(T)^N` 生成长度
+  N 的重复元组；`(T1,T2)^N` 笛卡尔积；范围语法 `()^M..N` / `()^M..=N`
+- **`*const`/`*mut` 指针**：`*const^T` → `*const T`，支持链式
+- **引用修饰符特殊行为**：`&^A^B` → `&A<B>`（先绑定再应用）
+- **fn 关键字**：`fn^(A,B)` 创建、`fn(A,B)^T` 追加返回类型、`fn-(A,B)^N` 组合
+- **`#[...]` 属性**：`#[attr]^T` 在 impl 块前添加属性
 
 ## 0.1.1 (2026-07-19)
 
 ### 新功能：预填泛型追加
 
-- `A<B>.C` → `A<B, C>`（容器带预填泛型时 `.` 追加参数而非生成 `A<B><C>`）
-- `[Box, Cow<'_>].T` → `Box<T>, Cow<'_, T>`（列表支持）
+- `A<B>^C` → `A<B, C>`（容器带预填泛型时 `.` 追加参数而非生成 `A<B><C>`）
+- `[Box, Cow<'_>]^T` → `Box<T>, Cow<'_, T>`（列表支持）
 - `-` 运算符自动受益：`HashMap-u32-String` → `HashMap<u32, String>`
 
 ## 0.1.0 (2026-07-19)
@@ -655,9 +655,9 @@ v0.3.0 是从零开始的完全重写。公开 API 和 DSL 语法与 v0.2.x 保�
 
 - `#[batch_impl(...)]` 属性宏 + `batch_trait!(...)` 函数式宏
 - `.`（右结合）/ `-`（左结合）运算符：泛型应用
-- 元组生成：`().N`、`(<Bound>).N`、`(T1,T2).N` 笛卡尔积、`().M..N` 范围
+- 元组生成：`()^N`、`(<Bound>)^N`、`(T1,T2)^N` 笛卡尔积、`()^M..N` 范围
 - 泛型支持：impl 泛型（含 const）、trait 泛型、生命周期、泛型继承
-- `unsafe.T` / `unsafe trait` / `batch_trait!(unsafe ...)` 
+- `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)` 
 - 中文错误提示，`compile_error!` 而非 panic
 
 

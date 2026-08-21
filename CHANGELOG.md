@@ -41,13 +41,13 @@
 - **Style groundwork**: `rustfmt.toml` drops the width caps (`max_width` / `fn_call_width` / `struct_lit_width` / `struct_variant_width`) and returns to the fixed four-line config; the whole crate is reformatted accordingly
 - **Docs**: `examples/simplify.rs` comments translated from Chinese to English (DSL content untouched); `examples/quickstart.rs` comments translated too; `docs/architecture.md` testing-matrix numbers refreshed (dsl 167 tests split into `tests/features/` modules, ui 74 compile_fail fixtures)
 - **Panic-proof guarantee hardened**: no production code path can panic anymore — malformed or adversarial DSL input always yields a diagnostic or an expansion (fixes a debug-build underflow on a single-token `#blanket` wrapper; Cartesian expansion now checks its size before allocating, so an oversized matrix reports the limit instead of exhausting memory)
-- **Flat-chain depth guards**: `.`/`-` operator chains, trailing `{...}`/`where{...}` attachment chains, and chained type segments (`<T><U>...X`) are capped at 128 levels — a few hundred chained units previously overflowed the compiler stack (STATUS_STACK_OVERFLOW); the parse layer now emits a targeted diagnostic instead (fuzz vocabulary extended with `@`/`.`/`'`/`+`/`?` and constant-system words for the constant/range/lifetime paths)
+- **Flat-chain depth guards**: `^`/`-` operator chains, trailing `{...}`/`where{...}` attachment chains, and chained type segments (`<T><U>...X`) are capped at 128 levels — a few hundred chained units previously overflowed the compiler stack (STATUS_STACK_OVERFLOW); the parse layer now emits a targeted diagnostic instead (fuzz vocabulary extended with `@`/`.`/`'`/`+`/`?` and constant-system words for the constant/range/lifetime paths)
 
 ## 0.7.2 (2026-08-14)
 
 - Diagnostics in user language: out-of-range / dangling `@N`/`@g_i` references no longer leak the reserved `_Param_*_BatchGen_` names — where predicates and target type / trait args report uniformly in user language (previously a dangling reference in a type position leaked the internal name as a raw rustc E0412)
-- **`batch_preview!`**: the DSL-aware expansion preview — wrap the exact `#[batch_impl(...)] trait` input and the preview reports every generated impl through the diagnostic channel (the real pipeline); preview-only guidance: a known 1-arity container rendered with 2+ args (`Box<Vec, u32>`) is the shape of a `.`/`-` associativity miswrite (`A.B-C` = `A-B-C`), with the nesting rewrite suggested (`Box.Vec.u32`); the compiler path never guesses
-- **Generator-splat declaration hoisting in trait args**: `Conv<*().2> X` now generates `impl<P0,P1> Conv<P0,P1> for X` (previously the declaration was dropped → raw rustc E0412 exposing the fresh names), the same rule as the generic-arg position; a generator in the generic-declaration position (`<*().3>` / `<*(().3)>`) is now a targeted error (the fresh declarations have no carrier) instead of rendering `impl <<P0,..> *(P0,..)>` garbage
+- **`batch_preview!`**: the DSL-aware expansion preview — wrap the exact `#[batch_impl(...)] trait` input and the preview reports every generated impl through the diagnostic channel (the real pipeline); preview-only guidance: a known 1-arity container rendered with 2+ args (`Box<Vec, u32>`) is the shape of a `.`/`-` associativity miswrite (`A^B-C` = `A-B-C`), with the nesting rewrite suggested (`Box^Vec^u32`); the compiler path never guesses
+- **Generator-splat declaration hoisting in trait args**: `Conv<*()^2> X` now generates `impl<P0,P1> Conv<P0,P1> for X` (previously the declaration was dropped → raw rustc E0412 exposing the fresh names), the same rule as the generic-arg position; a generator in the generic-declaration position (`<*().3>` / `<*(().3)>`) is now a targeted error (the fresh declarations have no carrier) instead of rendering `impl <<P0,..> *(P0,..)>` garbage
 - **`#blanket` by-value receiver fix + doc note**: `fn consume(self)` forwards with one deref fewer — a by-value `self` IS the wrapper, previously the uniform `**self` dereferenced the inner type one layer too deep (E0614); `(*self).consume()` now type-checks for movable wrappers like `Box` (moving out of shared wrappers like `&`/`Rc` still cannot — the generated impls carry a `#[doc]` note: prefer `@all_ref_methods` or hand-write `#name{...}`; proc macros have no stable warning channel E0658, the doc channel costs nothing at compile time)
 - **Open-extension protocol convergence**: the top-level `{! m!{...}}` form is the only recommended shape, the in-impl `T {m!{...}}` (no `!`, associated items) is deprecated and kept for compatibility — no warning channel exists, so the convergence lives in the docs (tutorial §7.5 / crate docs / architecture)
 - **Syntax-freeze commitment**: the semantics of every existing token are final (new README section + architecture extension guidelines + tutorial §6.4 power-user tier) — future releases only add, refine diagnostics, and polish docs; changing existing semantics is a deliberate breaking release
@@ -63,12 +63,12 @@
 
 A splat (`*(...)` / `*[...]`) now stays a whole unit through parsing and
 apply; it flattens into its elements only when the impl is generated. Normal
-cases are unchanged (`T.*(A,B)` → `T<A,B>`, `[a, *[b,c]]` = `[a,b,c]`), and
+cases are unchanged (`T^*(A,B)` → `T<A,B>`, `[a, *[b,c]]` = `[a,b,c]`), and
 two previously-broken combinations now work:
 
-- `Conv<bool> Pair.*(A, B)` → `impl Conv<bool> for Pair<A, B>` (was a
+- `Conv<bool> Pair^*(A, B)` → `impl Conv<bool> for Pair<A, B>` (was a
   misparse to `Pair<A<B>>`);
-- `Pair.*(A, B) #method{...}` (right splat followed by a directive body)
+- `Pair^*(A, B) #method{...}` (right splat followed by a directive body)
   → `Pair<A, B>` (was `Pair<*const (A, B)>`).
 
 ### Splat survival: array elements keep their splat until consumption
@@ -78,16 +78,16 @@ a splat lives until a right operand applies or codegen flattens it. This
 makes the splat pow drive repeated positions:
 
 ```rust
-#[batch_impl(Pair.[*(SplatA),*(SplatB)].2)]
+#[batch_impl(Pair^[*(SplatA),*(SplatB)]^2)]
 // → impl Pair<SplatA, SplatA> + impl Pair<SplatB, SplatB>
 ```
 
-With a right operand, a kept splat follows its own semantics: `[A,B,C].D`
-= `[A.D, B.D, C.D]` (bare list distributes), `[A,*(B,C)].D` =
-`[A.D, *(B,C,D)]` = `[A.D, B, C, D]` (tuple splat appends),
-`[A,*[B,C]].D` = `[A.D, *[B.D,C.D]]` = `[A.D, B.D, C.D]` (array splat
+With a right operand, a kept splat follows its own semantics: `[A,B,C]^D`
+= `[A^D, B^D, C^D]` (bare list distributes), `[A,*(B,C)]^D` =
+`[A^D, *(B,C,D)]` = `[A^D, B, C, D]` (tuple splat appends),
+`[A,*[B,C]]^D` = `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]` (array splat
 distributes). Without one, array targets flatten as before
-(`[a, *[b,c]]` = `[a,b,c]`). Use a bare list (`[A,B,C].D`) for plain
+(`[a, *[b,c]]` = `[a,b,c]`). Use a bare list (`[A,B,C]^D`) for plain
 distribution.
 
 ### Trait generic args: concrete args substitute into directive bodies
@@ -112,9 +112,9 @@ with `bool`.
 
 ### Splat power inside generic args
 
-`Frac<*(*@u*).2>` now distributes the pow's Cartesian result into one impl
+`Frac<*(*@u*)^2>` now distributes the pow's Cartesian result into one impl
 per pair — 36 total, equivalent to the right-splat chain
-`Frac.*(*@u*).2`. Array-arg distribution has a single authority: literals
+`Frac^*(*@u*)^2`. Array-arg distribution has a single authority: literals
 (`T<[A,B]>`), constants (`T<@u*>`) and pow results all reach params as a
 `TyArray` and distribute in `expand`.
 
@@ -129,14 +129,14 @@ rendering invalid code.
 ### Splat: `*` prefix flattening
 
 - `*` **flattens a container / generator** into the enclosing list (only before `[]`/`()`):
-  - In-list splicing: `[a, *[d,e,f]]` = `[a,d,e,f]`; `.`/`-` right-operand flat append: `(a,b,c).*(d,e,f)` = `(a,b,c,d,e,f)` (concat); `Vec.*(a,b)` = `Vec<a,b>` (multi-arg)
-  - Generator splat: `(*(().3))` = `(A,B,C)` (group → tuple + fresh decl hoisted)
-- Nested splats idempotent, empty no-op; **left-operand semantics by source bracket**: `*[...].T` distributes (`*[A.T,B.T]` — set, mirrors `TyArray`), `*(...).T` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`); **`*(A,B).N` pow re-wraps each Cartesian combo into a splat** — `*(A,B).2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]`; a right-splat chain flattens combos into a container — `A.*(*@u*).2` = `A<u8,u8>`/`A<u8,u16>`/... (repeat-list shorthand for `A<@u*,@u*>`); a lone `*(A,B).2` target flattens to duplicates (E0119) — use `(A,B).2` for tuple impls; **splat expands ONE layer** — tuples stay intact (`*((a,b),)` = one `(a,b)` impl), arrays / nested splats / generators flatten; `*().N` keeps its splat shape for a carrier — `T.*().2` = `<A,B>T<A,B>`; `#fill` single-item preference — write `#name{body}` instead of `#fill(name){body}`; `*const`/`*mut` pointers unaffected
+  - In-list splicing: `[a, *[d,e,f]]` = `[a,d,e,f]`; `^`/`-` right-operand flat append: `(a,b,c)^*(d,e,f)` = `(a,b,c,d,e,f)` (concat); `Vec^*(a,b)` = `Vec<a,b>` (multi-arg)
+  - Generator splat: `(*(()^3))` = `(A,B,C)` (group → tuple + fresh decl hoisted)
+- Nested splats idempotent, empty no-op; **left-operand semantics by source bracket**: `*[...]^T` distributes (`*[A^T,B^T]` — set, mirrors `TyArray`), `*(...)^T` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`); **`*(A,B)^N` pow re-wraps each Cartesian combo into a splat** — `*(A,B)^2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]`; a right-splat chain flattens combos into a container — `A^*(*@u*)^2` = `A<u8,u8>`/`A<u8,u16>`/... (repeat-list shorthand for `A<@u*,@u*>`); a lone `*(A,B)^2` target flattens to duplicates (E0119) — use `(A,B)^2` for tuple impls; **splat expands ONE layer** — tuples stay intact (`*((a,b),)` = one `(a,b)` impl), arrays / nested splats / generators flatten; `*()^N` keeps its splat shape for a carrier — `T^*()^2` = `<A,B>T<A,B>`; `#fill` single-item preference — write `#name{body}` instead of `#fill(name){body}`; `*const`/`*mut` pointers unaffected
 
 ### Distribution propagation & generator fixes
 
 - Arrays (dispatch lists) in nested positions (tuple elements / generic args / pow_cartesian combos) distribute by Cartesian product — `(u8, [u16, u32])` → `(u8,u16)`/`(u8,u32)`; `Vec<[u8,u16]>` → `Vec<u8>`/`Vec<u16>`
-- Fix: `(T,).N` cloning a generator T (e.g. `(().3,).3`) hoisted duplicate fresh declarations → E0403; same-named fresh now declared once (shared semantics)
+- Fix: `(T,)^N` cloning a generator T (e.g. `(()^3,)^3`) hoisted duplicate fresh declarations → E0403; same-named fresh now declared once (shared semantics)
 
 ## 0.6.7 (2026-08-08)
 
@@ -147,7 +147,7 @@ rendering invalid code.
   order, so `@N` always refers to the N-th fresh of *that* impl. This fixes
   unit drift: `@0` now works across specs and range-generated impls
   (previously the counter continued across them and `@0` errored on later
-  units). In combination scenarios (e.g. `().3-().3`) `@0` is the first fresh
+  units). In combination scenarios (e.g. `()^3-()^3`) `@0` is the first fresh
   as it appears in the generated type (previously the declaration-order
   first, which differed from the document order);
 - `@N` is usable in the target type itself (`Box<@0>`); blanket wrapper
@@ -177,13 +177,13 @@ rendering invalid code.
 
 ## 0.6.6 (2026-08-07)
 
-### `(T).N` group-strip semantics + unsuffixed number rendering
+### `(T)^N` group-strip semantics + unsuffixed number rendering
 
-- **Breaking**: `(T).N` previously (since 0.2.0) generated a length-N
-  repeated tuple `(T, T, ...)`; it now strips the group and equals `T.N`
-  (for a plain type `.N` is a const-generic argument: `(W).2 = W<2>`,
+- **Breaking**: `(T)^N` previously (since 0.2.0) generated a length-N
+  repeated tuple `(T, T, ...)`; it now strips the group and equals `T^N`
+  (for a plain type `^N` is a const-generic argument: `(W)^2 = W<2>`,
   where `W` is a type with a const generic). Upgrade users who relied on
-  `(T).N` for tuple generation must switch to `(T,).N`;
+  `(T)^N` for tuple generation must switch to `(T,)^N`;
 - `(<T>)` is invalid syntax (a `<` right after `(` is not a legal type);
 - Numbers/ranges render without a `usize` suffix (`W<2>` instead of
   `W<2usize>`, `[u8; 3]` instead of `[u8; 3usize]`).
@@ -211,7 +211,7 @@ rendering invalid code.
 - Depth guard moved before Group recursion; type-ascription patterns
   (`x: u32`) fall back to named delegation;
 - `#blanket` wrappers support an `@0` position marker: with `@0` the target
-  T can sit anywhere (`(u32, @0)` → `(u32, T)`); without it, `part.T`
+  T can sit anywhere (`(u32, @0)` → `(u32, T)`); without it, `part^T`
   appends T last (unchanged);
 - Six empty placeholder macros (batch_impl_delegate / fill / blanket /
   name / open / consts) serve as directive documentation entries — doc-only
@@ -323,9 +323,9 @@ rendering invalid code.
 
 ### Doc fix
 
-- README (EN + zh-CN) header example: the `().4` expansion annotation was wrong —
-  `().N` is a **single** N-tuple (`().4` → one `impl<A, B, C, D>`); length ranges
-  use `().1..=4`. Annotation-only fix, no behavior change.
+- README (EN + zh-CN) header example: the `()^4` expansion annotation was wrong —
+  `()^N` is a **single** N-tuple (`()^4` → one `impl<A, B, C, D>`); length ranges
+  use `()^1..=4`. Annotation-only fix, no behavior change.
 
 ## 0.6.2 (2026-08-05)
 
@@ -418,7 +418,7 @@ rendering invalid code.
 - **Blanket wrapper constraint predicates**: `{Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}`
   — solves wrappers whose deref target ≠ T (`Cow`'s deref target is `T::Owned`),
   with `@0` referring to the target generic; in ordinary where predicates, `@N` is a generic positional reference
-  (e.g. tuples `().2 where{@0: Clone}`); with "`<>` keeps only names, constraints all go into where",
+  (e.g. tuples `()^2 where{@0: Clone}`); with "`<>` keeps only names, constraints all go into where",
   constraint merging = juxtaposed predicates (zero analysis); the `<T: Clone>` form in ordinary impls remains compatible.
 
 ### Docs fixed: `batch_trait!` directive boundary clarified
@@ -445,7 +445,7 @@ rendering invalid code.
 - **User-defined** (only in `batch_trait!`): a leading `@name=value;` section, reusable across
   subsequent sections and traits. Values are **arbitrary tokens** (**lazy expansion** — stored as-is,
   recursively expanded after splicing at the use site), so DSL operations can be written directly
-  (`@wrapped=[Box,Rc].@num`) or other constants chained (`@chain=@wrapped`); circular references (`@a=@a`)
+  (`@wrapped=[Box,Rc]^@num`) or other constants chained (`@chain=@wrapped`); circular references (`@a=@a`)
   and forward references (`@a=@b` defined later) error at the definition site;
 - Unknown `@xxx`, illegal range endpoints, and custom/built-in name clashes all raise `compile_error!`.
 
@@ -456,8 +456,8 @@ wrapper matrix or the delegation body. First implement the trait for the inner t
 wrappers (`impl<T: Trait> Trait for Box<T>` and so on).
 
 - **Wrapper elements are arbitrary type expressions**: `&`/`&mut`/`Box`/`Rc`/`Arc`/custom smart pointers/
-  nesting (`Box.Arc:2` → `Box<Arc<T>>`)/pre-filled (`Cow<'_>` → `Cow<'_, T>`);
-- **`:N` depth annotation**: the number of `*` in the delegation body = N + 1 (`Box.Arc:2` → `***self`),
+  nesting (`Box^Arc:2` → `Box<Arc<T>>`)/pre-filled (`Cow<'_>` → `Cow<'_, T>`);
+- **`:N` depth annotation**: the number of `*` in the delegation body = N + 1 (`Box^Arc:2` → `***self`),
   defaulting to 1 — the macro does not guess how many Deref levels a wrapper has internally, so nesting must be annotated explicitly;
 - **Generic trait support** (`trait Foo<X: Clone>`): the trait's formal parameters are copied verbatim as
   impl generics, with parameter names as actuals and trait-level where predicates passed through
@@ -555,8 +555,8 @@ taking priority. The `#except(keep){exclude}` double-bracket form is superseded 
 ### New Features
 
 - **`unsafe fn(...)` types**: `unsafe` immediately followed by `fn` decorates the fn type itself
-  (`unsafe fn(u32)->u32`, `unsafe fn.(A,B)-C`); `unsafe X` (X not a fn, juxtaposed) is an error
-  (the typo of forgetting `.`); bare `unsafe` followed by `.`/`-` is still the unsafe impl marker.
+  (`unsafe fn(u32)->u32`, `unsafe fn^(A,B)-C`); `unsafe X` (X not a fn, juxtaposed) is an error
+  (the typo of forgetting `^`); bare `unsafe` followed by `^`/`-` is still the unsafe impl marker.
 - **Open extension mechanism fixed**: an unrecognized `#name(args){body}` expands to a function-like macro
   call `name!{(args){body} trait ...}` — the method name list, body, and the whole trait are handed to the
   user's same-named macro ("a user-customized `#fill`"; the previous attribute-delegation form always failed to compile).
@@ -568,7 +568,7 @@ taking priority. The `#except(keep){exclude}` double-bracket form is superseded 
   forwarded for delegation; previously silently dropped to produce a wrong call, now raising `compile_error!`
   (including the trait name and method name).
 - **Empty range diagnostics**: empty ranges like `().3..2` used to silently generate zero impls, now error.
-- **Trailing-operator segment swallowing fixed**: trailing operators such as `A.`, `f32 Vec.-` used to
+- **Trailing-operator segment swallowing fixed**: trailing operators such as `A.`, `f32 Vec^-` used to
   silently disappear wholesale (downstream E0599 with confusing locations), now raising `compile_error!`.
 - **Empty operand strictness**: `-A` (empty left silently swallows the segment), `.A` (generates garbage types), `,A`,
   `A,,B` all error; trailing commas (`A,`) and real `()`/`[]` tokens are unaffected.
@@ -577,19 +577,19 @@ taking priority. The `#except(keep){exclude}` double-bracket form is superseded 
 
 ### Behavior constraint: combined expansion count cap
 
-Expansions from `.N` / Cartesian products / range batching exceeding 1024 products (e.g. `().100000`,
-`[A,B].[C,D].[E,F]`) raise `compile_error!`, preventing typos from hanging the compilation.
+Expansions from `^N` / Cartesian products / range batching exceeding 1024 products (e.g. `()^100000`,
+`[A,B]^[C,D]^[E,F]`) raise `compile_error!`, preventing typos from hanging the compilation.
 
 ## 0.5.2 (2026-08-01)
 
 ### New Feature: array/slice builder
 
-- `[].T` → `[T]` (empty seed wrapping a slice)
-- `[T].N` → `[T; N]` (fixed-length array; `N` can be a numeric literal, a const-generic identifier, a range, or a list)
+- `[]^T` → `[T]` (empty seed wrapping a slice)
+- `[T]^N` → `[T; N]` (fixed-length array; `N` can be a numeric literal, a const-generic identifier, a range, or a list)
 - `<const N: usize> []-X-N` → `[X; N]`: `[]` serves as the `-` accumulation-chain seed, wrapping the whole type
   matrix into a const-generic fixed-length array
-- Fresh generic tuples from `().N` are automatically hoisted out when used as generic arguments/array elements
-  (fixes the pre-existing bugs in `Box.().N` and matrix embedding)
+- Fresh generic tuples from `()^N` are automatically hoisted out when used as generic arguments/array elements
+  (fixes the pre-existing bugs in `Box^()^N` and matrix embedding)
 
 ## 0.5.1 (2026-07-31)
 
@@ -648,38 +648,39 @@ v0.3.0 is a complete rewrite from scratch. The public API and DSL syntax stay co
 Feature list:
 
 - `#[batch_impl]` attribute macro + `batch_trait!` function-like macro
-- `.` (right-associative) / `-` (left-associative) operators: generic application, type composition
+- `^` (right-associative) / `-` (left-associative) operators: generic application, type composition
 - `[A, B, C]` juxtaposition lists + `{ body }` standalone/shared implementation body merging
 - `<T: Clone, Item=V>` generic parameters and associated type bindings
-- `().N` tuple generation + `(<Bound>).N` constrained tuples + `(T1,T2).N` Cartesian product + range syntax
+- `()^N` tuple generation + `(<Bound>)^N` constrained tuples + `(T1,T2)^N` Cartesian product + range syntax
 - `&` / `&mut` / `*const` / `*mut` / `fn` / `self` / `unsafe` / `#[attr]` prefix modifiers
 - `fn(A,B)->C` function types
-- `HashMap<K>.V` pre-filled generic appending
-- `unsafe.T` per-item unsafe + `unsafe trait` automatically unsafe
+- `HashMap<K>^V` pre-filled generic appending
+- `unsafe^T` per-item unsafe + `unsafe trait` automatically unsafe
 - `compile_error!` error output (no panics, no ICEs)
 
 ### Fixed (relative to v0.2.x)
 
 - Specs containing `->` such as `fn(i32) -> bool` in `batch_trait!` no longer incorrectly break segment boundaries
-- `().0` correctly generates the empty tuple `()`
+- `()^0` correctly generates the empty tuple `()`
 
 ## 0.2.2 (2026-07-20)
 
 ### Fixed
 
-- `fn.i32` correctly generates `fn(i32)` instead of `fn i32`
-- All utility functions uniformly exclude the `>` inside `->` (types containing `->` like `HashMap.<u32>-String` are no longer misjudged as angle brackets)
+- `fn^i32` correctly generates `fn(i32)` instead of `fn i32`
+- All utility functions uniformly exclude the `>` inside `->` (types containing `->` like `HashMap^<u32>-String` are no longer misjudged as angle brackets)
 
 ## 0.2.1 (2026-07-20)
 
 ### Fixed
 
-- **Precedence**: `HashMap.K-V` now parses correctly as `HashMap<K, V>` (previously parsed as
-  `HashMap<K<V>>`). Note: `Box.Vec-u32` is still a wrong form; write `Box.Vec.u32`
-- `-String` in `HashMap.<u32>-String` is no longer silently dropped
-- `unsafe.#[attr].T` no longer reports an "internal error with attribute ."
-- `fn.(u32,i32)-usize` correctly generates `fn(u32,i32)->usize` (previously the return type was appended as an argument)
-- Nested `fn.(u32,i32).i64-usize` no longer loses the `Fn` prefix
+- **Precedence**: `HashMap^K-V` now parses correctly as `HashMap<K, V>` (previously parsed as
+  `HashMap<K<V>>`). Note: `Box^Vec-u32` is still a wrong form; write `Box^Vec^u32`
+- `-String` in `HashMap^<u32>-String` is no longer silently dropped
+- `unsafe^#[attr]^T` no longer reports an "internal error with attribute ^"
+- `fn^(u32,i32)-usize` correctly generates `fn(u32,i32)->usize` (previously the return type was appended as an argument)
+- Nested `fn^(u32,i32)^i64-usize` no longer loses the `Fn` prefix
+- Nested `fn^(u32,i32)^i64-usize` no longer loses the `Fn` prefix
 
 ## 0.2.0 (2026-07-19)
 
@@ -688,19 +689,19 @@ Feature list:
 - **Associated type shorthand**: `TraitName<AssocType=value>` (multiple bindings and complex types supported,
   combinable with `.`/`-`/unsafe)
 - **Standalone/shared body merging**: `[A{bodyA}, B{bodyB}]{shared}` (multi-level nesting supported)
-- **Tuple generation rule change**: `().N` generates a tuple with N generic parameters; `(T).N` generates a
-  repeated tuple of length N; `(T1,T2).N` is a Cartesian product; range syntax `().M..N` / `().M..=N`
-- **`*const`/`*mut` pointers**: `*const.T` → `*const T`, chainable
-- **Reference modifier special behavior**: `&.A.B` → `&A<B>` (bind first, then apply)
-- **fn keyword**: `fn.(A,B)` creates, `fn(A,B).T` appends a return type, `fn-(A,B).N` composes
-- **`#[...]` attributes**: `#[attr].T` adds the attribute before the impl block
+- **Tuple generation rule change**: `()^N` generates a tuple with N generic parameters; `(T)^N` generates a
+  repeated tuple of length N; `(T1,T2)^N` is a Cartesian product; range syntax `()^M..N` / `()^M..=N`
+- **`*const`/`*mut` pointers**: `*const^T` → `*const T`, chainable
+- **Reference modifier special behavior**: `&^A^B` → `&A<B>` (bind first, then apply)
+- **fn keyword**: `fn^(A,B)` creates, `fn(A,B)^T` appends a return type, `fn-(A,B)^N` composes
+- **`#[...]` attributes**: `#[attr]^T` adds the attribute before the impl block
 
 ## 0.1.1 (2026-07-19)
 
 ### New Feature: pre-filled generic appending
 
-- `A<B>.C` → `A<B, C>` (when the container has pre-filled generics, `.` appends arguments instead of producing `A<B><C>`)
-- `[Box, Cow<'_>].T` → `Box<T>, Cow<'_, T>` (list support)
+- `A<B>^C` → `A<B, C>` (when the container has pre-filled generics, `.` appends arguments instead of producing `A<B><C>`)
+- `[Box, Cow<'_>]^T` → `Box<T>, Cow<'_, T>` (list support)
 - The `-` operator benefits automatically: `HashMap-u32-String` → `HashMap<u32, String>`
 
 ## 0.1.0 (2026-07-19)
@@ -709,9 +710,9 @@ Feature list:
 
 - `#[batch_impl(...)]` attribute macro + `batch_trait!(...)` function-like macro
 - `.` (right-associative) / `-` (left-associative) operators: generic application
-- Tuple generation: `().N`, `(<Bound>).N`, `(T1,T2).N` Cartesian product, `().M..N` ranges
+- Tuple generation: `()^N`, `(<Bound>)^N`, `(T1,T2)^N` Cartesian product, `()^M..N` ranges
 - Generic support: impl generics (incl. const), trait generics, lifetimes, generic inheritance
-- `unsafe.T` / `unsafe trait` / `batch_trait!(unsafe ...)`
+- `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)`
 - Chinese-language error messages, `compile_error!` instead of panic
 
 

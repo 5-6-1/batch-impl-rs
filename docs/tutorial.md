@@ -71,22 +71,23 @@ Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 | `& u8`                     | `&u8` (chained modifiers)            |
 | `Tr u8`                    | `impl Tr for u8` (a bare trait name) |
 | `[Box, Vec] u32`           | `Box<u32>, Vec<u32>` (lists expand)  |
+| `HashMap<u8> String`       | `HashMap<u8, String>` (prefilled generics appended) |
+| `Box [u8, u16]`            | `Box<u8>, Box<u16>` (list distributes) |
+| `[Box, Vec] [u8, u16]`     | Cartesian product, 4 entries         |
 
-**`.` is the same operation with right-associative grouping** — use it when you want nesting instead of accumulation:
+**`.` is the same operation with right-associative grouping** — reach for it only when you want **nesting** instead of accumulation. Space accumulation puts arguments side by side (`Box Box u8` = `Box<Box, u8>` — a typo for most containers); `.` nesting composes them (`Box.Box u8` = `Box<Box<u8>>`):
 
 | Writing                    | Expansion                            |
 |----------------------------|--------------------------------------|
-| `Box.T`                    | `Box<T>`                             |
-| `Box.<X,Y>`                | `Box<X, Y>` (multi-param container)  |
-| `Box.Box.T`                | `Box<Box<T>>` (right-associative nesting) |
-| `HashMap<K>.V`             | `HashMap<K, V>` (prefilled generics appended) |
-| `&.Box.T`                  | `&Box<T>`                            |
+| `Box.Box u8`               | `Box<Box<u8>>` (right-associative nesting) |
+| `&.Box u8`                 | `&Box<u8>` (modifier over the nested type) |
 | `[Box, Vec].T`             | `Box<T>, Vec<T>`                     |
 | `Box.[T1, T2]`             | `Box<T1>, Box<T2>`                   |
-| `[Box, Vec].[T1, T2]`      | Cartesian product, 4 entries         |
 | `[HashMap<K>, Vec<K>].V`   | `HashMap<K, V>, Vec<K, V>`           |
 
-**The bare trait name** applies as the impl trait: `Tr u8` = `impl Tr for u8`, `Tr<A> u8` = `impl Tr<A> for u8`. Write `Tr <u8>` (a separate angle-group unit) for the **type** `Tr<u8>`.
+> **When to use which**: one container/modifier + one type — write them side by side (`Box u8`, `& u8`, `HashMap<u8> String`). When the type itself needs to be a composed type (`Box<Box<u8>>`, `&Box<u8>`), join the composition with `.` — the space would treat each part as a separate argument.
+
+**The bare trait name** applies as the impl trait: `Tr u8` = `impl Tr for u8`, `Tr<A> u8` = `impl Tr<A> for u8`. Write `Tr<u8>` for the **type** `Tr<u8>`.
 
 Precedence from low to high: `;` < `,` < space < `.`; `()` grouping sits above all operators.
 
@@ -97,9 +98,9 @@ Precedence from low to high: `;` < `,` < space < `.`; `()` grouping sits above a
 ```rust
 # use batch_impl::batch_impl;
 # use std::collections::HashMap;
-#[batch_impl(Box.Vec.u32, HashMap<u8>.String)]
+#[batch_impl(Box.Vec.u32, HashMap<u8> String)]
 trait T {}
-// → impl T for Box<Vec<u32>> {}
+// → impl T for Box<Vec<u32>> {}   ← `.` nesting: Box applied to Vec<u32>
 // → impl T for HashMap<u8, String> {}
 ```
 
@@ -165,10 +166,10 @@ The splat draws its intuition from Python's `*` unpacking — `[a, *b]` splices 
 | Python | batch-impl |
 |---|---|
 | `[a, *b]` | `[A, *[B, C]]` — splice a list into the outer list |
-| `f(*args)` | `T-*(A, B, C)` — unfold a generator into argument positions |
+| `f(*args)` | `T *(A, B, C)` — unfold a generator into argument positions |
 | one level of unpack | `*((a,b),)` = one `(a,b)` impl (tuples stay intact) |
 
-**Motivation**: `*` compresses a nested generator into a multi-arg container. Instead of hand-writing `T-[A,B,C]-[A,B,C]-[A,B,C]` (27 combos of nested lists), one line gives the same 27 impls:
+**Motivation**: `*` compresses a nested generator into a multi-arg container. Instead of hand-writing `T [A,B,C] [A,B,C] [A,B,C]` (27 combos of nested lists), one line gives the same 27 impls:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -197,15 +198,15 @@ trait U {}
 
 ### 4.2 Left operand: distribute vs append
 
-`[]` is a **set** and `()` is a **sequence** — splat just mirrors the source bracket, so `*[A,B].T` distributes (each element applies `T`, keeping set semantics) and `*(A,B).T` appends (keeping list semantics). This is not a new rule; it preserves the underlying container's behavior, and `TySplat::Array`/`TySplat::Tuple` mirror `TyArray`/`TyTuple`.
+`[]` is a **set** and `()` is a **sequence** — splat just mirrors the source bracket, so `*[A,B] T` distributes (each element applies `T`, keeping set semantics) and `*(A,B) T` appends (keeping list semantics). This is not a new rule; it preserves the underlying container's behavior, and `TySplat::Array`/`TySplat::Tuple` mirror `TyArray`/`TyTuple`.
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(*[Vec, Box].u8)]        // array splat distributes: each element .u8
+#[batch_impl(*[Vec, Box] u8)]        // array splat distributes: each element applies u8
 trait T1 {}
 // → impl T1 for Vec<u8> {} / Box<u8>
 
-#[batch_impl(*(Vec<u8>, Box<u8>).u16)]  // tuple splat appends: the right operand joins
+#[batch_impl(*(Vec<u8>, Box<u8>) u16)]  // tuple splat appends: the right operand joins
 trait T2 {}
 // → impl T2 for Vec<u8> {} / Box<u8> / u16（append）
 ```
@@ -510,7 +511,7 @@ trait MyLen { fn d_len(&self) -> usize; }
 
 ### 7.4 `#blanket(@all_methods){wrapper matrix}` — blanket delegation
 
-Wraps any type (smart pointers included); a `:N` suffix marks the deref depth:
+Wraps any type (smart pointers included); wrappers are comma-separated, and a `:N` suffix marks the deref depth:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -518,7 +519,14 @@ Wraps any type (smart pointers included); a `:N` suffix marks the deref depth:
 trait NumOps { fn inc(&mut self); }
 impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
 // → impl NumOps for Box<u32> { fn inc(&mut self) { (**self).inc() } }（delegates to the wrapped u32）
+
+#[batch_impl(#blanket(@all_methods){&, Box})]
+trait Len { fn len(&self) -> usize; }
+// → impl<T: Len> Len for &T     { fn len(&self) -> usize { (*self).len() } }
+// → impl<T: Len> Len for Box<T> { fn len(&self) -> usize { (**self).len() } }
 ```
+
+> **`:N` deref depth** — how many layers the delegation dereferences to reach the inner `T`. Default **1** for single wrappers (`&`, `Box`, `Rc`): the body derefs N+1 times (`&`/`Box` → `**self`). A `:N` of 2 means the wrapper itself is nested two deep — `Box.Arc:2` = `Box<Arc<T>>`, delegation `***self`. Write `:2` only for nested wrappers; single wrappers need nothing.
 
 > **By-value receivers**: `fn consume(self)` forwards as `(*self).consume()` — a by-value `self` IS the wrapper, one deref fewer (`&self` methods use `(**self)`: through the reference, then the wrapper). Moving out cannot type-check for shared wrappers (`&`/`Rc`); the generated impls carry a `#[doc]` note (proc macros have no stable warning channel, E0658). Skip such methods with `@all_ref_methods` (the trait default stays) or hand-write `#name{...}`.
 
@@ -577,13 +585,12 @@ Trait-level `where` clauses inherit into the impl; renaming/composite predicates
 
 ### 8.4 The `impl{...}` shape templates (0.8.0)
 
-A third trailing attachment beside `where{...}` and `{body}` — the Self-part
-shape template. The three kinds attach in **any order**. The block holds a
-**standard Rust type** (DSL operators are rejected): it is matched against
-the leaf target type **position by position**, and an ident that **equals**
-the target's ident at that position is a literal (kept as-is), while a
-**different** one is a binding slot — rewritten in the target type, the where
-predicates and the body. One body, adapted to every leaf:
+**The idea in one sentence: pattern matching + text substitution.** You write
+one `impl{...}` block holding a **prototype type**, and the macro *matches*
+it against each leaf target type — positions that **match** (same ident) stay
+as-is, positions that **differ** become named slots, and those slot names are
+*substituted* into the body (and where predicates). One body, adapted to
+every leaf:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -594,14 +601,25 @@ trait Make { fn mk(x: u32) -> Self; }
 // → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
 ```
 
-- `impl{T}` + `i32` → `T := i32` (a bare ident template binds the whole leaf);
-- `impl{Rc<T>}` + `Rc<i32>` → `T := i32` (`Rc` is equal → literal);
-- `impl{Rc<T>}` + `Box<i32>` → `Rc := Box, T := i32` (different base → slot);
-- multiple `impl{...}` merge into one mapping — identical re-bindings are
-  legal, conflicting ones error (`impl{X}` binds the whole leaf, `impl{X<u32>}`
-  binds the base — `InconsistentBinding`);
-- the attachment depth limit counts `impl{...}` like the other kinds;
+How the match works, in plain terms:
+
+- **The template is a pattern** over the leaf type, compared position by
+  position: `impl{W<T>}` against the leaf `Box<u32>` → `W` ≠ `Box` so `W`
+  is a slot (`W := Box`), `T` ≠ `u32` so `T` is a slot (`T := u32`).
+  Against `Rc<u32>` → `W := Rc`, `T := u32`. The template itself is
+  **not an impl target** — it only declares the slots.
+- **The slots are substituted** — every occurrence of `W`/`T` in the body
+  (and in where predicates) is replaced with the bound leaf part. That is
+  the whole mechanism: pattern-match the leaf, collect slots, substitute.
+- Bare `impl{T}` binds the **whole leaf** (`impl{T}` + `i32` → `T := i32`);
+  `impl{Rc<T>}` + `Rc<i32>` → only `T := i32` (`Rc` matched, kept).
+- Multiple `impl{...}` in one attribute merge into one mapping — identical
+  re-bindings are legal, conflicting ones error.
 - `@trait` inside the template expands to the trait path before matching.
+
+The template holds a **standard Rust type** — DSL operators are rejected
+inside it; `_` is a **wildcard** that matches anything and stays `_` (see
+the template-matching table below).
 
 #### Template matching: what binds and what does not
 
@@ -733,23 +751,30 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 
 ### 8.5 The impl entry (0.8.0, ItemImpl)
 
-`#[batch_impl]` also accepts an **`impl` block**: the DSL describes a
-**shape template × matrix source**, every matrix leaf emits one impl, and
-the slot mapping (the same "equal → keep, different → bind" rule as
-`impl{...}`) rewrites the for-Type / where predicates / body. The original
-impl (whose for-Type holds the placeholder slots) is withheld:
+**Same idea, bigger template: the whole impl block becomes the pattern.**
+Instead of a separate `impl{...}` attachment, you hand `#[batch_impl]` an
+ordinary `impl` block whose for-Type holds the placeholder slots
+(`impl Make for A<B>`), plus a `template : matrix` source. Every matrix leaf
+is matched against the for-Type (`A<B>`), the slots (`A := Box, B := usize`)
+are substituted into the whole block — for-Type, where predicates and body —
+and one impl per leaf is emitted. The original impl (holding the slots) is
+withheld:
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
 # trait Make { fn make() -> Self; }
-#[batch_impl(A<B> : [Box, Rc].[usize, isize])]
+#[batch_impl(A<B> : [Box, Rc] [usize, isize])]
 impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 // → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
 // → ... × 4
 ```
 
-- Attr grammar: shape form `A<B> : [Box,Rc].[usize,isize]` (template `:` matrix)
+In one sentence: **write one impl with placeholders, get one impl per matrix
+cell — the same match-and-substitute as §8.4, applied to the whole block
+instead of just a body.**
+
+- Attr grammar: shape form `A<B> : [Box,Rc] [usize,isize]` (template `:` matrix)
   or the direct form `<T> Box<T>` (generic declaration + for-type, N = 1);
   `;` separates multiple specs (`W:u8; W:u16`), the single-spec case is the
   common one;
@@ -774,12 +799,12 @@ trait T {}
 
 ### 9.2 Cartesian products
 
-`[A, B].[C, D]` full combinations; `*(A,B).2` splat pow produces a Cartesian combo list:
+`[A, B] [C, D]` full combinations; `*(A,B).2` splat pow produces a Cartesian combo list:
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc].[u8, u16])]
+#[batch_impl([Box, Rc] [u8, u16])]
 trait Matrix {}
 // → impl Matrix for Box<u8> {} / Box<u16> / Rc<u8> / Rc<u16>（4 entries）
 ```
@@ -790,14 +815,14 @@ Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u1
 
 | Modifier | Meaning | Example |
 |---|---|---|
-| `&` / `&mut` | reference | `&.Box.T` = `&Box<T>` |
-| `*const` / `*mut` | raw pointer | `*const.T` = `*const T` |
+| `&` / `&mut` | reference | `& Box<T>` — nest a composed type with `.`: `&.Box u8` = `&Box<u8>` |
+| `*const` / `*mut` | raw pointer | `*const T` = `*const T` |
 | `unsafe` | unsafe fn / unsafe impl marker | `unsafe.fn.(A, B) C` = `unsafe impl ... for fn(A, B) -> C` |
 | `#[...]` attributes | attribute on the impl | `#[cfg(...)]` gating |
 | `!` | never as a fn return type | `fn(A) -> !` (a `!` block has no apply meaning; a trailing `{...}` belongs to the impl) |
-| `self` | identity prefix | `self.T` = `T` — in a matrix, `[Box, self] u8` = `Box<u8>` + bare `u8` |
+| `self` | identity prefix | `self T` = `T` — in a matrix, `[Box, self] u8` = `Box<u8>` + bare `u8` |
 
-**`self`** is the identity prefix: `self.T` = `T`. In a matrix it acts as a **bare-type placeholder** — `[Box, self] u8` generates both `Box<u8>` and the bare `u8`:
+**`self`** is the identity prefix: `self T` = `T`. In a matrix it acts as a **bare-type placeholder** — `[Box, self] u8` generates both `Box<u8>` and the bare `u8`:
 
 ```rust
 # use batch_impl::batch_impl;

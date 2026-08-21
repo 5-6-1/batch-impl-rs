@@ -37,7 +37,7 @@ trait TupleTrait {}
 hierarchy for Rust (the successor to [alga](https://docs.rs/alga)), with
 **~900 impls generated from ~80 batch-impl DSL blocks** across 15+ types
 (numbers, tuples 1–16, arrays, `Option`, `Complex`, `Quaternion`, `ModN`,
-smart pointers, collections). **alga2 0.1.0 is about to be released** on
+smart pointers, collections). **alga2 0.1.0 is released** on
 crates.io; the batch-impl DSL has been its impl generator throughout
 development.
 
@@ -67,13 +67,13 @@ What you write is **a description of a "type matrix"**, and batch-impl generates
 | `*[...]` / `*(...)` | splat: flatten into the enclosing list | `[a, *[b,c]]` = `[a,b,c]`; left `*[...]` distributes / `*(...)` appends |
 | `#name`    | directive: auto-copy the item signature from the trait definition | the body doesn't hand-write signatures |
 
-**The space (adjacency) is the natural way to apply**: the left side is the modifier/container/trait, the right side the target type, and chaining accumulates arguments left-associatively — `HashMap u32 String` = `HashMap<u32, String>`, `fn(A, B) C` = `fn(A, B) -> C`, `Tr u8` = `impl Tr for u8` (a bare trait name applies as the impl trait; the trait name is identified by the annotated trait). Write `Tr <u8>` for the type `Tr<u8>`.
+**The space (adjacency) is the natural way to apply**: the left side is the modifier/container/trait, the right side the target type, and chaining accumulates arguments left-associatively — `HashMap u32 String` = `HashMap<u32, String>`, `fn(A, B) C` = `fn(A, B) -> C`, `Tr u8` = `impl Tr for u8` (a bare trait name applies as the impl trait; the trait name is identified by the annotated trait). Write `Tr<u8>` for the type `Tr<u8>`.
 
-`. ` is the same operation with **right-associative** grouping for nesting: `Box.Box.T` = `Box<Box<T>>`, `HashMap.K.V` = `HashMap<K<V>>`.
+`. ` is the same operation with **right-associative** grouping, for **nesting** only: `Box.Box u8` = `Box<Box<u8>>`, `HashMap<K> String` = `HashMap<K, String>` (space works here too).
 
 Pick by the grouping shape you want: use the space to list arguments side by side, use `.` to nest.
 
-`[A, B].[X, Y]` = a 2×2 matrix (4 impls); `(T1, T2).2` = permutations (4 ordered pairs).
+`[A, B] [X, Y]` = a 2×2 matrix (4 impls); `(T1, T2).2` = permutations (4 ordered pairs).
 
 ## Quick start
 

@@ -37,7 +37,7 @@
   - `codegen/shape.rs` — `match_shape` returns `(Mapping, Vec<VarSeg>)`; the tuple arm detects placeholder elements and splits the remaining leaf positions evenly across the segments (uneven splits error; duplicate prefixes error; a placeholder outside a tuple element position errors via the bare-ident arm). Each segment binds its name sequence to the leaf elements with names **aligned to the leaf position** (`(u8, A@..,)` on `(u8, u16, u32)` → `A1 := u16, A2 := u32`; same-level segments split evenly; segments recurse into nested tuples)
   - `codegen/repeat.rs` — repeat-block expansion for bodies: `@( <pattern>, )..` runs once per element of its driving segments (`@ident` references; all equal-length, else error). Each round substitutes `@ident` → the i-th slot name (`prefix` + `start + i`) and `@N` → the literal `N + i` (a plain index cursor — the user writes the path prefix). Nested blocks expand first with independent rounds (Cartesian); the block body's trailing `,` is the per-round separator (write no comma between side-by-side blocks). A `数字.@` tokenization repair splits `0.` + `@` (the tokenizer reads `self.0.@0` as `self . 0. @ 0`, a float literal) so the natural spelling works. Block length has three sources: the inner `@ident` references, a **declared driver** (`@A(...)..` — the segment named right after `@`, per user decision, resolving the cursor-only-block question), or the template's **unique segment** for a cursor-only block (multi-segment templates reject the ambiguous cursor-only form with a "declare the driver" diagnostic; a declared driver conflicting with an inner reference errors)
   - `codegen/mod.rs` — `collect_shape_mapping` returns the segments; `generate_impl` expands the body's repeat blocks (with the segments) before the slot-mapping rewrite
-  - tests: `tests/features/shape_template_varseg.rs` (5 integration tests — the alga2-style `().1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` covering arities 1..4, fixed-element offset starts with `@1` cursors, nested tuples with explicit `self.0.@0` paths, two same-level segments with one shared cursor, single-element segments with direct slot-name use) + 7 ui fixtures (segment outside tuple / duplicate prefix / uneven split / unknown segment / no driver / bare `@` / unequal lengths) + unit tests in varseg.rs (marking, prefix roundtrip, body passthrough, const-range untouched) and repeat.rs (rounds, offsets, multi-segment, nested Cartesian, float-literal repair)
+  - tests: `tests/features/shape_template_varseg.rs` (5 integration tests — the alga2-style `()^1..=4 where{@all_fresh: Magma} impl{(A@..,)} #combine{...}` covering arities 1..4, fixed-element offset starts with `@1` cursors, nested tuples with explicit `self.0.@0` paths, two same-level segments with one shared cursor, single-element segments with direct slot-name use) + 7 ui fixtures (segment outside tuple / duplicate prefix / uneven split / unknown segment / no driver / bare `@` / unequal lengths) + unit tests in varseg.rs (marking, prefix roundtrip, body passthrough, const-range untouched) and repeat.rs (rounds, offsets, multi-segment, nested Cartesian, float-literal repair)
 
 ## 0.8.1 (2026-08-18)
 
@@ -45,8 +45,8 @@
 
 ## 0.8.0 (2026-08-18)
 
-- **Polishing (impl entry / shape template)** — fuzz now covers the ItemImpl entry (`impl_entry_full_pipeline_no_panic`: random attr tokens against a fixed dummy impl — the no-panic promise spans the `;` spec split / `@trait` replacement / shape match / assembly); `batch_preview!` accepts the ItemImpl form (top-level dispatch mirrors `batch_impl`, rendering the real `expand_impl_entry` output); cross-combo tests locked: `impl{...}` + `#fill` (directive-copied bodies rewritten by the slot mapping), `impl{...}` + `@N` where refs (template matching a generator-tuple leaf `().2` → `(P0, P1)`), `#blanket` + `impl{...}` (the blanket spec carries the template as a trailing attachment)
-- **Shape-match enhancement (the `impl{...}` shape templates / the impl entry)** (`codegen/shape.rs`): fixed-array lengths written as bare const-param names now bind to the leaf's length (`[A; N]` → `N := 3`, the body may reference `N`; literal lengths still compare verbatim); `'_'` anonymous lifetimes are wildcards matching any leaf lifetime (named lifetimes still compare verbatim — `'a` vs `'b` mismatches); fn-pointer / trait-object templates and cross-class arguments (lifetime/const vs type) remain verbatim with targeted diagnostics (ui fixtures `impl_shape_lifetime_arg` / `impl_shape_fn_bound`; the old `impl_shape_const_len` failure fixture became the success case); new `tests/features/shape_template_shape_forms.rs` (17 tests: the full `syn::Type` form matrix, the prototype-impl pattern `[Box,Rc].@num impl{Box<u8>} #max{...}`, and the user's multi-prototype list forms `[[Box,Rc] impl{Box<u8>}, Cow<'_> impl{Cow<'_,u8>}].@num`)
+- **Polishing (impl entry / shape template)** — fuzz now covers the ItemImpl entry (`impl_entry_full_pipeline_no_panic`: random attr tokens against a fixed dummy impl — the no-panic promise spans the `;` spec split / `@trait` replacement / shape match / assembly); `batch_preview!` accepts the ItemImpl form (top-level dispatch mirrors `batch_impl`, rendering the real `expand_impl_entry` output); cross-combo tests locked: `impl{...}` + `#fill` (directive-copied bodies rewritten by the slot mapping), `impl{...}` + `@N` where refs (template matching a generator-tuple leaf `()^2` → `(P0, P1)`), `#blanket` + `impl{...}` (the blanket spec carries the template as a trailing attachment)
+- **Shape-match enhancement (the `impl{...}` shape templates / the impl entry)** (`codegen/shape.rs`): fixed-array lengths written as bare const-param names now bind to the leaf's length (`[A; N]` → `N := 3`, the body may reference `N`; literal lengths still compare verbatim); `'_'` anonymous lifetimes are wildcards matching any leaf lifetime (named lifetimes still compare verbatim — `'a` vs `'b` mismatches); fn-pointer / trait-object templates and cross-class arguments (lifetime/const vs type) remain verbatim with targeted diagnostics (ui fixtures `impl_shape_lifetime_arg` / `impl_shape_fn_bound`; the old `impl_shape_const_len` failure fixture became the success case); new `tests/features/shape_template_shape_forms.rs` (17 tests: the full `syn::Type` form matrix, the prototype-impl pattern `[Box,Rc]^@num impl{Box<u8>} #max{...}`, and the user's multi-prototype list forms `[[Box,Rc] impl{Box<u8>}, Cow<'_> impl{Cow<'_,u8>}]^@num`)
 - **Test split into `tests/features/`** — the single-file test crates (`dsl.rs` ~2400 lines, `regression.rs` 569, `impl_entry_impl.rs`, `shape_template_impl.rs`) are split into 34 per-feature modules (each under 350 lines) under `tests/features/`, mounted by the thin entry `tests/dsl.rs` (`mod features;`); impl entry / shape template gain nested/boundary/conflict suites (impl_entry_nested / impl_entry_boundary / impl_entry_conflicts / shape_template_nested / shape_template_boundary / shape_template_conflicts — 26 new tests, 151 total); `cargo test --test dsl` runs the whole suite, CI MSRV job updated (`--test dsl --test regression` → `--test dsl`); test matrix numbers refreshed in architecture (167 dsl tests incl. the shape-forms module, ui 74)
 - **The impl entry** (`entry/impl_entry.rs` + `lib.rs` top-level dispatch): the attribute also accepts an `impl` block — batch instantiation from a shape-template × matrix-source. The trait branch is untouched (top-level dispatch only). Attr grammar: shape form `shape-template : new-generic-decl? matrix-source? (where ...)?` / direct form `new-generic-decl? for-type (where ...)?`; `;` separates multiple specs (single-spec common case, per user decision); preprocessing subset: `angle_collect` → `@trait` replacement (only `@trait` allowed — custom constants / `@N` / `@g_i` / `#` directives all rejected with targeted messages, `#[...]` attributes pass through) → `where_process(allow_end = true)`; the shared `codegen::shape` kernel matches the template against each leaf (with a zero-binding shape-validity check against the impl's for-Type); the slot mapping rewrites the for-Type / where predicates / body, generics = attr new-generic-decl first + the impl's own params, `unsafe impl` preserved, the original impl is withheld; `where_process` gains the depth-0 `;` stop (impl entry spec separator / `batch_trait!` segment boundary — also fixes batch_trait! where + `;`) and the `allow_end` parameter (trait entries keep the required-code-block behavior); dsl-style `tests/impl_entry_impl.rs` (8 tests) + 5 ui fixtures (shape mismatch / `@` const banned / `#` banned / `@N` banned / non-type direct form)
 - **The `impl{...}` shape templates** — a third trailing attachment kind beside `{body}`/`where{...}` (any order, peeled by the same loop): new `codegen::shape` kernel (`match_shape` template-vs-leaf position-by-position match + `Mapping` + `ShapeError`; an ident equal to the target's at that position is a literal, a different one is a slot bound to the target subtree — the "match different → replace, equal → keep" semantics, user-confirmed over the old "composite verbatim" wording) + new `TyKind::WithImpl` (20 variants; `(Option<Box<Ty>>, TyImplTemplate)` isomorphic with WithCode/WithWhere; `map_children`/`expand`/`render`/`apply`/`expand_splat_elems` all covered) + `split_trailing_body` recognizes `impl` ident + Brace + preprocessing discrimination (`expand_consts` enters the template to expand `@trait`/`@`; `angle_collect`/`expand_tokens`/`where_process` pass it through; `where_process` treats `impl{...}` as a predicate-region boundary; discrimination centralized in `util::is_impl_template`) + codegen merges templates into one mapping (identical re-bindings legal, conflicting → `InconsistentBinding`), rewrites the target (at render)/where/body, and errors on DSL operators inside the template / shape mismatches / non-standard target types; attachment depth guard message covers `impl{...}`; dsl-style `tests/shape_template_impl.rs` (9 tests) + 4 ui fixtures (dsl ops / shape mismatch / inconsistent binding / 129-level attachment chain)
@@ -61,13 +61,13 @@
 ## 0.7.2 (2026-08-14)
 
 - **`@` reference diagnostics in user language + type-position validation** (`codegen/fresh.rs` + `where_at.rs`): the `@g_i` out-of-range error no longer leaks the `_Param_{g}_{i}_BatchGen_` protocol name — the displayed `@{}_{}` is derived from the parsed (g, pos) pair (single authority, the wording cannot drift); new `validate_at_refs`: dangling `@N` (index < fresh count) / `@g_i` (group membership) references in the target type / trait args previously leaked the reserved name through the sweep as raw rustc E0412 — now validated against the impl's declared fresh set, the same rule as the where side; `at_group_out_of_range` / `at_num_out_of_range` constructors shared by where and type positions
-- **Tests**: dsl `at_refs_in_target_type` (`(().2).Box<@0>` / `@0_1` positives, locking out false positives); 2 new ui fixtures (at_num_in_type / at_group_in_type) locking the user-language wording
-- **`batch_preview!` expansion preview** (`entry/preview.rs`): the real pipeline (`prepare_attr_expansion` + `collect_spec_leaves` shared refactor — the preview and the three entries share one preprocessing/parse path) → one item per line rendered into the `compile_error!` diagnostic channel (the only stable terminal channel) — trait + impls one item per line, DSL errors surface as-is; preview-only `.`/`-` associativity miswrite notes (`ONE_ARITY_CONTAINERS` table + target-type recursion, `Box<Vec, u32>` → suggests `Box.Vec.u32` with the `A.B-C` = `A-B-C` identity); zero heuristics on the compiler path
+- **Tests**: dsl `at_refs_in_target_type` (`(()^2)^Box<@0>` / `@0_1` positives, locking out false positives); 2 new ui fixtures (at_num_in_type / at_group_in_type) locking the user-language wording
+- **`batch_preview!` expansion preview** (`entry/preview.rs`): the real pipeline (`prepare_attr_expansion` + `collect_spec_leaves` shared refactor — the preview and the three entries share one preprocessing/parse path) → one item per line rendered into the `compile_error!` diagnostic channel (the only stable terminal channel) — trait + impls one item per line, DSL errors surface as-is; preview-only `.`/`-` associativity miswrite notes (`ONE_ARITY_CONTAINERS` table + target-type recursion, `Box<Vec, u32>` → suggests `Box^Vec^u32` with the `A^B-C` = `A-B-C` identity); zero heuristics on the compiler path
 - **driver/entry refactor**: `collect_spec_leaves` extracted from `parse_batch_trait_entry` (parse/expand/error-aggregation single authority, shared by the three entries and the preview); `prepare_attr_expansion` → `PreparedAttr` extracted from `expand_attr_macro` (preprocessing once, rendering deferred); behavior-equivalent, all tests green
-- **Generator-splat declaration hoisting in trait args** (`codegen/impl_parts.rs`): the WithTrait arm of `extract_impl_parts` previously dropped the declaration returned by `flat_splat_params` ("Declarations are dropped here") — `Conv<*().2> X` leaked fresh names as raw E0412; the declaration now joins the impl generics, the same rule as the generic-arg position; the stale "acknowledged oddity" comment in `parse/generic.rs` corrected (measured: `Foo<*(().N)>` has worked since the structural refactor)
-- **Generator in the declaration position: targeted error** (`parse/primary.rs` + `ast/types_visit.rs::contains_generator`): `<*().N>` / `<*(().N)>` fresh declarations have no carrier (the declaration position IS the carrier), previously rendered `impl <<P0,..> *(P0,..)>` garbage — parse-layer error suggesting `T.().2`; dsl `gen_splat_trait_args_hoist` (trait-arg hoisting + the `*(().3)` parenthesized form) + ui fixture decl_generator_splat
+- **Generator-splat declaration hoisting in trait args** (`codegen/impl_parts.rs`): the WithTrait arm of `extract_impl_parts` previously dropped the declaration returned by `flat_splat_params` ("Declarations are dropped here") — `Conv<*()^2> X` leaked fresh names as raw E0412; the declaration now joins the impl generics, the same rule as the generic-arg position; the stale "acknowledged oddity" comment in `parse/generic.rs` corrected (measured: `Foo<*(()^N)>` has worked since the structural refactor)
+- **Generator in the declaration position: targeted error** (`parse/primary.rs` + `ast/types_visit.rs::contains_generator`): `<*()^N>` / `<*(()^N)>` fresh declarations have no carrier (the declaration position IS the carrier), previously rendered `impl <<P0,..> *(P0,..)>` garbage — parse-layer error suggesting `T^()^2`; dsl `gen_splat_trait_args_hoist` (trait-arg hoisting + the `*(()^3)` parenthesized form) + ui fixture decl_generator_splat
 - **`#blanket` by-value receiver fix + doc note** (`directives/blanket.rs`): the forward's deref count dispatches on the receiver kind — `&self`/`&mut self` use depth+1 (`**self`, through the reference and the wrapper layers), by-value `self` IS the wrapper and uses depth (`*self`) — the uniform `**self` dereferenced the inner type one layer too deep for by-value methods (E0614, Box probe verified); the doc note stays: moving out of shared wrappers (`&`/`Rc`) cannot type-check, a non-empty by-value selection injects `#[doc]` per spec (the attr rides the existing `WithAttr` → `ImplParts.attrs` channel, zero new machinery); dsl `blanket_by_value_receiver` (`Box::new(9u8).consume()` exercises the by-value forward)
-- **`TyWithAttr::apply` inner-preservation fix** (`apply/apply_tuple.rs`): with an inner already attached, the operator applies to the inner (`#[attr] Box.u8` = `#[attr] Box<u8>`), previously `TyWithAttr(self.0, o.into())` silently replaced it — a pre-existing bug exposed by the `#[doc]` injection; dsl regression `attr_wrapper_chain`
+- **`TyWithAttr::apply` inner-preservation fix** (`apply/apply_tuple.rs`): with an inner already attached, the operator applies to the inner (`#[attr] Box^u8` = `#[attr] Box<u8>`), previously `TyWithAttr(self.0, o.into())` silently replaced it — a pre-existing bug exposed by the `#[doc]` injection; dsl regression `attr_wrapper_chain`
 - **Open-extension protocol convergence (docs)**: the in-impl `T {m!{...}}` (no `!`, associated items) is deprecated and kept for compatibility, the top-level `{! m!{...}}` four-segment protocol is the only recommended shape — tutorial §7.5 convergence note, `directive_open.md`/`batch_preprocess_test.md` crate docs synced, architecture attachment semantics "top-level only"
 - **Syntax-freeze commitment (docs)**: the `@N` stability commitment extended to the whole surface — README "Syntax-freeze commitment (0.7.2)" section, architecture extension-guidelines freeze clause, tutorial §6.4 marks `@g_i`/`@all_fresh`/`@N..M` as power-user tier; future releases only add / diagnose / document, changing existing semantics = a deliberate breaking release
 - **Attribute-macro custom `@` constants** (**reverted in 0.8.0**) (`consts/ctx.rs` + `entry/mod.rs`): `ConstCtx::Attribute` gains `user_table` — `prepare_attr_expansion` calls `collect_user_consts` after path-prefix parsing to collect the leading `@name=value;` section (same rule/validation as `batch_trait!`: reserved names, built-in collisions, cycles, forward refs); the `try_expand_at` definition-branch message unified (both entries carry a table, no more branching); the unknown-constant message uniformly gains the "defined before the reference" suffix (const_unknown.stderr updated); dsl `attr_custom_consts` (chained refs + DSL expression values) + ui `const_def_position` (non-leading definition errors)
@@ -115,26 +115,26 @@
   real (non-discarded) trait, verifying the impl compiles and the method is
   referenceable; `trait_generic_args_to_impl_generic` — the arg points at an
   impl generic (`<U>A<U>()` → `fn foo(_: U)`).
-- **Fixed edge (trait segment + right splat)**: `Conv<bool> Pair.*(A, B)`
+- **Fixed edge (trait segment + right splat)**: `Conv<bool> Pair^*(A, B)`
   previously misparsed to `Pair<A<B>>`; the splat-deferred-expansion
   refactor (below) keeps `*(A,B)` whole through parse/apply and expands it
   only in codegen — the same input now produces `Pair<A, B>` (verified by
   dsl `splat_scenarios`'s `assert_cv::<Pair<SplatA, SplatB>>()`). The
-  array-splat alternative `Pair.[*(A),*(B)].2` still works as before.
+  array-splat alternative `Pair^[*(A),*(B)]^2` still works as before.
 
 ### Splat expansion deferred to codegen (parse/apply/expand keep `*()`/`*[]` whole)
 
 - **Principle (user-confirmed)**: a splat (`*(...)` / `*[...]`) is a *whole*
   unit through parse/apply/expand — it only flattens into its elements in
   the codegen postprocess. Previously the apply layer flattened right-splat
-  operands (`T.*(A,B)` → flat `T-A-B-...` chain), which misparsed in
-  combinations with trait segments (`Conv<bool> Pair.*(A,B)` → `Pair<A<B>>`)
-  and with trailing code blocks (`Pair.*(A,B) {body}` → `Pair<*const (A,B)>`
+  operands (`T^*(A,B)` → flat `T-A-B-...` chain), which misparsed in
+  combinations with trait segments (`Conv<bool> Pair^*(A,B)` → `Pair<A<B>>`)
+  and with trailing code blocks (`Pair^*(A,B) {body}` → `Pair<*const (A,B)>`
   via the rest-parse path).
 - **Where splats flatten now** (single expansion point, codegen):
   - `expand_splat_elems` (Ty structure): splat elements inside `TyTuple`
     flatten with fresh declarations hoisted — `(A, *(B,C))` → `(A,B,C)`,
-    `(*(().3))` → `<P0,P1,P2>(P0,P1,P2)`. Runs before `hoist_type_params`.
+    `(*(()^3))` → `<P0,P1,P2>(P0,P1,P2)`. Runs before `hoist_type_params`.
   - Generic-arg and trait-arg splats flatten in the same pass via
     `expand_tp` (TyTypeParam params are now `Box<Ty>`, so splats stay
     structural): `T<*(A,B)>` → `T<A,B>`, `Map<*(K,V)>` → `Map<K,V>`
@@ -143,20 +143,20 @@
     args are rendered). The former token-level `expand_splats` pass is
     gone — bodies never pass through any expander, so `a * b` inside a fn
     stays multiplication; `*const T` / `*mut T` stay raw pointers.
-  - Spec-list splats (`[*(A),*(B)]`, `*[Vec,Box].T`) still flatten in the
+  - Spec-list splats (`[*(A),*(B)]`, `*[Vec,Box]^T`) still flatten in the
     expand phase (`TyKind::Splat` → `Expand::Many`) — that is impl-list
     generation, not type-structure expansion.
   - Generic-arg splats need no parser special case — the chunk falls
     through the default path, survives as a single `*(a,b)` arg and
     expands structurally (`expand_tp`) — `Foo<*(a,b)>` → `Foo<a,b>` (the
     dedicated Splat-arg branch and `contains_generator` were deleted; ui
-    `gen_splat_arg` removed). A generator splat there (`Foo<*(().N)>` /
-    `<*().3>`) survives as a raw arg and rustc reports the missing
+    `gen_splat_arg` removed). A generator splat there (`Foo<*(()^N)>` /
+    `<*()^3>`) survives as a raw arg and rustc reports the missing
     declaration — acknowledged oddity, no dedicated diagnostic.
-  - **Splat pow inside generic args** (`Frac<*(*@u*).2>`): the pow result
+  - **Splat pow inside generic args** (`Frac<*(*@u*)^2>`): the pow result
     (`TyArray([*(u8,u8), ...])`) enters params and distributes in `expand`'s
     generic branch — one impl per pair (36 total, equivalent to the
-    right-splat chain `Frac.*(*@u*).2`). **Array-arg distribution unified
+    right-splat chain `Frac^*(*@u*)^2`). **Array-arg distribution unified
     into one path** (user principle: "a rule that doesn't apply universally
     isn't a rule"): literals (`T<[A,B]>`), constants (`T<@u*>` →
     `[u8,...]`) and pow results all reach params as a `TyArray` and
@@ -192,18 +192,18 @@
     expander would emit illegal `A, B: Trait`. Tuple predicates
     (`(*(A,B)): Trait`) and splats inside a predicate
     (`X: Trait<*(A,B)>`) stay legal (ui `where_splat_bad`).
-- **Splat survival unchanged**: `Pair.[*(A),*(B)].2` still repeats each
-  element (`[Pair<A,A>, Pair<B,B>]`); splat pow (`*(A,B).2` Cartesian) and
-  left-splat append/distribute (`*[...].T`, `*(...).T`) keep working in
+- **Splat survival unchanged**: `Pair^[*(A),*(B)]^2` still repeats each
+  element (`[Pair<A,A>, Pair<B,B>]`); splat pow (`*(A,B)^2` Cartesian) and
+  left-splat append/distribute (`*[...]^T`, `*(...)^T`) keep working in
   `TySplat::apply_help`.
 - `TySplat::Tuple` renders as `*(A,B)` (was `(*(A,B))`) — the outer parens
   were only needed by the old parse-time consumption; the codegen expander
   matches the bare marker.
 - **Generator args in `<>`**: `flat_splat_params` (the shared splat
-  flattener) now also hoists `WithType` (fresh-generator) params — `().N`
-  keeps its inner tuple as one arg (`T<().2>` = `impl<P0,P1> T for
-  T<(P0,P1)>`), while a splat re-wrap (`*().N`) flattens (`T<*().2>` =
-  `impl<P0,P1> T for T<P0,P1>`). Previously `Pair<().2>` / `Pair<*().2>`
+  flattener) now also hoists `WithType` (fresh-generator) params — `()^N`
+  keeps its inner tuple as one arg (`T<()^2>` = `impl<P0,P1> T for
+  T<(P0,P1)>`), while a splat re-wrap (`*()^N`) flattens (`T<*()^2>` =
+  `impl<P0,P1> T for T<P0,P1>`). Previously `Pair<()^2>` / `Pair<*()^2>`
   leaked the declaration into the args and failed to compile. Tests: dsl
   `gen_args_in_angle`.
 - **`TyTypeParam` is fully Ty-typed now**: `params` is `Vec<(Box<Ty>,
@@ -228,18 +228,18 @@
   are now KEPT until consumption instead of being flattened at parse time
   (`parse_atom.rs` no longer calls `consume_splats` for `[...]` lists or a
   lone `[*(...)]` element) — a splat lives until apply-right or codegen, so
-  `[*(A),*(B)].2` repeats each element (`[*(A,A),*(B,B)]`) and
-  `Pair.[*(SplatA),*(SplatB)].2` = `[Pair<SplatA,SplatA>,
+  `[*(A),*(B)]^2` repeats each element (`[*(A,A),*(B,B)]`) and
+  `Pair^[*(SplatA),*(SplatB)]^2` = `[Pair<SplatA,SplatA>,
   Pair<SplatB,SplatB>]` (splat pow drives both generic positions). Bare
   arrays/slices (`[u8]`, `[u8; 3]`) and no-right-operand targets
   (`[a, *[b,c]]` = `[a,b,c]`) are unchanged (codegen flattens at the end).
   With a right operand, a kept splat element follows its own splat
-  semantics (matching standalone splats): `[A,B,C].D` = `[A.D, B.D, C.D]`
-  (bare list: distribute), `[A,*(B,C)].D` = `[A.D, *(B,C,D)]` =
-  `[A.D, B, C, D]` (tuple splat: append), `[A,*[B,C]].D` =
-  `[A.D, *[B.D,C.D]]` = `[A.D, B.D, C.D]` (array splat: distribute),
-  `[*(A)].2` = `[*(A,A)]` = `[A, A]` (pow: repeat). Use a bare list
-  `[A,B,C].D` for plain distribution.
+  semantics (matching standalone splats): `[A,B,C]^D` = `[A^D, B^D, C^D]`
+  (bare list: distribute), `[A,*(B,C)]^D` = `[A^D, *(B,C,D)]` =
+  `[A^D, B, C, D]` (tuple splat: append), `[A,*[B,C]]^D` =
+  `[A^D, *[B^D,C^D]]` = `[A^D, B^D, C^D]` (array splat: distribute),
+  `[*(A)]^2` = `[*(A,A)]` = `[A, A]` (pow: repeat). Use a bare list
+  `[A,B,C]^D` for plain distribution.
   Tuples still flatten splats at parse (unchanged scope). Test: dsl
   `SplatSurvival`.
 - **Not diagnosed (by design)**: a *function* generic param colliding with
@@ -269,23 +269,23 @@
 
 - New `*[...]` / `*(...)` splat: flattens a container/generator into the
   enclosing list — spliced inside tuples/arrays (`[a, *[d,e,f]]` = `[a,d,e,f]`),
-  flat-append as a `.`/`-` right operand (`T.*(A,B)` ≡ `T-A-B`), multi-arg as a
+  flat-append as a `.`/`-` right operand (`T^*(A,B)` ≡ `T-A-B`), multi-arg as a
   generic argument (`Foo<*(a,b)>` = `Foo<a,b>`), idempotent nested
   (`*(*[a,b])` = `[a,b]`), empty no-op (`[a, *()]` = `[a]`);
 - **Source-driven left semantics**: `TySplat` is an enum mirroring its parse
-  delimiter — `TySplat::Array` distributes `.T` (`*[A.T,B.T]` — set, mirrors
+  delimiter — `TySplat::Array` distributes `.T` (`*[A^T,B^T]` — set, mirrors
   `TyArray`, re-wrapped so right-splat chains can flatten into a container),
   `TySplat::Tuple` appends (`*(A,B,...,T)` — list, mirrors `TyTuple`,
   re-wrapped); **`.N` pow on a splat re-wraps each Cartesian combo into a
-  splat**: `*(A,B).2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]` — each combo is a
+  splat**: `*(A,B)^2` = `[*(A,A),*(A,B),*(B,A),*(B,B)]` — each combo is a
   param-position list a right-splat chain flattens into the container
-  (`A.*(*@u*).2` = `A<u8,u8>`/`A<u8,u16>`/... — repeat-list shorthand for
-  `A<@u*,@u*>`; a lone `*(A,B).2` target flattens to duplicates, E0119 —
-  use `(A,B).2` for tuple impls); **splat expands ONE layer**: tuples are
+  (`A^*(*@u*)^2` = `A<u8,u8>`/`A<u8,u16>`/... — repeat-list shorthand for
+  `A<@u*,@u*>`; a lone `*(A,B)^2` target flattens to duplicates, E0119 —
+  use `(A,B)^2` for tuple impls); **splat expands ONE layer**: tuples are
   types and stay intact (`*((a,b),)` = one `(a,b)` impl; `*(a,(b,c))` keeps
   `(b,c)`), while arrays / nested splats / generators / groups flatten;
-  `*().N` (empty splat) re-wraps its fresh tuple into the splat so a
-  carrier appends the params (`T.*().2` = `<A,B>T<A,B>`; a bare `*().N` as a
+  `*()^N` (empty splat) re-wraps its fresh tuple into the splat so a
+  carrier appends the params (`T^*()^2` = `<A,B>T<A,B>`; a bare `*()^N` as a
   lone target is rejected by rustc — its multiple impls share one generic
   declaration while each uses only one param, E0207); a bare `*()` as a lone
   target yields **no impls** (empty list, no elements); the left-operand
@@ -310,8 +310,8 @@
   right-operand dispatch), never `apply_help` directly. `TySplat::apply_help`
   is now pure delegation: `TySplat::Array(a) => a.apply(o)` /
   `TySplat::Tuple(t) => t.apply(o)`, then re-wraps the returned container
-  (splat stays a splat until consumption); `*().N` keeps its splat shape via
-  the `WithType` passthrough (`*().2` = `<A,B>*(A,B)`).
+  (splat stays a splat until consumption); `*()^N` keeps its splat shape via
+  the `WithType` passthrough (`*()^2` = `<A,B>*(A,B)`).
 - Constructor style unified: `Ty::new(span, TyKind::X(sub))` nesting removed
   crate-wide (`Ty::new` deleted — 49 call sites → `X(...).to_ty().with_span(...)`;
   passthrough uses `Ty { span, kind }`); value-site wrappers use `val.into()`
@@ -342,12 +342,12 @@
   is the target type's document order;
 - **Per-impl numbering fixes unit drift**: each impl sweeps independently, so
   `@N` always refers to *that* impl's N-th fresh — usable across specs and
-  range-generated impls (`().1..=3 where{@0: Clone}` and
-  `(().2, ().2 where{@0: Clone})` previously errored "out of range" on the
+  range-generated impls (`()^1..=3 where{@0: Clone}` and
+  `(()^2, ()^2 where{@0: Clone})` previously errored "out of range" on the
   later units because the counter continued across them; now every unit's
   fresh starts at 0). `@N` is a pure construction (`@N` → `_Param_{N}_BatchGen_`)
   that always matches the swept name — no lookup needed;
-- **Combination scenarios** (`().3-().3`): `@0` is the left tuple's first
+- **Combination scenarios** (`()^3-()^3`): `@0` is the left tuple's first
   element (document order — previously the declaration-order first, since
   hoisting declared the nested tuple first — Breaking);
 - **Target-type `@N` channel**: `@N` position references are resolved at the
@@ -357,7 +357,7 @@
   (`replace_at0` removed; `has_at0` keeps only the position decision — with
   `@0` the wrapper is emitted as-is and the parse layer resolves the marker);
 - **Declaration order = document order**: when both operands of an apply
-  carry generic declarations (fresh-fresh chains like `().3-().3`), params
+  carry generic declarations (fresh-fresh chains like `()^3-()^3`), params
   merge left-first so hoisting collects them in the target type's document
   order; the inner type takes only the left's inner part (otherwise hoisting
   collects the left declaration twice — E0403);
@@ -456,18 +456,18 @@
 
 ## 0.6.6 (2026-08-07)
 
-### Tuple/fn syntax-boundary fixes (`(T).2 = T.2`)
+### Tuple/fn syntax-boundary fixes (`(T)^2 = T^2`)
 
-- `(T).2 = T.2` confirmed: a group strips before `.N`, which for a plain type
-  is a const-generic argument (`(u8).2 = u8<2>`); TyGroup restored to
-  strip-then-apply (tuple generation needs `(T,).N`);
-- `(<T>).2` rejected (a `<` right after `(` is not a legal type) — locked by
+- `(T)^2 = T^2` confirmed: a group strips before `.N`, which for a plain type
+  is a const-generic argument (`(u8)^2 = u8<2>`); TyGroup restored to
+  strip-then-apply (tuple generation needs `(T,)^N`);
+- `(<T>)^2` rejected (a `<` right after `(` is not a legal type) — locked by
   ui fixture `group_angle_bare`;
 - Number/range rendering uses unsuffixed literals: `u8<2>` / `[u8; 3]`
   (was `u8<2usize>` / `[u8; 3usize]`);
 - Tutorial fixes: fn-arrow note (`fn(A,B)-C` = `fn(A,B)->C`, `->` is not a
   DSL operator), tuple note block (`(T)` is a group, `(<u8>)` is invalid,
-  `(<Clone>).N` unsupported).
+  `(<Clone>)^N` unsupported).
 
 ### Input-validation guards (evaluator findings)
 
@@ -537,7 +537,7 @@
 - A wrapper's main part (minus where / `:N`) **with `@0`** treats `@0` as the
   target T's position — emitted as-is with `@0` replaced by the fresh
   generic, so T can sit anywhere (`(u32, @0)` → `(u32, T)`);
-- **Without `@0`** → `part.T` (target appended last, unchanged);
+- **Without `@0`** → `part^T` (target appended last, unchanged);
 - has_at0 / replace_at0 helpers (recursing into groups); dsl tests
   blanket_at0_position / blanket_at0_const_generic (custom Deref +
   `<const N: usize>` generics, coexisting with the user's `N`).
@@ -797,28 +797,28 @@
 - The author's original intent: `@N` should be a direct mapping to `_Param_N_BatchGen_` (a macro-meta-layer constant) — but the fresh number is a global counter and is unrelated to the position in the final impl generics (misaligned when multiple fresh sources / author generics are interleaved), so a direct mapping is unreliable;
 - Decision: `@N` = the **N-th fresh generic** inside a where predicate (of the `_Param_{N}_BatchGen_` form). `resolve_where_at` filters the impl generics list down to fresh forms and picks by position — author generics are written by name directly; the blanket-wrapping predicate `@0` (= the only fresh T) unifies naturally with the new rule and is no longer a special case;
 - Breaking change: the B1 test `where{@0: @trait<T>}` → `where{T: @trait<T>}`; the tutorial's AtWhere example likewise; the out-of-bounds error message updated;
-- Tests: `().2 where{@0: Clone, @1: Copy}` and `().3 where{@2: Clone}` (pure fresh) unchanged, all green.
+- Tests: `()^2 where{@0: Clone, @1: Copy}` and `()^3 where{@2: Clone}` (pure fresh) unchanged, all green.
 
 ### Generic parameter families + separated-declaration order fix
 
 - New `@all_type_params` / `@all_const_params` / `@all_lifetimes`: `GenericFilter` enum + `resolve_generic_marker` + `get_trait_generic_decl` (in helpers.rs), expanding to a **flat** `<...>` declaration (angle_collect pairs them uniformly); type parameters by name only (bounds go through same-name inheritance), consts complete (a bare name is E0747), lifetimes verbatim; try_expand_at dispatches after the @all branch (batch_impl-only; batch_trait! errors); errors when no parameter of that kind exists;
-- **Real bug fixed along the way**: `TyKind::apply`'s WithType hoist branch (`T.<A>X` → `<A>(T.X)`) wrongly hoisted the inner parameters to the outer level for "declaration applied to declaration" (`<'a> <T> X` consecutive declarations) → generated `<T, 'a>` (lifetime must be prior). Fix: when self is `TyKind::TypeParam`, go through `apply_help` to keep the declaration order (`<'a, T>` lifetimes first). Hand-written `<'a> <T>` also blew up before — the test `generic_param_families` locks in the combined shape;
+- **Real bug fixed along the way**: `TyKind::apply`'s WithType hoist branch (`T^<A>X` → `<A>(T^X)`) wrongly hoisted the inner parameters to the outer level for "declaration applied to declaration" (`<'a> <T> X` consecutive declarations) → generated `<T, 'a>` (lifetime must be prior). Fix: when self is `TyKind::TypeParam`, go through `apply_help` to keep the declaration order (`<'a, T>` lifetimes first). Hand-written `<'a> <T>` also blew up before — the test `generic_param_families` locks in the combined shape;
 - Tests: dsl 51 (type/lifetime/const three families + combination + bound inheritance); ui `generic_family_batch_trait` (batch_trait! errors).
 
 ### Constant name-family rename (author's call)
 
 - Proposal: `@i*`/`@u*`/`@f*` replace `@uint`/`@int`/`@float` (family symbols unified — the original `uint`'s `u` was inconsistent with the range family `u8`'s `u`); the `@u8..64` width-abbreviation proposal was rejected (little benefit, and it introduced a hidden "family inherits from the left endpoint" rule);
 - Implementation: `"u*"`/`"i*"`/`"f*"` wildcards in `builtin_named` (try_expand_at detects `tokens[2]` being `*`, lookup = `name*`, consumed 3); `check_value_refs` recognizes the wildcards in sync (an `@uints=@u*` reference inside a value was falsely reported as "unknown @u" — after the fix the lazy-expansion chain is complete). The builtins list in error messages and the missing-name-after-`@` example updated; the ui `const_unknown` snapshot regenerated;
-- Tests: dsl `@uints=@u*` (wildcard reference inside a batch_trait value) and `[Box, Rc].@u*` (wildcard inside a macro-variable None group) all updated and passing; a direct `@u*` probe verifies that usize is included.
+- Tests: dsl `@uints=@u*` (wildcard reference inside a batch_trait value) and `[Box, Rc]^@u*` (wildcard inside a macro-variable None group) all updated and passing; a direct `@u*` probe verifies that usize is included.
 
 ## 0.6.3 (2026-08-05)
 
 ### Doc fix
 
 - User caught a wrong `// →` annotation in the README header example:
-  `#[batch_impl(().4)]` claimed to expand to 4 tuple impls of different lengths
-  (`(A,)` through `(A, B, C, D)`) — `().N` is a **single** N-tuple
-  (`().4` → `(A, B, C, D)`); multiple lengths come from the `().1..=4` range
+  `#[batch_impl(()^4)]` claimed to expand to 4 tuple impls of different lengths
+  (`(A,)` through `(A, B, C, D)`) — `()^N` is a **single** N-tuple
+  (`()^4` → `(A, B, C, D)`); multiple lengths come from the `()^1..=4` range
   syntax (tutorial §11 table was always correct; `tuple_pow_basic` locks the
   semantics). Probe-verified before fixing; both EN and zh-CN README annotations
   corrected. Annotation-only, no behavior change.
@@ -901,7 +901,7 @@
 - **B2 (regression risk)**: under the new order (`@` before `<>` pairing), real None groups at expand_consts runtime (macro-variable `$(...)*`/`$x:ty` expansion output) were not yet flattened by angle_collect — `@` inside a group was no longer expanded (the 0.6.0 order worked); the old comment "real None groups are already flattened by angle_collect at the entry, so this case never occurs" no longer holds under the new order. Fix: `expand_consts` gained a `delimiter![none]` branch — under the new order `<>` groups don't exist yet, so a None group is necessarily a real transparent group, and the old ambiguity is gone (the `delimiter![none]` accidentally flattening angle groups, hit in 0.6.0, cannot recur). Test: dsl `review_fixes_locked` (macro-variable + `@uint` probe inside a group verified empirically; in the 2024 edition `gen` is a reserved word, so the macro name had to change).
 - **B3 (docs)**: `@all_default_types` depends on trait associated-type defaults (`type T = u8;`) — nightly (`associated_type_defaults`; stable reports E0658) — tutorial now notes this marker is only usable in nightly scenarios (`@all_required_types`'s `type T;` declaration works on stable).
 - **B4 (defense)**: defining an `@trait=[...]` constant in `batch_trait!` would be intercepted by the special marker and silently shadowed by the segment-level substitution — `collect_user_consts` now rejects `trait` as a constant name ("reserved marker" error).
-- Reviewer's supplementary test, dsl section 35 `macro_meta_review_extras` (full positive-path coverage: @all_required all kinds / @all_default_constants / marker subtraction / @trait<T> top-level spec / `[a,b]` in #delegate / blanket where with only @0 / `().3 where{@2: Clone}` multi-parameter positional references) — all pass.
+- Reviewer's supplementary test, dsl section 35 `macro_meta_review_extras` (full positive-path coverage: @all_required all kinds / @all_default_constants / marker subtraction / @trait<T> top-level spec / `[a,b]` in #delegate / blanket where with only @0 / `()^3 where{@2: Clone}` multi-parameter positional references) — all pass.
 
 ### Macro-meta layer completed (0.6.1 main line: `@` as the sole macro-meta marker + blanket bound merging)
 
@@ -911,11 +911,11 @@
 - Trait-aware constants (ConstCtx::Attribute carries trait_def): `@trait` expands the local trait name; `@Cow` is built in (`Cow<'_>` + an inherent bound predicate — quote doesn't pair angle brackets, so the ty must use `Group::new(delimiter![<>])` manually; different in kind from the removed bare-type-name constants: only with a bound does it have reuse value);
 - Blanket wrapper bound predicates: a trailing `where{...}` (after `:N`) is merged into the impl where; `resolve_target_predicates` handles `@0` (→ fresh T) and `@trait`; **lesson**: `quote!(where { #(#wrapper_preds),* })` joins each TokenTree as a list element with commas — the predicate stream must be inserted as a whole;
 - `<>` keeps only names: the blanket generic declaration's TypeParam takes only the ident, const/lifetime as-is (a bare name `N` triggers E0747); `T: Trait` goes into the where base predicates (merged alongside the wrapper predicates); trait-parameter inline bounds are handled by codegen's inheritance logic (a previous move caused `X: Clone` duplication — inheritance fills bounds by position, see `gen_where_probe` for the empirical check);
-- `@0` generalized: codegen substitutes `@N` (→ the Nth impl generic's name) and `@trait` (→ the trait name) when rendering where predicates — tuples `().2 where{@0: Clone}` and ordinary specs `where{@0: Default}` now work (previously only the blanket wrapper where was special-cased: `@0` always meant the target generic fresh T, pre-substituted by resolve_target_predicates; the two don't conflict); out-of-bounds/malformed cases are collected into errs for reporting (generate_impl doesn't return Result); test dsl `where_position_refs`.
+- `@0` generalized: codegen substitutes `@N` (→ the Nth impl generic's name) and `@trait` (→ the trait name) when rendering where predicates — tuples `()^2 where{@0: Clone}` and ordinary specs `where{@0: Default}` now work (previously only the blanket wrapper where was special-cased: `@0` always meant the target generic fresh T, pre-substituted by resolve_target_predicates; the two don't conflict); out-of-bounds/malformed cases are collected into errs for reporting (generate_impl doesn't return Result); test dsl `where_position_refs`.
 
 - `@Trait` → `@trait` rename + path-ification: the built-in name family unified to all-lowercase (`@uint`/`@scalar`/…); the content changed from "local trait name" to "full trait path" — `batch_impl` = local name, `batch_impl_only` = external path (`#ext::Trait:` prefix) — so blanket wrapper wheres can write `@0::Owned: @trait` without hand-writing the path; implementation: path-prefix resolution moved **earlier**, before `@` expansion (`@trait` needs trait_full_path; ConstCtx::Attribute gained a trait_full_path field and a `trait_full_path()` accessor); blanket's resolve_target_predicates switched to trait_full_path (trait_def.ident only gives the local name, wrong in external scenarios); codegen's resolve_where_at synced to lowercase; **lesson**: PowerShell Select-String is case-insensitive, so the residual check falsely reported success (it had actually been replaced).
 
-- `batch_trait!` segment-level `@trait`: with multiple segments each having a different trait name, the `@trait` inside constant values (e.g. `@type_t=<T>@trait<T>`) is replaced per segment by the entry's segment loop with that segment's trait path (`replace_segment_trait`) — "generic declaration + trait name" is packaged for reuse across segments; implementation points: try_expand_at now returns `Option` — the Trait ctx's `@trait` returns `None` (kept as-is, no lazy-expansion recursion triggered — expanding to itself → encountering it again → a stack-overflow infinite loop, empirically STATUS_STACK_OVERFLOW); check_value_refs skips `@trait` (special marker, not a constant reference); test dsl `trait_const_segment` (lesson: the trait definition must carry generics matching the spec's `<T> Trait<T>`; `Box.[T,(T,)]` generic overlap E0119 was a author-writing issue, so the test uses `[T, Vec<T>]`).
+- `batch_trait!` segment-level `@trait`: with multiple segments each having a different trait name, the `@trait` inside constant values (e.g. `@type_t=<T>@trait<T>`) is replaced per segment by the entry's segment loop with that segment's trait path (`replace_segment_trait`) — "generic declaration + trait name" is packaged for reuse across segments; implementation points: try_expand_at now returns `Option` — the Trait ctx's `@trait` returns `None` (kept as-is, no lazy-expansion recursion triggered — expanding to itself → encountering it again → a stack-overflow infinite loop, empirically STATUS_STACK_OVERFLOW); check_value_refs skips `@trait` (special marker, not a constant reference); test dsl `trait_const_segment` (lesson: the trait definition must carry generics matching the spec's `<T> Trait<T>`; `Box^[T,(T,)]` generic overlap E0119 was a author-writing issue, so the test uses `[T, Vec<T>]`).
 
 - Tests: dsl `macro_meta_complete` (@trait/@Cow/blanket where/[a,b]/where specs), `trait_const_value_with_angles` kept; full regression green.
 
@@ -935,14 +935,14 @@
 - Tests: dsl `all_default_required_markers` (three scenarios: fill combination / fill with only required / blanket with only required; E0034 lesson: the three traits must each occupy a distinct integer type);
 - The three directives (fill/delegate/blanket) share `parse_names_from_tokens`, so one change benefits all.
 
-### Spot-checking old test cases (git history) — found and fixed `T.<A,B>` argument loss
+### Spot-checking old test cases (git history) — found and fixed `T^<A,B>` argument loss
 
 - Comparing v0.5.0's deleted examples/{tests,ds_tests,my_tests,debug_tests}.rs (~4800 lines) against the current dsl/regression test matrix, 4 candidate blind spots were verified empirically:
-  - `[&, self].[u32, i64]` (mixed-prefix list cross product), `()-[usize, isize]-[u32, i32]` (empty-tuple double-list subtraction chain) — behavior correct, already covered;
-  - `HashMap.<u32, String>` (caret followed by a generic-parameter list) — **real bug**;
+  - `[&, self]^[u32, i64]` (mixed-prefix list cross product), `()-[usize, isize]-[u32, i32]` (empty-tuple double-list subtraction chain) — behavior correct, already covered;
+  - `HashMap^<u32, String>` (caret followed by a generic-parameter list) — **real bug**;
   - `[usize #fill(@all){..}, isize #fill(@all){..}]` (list elements with independent directives) — overlaps dsl `directive_fill`, not separately added.
 - **Bug root cause**: an ordering defect in parse_primary — a lone `Group(<>)` input is pre-empted by the `[TokenTree::Group] → parse_group` branch, parse_group doesn't recognize `<>` groups and falls into `_ => empty()`, so `parse_type_params` (which should handle the standalone `<A,B>` operand) is never reached; with a body, the empty result gets wrapped by `TyWithCode` and escapes the `is_empty_operand` check → `<u32, String>` is silently dropped and the output is a bare `HashMap`, with no diagnostic at all (without a body it reports "missing operand after `.`" — split behavior);
-- **Fix**: the `[Group] → parse_group` branch excludes `delimiter![<>]`, so angle groups fall through to parse_type_params — per the established semantics in the apply/mod.rs comment, `T.<A,B> => T<A,B>` (`HashMap.<u32, String>` → `HashMap<u32, String>`);
+- **Fix**: the `[Group] → parse_group` branch excludes `delimiter![<>]`, so angle groups fall through to parse_type_params — per the established semantics in the apply/mod.rs comment, `T^<A,B> => T<A,B>` (`HashMap^<u32, String>` → `HashMap<u32, String>`);
 - Test: regression `caret_angle_param_list` (`contains_key` asserts the impl lands on the full generic type, preventing regression to a bare `HashMap`).
 
 ## 0.6.0 (2026-08-04)
@@ -958,9 +958,9 @@
 ### New feature: `#blanket` covering delegation
 
 - `expand_directive`'s return type changed from `TokenTree` to `Vec<TokenTree>` (a directive can now produce multiple tokens; the five existing directives wrap themselves in `vec!` at the dispatch site, zero internal changes)
-- `expand_blanket`: **generalized wrapper elements** (any type expression + optional trailing `:N` depth annotation; `parse_blanket_wrappers` returns `BlanketWrapper { ty, depth }`; `is_single_colon` distinguishes `::` paths), fresh generics, per-wrapper generation of `<T: Trait> wrapper.T { delegation body }` multi-segment specs
-- The delegation body's `*` count = depth + 1 (parsed as `"*".repeat(depth + 1) + "self"`); the target type = wrapper `.T` (`Box.Arc:2` → `Box<Arc<T>>`, `Cow<'_>` → `Cow<'_, T>`)
-- **Generic traits**: trait type parameters are copied to the impl generics (parameters first, fresh `T` last; the reverse order `T: Trait<X>` → E0401) + trait arguments filled with the parameter names + where predicates passed through; the spec's trait-name part is emitted only when generic (omitted when not — a `Trait &.T` prefixed target after the trait name can't be parsed; a regression once broke `{&,Box,Rc}`)
+- `expand_blanket`: **generalized wrapper elements** (any type expression + optional trailing `:N` depth annotation; `parse_blanket_wrappers` returns `BlanketWrapper { ty, depth }`; `is_single_colon` distinguishes `::` paths), fresh generics, per-wrapper generation of `<T: Trait> wrapper^T { delegation body }` multi-segment specs
+- The delegation body's `*` count = depth + 1 (parsed as `"*".repeat(depth + 1) + "self"`); the target type = wrapper `.T` (`Box^Arc:2` → `Box<Arc<T>>`, `Cow<'_>` → `Cow<'_, T>`)
+- **Generic traits**: trait type parameters are copied to the impl generics (parameters first, fresh `T` last; the reverse order `T: Trait<X>` → E0401) + trait arguments filled with the parameter names + where predicates passed through; the spec's trait-name part is emitted only when generic (omitted when not — a `Trait &^T` prefixed target after the trait name can't be parsed; a regression once broke `{&,Box,Rc}`)
 - **Assoc type/const delegation**: the narrow `TraitItem::Fn` matching was opened up; Type/Const go through `build_from_item`'s existing output shape, with bodies projecting via `<T as Trait<X>>::name`
 - Key fixes ×2: blanket runs after `angle_collect` — the generic declaration manually builds angle groups (`Group::new(delimiter![<>], ...)`); the body is a Brace group (angle_collect doesn't enter it), so flat `<...>` inside it such as `Cow<'_>` gets one extra `angle_collect` pairing pass
 - Pitfall: `quote!(#tp.ident)` field-access interpolation (`.ident` treated as a literal) — take a reference first, then interpolate
@@ -1075,7 +1075,7 @@
 - **`Ty::expand`'s return value changed to an explicit enum**: `enum Expand { Leaf, Many }` (the original `Result<Vec<Ty>, Ty>` used `Err` to mean leaf — a counter-intuitive design)
 - **Combinatorial expansion cap**: `MAX_EXPAND = 1024`, checked in `tuple_pow` / `pow_cartesian` (products per round) / `map_range` / `TyArray`'s Cartesian-integral branch, with `apply::check_expand_limit` as the unified entry
 - **Array-chain expansion product cap**: `count_leaves` leaf-count validation
-- **Tuple Cartesian-product bound fix**: `instantiate_combo` mistook parameter names for bounds (`(A: Clone, T).N` generated `_Param: A`); changed to keep the real bounds
+- **Tuple Cartesian-product bound fix**: `instantiate_combo` mistook parameter names for bounds (`(A: Clone, T)^N` generated `_Param: A`); changed to keep the real bounds
 - **Logic-slimming refactor** (zero behavior change): `Ty::expand`'s wrapping boilerplate extracted into `expand_wrapped` / `expand_rebuild`; the directive-expansion skeleton merged into `expand_many`
 - **Doc-drift fixes**: removed the u8 range for tuple generation from the README, updated test-matrix counts, added unsafe fn / `#except` / operand-strictness notes
 
@@ -1098,7 +1098,7 @@
 ### Array/slice builder (`TyPrimitiveArray`)
 
 - `TySlice` and `TyFixedArray` merged into `TyPrimitiveArray(Option<Box<Ty>>, Option<TokenStream>)`
-- `().N` fresh-generic tuples auto-hoisted out (`T.<A>X` => `<A>(T.X)`, nested `WithType` params merged into the impl generics)
+- `()^N` fresh-generic tuples auto-hoisted out (`T^<A>X` => `<A>(T^X)`, nested `WithType` params merged into the impl generics)
 - `TyNum` / `TyRange` changed from `u8` to `usize`
 
 ## 0.5.1 (2026-07-31)
@@ -1166,7 +1166,7 @@
 
 ### Fixes and code review
 
-- `fn.i32` auto-generates parentheses
+- `fn^i32` auto-generates parentheses
 - Unified `->` handling (`has_top_level_char` / `parse_balanced` / `find_top_level_colon` / `split_at_punct` exclude the `>` of `->`)
 - P0: `split_raw` detects extra `>`; `parse_balanced` gives a detailed error ("unclosed `<` (N levels remaining)")
 - P1: `expand_nested_bracket` comment (`unwrap_count - 1` semantics); `generate_tuples` returns Result (Cartesian-product over limit); `batch_trait!` empty-path check
@@ -1177,8 +1177,8 @@
 
 - BUG-1: `expand_caret` splits the right side at the first top-level `-` (`.` binds tighter than `-`)
 - BUG-2: `parse_target_items` dropped content after `<>` (`parse_balanced`'s pos was discarded)
-- BUG-3: `expand_single` didn't filter Attribute/Unsafe prefixes (`unsafe.#[attr].T`)
-- fn-type precedence: in `fn.(u32,i32)-usize` the `-` is the return type
+- BUG-3: `expand_single` didn't filter Attribute/Unsafe prefixes (`unsafe^#[attr]^T`)
+- fn-type precedence: in `fn^(u32,i32)-usize` the `-` is the return type
 - Nested caret preserves the `Fn` prefix
 
 ### Code Quality
@@ -1219,19 +1219,19 @@
 
 ### 0.-1 (2026-07 prototype, single file, 684 lines)
 
-- **Static type lists**: the spec was a sequential structure of "generics + trait generics + target + body", with no `.`/`-` operators, no tuple generation, no prefix system — the target type was a static type passed through as tokens
+- **Static type lists**: the spec was a sequential structure of "generics + trait generics + target + body", with no `^`/`-` operators, no tuple generation, no prefix system — the target type was a static type passed through as tokens
 - But **80% of the design was already finalized**: the `[]` ambiguity (comma = list / none = slice), `()` grouping vs. tuple, generic inheritance (children append the parent's), body inheritance (list-level shared / child-level override), the dangling trait-generics diagnostic ("`MyTrait<T>` parsed as trait generic parameters, but a target type is missing"), `compile_error_at` span location, Chinese-language error messages
 - **Automatic trait-generic completion**: when the trait has generics, they were auto-completed from `trait_generics` (`#trait_name<#(#params),*>`) — cut in 0.0 when `.` was introduced, brought back by 0.5.5's `A<>` verbatim copy
 
 ### 0.0 (2026-07 prototype, single file, 1961 lines)
 
-- **The leap: type composition as operators** — `.` (right-assoc: `A.B=A<B>`, `&.T=&T`, `[A].[B]` Cartesian product), `-` (left-assoc tuple construction), `().N`/`.M..N` tuple generation, fresh generics (`A_7f3a_` span-position hash suffixes), the prefix system (`&`/`&mut`/`self`/`unsafe`), the recursion guard (`RecursionGuard` at 128 levels, present from day one) — every core concept of the DSL was finalized here; 0.1→0.6 added no new concepts, only refinement and peripheral systems
-- Defects already planted (fixed only in 0.2.1/0.2.2): `split_raw` without a `->` guard; `expand_caret`'s right side without dash splitting (`HashMap.K-V` parsed as nested instead of parallel)
+- **The leap: type composition as operators** — `^` (right-assoc: `A^B=A<B>`, `&^T=&T`, `[A]^[B]` Cartesian product), `-` (left-assoc tuple construction), `()^N`/`^M..N` tuple generation, fresh generics (`A_7f3a_` span-position hash suffixes), the prefix system (`&`/`&mut`/`self`/`unsafe`), the recursion guard (`RecursionGuard` at 128 levels, present from day one) — every core concept of the DSL was finalized here; 0.1→0.6 added no new concepts, only refinement and peripheral systems
+- Defects already planted (fixed only in 0.2.1/0.2.2): `split_raw` without a `->` guard; `expand_caret`'s right side without dash splitting (`HashMap^K-V` parsed as nested instead of parallel)
 
 ### 0.1.x (2026-07 first release series)
 
 - **Module split done**: 0.0's single file cut directly by section into 9 files under `core/` (types/recursion/utils/codegen/tuple/caret/dash/parser + lib.rs entry) — that's 0.2's 9-file structure;
-- **prefill pre-filled generics** (`HashMap<K>.V → HashMap<K, V>`): `PrefixItem::Container` gained a `prefill` field, wired into both the caret and dash paths;
+- **prefill pre-filled generics** (`HashMap<K>^V → HashMap<K, V>`): `PrefixItem::Container` gained a `prefill` field, wired into both the caret and dash paths;
 - Recursion guard kept verbatim (`RecursionGuard` word-for-word identical to 0.0);
 - 0.1.1 didn't yet have: fn/pointer/attribute prefixes (PrefixItem only had 6 variants), assoc bindings (ImplSpec 5 fields), the global `->` guard (only dash-local) — added in 0.2.0/0.2.2.
 
@@ -1245,7 +1245,7 @@
 
 ### Three "cut and later brought back" threads
 
-- **Automatic trait-generic completion**: present in 0.-1 → cut in 0.0 (`<...>` after the trait name became ambiguous once `.` was introduced) → brought back by 0.5.5's `A<>` verbatim copy;
+- **Automatic trait-generic completion**: present in 0.-1 → cut in 0.0 (`<...>` after the trait name became ambiguous once `^` was introduced) → brought back by 0.5.5's `A<>` verbatim copy;
 - **Recursion guard**: present in 0.0 → lost in the 0.3 rewrite's fresh start (not rebuilt) → restored in 0.6.1 (`MAX_NEST_DEPTH`, see the 0.6.1 section);
 - **Body-merge semantics**: 0.-1/0.0/0.1.1 children override the list level → 0.2 changed to concatenation (standalone bodies merge with shared bodies; same-named methods are reported by the compiler).
 
@@ -1254,14 +1254,14 @@
 - **The splat `*` prefix — born from the no-repetition principle.** The trigger
   was a capability gap: `A-@u*-@u*` generates `A<u8,u8>`, `A<u8,u16>`, ... —
   but writing `@u*` twice violated the author's **no-repetition principle**.
-  The mathematical intuition: use the tuple `^N` power (`(A,B).2`) so one
+  The mathematical intuition: use the tuple `^N` power (`(A,B)^2`) so one
   `???` expands the family × power (`(???)@u*)^2`) into what is wanted. That
   needed an operation to *flatten* the power's Cartesian result into the
   enclosing argument list — and the flatten semantics emerged, immediately
   borrowing Python's `*` unpacking. A bonus discovery fell out: the
   `(*@u*)` spelling (a lone splat group).
   - *On the symbol:* `*` was a borrowed decoration, and alternatives clash —
-    `..`/`...` are taken by ranges and the `.` chain; `_*` collides with the
+    `..`/`...` are taken by ranges and the `^` chain; `_*` collides with the
     later `_` shape wildcard. `*` was free in this DSL (no deref/mul
     ambiguity) and already meant "whole family" in `@u*`, so `*@u*` reads
     "unpack the whole family" — accidentally coherent, not an import.
@@ -1296,7 +1296,7 @@
   references no longer leak the reserved `_Param_*_BatchGen_` names;
   `batch_preview!` (the DSL-aware expansion preview) lands; the no-panic
   guarantee is hardened crate-wide.
-- **Flat-chain depth guards** — `.`/`-` chains, attachment chains, and
+- **Flat-chain depth guards** — `^`/`-` chains, attachment chains, and
   chained type segments capped at 128 levels (a few hundred chained units
   previously overflowed the compiler stack).
 
