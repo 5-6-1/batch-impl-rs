@@ -1,0 +1,95 @@
+//! `@N..` / `@N..M` range references in where predicates: the tail after
+//! the range is copied per fresh (`@0..::Out: Clone` → `P0::Out: Clone,
+//! P1::Out: Clone`), open ranges (`@1..`) skip the first fresh, closed
+//! ranges (`@0..=1`) cover exactly a run. The token-level re-opening in
+//! type positions (`Wrapper<@0..>`) is covered by `codegen::range_refs`
+//! unit tests; these end-to-end tests drive the where-predicate path
+//! through the real macro.
+
+use batch_impl::batch_impl;
+
+// ============================================================
+// 1. `@0..` open range: every fresh gets the predicate tail.
+//    The fresh list comes from the target's `*().3` generator splat.
+// ============================================================
+struct Triple<T, U, V>(T, U, V);
+
+#[batch_impl(Triple<*().3> where{@0..: Clone} { fn m(&self) {} })]
+#[allow(dead_code)]
+trait RangeWhereAll { fn m(&self); }
+
+#[test]
+fn range_where_all_fresh() {
+    fn check<T: RangeWhereAll>(_: &T) {}
+    check(&Triple(0u8, 1u16, 2u32));
+}
+
+// ============================================================
+// 2. `@1..` open range from index 1: the first fresh is unconstrained.
+// ============================================================
+#[batch_impl(Triple<*().3> where{@1..: Copy} { fn m(&self) {} })]
+#[allow(dead_code)]
+trait RangeWhereTail { fn m(&self); }
+
+#[test]
+fn range_where_tail() {
+    fn check<T: RangeWhereTail>(_: &T) {}
+    check(&Triple(0u8, 1u16, 2u32));
+}
+
+// ============================================================
+// 3. `@0..=1` closed range: exactly the first two freshes.
+// ============================================================
+#[batch_impl(Triple<*().3> where{@0..=1: Copy} { fn m(&self) {} })]
+#[allow(dead_code)]
+trait RangeWhereClosed { fn m(&self); }
+
+#[test]
+fn range_where_closed() {
+    fn check<T: RangeWhereClosed>(_: &T) {}
+    check(&Triple(0u8, 1u16, 2u32));
+}
+
+// ============================================================
+// 4. Range with an associated-type path tail: `@0..::Out: Clone` — the
+//    `::Out` part is copied per fresh (`P0::Out: Clone, P1::Out: Clone`).
+// ============================================================
+#[allow(dead_code)]
+trait HasOut { type Out; }
+struct Wrap2<A, B>(A, B);
+
+#[batch_impl(Wrap2<*().2> where{@0..: HasOut, @0..::Out: Clone} { fn m(&self) {} })]
+#[allow(dead_code)]
+trait RangeAssocPath { fn m(&self); }
+
+// The `#[batch_impl]` declaration above is itself the test: it must expand
+// to `impl ... where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone`
+// (the `::Out` tail copied per fresh) without a compile error. No instance
+// is constructed — the generated where bounds are the assertion.
+
+// ============================================================
+// 5. Two ranges in one where clause: an open `@0..` and a closed `@0..=1`
+//    coexist (each expands independently).
+// ============================================================
+#[batch_impl(Wrap2<*().2> where{@0..: Clone, @0..=1: Copy} { fn m(&self) {} })]
+#[allow(dead_code)]
+trait RangeWhereCombined { fn m(&self); }
+
+#[test]
+fn range_where_combined() {
+    fn check<T: RangeWhereCombined>(_: &T) {}
+    check(&Wrap2(0u8, 1u16));
+}
+
+// ============================================================
+// 6. `@all_fresh` remains equivalent to `@0..`.
+// ============================================================
+#[batch_impl(Wrap2<*().2> where{@all_fresh: Clone} { fn m(&self) {} })]
+#[allow(dead_code)]
+trait RangeAllFreshEq { fn m(&self); }
+
+#[test]
+fn range_all_fresh_equivalence() {
+    fn check<T: RangeAllFreshEq>(_: &T) {}
+    check(&Wrap2(0u8, 1u16));
+}

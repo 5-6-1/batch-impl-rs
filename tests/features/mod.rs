@@ -22,6 +22,7 @@ pub(crate) mod dsl_macro_meta;
 pub(crate) mod dsl_open_extension;
 pub(crate) mod dsl_operators;
 pub(crate) mod dsl_receivers;
+pub(crate) mod dsl_range_at;
 pub(crate) mod dsl_splat_advanced;
 pub(crate) mod dsl_splat_basic;
 pub(crate) mod dsl_trait_args;
