@@ -186,7 +186,7 @@ impl Apply for TyFn {
                     span,
                 ),
             },
-            // Has params: append the return type via `-`
+            // Has params: append the return type (the space/`.` application)
             TyFn(Some(params), None, is_unsafe) => {
                 TyFn(params.into(), o.into(), is_unsafe).to_ty().with_span(span)
             }

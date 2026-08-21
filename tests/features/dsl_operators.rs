@@ -19,7 +19,7 @@ fn dash_op() {
 }
 
 // ============================================================
-// Space application semantics (0.8.4, replaces the `-` operator)
+// Space application semantics (0.9.0, replaces the retired `-` operator)
 // ============================================================
 struct SpaceBox<T>(T);
 struct Pair<T, U>(T, U);

@@ -230,16 +230,17 @@ pub(crate) enum TyKind {
 ///
 /// Each level defines "stop characters": when scanning at that level, `parse_operand`
 /// truncates at them, then hands the truncated slice to higher-precedence recursion.
-/// The Dash level is the space-application chain (left-assoc, the successor of
-/// `-` — the space is not a token, so it cuts units by adjacency instead of by
-/// stop chars; its `stop_chars` are unused). `.` is the apply operator
-/// (right-assoc); the `.` stop skips `..` ranges (`1..=4` / `@1..` stay one unit).
+/// The Space level is the space-application chain (left-assoc, the successor of
+/// the retired `-` — the space is not a token, so it cuts units by adjacency instead
+/// of by stop chars; its `stop_chars` are unused). `.` is the apply operator
+/// (right-assoc, the Dot level); the `.` stop skips `..` ranges (`1..=4` / `@1..`
+/// stay one unit).
 #[derive(Copy, Clone)]
 pub(crate) enum Op {
     Semi,
     Comma,
-    Dash,
-    Caret,
+    Space,
+    Dot,
     Prim,
 }
 
@@ -248,9 +249,9 @@ impl Op {
     pub(crate) fn next(self) -> Option<Op> {
         match self {
             Op::Semi => Some(Op::Comma),
-            Op::Comma => Some(Op::Dash),
-            Op::Dash => Some(Op::Caret),
-            Op::Caret => Some(Op::Prim),
+            Op::Comma => Some(Op::Space),
+            Op::Space => Some(Op::Dot),
+            Op::Dot => Some(Op::Prim),
             Op::Prim => None,
         }
     }
@@ -262,8 +263,8 @@ impl Op {
             Op::Semi => &[',', ';'],
             Op::Comma => &[','],
             // the space chain cuts units itself (scan_space_unit); no stop chars
-            Op::Dash => &[],
-            Op::Caret => &['.', ','],
+            Op::Space => &[],
+            Op::Dot => &['.', ','],
             Op::Prim => &[],
         }
     }

@@ -3,7 +3,7 @@
 //! Provides a lightweight [`Cursor`] (a borrowed-slice cursor over `&[TokenTree]`) and the
 //! unified stop-token scanners [`scan_with`] / [`scan_stop`]. Angle brackets were paired into
 //! opaque groups by `angle_collect`, so scanning no longer tracks `<>` depth; the only
-//! remaining guard is the `->` arrow (`-` is not a Dash stop token when followed by `>`).
+//! remaining guard is the `->` arrow (`-` is not a Space stop token when followed by `>`).
 
 use proc_macro2::{Spacing, TokenTree};
 
@@ -99,7 +99,7 @@ impl<'a> Cursor<'a> {
 /// Unified stop-token scan: return the index of the first depth-0 token in the stop set.
 ///
 /// Angle brackets were paired into opaque groups by `angle_collect`, so `<>` depth is not
-/// tracked here; the only guard kept is the `->` arrow: `-` is not a Dash stop token when
+/// tracked here; the only guard kept is the `->` arrow: `-` is not a Space stop token when
 /// followed by `>`.
 pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
     for (index, token) in tokens.iter().enumerate() {

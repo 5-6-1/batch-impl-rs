@@ -109,7 +109,7 @@ pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
             let elems = split_at_depth0(&inner, ',')
                 .iter()
                 .filter(|c| !c.is_empty())
-                .map(|c| parse_item(&mut Cursor::new(c), Op::Dash, None).unwrap_or_else(empty))
+                .map(|c| parse_item(&mut Cursor::new(c), Op::Space, None).unwrap_or_else(empty))
                 .collect::<Vec<_>>();
             if g.delimiter() == Delimiter::Bracket {
                 TySplat::Array(TyArray(elems)).to_ty()

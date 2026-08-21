@@ -3,7 +3,8 @@
 pub(crate) mod apply_tuple;
 pub(crate) mod splat;
 
-// The [`Apply`] trait defines the binary operation `A.apply(B)`: `.` (right-assoc) / `-` (left-assoc).
+// The [`Apply`] trait defines the binary operation `A.apply(B)`: `.` (right-assoc) /
+// space (left-assoc).
 // Each `Ty` variant implements [`Apply::apply_help`] with its combination semantics — containers
 // append args, references wrap, lists take a Cartesian product, tuples expand by length (`().N`,
 // `(<Bound>).N`), associated parameters are generated, etc. The **early dispatch of the right
@@ -47,7 +48,7 @@ pub(crate) fn expand_limit_err(what: &str, len: usize) -> Ty {
     ))
 }
 
-/// Binary operation on type expressions: in `A.B` / `A-B`, `A.apply(B)` combines into a `Ty`.
+/// Binary operation on type expressions: in `A.B` / `A B`, `A.apply(B)` combines into a `Ty`.
 ///
 /// `apply` is the **right-operand structural dispatch** with a default
 /// implementation: Array/Group/WithCode/WithWhere/WithType/Range/Error are

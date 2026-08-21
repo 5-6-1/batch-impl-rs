@@ -42,7 +42,7 @@ pub(crate) use entry::{expand_attr_macro, expand_batch_trait};
 /// An impl-spec has three parts (the tail of each part may be omitted):
 /// - `<impl generics>` — generic params of the `impl` block
 /// - `Trait name<trait generics>` — the trait's generic args and associated type bindings
-/// - target type — wrapped in `[]` for a parallel list, `.`/`-` for generic application
+/// - target type — wrapped in `[]` for a parallel list, `.`/space for generic application
 ///
 /// ## The impl entry (0.8.0)
 ///

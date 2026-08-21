@@ -24,8 +24,8 @@ pub(crate) fn parse_names_from_tokens(
 ///
 /// In the directive-argument domain `-` had no meaning before (arguments
 /// parse only identifiers/commas) and is dedicated to list subtraction; it
-/// does not clash with the `-` join operator of the type DSL (DSL parsing
-/// never enters directive arguments). `what` is used for diagnostic wording
+/// never enters type DSL positions (where a lone `-` is the retired
+/// operator). `what` is used for diagnostic wording
 /// (the main args are "directive arguments").
 fn parse_name_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,

@@ -99,7 +99,7 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
                     contents[0].span(),
                 )
             } else {
-                let inner = parse_item(&mut Cursor::new(&contents), Op::Dash, trait_name)
+                let inner = parse_item(&mut Cursor::new(&contents), Op::Space, trait_name)
                     .unwrap_or_else(empty);
                 TyGroup(Box::new(inner)).to_ty().with_span(group.span())
             }

@@ -76,8 +76,8 @@ fn impl_entry_slot_composite_subtree() {
 }
 
 // ------------------------------------------------------------
-// 4. Multi-dimensional matrix (two `-` layers): `Pair2-[u8, u16]-[i8, i16]`
-//    → Pair2<u8, i8> ... (left-assoc `-` accumulates the two arg lists; the
+// 4. Multi-dimensional matrix (two space layers): `Pair2 [u8, u16] [i8, i16]`
+//    → Pair2<u8, i8> ... (left-assoc space accumulates the two arg lists; the
 //    template keeps two slots; the trait signature stays slot-free)
 // ------------------------------------------------------------
 struct Pair2<A, B>(A, B);

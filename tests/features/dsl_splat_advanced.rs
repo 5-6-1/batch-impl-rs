@@ -72,7 +72,7 @@ fn splat_generic_args() {
     assert_n::<Pair<SplatA, SplatB>>();
 }
 
-// Splat rules: R1 `T.*(A,B)` ≡ `T-A-B` (right operand always flattens);
+// Splat rules: R1 `T *(A,B)` ≡ `T A B` (right operand always flattens);
 // R2 left semantics by source — `*[...]` distributes `.T` (`*[A.T,B.T]`,
 // enabling composition `X.*[A,B].T` = `X<A.T, B.T>`, one impl), `*(...)`
 // appends (`*(A,B,...,T)`, list semantics).

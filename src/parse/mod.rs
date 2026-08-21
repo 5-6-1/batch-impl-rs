@@ -2,8 +2,8 @@
 //!
 //! # Precedence hierarchy and its invariants
 //!
-//! Low → high: `;` < `,` < **space** (left-assoc, the Dash level) < `.`
-//! (right-assoc, the Caret level) < **blocks** (Prim). The chain layers cut
+//! Low → high: `;` < `,` < **space** (left-assoc, the Space level) < `.`
+//! (right-assoc, the Dot level) < **blocks** (Prim). The chain layers cut
 //! between **blocks** ([`crate::parse::space::parse_block`]): a block is the
 //! smallest self-contained type fragment, and the space (which is not a
 //! token) is recognized by the adjacency of two block starts. List levels

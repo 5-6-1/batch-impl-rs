@@ -1,4 +1,4 @@
-error: batch-impl: custom constants are not supported by `#[batch_impl]` / `#[batch_impl_only]` — write the type matrix directly with `.` / `-` / `*` instead
+error: batch-impl: custom constants are not supported by `#[batch_impl]` / `#[batch_impl_only]` — write the type matrix directly with `.` / space / `*` instead
  --> tests/ui/const_attr_unsupported.rs:6:1
   |
 6 | #[batch_impl(@small = [u8, u16]; @small)]

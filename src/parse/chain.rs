@@ -1,5 +1,5 @@
 //! Operator-chain parsing: space-application chains (left-assoc, the
-//! successor of `-`) and `.` chains (right-assoc), plus list parsing.
+//! successor of the retired `-`) and `.` chains (right-assoc), plus list parsing.
 //!
 //! Both operators live **between blocks**: the space chain folds blocks
 //! (see [`crate::parse::space::parse_block`]) left-associatively, and the
@@ -44,8 +44,8 @@ pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, trait_name: Option<&Ide
                 return None;
             }
         },
-        Op::Dash => parse_space_chain(cursor, trait_name),
-        Op::Caret => parse_dot_chain(cursor, trait_name),
+        Op::Space => parse_space_chain(cursor, trait_name),
+        Op::Dot => parse_dot_chain(cursor, trait_name),
         Op::Prim => parse_primitive(cursor.take_rest(), trait_name).into(),
     }
 }

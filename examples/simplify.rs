@@ -6,10 +6,10 @@
 //! separate impls for fn/HashMap/pointers/associated types… The DSL below
 //! batches all of it.
 //!
-//! Features covered: `[...]` side-by-side lists, shared body, `.` list
+//! Features covered: `[...]` side-by-side lists, shared body, space/`.` list
 //! application, `&`/`*const`/`*mut` prefixes, `where{...}` constraints,
 //! `#delegate` / `#fill` / `#name` directives, tuple generation `().1..=4`,
-//! left-associative `-`, associated type bindings `Item=T`, and the three
+//! left-associative space application, associated type bindings `Item=T`, and the three
 //! entry points `batch_impl` / `batch_impl_only` / `batch_trait!`.
 
 use batch_impl::{batch_impl, batch_impl_only, batch_trait};

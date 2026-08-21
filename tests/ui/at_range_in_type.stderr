@@ -1,4 +1,4 @@
-error: batch-impl: `@N..M` range references are only valid as a where-predicate subject
+error: batch-impl: `@0..=2` out of range — this scope has 0 fresh generics (numbered from 0 in document order)
  --> tests/ui/at_range_in_type.rs:5:1
   |
 5 | #[batch_impl(Vec<@0..=2>)]

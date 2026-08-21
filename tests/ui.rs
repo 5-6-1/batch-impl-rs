@@ -29,10 +29,11 @@ fn ui() {
     // DSL semantic errors
     t.compile_fail("tests/ui/empty_range.rs");
 
-    // trailing operators (missing operand after `-`/`^`)
+    // trailing operators (missing operand after `.`)
     t.compile_fail("tests/ui/dangling_operator.rs");
 
-    // operators/separators with an empty left side (`-A`/`^A`/`,A`/`A,,B`)
+    // operators/separators with an empty left side (`.A` / `,A` / `A,,B`; the
+    // retired `-` still errors with its retirement message)
     t.compile_fail("tests/ui/leading_operator.rs");
     t.compile_fail("tests/ui/leading_comma.rs");
 
