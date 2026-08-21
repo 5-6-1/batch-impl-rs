@@ -16,7 +16,9 @@ struct Triple<T, U, V>(T, U, V);
 
 #[batch_impl(Triple<*().3> where{@0..: Clone} { fn m(&self) {} })]
 #[allow(dead_code)]
-trait RangeWhereAll { fn m(&self); }
+trait RangeWhereAll {
+    fn m(&self);
+}
 
 #[test]
 fn range_where_all_fresh() {
@@ -29,7 +31,9 @@ fn range_where_all_fresh() {
 // ============================================================
 #[batch_impl(Triple<*().3> where{@1..: Copy} { fn m(&self) {} })]
 #[allow(dead_code)]
-trait RangeWhereTail { fn m(&self); }
+trait RangeWhereTail {
+    fn m(&self);
+}
 
 #[test]
 fn range_where_tail() {
@@ -42,7 +46,9 @@ fn range_where_tail() {
 // ============================================================
 #[batch_impl(Triple<*().3> where{@0..=1: Copy} { fn m(&self) {} })]
 #[allow(dead_code)]
-trait RangeWhereClosed { fn m(&self); }
+trait RangeWhereClosed {
+    fn m(&self);
+}
 
 #[test]
 fn range_where_closed() {
@@ -55,12 +61,16 @@ fn range_where_closed() {
 //    `::Out` part is copied per fresh (`P0::Out: Clone, P1::Out: Clone`).
 // ============================================================
 #[allow(dead_code)]
-trait HasOut { type Out; }
+trait HasOut {
+    type Out;
+}
 struct Wrap2<A, B>(A, B);
 
 #[batch_impl(Wrap2<*().2> where{@0..: HasOut, @0..::Out: Clone} { fn m(&self) {} })]
 #[allow(dead_code)]
-trait RangeAssocPath { fn m(&self); }
+trait RangeAssocPath {
+    fn m(&self);
+}
 
 // The `#[batch_impl]` declaration above is itself the test: it must expand
 // to `impl ... where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone`
@@ -73,7 +83,9 @@ trait RangeAssocPath { fn m(&self); }
 // ============================================================
 #[batch_impl(Wrap2<*().2> where{@0..: Clone, @0..=1: Copy} { fn m(&self) {} })]
 #[allow(dead_code)]
-trait RangeWhereCombined { fn m(&self); }
+trait RangeWhereCombined {
+    fn m(&self);
+}
 
 #[test]
 fn range_where_combined() {
@@ -86,7 +98,9 @@ fn range_where_combined() {
 // ============================================================
 #[batch_impl(Wrap2<*().2> where{@all_fresh: Clone} { fn m(&self) {} })]
 #[allow(dead_code)]
-trait RangeAllFreshEq { fn m(&self); }
+trait RangeAllFreshEq {
+    fn m(&self);
+}
 
 #[test]
 fn range_all_fresh_equivalence() {
@@ -104,7 +118,9 @@ struct DeclTarget;
 
 #[batch_impl(<@0..> GenConvDecl<*().2> DeclTarget where @0..: Clone { fn m(&self) {} })]
 #[allow(dead_code)]
-trait GenConvDecl<T, U> { fn m(&self); }
+trait GenConvDecl<T, U> {
+    fn m(&self);
+}
 
 #[test]
 fn range_decl_position() {
@@ -125,7 +141,9 @@ struct MultiTarget;
     { fn m(&self) {} }
 )]
 #[allow(dead_code)]
-trait PairGen<A, B, C, D, E> { fn m(&self); }
+trait PairGen<A, B, C, D, E> {
+    fn m(&self);
+}
 
 #[test]
 fn grouped_range_where() {
@@ -142,7 +160,9 @@ fn grouped_range_where() {
     { fn m(&self) {} }
 )]
 #[allow(dead_code)]
-trait PairGenDecl<A, B, C, D, E> { fn m(&self); }
+trait PairGenDecl<A, B, C, D, E> {
+    fn m(&self);
+}
 
 #[test]
 fn grouped_range_decl() {

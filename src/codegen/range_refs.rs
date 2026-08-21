@@ -53,10 +53,8 @@ pub(crate) fn group_fresh<'a>(
             span,
         )
     })?;
-    let end = fresh[start..]
-        .iter()
-        .position(|&(g, _, _)| g != group)
-        .map_or(fresh.len(), |p| start + p);
+    let end =
+        fresh[start..].iter().position(|&(g, _, _)| g != group).map_or(fresh.len(), |p| start + p);
     Ok(&fresh[start..end])
 }
 
@@ -131,8 +129,7 @@ pub(crate) fn expand_range_refs(
 /// fresh name. Runs before `merge_dup_params`, so a range declaration that
 /// overlaps a generator's fresh declarations collapses cleanly.
 pub(crate) fn expand_range_decls(
-    impl_generics: &mut Vec<(TokenStream, Option<crate::ast::Ty>)>,
-    impl_names: &[TokenStream],
+    impl_generics: &mut Vec<(TokenStream, Option<crate::ast::Ty>)>, impl_names: &[TokenStream],
 ) -> Result<(), TokenStream> {
     let fresh = sorted_fresh(impl_names);
     let mut out: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![];
@@ -166,7 +163,10 @@ fn expand_at(
                     let mut first = true;
                     for n in range_entries(range, fresh)? {
                         if !first {
-                            out.push(TokenTree::Punct(proc_macro2::Punct::new(',', proc_macro2::Spacing::Alone)));
+                            out.push(TokenTree::Punct(proc_macro2::Punct::new(
+                                ',',
+                                proc_macro2::Spacing::Alone,
+                            )));
                         }
                         first = false;
                         out.extend(n.clone());
@@ -182,7 +182,10 @@ fn expand_at(
                     return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
                 }
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
-                let mut ng = Group::new(g.delimiter(), expand_at(&inner, fresh, depth + 1)?.into_iter().collect());
+                let mut ng = Group::new(
+                    g.delimiter(),
+                    expand_at(&inner, fresh, depth + 1)?.into_iter().collect(),
+                );
                 ng.set_span(g.span());
                 out.push(TokenTree::Group(ng));
                 i += 1;
@@ -204,7 +207,11 @@ mod tests {
     fn names() -> Vec<TokenStream> {
         // Grouped fresh names (the pre-sweep form): `@N` indexes them by
         // (group, position) document order.
-        vec![quote!(_Param_0_0_BatchGen_), quote!(_Param_1_0_BatchGen_), quote!(_Param_1_1_BatchGen_)]
+        vec![
+            quote!(_Param_0_0_BatchGen_),
+            quote!(_Param_1_0_BatchGen_),
+            quote!(_Param_1_1_BatchGen_),
+        ]
     }
 
     #[test]
@@ -277,10 +284,8 @@ mod tests {
     #[test]
     fn decl_position_mixed_with_plain() {
         // A user param and a range declaration coexist; the plain one stays.
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![
-            ("X".parse().unwrap(), None),
-            ("_Param_0_With_BatchGen_".parse().unwrap(), None),
-        ];
+        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
+            vec![("X".parse().unwrap(), None), ("_Param_0_With_BatchGen_".parse().unwrap(), None)];
         expand_range_decls(&mut gens, &names()).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
         assert_eq!(

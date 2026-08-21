@@ -119,10 +119,13 @@ pub(crate) fn resolve_where_at(
                         && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
                     {
                         let slice = crate::codegen::range_refs::group_fresh(
-                            &fresh_sorted, group, tokens[i].span(),
+                            &fresh_sorted,
+                            group,
+                            tokens[i].span(),
                         )?;
                         let mut consumed = 4;
-                        if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=') {
+                        if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=')
+                        {
                             consumed += 1;
                         }
                         let end = match tokens.get(i + consumed) {
@@ -138,9 +141,12 @@ pub(crate) fn resolve_where_at(
                             }
                             _ => None,
                         };
-                        let range = crate::ast::fresh::FreshRange { group: Some(group), start, end };
+                        let range =
+                            crate::ast::fresh::FreshRange { group: Some(group), start, end };
                         let count = crate::codegen::range_refs::range_count(
-                            range, slice.len(), tokens[i].span(),
+                            range,
+                            slice.len(),
+                            tokens[i].span(),
                         )?;
                         let tail = resolve_tail(&tokens[i + consumed..], impl_names)?;
                         emit_fresh_predicates(&mut out, &slice[start..start + count], &tail);

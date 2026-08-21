@@ -177,7 +177,8 @@ pub(crate) fn generate_impl(
             .iter()
             .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
             .collect::<Vec<_>>();
-        if let Err(e) = crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &names)
+        if let Err(e) =
+            crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &names)
         {
             return e;
         }

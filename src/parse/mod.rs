@@ -69,7 +69,8 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                         {
                             let mut consumed = 4;
                             // `@N..=M`: an `=` after the dots
-                            if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=') {
+                            if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=')
+                            {
                                 consumed += 1;
                             }
                             // closed `@N..M` / `@N..=M`: an end literal

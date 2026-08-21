@@ -112,7 +112,10 @@ fn mark_template(
                     Some(TokenTree::Punct(p)) if p.as_char() == ','
                 );
                 if !last_is_comma {
-                    out.push(TokenTree::Punct(proc_macro2::Punct::new(',', proc_macro2::Spacing::Alone)));
+                    out.push(TokenTree::Punct(proc_macro2::Punct::new(
+                        ',',
+                        proc_macro2::Spacing::Alone,
+                    )));
                 }
             }
             continue;

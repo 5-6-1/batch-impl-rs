@@ -155,11 +155,9 @@ mod tests {
     #[test]
     fn range_placeholder_not_confused_with_plain_fresh() {
         // The `_With` infix must keep the sweeper's strict matchers away.
-        for name in [
-            "_Param_0_With_BatchGen_",
-            "_Param_1_With_2_BatchGen_",
-            "_Param_0_1_With_BatchGen_",
-        ] {
+        for name in
+            ["_Param_0_With_BatchGen_", "_Param_1_With_2_BatchGen_", "_Param_0_1_With_BatchGen_"]
+        {
             assert_eq!(parse_grouped_fresh(name), None, "{name}");
             assert_eq!(parse_numbered_fresh(name), None, "{name}");
         }

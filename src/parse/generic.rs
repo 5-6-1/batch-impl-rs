@@ -72,9 +72,8 @@ pub(crate) fn parse_angle_bracket_contents(
                         chunk[eq].span(),
                     ))
                     .to_ty(),
-                    Ok(v) => {
-                        parse_item(&mut Cursor::new(&v), Op::Space, trait_name).unwrap_or_else(empty)
-                    }
+                    Ok(v) => parse_item(&mut Cursor::new(&v), Op::Space, trait_name)
+                        .unwrap_or_else(empty),
                     Err(e) => TyPrimitive(e).to_ty(),
                 };
                 bindings.push((Box::new(name_ty), Box::new(value)));
@@ -126,7 +125,9 @@ pub(crate) fn parse_angle_bracket_contents(
             }
         } else {
             let name = match resolve_at_refs(chunk) {
-                Ok(v) => parse_item(&mut Cursor::new(&v), Op::Space, trait_name).unwrap_or_else(empty),
+                Ok(v) => {
+                    parse_item(&mut Cursor::new(&v), Op::Space, trait_name).unwrap_or_else(empty)
+                }
                 Err(e) => TyPrimitive(e).to_ty(),
             };
             params.push((Box::new(name), None));

@@ -50,8 +50,7 @@ pub(crate) fn collect_shape_mapping(
 /// (a range in the target type / trait args re-opens into the fresh list).
 pub(crate) fn render_impl(
     parts: ImplParts, where_resolved: Vec<TokenStream>, trait_name: &TokenStream,
-    is_unsafe_trait: bool, shape_entries: &[(String, TokenStream)],
-    impl_names: &[TokenStream],
+    is_unsafe_trait: bool, shape_entries: &[(String, TokenStream)], impl_names: &[TokenStream],
 ) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
