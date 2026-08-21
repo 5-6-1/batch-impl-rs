@@ -46,10 +46,12 @@ pub(crate) fn collect_shape_mapping(
 /// block from the extracted parts (bounds inherited, `@` refs resolved).
 /// `shape_entries` (the `impl{...}` shape-template slot mapping) rewrites the target
 /// type at render — the where predicates and body were already rewritten by
-/// the caller.
+/// the caller. `impl_names` feeds the `@N..` range-placeholder expansion
+/// (a range in the target type / trait args re-opens into the fresh list).
 pub(crate) fn render_impl(
     parts: ImplParts, where_resolved: Vec<TokenStream>, trait_name: &TokenStream,
     is_unsafe_trait: bool, shape_entries: &[(String, TokenStream)],
+    impl_names: &[TokenStream],
 ) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
@@ -66,21 +68,30 @@ pub(crate) fn render_impl(
         quote!(<#(#params),*>)
     };
 
-    // trait generic params (names only)
-    let trait_gen = if parts.trait_generic_names.is_empty() {
-        quote!()
-    } else {
-        let names = &parts.trait_generic_names;
-        quote!(<#(#names),*>)
-    };
+    // trait generic params (names only) — `@N..` placeholders re-open here
+    let mut trait_gen = quote!();
+    if !parts.trait_generic_names.is_empty() {
+        let mut names = vec![];
+        for n in &parts.trait_generic_names {
+            match crate::codegen::range_refs::expand_range_refs(n.clone(), impl_names) {
+                Ok(expanded) => names.push(expanded),
+                Err(e) => return e,
+            }
+        }
+        trait_gen = quote!(<#(#names),*>);
+    }
 
     // target type — shape template slot mapping applied at render (the leaf tokens
     // are in hand here; slot names in the target are replaced with the
-    // bound subtrees, e.g. `A<B>` → `Box<usize>`).
+    // bound subtrees, e.g. `A<B>` → `Box<usize>`), then `@N..` ranges re-open.
     let target = if shape_entries.is_empty() {
         parts.target_type.to_token_stream()
     } else {
         crate::codegen::shape::apply_mapping(parts.target_type.to_token_stream(), shape_entries)
+    };
+    let target = match crate::codegen::range_refs::expand_range_refs(target, impl_names) {
+        Ok(t) => t,
+        Err(e) => return e,
     };
 
     // impl body: associated types + user body

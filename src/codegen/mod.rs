@@ -39,6 +39,7 @@ mod extract;
 mod fresh;
 mod generics;
 mod match_ty;
+mod range_refs;
 mod render;
 mod repeat;
 mod repeat_drivers;
@@ -55,6 +56,7 @@ mod where_at_tests;
 pub(crate) use extract::*;
 pub(crate) use fresh::*;
 pub(crate) use generics::*;
+pub(crate) use range_refs::*;
 pub(crate) use repeat::*;
 pub(crate) use shape::*;
 pub(crate) use splat::*;
@@ -244,5 +246,6 @@ pub(crate) fn generate_impl(
         trait_name,
         is_unsafe_trait,
         &shape_entries,
+        &impl_name_streams,
     )
 }

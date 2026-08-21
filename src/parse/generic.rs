@@ -125,27 +125,9 @@ pub(crate) fn parse_angle_bracket_contents(
                 ));
             }
         } else {
-            let name = if matches!(
-                chunk.first(),
-                Some(TokenTree::Punct(p)) if p.as_char() == '@'
-            ) && matches!(chunk.get(1), Some(TokenTree::Literal(_)))
-                && chunk.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '.'))
-            {
-                // `@N..M` range refs are where-predicate-only — reject them in
-                // args with a targeted message instead of leaking raw tokens.
-                let span = chunk[0].span();
-                TyPrimitive(compile_error_ty(
-                    "batch-impl: `@N..M` range references are only valid as a where-predicate subject",
-                    span,
-                ))
-                .to_ty()
-            } else {
-                match resolve_at_refs(chunk) {
-                    Ok(v) => {
-                        parse_item(&mut Cursor::new(&v), Op::Dash, trait_name).unwrap_or_else(empty)
-                    }
-                    Err(e) => TyPrimitive(e).to_ty(),
-                }
+            let name = match resolve_at_refs(chunk) {
+                Ok(v) => parse_item(&mut Cursor::new(&v), Op::Dash, trait_name).unwrap_or_else(empty),
+                Err(e) => TyPrimitive(e).to_ty(),
             };
             params.push((Box::new(name), None));
         }

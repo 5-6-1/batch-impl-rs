@@ -53,7 +53,43 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                 let at_span = p.span();
                 match tokens.get(i + 1) {
                     Some(TokenTree::Literal(lit)) => {
-                        let name = at_ref_name(&lit.to_string()).ok_or_else(|| {
+                        let lit_str = lit.to_string();
+                        // `@N..` open range / `@N..M` / `@N..=M` closed range →
+                        // a single range placeholder ident (codegen expands it
+                        // against the impl's fresh list). The placeholder is an
+                        // atomic token, so a range may appear anywhere a single
+                        // `@N` can (`Wrapper<@0..>`, `<@0.. as T>::Scalar`).
+                        if let Ok(start) = lit_str.parse::<usize>()
+                            && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                            && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                        {
+                            let mut consumed = 4;
+                            // `@N..=M`: an `=` after the dots
+                            if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=') {
+                                consumed += 1;
+                            }
+                            // closed `@N..M` / `@N..=M`: an end literal
+                            let end = match tokens.get(i + consumed) {
+                                Some(TokenTree::Literal(el)) => {
+                                    let Some(e) = el.to_string().parse::<usize>().ok() else {
+                                        return Err(compile_error_str(
+                                            "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
+                                            at_span,
+                                        ));
+                                    };
+                                    consumed += 1;
+                                    Some(e)
+                                }
+                                _ => None,
+                            };
+                            let range = crate::ast::fresh::FreshRange { start, end };
+                            let name = crate::ast::fresh::range_fresh_name(range);
+                            let ident = Ident::new(&name, at_span);
+                            out.push(TokenTree::Ident(ident));
+                            i += consumed;
+                            continue;
+                        }
+                        let name = at_ref_name(&lit_str).ok_or_else(|| {
                             compile_error_str(
                                 "batch-impl: `@` in a type must be followed by a \
                                  position digit (e.g. `@0` or `@0_1`)",
