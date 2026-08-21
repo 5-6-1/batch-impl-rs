@@ -5,6 +5,12 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.9.2 (unreleased)
+
+- **`@N..` range references everywhere** — an open (`@1..`) or closed (`@0..=1`) fresh range now works in **any position a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh, so an associated-type path rides along), `<>` generic args (`Wrapper<@0..>` — one placeholder position re-opens into several), and tuple targets. The range folds into a single placeholder ident at parse time and re-opens against the impl's fresh list at codegen; the old restriction ("range references are only valid as a where-predicate subject") is gone
+- **Variadic segments no longer need a trailing comma** — `impl{(A@..)}` (previously `impl{(A@..,)}`) is now accepted: a segment at the end of a tuple template supplies its own comma so the template still parses as a tuple
+- **Historical log spellings restored** — CHANGELOG / dev-changelog entries for 0.8.x and earlier use the `^` operator of their time again (the 0.9.0 release pass had mechanically rewritten them to `.`); the pre-0.9 docs no longer misquote the old syntax
+
 ## 0.9.1 (2026-08-21)
 
 - **Targeted diagnostics for type-start operators** — `+A` at the start of a spec used to **silently generate 0 impls** with no diagnostic; it now reports "`+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`)". The `!` (never) block no longer swallows a trailing `{...}` body: `fn(A) -> ! { body }` attaches the body to the impl instead of losing it

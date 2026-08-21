@@ -1,5 +1,7 @@
 # batch-impl Tutorial
 
+**v0.9.2** (unreleased) — `@N..` / `@N..M` range references now work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh), `<>` generic args (`Wrapper<@0..>` — one position re-opens into several), tuple targets; variadic segments no longer need a trailing comma (`impl{(A@..)}`); see §6.4 / §8.4;
+
 **v0.9.1** (2026-08-21) — a stability release: `+A` at the start of a spec gets a targeted "not valid at the start of a type" diagnostic instead of silently generating 0 impls; `fn(A) -> ! { body }` attaches the body to the impl (the `!` block no longer swallows a trailing `{...}`); `self` is the identity prefix — a **bare-type placeholder** in matrices (`[Box, self] u8` = `Box<u8>` + the bare `u8`, see §10);
 
 **v0.9.0** (2026-08-21) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (see §2); the DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`); same-name generic declarations merge into a where clause; `_` is a never-replaced wildcard in `impl{...}` templates; `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`);
@@ -409,6 +411,27 @@ trait OpenRange {}
 `@all_fresh` and `@0..` are equivalent; the `@N..` family is the preferred
 spelling (`@0..` covers the whole run, `@1..` its tail).
 
+**Ranges work anywhere a single `@N` can** (0.9.2): beyond the where
+predicates above, the range's tail may be an associated-type path, copied
+per fresh — and a range in a target position re-opens against the fresh
+list the spec's generators produced:
+
+```rust
+# use batch_impl::batch_impl;
+struct Wrap3<A, B, C>(A, B, C);
+#[batch_impl(Wrap3<*().3> where{@0..: Clone} { fn m(&self) {} })]
+trait RangeAngle { fn m(&self); }
+// → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
+
+trait HasOut { type Out; }
+#[batch_impl(Wrap3<*().3> where{@0..: HasOut, @0..::Out: Clone} { fn m(&self) {} })]
+trait RangeAssoc { fn m(&self); }
+// → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
+```
+
+The fresh list a range indexes comes from the spec's generators (`*().N` /
+`().N`); a range in a spec with no fresh generics reports "out of range".
+
 `@N` also resolves in **value positions** — the type after `:` may carry
 `@N` inside angle groups, e.g. an associated-type binding referencing
 another fresh's associated type (the alga2 tuple `Module` scalar-equality
@@ -684,7 +707,10 @@ trait Tag { fn tag() -> usize; }
 
 An `impl{...}` template can declare a **variadic segment** with `ident@..`:
 it covers every remaining tuple position from its own position onward (a
-segment written after fixed elements starts at their count). The segment's
+segment written after fixed elements starts at their count). A trailing
+segment needs **no comma** — `impl{(A@..)}` and `impl{(A@..,)}` are
+equivalent (0.9.2; the trailing comma is supplied automatically so the
+template still parses as a tuple). The segment's
 names are **aligned with the leaf position** — `(u8, A@..,)` on
 `(u8, u16, u32)` yields `A1`, `A2` (there is no `A0`; the index cursor
 starts at `@1`), while `(A@..,)` on `(u8, u16, u32)` yields `A0`, `A1`,

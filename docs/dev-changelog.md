@@ -5,6 +5,52 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.9.2 (unreleased)
+
+> The `@N..` range work — driven by the user's observation that `<>` and
+> where predicates should address fresh generics uniformly.
+
+- **`@N..` / `@N..M` become single-token placeholders** (`ast/fresh.rs`): an
+  open range folds into `_Param_{N}_With_BatchGen_`, a closed one into
+  `_Param_{N}_With_{M}_BatchGen_`. The `_With` infix keeps the sweeper's
+  strict matchers (`parse_grouped_fresh` / `parse_numbered_fresh`) from ever
+  touching them, so the range placeholder survives to codegen untouched —
+  same reserved-pattern discipline as the plain fresh names, one more layer.
+  The placeholder is an **atomic token**: a range may now appear anywhere a
+  single `@N` can (`Wrapper<@0..>`, `<@0.. as T>::Scalar`), because the
+  bracket pairing / depth scanning never splits it.
+- **Parse-layer folding** (`parse/mod.rs::resolve_at_refs`): `@N..` /
+  `@N..M` / `@N..=M` are recognized and folded to the placeholder ident; the
+  `<>`-arg restriction in `parse/generic.rs` ("range references are only
+  valid as a where-predicate subject") is deleted — the parse layer no longer
+  needs to know a range is a range, it just sees a single ident.
+- **Codegen re-opening** (`codegen/range_refs.rs::expand_range_refs`): the
+  placeholder re-opens against the impl's sorted fresh list — one position
+  becomes several (`Wrapper<@0..>` → `Wrapper<P0, P1, P2>`). Applied to the
+  target type and trait args at render. Where predicates keep their existing
+  path (`resolve_where_at` on the raw `@N..` form — subject expansion), which
+  already supported `@1..::Output: Clone` (the tail after the range is
+  copied per fresh).
+- **Variadic segments auto-complete a trailing comma** (`preprocess/varseg.rs`):
+  `impl{(A@..)}` (no comma) now marks to `(__batch_varseg_A_0,)` — a segment
+  at the end of a tuple element list supplies its own comma, so syn parses
+  the template as a tuple instead of a parenthesized group. Middle segments
+  keep the stream comma; the change is confined to the tuple-element
+  position.
+- **Splat `*` → `..` rename: evaluated and reverted.** The symbol was
+  considered as a 0.10.0 breaking change; the parse layer even gained
+  `cursor_is_splat` / `splat_block` and the token-level tests passed. The
+  revert came from the author's own reading: `.`/`..`/`...` token forms are
+  too confusable (a `Pair...(` apply-splat needs `cursor_is_dotdot` to
+  exclude the splat shape, and a `..` range-vs-splat distinction rides on
+  the following token). The `*` splat stays; `@u*`'s wildcard `*` was never
+  in question. The `..` experiment is recorded here so the reasoning is not
+  lost.
+- **Historical `^` spellings restored** — the 0.9.0 release pass had
+  mechanically rewritten `^` to `.` in pre-0.9 changelog entries
+  (`T^*(A,B)` → `T.*(A,B)`, `Conv<*()^2>` → `Conv<*().2>`, the evolution
+  history's `A^B=A<B>`); all restored to the operator of their time.
+
 ## 0.9.1 (2026-08-21)
 
 > 0.9.1 is the **long-term stability release** — no new features, a five-dimensional audit (gaps / untested paths / ambiguities / duplicate code / architecture) over the whole codebase before freezing the surface. Findings and fixes:
