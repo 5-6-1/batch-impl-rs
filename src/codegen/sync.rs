@@ -32,7 +32,8 @@ pub(crate) fn sync_impl_parts(
     let mut body_sync = false;
     let mut matched = Vec::new();
     for t in std::mem::take(&mut parts.impl_templates) {
-        let is_switch = is_switch_template(&t.clone().into_iter().collect::<Vec<_>>(), &trait_ident);
+        let is_switch =
+            is_switch_template(&t.clone().into_iter().collect::<Vec<_>>(), &trait_ident);
         let s = sync_trait_application(t, &trait_args)?;
         if is_switch {
             body_sync = true;

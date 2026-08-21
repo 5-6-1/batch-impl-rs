@@ -120,12 +120,9 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
         TokenTree::Punct(p) if matches!(p.as_char(), '?' | '!') => {
             let p = p.as_char();
             cursor.bump();
-            let inner = if cursor_at_attachment(cursor) {
-                None
-            } else {
-                parse_block(cursor, trait_name)
-            }
-            .unwrap_or_else(empty);
+            let inner =
+                if cursor_at_attachment(cursor) { None } else { parse_block(cursor, trait_name) }
+                    .unwrap_or_else(empty);
             let p_tt = TokenTree::Punct(proc_macro2::Punct::new(p, Spacing::Alone));
             TyPrimitive(quote!(#p_tt #inner)).to_ty()
         }
