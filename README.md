@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.1** (2026-08-21) — a stability release: `+A` at the start of a spec no longer **silently generates 0 impls** (targeted "not valid at the start of a type" diagnostic), the `!` (never) block no longer swallows a trailing `{...}` body (`fn(A) -> ! { body }` works), and `self` is documented as the identity prefix — in a matrix it is a **bare-type placeholder** (`[Box, self] u8` = `Box<u8>` + the bare `u8`). Docs stability pass: the zh-CN tutorial no longer leaks the internal `_Param_*_BatchGen_` names and the `# path::to::Trait:` prefix / `:N` deref depth are covered in the English tutorial.
+**v0.9.2** (unreleased) — `@N..` / `@N..M` fresh ranges work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone`, the tail copied per fresh), `<>` generic args, tuple targets; variadic segments no longer need a trailing comma (`impl{(A@..)}`). Pre-0.9 changelog entries use the `^` operator of their time again (the 0.9.0 release pass had rewritten them to `.`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 

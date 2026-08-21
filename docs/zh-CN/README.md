@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.1**（2026-08-21）——稳定性发布：`+A` 位于 spec 开头不再**静默生成 0 个 impl**（定向诊断 "not valid at the start of a type"），`!`（never）块不再吞掉尾随 `{...}` body（`fn(A) -> ! { body }` 可用），`self` 文档化为恒等前缀——矩阵中作**裸类型占位**（`[Box, self] u8` = `Box<u8>` + 裸 `u8`）。文档稳定性修订：zh-CN 教程不再泄露内部 `_Param_*_BatchGen_` 名，`# path::to::Trait:` 前缀与 `:N` deref 深度补入英文教程。
+**v0.9.2**（unreleased）——`@N..` / `@N..M` fresh 范围可以在**任何单个 `@N` 能出现的位置**使用：where 谓词（`@1..::Output: Clone`，尾部逐 fresh 复制）、`<>` 泛型实参、元组目标；变长段不再需要尾随逗号（`impl{(A@..)}`）。0.9 之前 changelog 条目恢复使用当时的 `^` 运算符（0.9.0 发布时被改写成 `.`）。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
