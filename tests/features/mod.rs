@@ -16,6 +16,7 @@ pub(crate) mod dsl_bound_generator;
 pub(crate) mod dsl_consts;
 pub(crate) mod dsl_directives;
 pub(crate) mod dsl_distribution;
+pub(crate) mod dsl_dyn_for;
 pub(crate) mod dsl_entry_macros;
 pub(crate) mod dsl_generic_families;
 pub(crate) mod dsl_generics;

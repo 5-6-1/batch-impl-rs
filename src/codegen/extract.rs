@@ -211,6 +211,25 @@ pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>
             }
             hoist_type_params(*wt.1, out)
         }
+        // Generic-arg generators (`Box<dyn Fn.().2>`, `Box<().2>`): the
+        // params are a `Ty` tree `map_children` does not descend into, so
+        // recurse them here explicitly — the fresh declarations ride out of
+        // the args like any other nested `WithType`.
+        TyKind::Generic(g) => {
+            let params =
+                g.1.params
+                    .into_iter()
+                    .map(|(name, bound)| {
+                        (
+                            Box::new(hoist_type_params(*name, out)),
+                            bound.map(|b| hoist_type_params(b, out)),
+                        )
+                    })
+                    .collect();
+            TyGeneric(g.0, TyTypeParam { params, bindings: g.1.bindings })
+                .to_ty()
+                .with_span(ty.span)
+        }
         // All other variants: recurse into children uniformly.
         other => Ty { span: ty.span, kind: other }.map_children(&mut |c| hoist_type_params(c, out)),
     }
