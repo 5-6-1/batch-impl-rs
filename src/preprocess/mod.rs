@@ -164,7 +164,7 @@ mod tests {
             assert!(angle_collect(&v).is_ok(), "angle_collect: {s}");
             assert!(expand_consts(&v, ctx).is_ok(), "expand_consts: {s}");
             assert!(expand_tokens(&v, &trait_def, &trait_full_path).is_ok(), "expand_tokens: {s}");
-            assert!(where_process(&v, false).is_ok(), "where_process: {s}");
+            assert!(where_process(&v).is_ok(), "where_process: {s}");
         }
         // Control: WITHOUT the `!`/`#` marker the same content IS entered and
         // errors (proves the test distinguishes passthrough from recursion).

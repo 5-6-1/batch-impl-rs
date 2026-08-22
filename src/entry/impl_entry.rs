@@ -51,8 +51,9 @@ pub(crate) fn expand_impl_entry(
     let paired = angle_collect(&attr_vec)?;
     let paired = replace_trait_at(&paired, &trait_path)?;
     // The ItemImpl attr has no body after the predicates, so the end of the
-    // stream terminates the where region (`allow_end = true`).
-    let paired = where_process(&paired, true)?;
+    // stream terminates the where region (the predicates become a body-less
+    // `where{...}` suffix).
+    let paired = where_process(&paired)?;
 
     // ---- `;`-separated specs (the single-spec case is the common one) ----
     let mut out = quote![];

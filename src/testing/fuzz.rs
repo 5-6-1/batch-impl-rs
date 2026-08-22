@@ -124,7 +124,7 @@ proptest! {
     #[test]
     fn where_process_no_panic(toks in tokens(3)) {
         let ts = toks.iter().map(to_token).collect::<Vec<_>>();
-        let _ = where_process(&ts, false);
+        let _ = where_process(&ts);
     }
 
     /// DSL parsing: no panic on arbitrary token input, and it advances properly to the end

@@ -162,9 +162,9 @@ pub(crate) fn prepare_attr_expansion(
     let expanded = expand_tokens(&rest_tokens, &trait_item, &trait_full_path)?;
     // New bare `where predicate {body}` syntax → uniformly rewritten to legacy `where{predicate}`
     // (before `A<>` expansion: `Foo<>` inside predicates must pass through, not be expanded).
-    // The trait entries require the trailing code block (`allow_end = false`); only the impl entry
-    // permits a body-less where region.
-    let expanded = where_process(&expanded, false)?;
+    // A bare `where` with no trailing code block ends the region at the spec end
+    // (`where A: Clone` ≡ `where A: Clone {}`).
+    let expanded = where_process(&expanded)?;
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = crate::analyze::extract_trait_bounds(&trait_item);
     // `A<>`: copy the trait generics (args and bounds all come from the trait definition,
@@ -249,7 +249,7 @@ pub(crate) fn expand_batch_trait(
         crate::preprocess::ConstCtx::Trait { user_table: &user_consts },
     )?;
     let tokens = angle_collect(&tokens)?;
-    let tokens = where_process(&tokens, false)?;
+    let tokens = where_process(&tokens)?;
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
     loop {

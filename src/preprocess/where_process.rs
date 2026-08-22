@@ -2,13 +2,14 @@
 //!
 //! [`where_process`] scans the token stream after directive preprocessing and
 //! before DSL parsing for the bare `where predicates {code block}` form:
-//! collects predicates up to the first top-level `{...}` code block
-//! (excluding `ident!{...}` macro-call bodies) and rewrites it into the legacy
-//! `where{predicates}` suffix; a missing code
-//! block reports `compile_error!`. Shared by all three entries
-//! (`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!`) and the impl entry
-//! (`allow_end`); the parse layer need not know about the new
-//! syntax.
+//! collects predicates up to a boundary (a `{...}` code block, an ident
+//! `where`, an `impl{...}` shape template, a depth-0 `;`, or the end of the
+//! token stream) and rewrites it into the legacy `where{predicates}` suffix.
+//! A bare `where` with **no** trailing code block is legal: the predicates
+//! ride into a `where{...}` suffix with an empty body (`where A: Clone` ≡
+//! `where A: Clone {}`). Shared by all three entries (`#[batch_impl]` /
+//! `#[batch_impl_only]` / `batch_trait!`) and the impl entry; the parse layer
+//! need not know about the new syntax.
 //!
 //! **Boundary rule**: the scan operates on the top-level token list only —
 //! `angle_collect` has already paired `<...>` into opaque groups, and
@@ -16,20 +17,17 @@
 //! so nested code blocks like `Fn({code})` are never mistaken for the body
 //! boundary.
 //!
-//! Stop conditions (0.8.0 impl entry): a depth-0 `;` ends the predicate region
-//! (the `;` stays in the stream — it is the impl entry spec separator / the
-//! `batch_trait!` segment boundary), and with `allow_end` the end of the
-//! token stream ends it too (the impl entry attr has no body after the
-//! predicates).
+//! Stop conditions: a depth-0 `;` ends the predicate region (the `;` stays
+//! in the stream — it is the impl entry spec separator / the `batch_trait!`
+//! segment boundary), and the end of the token stream ends it too (the
+//! predicates become a body-less `where{...}` suffix).
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::compile_error_str;
 use crate::util::{bracket_is_passthrough, is_impl_template, is_punct};
 
-pub(crate) fn where_process(
-    tokens: &[TokenTree], allow_end: bool,
-) -> Result<Vec<TokenTree>, TokenStream> {
+pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
     while i < tokens.len() {
@@ -42,8 +40,7 @@ pub(crate) fn where_process(
             && !matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
                 if g.delimiter() == delimiter![{}])
         {
-            let Some((where_body, rest_index)) = scan_body_boundary(&tokens[i + 1..], allow_end)
-            else {
+            let Some((where_body, rest_index)) = scan_body_boundary(&tokens[i + 1..]) else {
                 return Err(compile_error_str(
                     "batch-impl: `where` predicates are missing a code block {...}",
                     tokens[i].span(),
@@ -59,7 +56,7 @@ pub(crate) fn where_process(
             && !bracket_is_passthrough(tokens, i)
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
-            let vt = where_process(&v, allow_end)?;
+            let vt = where_process(&v)?;
             result.push(Group::new(delimiter![[]], vt.into_iter().collect()).into());
             i += 1
         } else {
@@ -74,9 +71,10 @@ pub(crate) fn where_process(
 /// `ident!{...}` macro bodies), an ident `where`, an `impl{...}` shape
 /// template (`impl{...}` is an attachment, never a
 /// predicate), or a depth-0 `;` (impl entry spec separator / `batch_trait!`
-/// segment boundary, left in the stream). With `allow_end` the end of the
-/// token stream is also a boundary (the impl entry attr: no body follows).
-fn scan_body_boundary(tokens: &[TokenTree], allow_end: bool) -> Option<(TokenTree, usize)> {
+/// segment boundary, left in the stream). The end of the token stream is also
+/// a boundary: the predicates ride into a body-less `where{...}` suffix
+/// (bare `where A: Clone` ≡ `where A: Clone {}`).
+fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
     let mut j = 0;
     let mut result: Vec<TokenTree> = vec![];
     while j < tokens.len() {
@@ -105,8 +103,11 @@ fn scan_body_boundary(tokens: &[TokenTree], allow_end: bool) -> Option<(TokenTre
         }
         j += 1;
     }
-    // End of the stream: legal only when the caller permits it (impl entry).
-    if allow_end {
+    // End of the stream: the predicate region ends with the spec. A bare
+    // `where` needs **some** predicates (an empty `where` with no body is a
+    // typo); a non-empty predicate list becomes a body-less `where{...}`
+    // suffix.
+    if !result.is_empty() {
         return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
     }
     None

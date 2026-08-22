@@ -187,10 +187,22 @@ impl Apply for TyFn {
                     span,
                 ),
             },
-            // Has params: append the return type (the space/`.` application)
-            TyFn(Some(params), None, is_unsafe, kind) => {
-                TyFn(params.into(), o.into(), is_unsafe, kind).to_ty().with_span(span)
-            }
+            // Has params: append the return type (the space/`.` application) —
+            // except a bare **number**, which re-opens the consumed parameter
+            // tuple as a generator: `fn/Fn (...) apply N` ≡
+            // `fn/Fn apply ((...) apply N)` (`Fn ()2` = `Fn(P0,P1)`; `Fn (A,B)2`
+            // = the `(A,B).2` Cartesian power as the param list).
+            TyFn(Some(params), None, is_unsafe, kind) => match o.kind {
+                TyKind::Num(_) => {
+                    // `Fn (...)N` ≡ `Fn apply ((...) apply N)` — the bare
+                    // number re-opens the consumed parameter tuple as a
+                    // generator (`Fn ()2` = `Fn(P0,P1)`, `Fn (A,B)2` = the
+                    // `(A,B).2` Cartesian power as the param list).
+                    let generated = TyTuple(params).to_ty().apply(o);
+                    TyFn(None, None, is_unsafe, kind).to_ty().with_span(span).apply(generated)
+                }
+                _ => TyFn(params.into(), o.into(), is_unsafe, kind).to_ty().with_span(span),
+            },
             TyFn(Some(_), Some(_), _, _) => err_ty_at(
                 "batch-impl: the `fn` type already has a return type; cannot apply again",
                 span,
