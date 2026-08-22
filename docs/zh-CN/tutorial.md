@@ -398,7 +398,7 @@ batch_trait! {
 |---|---|---|
 | `@g_i` | **原语**——组 g、位 i（跨数组分发稳定） | 寻址宏生成的泛型（组/位从 0 编号，悬空引用定向报错） |
 | `@N` | `@g_i` 在单 impl 内按文档序摊平的下标 | 引用 fresh 泛型名（`where{@0: Clone}`） |
-| `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个”（≡ `@0..`） |
+| `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个”（≡ `@0..`）；**已废弃**，请写 `@0..` |
 | `@N..=M` | 连续段 | 范围糖——`@0..=1` = `@0, @1` |
 | `@N..` | 到最后一个 fresh 的**开放**段 | 范围糖——“从第二个起”（`@1..`）；N 越界时**为空**（arity 1 的 impl 不产生此类谓词，不报错） |
 
@@ -420,8 +420,9 @@ trait OpenRange {}
 // （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
 ```
 
-`@all_fresh` 与 `@0..` 等价；推荐用 `@N..` 家族（`@0..` 覆盖整段、`@1..`
-覆盖尾部）。
+`@all_fresh` 与 `@0..` 等价；**`@all_fresh` 已废弃**——`@N..` 家族是推荐
+写法（`@0..` 覆盖整段、`@1..` 覆盖尾部）。既有 spec 继续工作；新代码请
+写 `@0..`。
 
 **范围在单个 `@N` 能出现的任何位置都可用**（0.9.2）：除了上面的 where
 谓词，范围的尾部也可以是关联类型路径，逐 fresh 复制——目标位置的
@@ -535,6 +536,34 @@ trait Semiring<Oa, Om> {}
 通过**开关模板** `impl{Tr<>}` 同步——只含空括号 trait 的模板，不参与
 Self 匹配，仅声明 body 里的 `Tr<>` 引用也同步（body 是任意 Rust，`Vec<>`
 不是 trait 引用）。
+
+### 6.5 bound 生成器：impl 泛型 bound 里的 Fn 族类型
+
+生成器可以在 **impl 泛型 bound 内部**运行：`Fn.().N`（以及 `FnMut` /
+`FnOnce`）生成 Fn 的参数列表，其 fresh 参数**提升到 impl 泛型**
+（`impl<P0,P1, T: Fn(P0,P1)>`——绝不会把泛型声明留在谓词内部，rustc 会
+拒绝），target 引用同一批 fresh。这就是"按 Fn arity 一条 spec 生成多个
+impl"的形式：`<R, T: Fn.().0..4 R> Tr<T> (@0..,)` 对 arity 0..4（排他）
+各生成一个 impl，每个 impl 的 bound 固定为该 arity、target 元组按该 impl
+自己的 fresh 重新展开：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..,) {
+    fn arity(&self) -> usize { 0 }
+})]
+trait MultiArity<T, R> { fn arity(&self) -> usize; }
+// → impl<R, T: Fn() -> R>          MultiArity<T, R> for ()
+// → impl<R, P0, T: Fn(P0) -> R>    MultiArity<T, R> for (P0,)
+// → impl<R, P0,P1, T: Fn(P0,P1)->R> MultiArity<T, R> for (P0,P1)
+```
+
+`Fn.().N R`——空格 apply 返回类型——渲染为 `Fn(P0,..) -> R`（等价
+`-> R`）。`FnMut` / `FnOnce` 渲染各自的 trait 名；裸 `fn.().N` 也可用
+（作为**类型**——`fn` 不是 trait，不能作 bound，但同样的生成器形式出现
+在类型位置）。target 里的 `@N..` 范围**每个 impl 独立展开**，所以每个
+arity 的元组元素恰好是该 impl 的 Fn 参数（arity 0 份的空 `@0..` 坍缩为
+`()`）。
 
 ## 7. 指令系统 `#`
 

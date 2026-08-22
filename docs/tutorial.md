@@ -386,7 +386,7 @@ batch_trait! {
 |---|---|---|
 | `@g_i` | **primitive** — group g, slot i (stable across array distribution) | addresses a macro-generated generic (groups/slots number from 0; dangling refs are targeted errors) |
 | `@N` | `@g_i` flattened by document order within one impl | references a fresh generic (`where{@0: Clone}`) |
-| `@all_fresh` | all fresh generics | range sugar — "every one" (≡ `@0..`) |
+| `@all_fresh` | all fresh generics | range sugar — "every one" (≡ `@0..`); **deprecated**, write `@0..` |
 | `@N..=M` | a contiguous run | range sugar — `@0..=1` = `@0, @1` |
 | `@N..` | an **open** run to the last fresh | range sugar — "from the second element on" (`@1..`); **empty** when N is past the end (an arity-1 impl contributes no such predicate, no error) |
 
@@ -408,8 +408,9 @@ trait OpenRange {}
 // (an arity-1 impl contributes no predicate — `@1..` is empty there)
 ```
 
-`@all_fresh` and `@0..` are equivalent; the `@N..` family is the preferred
-spelling (`@0..` covers the whole run, `@1..` its tail).
+`@all_fresh` and `@0..` are equivalent; **`@all_fresh` is deprecated** — the
+`@N..` family is the preferred spelling (`@0..` covers the whole run, `@1..`
+its tail). Existing specs keep working; new code should write `@0..`.
 
 **Ranges work anywhere a single `@N` can** (0.9.2): beyond the where
 predicates above, the range's tail may be an associated-type path, copied
@@ -532,6 +533,36 @@ arguments syncs to the bare name (`Tr<>` → `Tr`). The **body** syncs via a
 trait, which does not match Self; it only declares that the body's `Tr<>`
 references sync too (the body is arbitrary Rust, so a `Vec<>` there is not a
 trait reference).
+
+### 6.5 Bound generators: Fn-family types in impl-generic bounds
+
+A generator can run **inside an impl-generic bound**: `Fn.().N` (and
+`FnMut` / `FnOnce`) generates the Fn's parameter list, its fresh params ride
+out to the impl generics (`impl<P0,P1, T: Fn(P0,P1)>` — never a generic
+declaration inside the predicate, which rustc rejects), and the target
+references the same fresh batch. This is the "one impl per Fn arity" form:
+`<R, T: Fn.().0..4 R> Tr<T> (@0..,)` generates one impl for each arity
+0..4 (exclusive), each with the bound pinned to that arity and the target
+tuple re-opened to that impl's own fresh list:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..,) {
+    fn arity(&self) -> usize { 0 }
+})]
+trait MultiArity<T, R> { fn arity(&self) -> usize; }
+// → impl<R, T: Fn() -> R>         MultiArity<T, R> for ()
+// → impl<R, P0, T: Fn(P0) -> R>   MultiArity<T, R> for (P0,)
+// → impl<R, P0,P1, T: Fn(P0,P1)->R> MultiArity<T, R> for (P0,P1)
+```
+
+`Fn.().N R` — the space-apply return type — renders `Fn(P0,..) -> R`
+(equivalent to `-> R`). `FnMut` / `FnOnce` render their own trait names; a
+bare `fn.().N` works too (as a **type** — `fn` is not a trait, so it cannot
+be a bound, but the same generator form appears in type positions). The
+`@N..` range in the target re-opens per impl, so each arity's tuple elements
+are exactly that impl's Fn parameters (the empty `@0..` of the arity-0 impl
+collapses to `()`).
 
 ## 7. The Directive System `#`
 
