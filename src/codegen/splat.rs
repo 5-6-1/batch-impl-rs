@@ -65,6 +65,17 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
             let inner = wp.1.map(|e| expand_splat_elems(*e).into());
             TyWithPrefix(wp.0, inner).to_ty().with_span(span)
         }
+        TyKind::WithDyn(wd) => {
+            // Recurse into the dyn inner (its Fn may carry splat/generator
+            // params); the `+ Bound` tail stays as-is.
+            let inner = expand_splat_elems(*wd.0);
+            TyWithDyn(Box::new(inner), wd.1).to_ty().with_span(span)
+        }
+        TyKind::WithFor(wf) => {
+            // Recurse into the HRTB inner (its Fn may carry generator params).
+            let inner = expand_splat_elems(*wf.1);
+            TyWithFor(wf.0, Box::new(inner)).to_ty().with_span(span)
+        }
         TyKind::WithAttr(wa) => {
             let inner = wa.1.map(|e| expand_splat_elems(*e).into());
             TyWithAttr(wa.0, inner).to_ty().with_span(span)

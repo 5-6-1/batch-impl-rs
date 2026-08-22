@@ -60,6 +60,8 @@ impl_from_for_ty! {
     TyTypeParam => TypeParam,
     TyFn => Fn,
     TyWithPrefix => WithPrefix,
+    TyWithDyn => WithDyn,
+    TyWithFor => WithFor,
     TyWithAttr => WithAttr,
     TyWithTrait => WithTrait,
     TyWithType => WithType,

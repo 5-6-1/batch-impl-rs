@@ -5,8 +5,8 @@
 use crate::apply::expand_limit_err;
 use crate::ast::types::{
     MAX_EXPAND, Ty, TyArray, TyFn, TyGeneric, TyGroup, TyKind, TyParams, TyPrimitiveArray, TyTuple,
-    TyTypeParam, TyWithAttr, TyWithCode, TyWithImpl, TyWithPrefix, TyWithTrait, TyWithType,
-    TyWithWhere,
+    TyTypeParam, TyWithAttr, TyWithCode, TyWithDyn, TyWithFor, TyWithImpl, TyWithPrefix,
+    TyWithTrait, TyWithType, TyWithWhere,
 };
 use crate::util::cartesian;
 
@@ -158,6 +158,8 @@ impl Ty {
             TyKind::WithPrefix(wp) => {
                 TyWithPrefix(wp.0, wp.1.map(|e| f(*e).into())).to_ty().with_span(span)
             }
+            TyKind::WithDyn(wd) => TyWithDyn(Box::new(f(*wd.0)), wd.1).to_ty().with_span(span),
+            TyKind::WithFor(wf) => TyWithFor(wf.0, Box::new(f(*wf.1))).to_ty().with_span(span),
             TyKind::WithTrait(wt) => TyWithTrait(wt.0, f(*wt.1).into()).to_ty().with_span(span),
             TyKind::WithCode(wc) => {
                 TyWithCode(wc.0.map(|e| f(*e).into()), wc.1).to_ty().with_span(span)
@@ -281,6 +283,20 @@ impl Ty {
             TyKind::WithPrefix(wp) => {
                 let TyWithPrefix(prefix, inner) = wp;
                 expand_wrapped(move |i| TyWithPrefix(prefix, i).to_ty().with_span(span), inner)
+            }
+            TyKind::WithDyn(wd) => {
+                let TyWithDyn(inner, bounds) = wd;
+                expand_rebuild(
+                    move |i| TyWithDyn(i, bounds.clone()).to_ty().with_span(span),
+                    *inner,
+                )
+            }
+            TyKind::WithFor(wf) => {
+                let TyWithFor(binder, inner) = wf;
+                expand_rebuild(
+                    move |i| TyWithFor(binder.clone(), i).to_ty().with_span(span),
+                    *inner,
+                )
             }
             TyKind::Group(g) => (*g.0).expand(),
             TyKind::Generic(g) => {

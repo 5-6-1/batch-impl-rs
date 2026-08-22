@@ -130,6 +130,22 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             }
             None => ImplParts::leaf(wi.to_ty().with_span(span)),
         },
+        TyKind::WithDyn(wd) => {
+            // `dyn Fn(...)` as a target type: extract the inner, then wrap
+            // the extracted target in `dyn ... + <bounds>`.
+            let mut parts = extract_impl_parts(*wd.0);
+            let target = parts.target_type.clone();
+            parts.target_type = TyWithDyn(Box::new(target), wd.1).to_ty().with_span(span);
+            parts
+        }
+        TyKind::WithFor(wf) => {
+            // `for<'a> Fn(...)` as a target type: extract the inner, then
+            // wrap the extracted target in `for<'a> ...`.
+            let mut parts = extract_impl_parts(*wf.1);
+            let target = parts.target_type.clone();
+            parts.target_type = TyWithFor(wf.0, Box::new(target)).to_ty().with_span(span);
+            parts
+        }
         TyKind::WithAttr(wa) => match wa.1 {
             Some(inner) => {
                 let mut parts = extract_impl_parts(*inner);

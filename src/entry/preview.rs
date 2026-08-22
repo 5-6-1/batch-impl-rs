@@ -171,6 +171,8 @@ fn miswrite_notes(ty: &Ty) -> Vec<String> {
         TyKind::Tuple(t) => t.0.iter().flat_map(miswrite_notes).collect(),
         TyKind::Group(g) => miswrite_notes(&g.0),
         TyKind::WithPrefix(w) => w.1.iter().flat_map(|i| miswrite_notes(i)).collect(),
+        TyKind::WithDyn(w) => miswrite_notes(&w.0),
+        TyKind::WithFor(w) => miswrite_notes(&w.1),
         TyKind::WithAttr(w) => w.1.iter().flat_map(|i| miswrite_notes(i)).collect(),
         _ => vec![],
     }

@@ -9,9 +9,10 @@ use crate::ast::*;
 use crate::parse::blocks::{cursor_is_arrow, peek_ident_at};
 use crate::parse::generic::{empty, parse_angle_bracket_contents};
 use crate::parse::parse_item;
-use crate::parse::space::{parse_block, parse_return_expr, parse_return_expr_tokens};
+use crate::parse::space::{parse_block, parse_return_expr, parse_return_expr_tokens, starts_block};
 use crate::util::Cursor;
 use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
+use quote::ToTokens;
 
 /// Ident block: `::` paths (`std::vec::Vec`), macro calls (`m!(...)`), the
 /// fn family (`fn` / `unsafe fn` / `extern "C" fn`), the trait-object
@@ -40,7 +41,7 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
         {
             extern_fn_block(cursor)
         }
-        "dyn" => swallow_chain(cursor, &id, trait_name),
+        "dyn" => dyn_block(cursor, trait_name),
         "for" => for_block(cursor, trait_name),
         "Fn" | "FnMut" | "FnOnce" => {
             // The Fn-family trait types — structured like `fn`, so a bare
@@ -182,17 +183,47 @@ fn passthrough_block(cursor: &mut Cursor, n_leading: usize) -> Ty {
     TyPrimitive(tokens.into_iter().collect()).to_ty()
 }
 
-/// `for<'a> fn(...)` — swallow the HRTB bound group + qualified type.
+/// `for<'a> <inner>` — a higher-ranked trait bound. The binder (`<'a>`) is
+/// kept verbatim; the qualified type is parsed **structurally** (so
+/// `for<'a> Fn.().2` runs the Fn generator). Rendered back as
+/// `for<'a> <inner>`.
 pub(crate) fn for_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
-    let start = cursor.pos();
     cursor.bump(); // `for`
-    if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::None) {
+    let binder = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::None)
+    {
+        let g = match cursor.peek() {
+            Some(TokenTree::Group(g)) => g.clone(),
+            _ => unreachable!(),
+        };
         cursor.bump();
-        parse_block(cursor, trait_name).unwrap_or_else(empty);
+        g.stream()
+    } else {
+        quote::quote!()
+    };
+    let inner = crate::parse::chain::parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+    TyWithFor(binder, Box::new(inner)).to_ty()
+}
+
+/// `dyn ...` — a trait object. The qualified type after `dyn` is parsed
+/// **structurally** (so `dyn Fn.().3` runs the Fn generator), and any
+/// `+ Bound` tail rides along as token fragments. Rendered back as
+/// `dyn <inner> + <bounds>`.
+pub(crate) fn dyn_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
+    cursor.bump(); // `dyn`
+    let inner = crate::parse::chain::parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+    let mut bounds = vec![];
+    while cursor.is_punct('+') {
+        let mut ts = cursor.peek().unwrap().to_token_stream();
+        cursor.bump();
+        if let Some(t) = cursor.peek()
+            && (starts_block(t) || matches!(t, TokenTree::Punct(p) if p.as_char() == '+'))
+        {
+            let b = crate::parse::chain::parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+            ts.extend(b.to_token_stream());
+        }
+        bounds.push(ts);
     }
-    let n = cursor.pos() - start;
-    let tokens = cursor.slice_at(start, n).to_vec();
-    TyPrimitive(tokens.into_iter().collect()).to_ty()
+    TyWithDyn(Box::new(inner), bounds).to_ty()
 }
 
 /// `dyn ...` / `impl Trait` — swallow the qualified type and a `+ Bound`

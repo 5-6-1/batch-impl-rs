@@ -97,6 +97,19 @@ impl ToTokens for Ty {
                 (None, _) => quote!([]),
             },
             TyKind::WithPrefix(wp) => render_optional(wp.1.as_deref(), prefix_token(wp.0), false),
+            TyKind::WithDyn(wd) => {
+                let inner = wd.0.to_token_stream();
+                let mut ts = quote!(dyn #inner);
+                for b in &wd.1 {
+                    ts.extend(b.clone());
+                }
+                ts
+            }
+            TyKind::WithFor(wf) => {
+                let inner = wf.1.to_token_stream();
+                let binder = &wf.0;
+                quote!(for < #binder > #inner)
+            }
             TyKind::Fn(f) => {
                 let u = f.2.then_some(quote!(unsafe));
                 let head = match f.3 {

@@ -192,6 +192,20 @@ pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 pub(crate) struct TyWithImpl(pub(crate) Option<Box<Ty>>, pub(crate) TyImplTemplate);
 
 #[derive(Clone, Debug)]
+/// `dyn <inner> + <bound>` — a trait object. The inner type is kept
+/// **structural** (so a `dyn Fn.().3` generator inside works), and any
+/// `+ Bound` tail rides along as token fragments. Rendered back as
+/// `dyn <inner> + <bounds>`.
+pub(crate) struct TyWithDyn(pub(crate) Box<Ty>, pub(crate) Vec<TokenStream>);
+
+#[derive(Clone, Debug)]
+/// `for<'a> <inner>` — a higher-ranked trait bound. The binder (`<'a>`)
+/// stays verbatim; the inner type is kept structural (so a
+/// `for<'a> Fn.().2` generator inside works). Rendered back as
+/// `for<'a> <inner>`.
+pub(crate) struct TyWithFor(pub(crate) TokenStream, pub(crate) Box<Ty>);
+
+#[derive(Clone, Debug)]
 /// The template token stream carried by [`TyWithImpl`].
 pub(crate) struct TyImplTemplate(pub(crate) TokenStream);
 
@@ -238,6 +252,8 @@ pub(crate) enum TyKind {
     TypeParam(TyTypeParam),
     Fn(TyFn),
     WithPrefix(TyWithPrefix),
+    WithDyn(TyWithDyn),
+    WithFor(TyWithFor),
     WithAttr(TyWithAttr),
     WithTrait(TyWithTrait),
     WithType(TyWithType),

@@ -203,6 +203,17 @@ impl Apply for TyKind {
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         match self {
             TyKind::WithPrefix(wp) => wp.apply_help(o, span),
+            TyKind::WithDyn(wd) => {
+                // `dyn Fn(A).X` → `dyn Fn(A.X)` — the apply passes into the
+                // inner type (the `+ Bound` tail stays attached).
+                let inner = wd.0.apply(o);
+                TyWithDyn(Box::new(inner), wd.1).to_ty().with_span(span)
+            }
+            TyKind::WithFor(wf) => {
+                // `for<'a> Fn(A).X` → `for<'a> Fn(A.X)` — apply into the inner.
+                let inner = wf.1.apply(o);
+                TyWithFor(wf.0, Box::new(inner)).to_ty().with_span(span)
+            }
             TyKind::Primitive(p) => p.apply_help(o, span),
             TyKind::Generic(g) => g.apply_help(o, span),
             TyKind::Trait(t) => t.apply_help(o, span),
