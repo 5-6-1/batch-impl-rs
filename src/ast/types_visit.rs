@@ -176,6 +176,7 @@ impl Ty {
                 fn_.0.map(|params| params.into_iter().map(|p| f(p)).collect()),
                 fn_.1.map(|r| f(*r).into()),
                 fn_.2,
+                fn_.3,
             )
             .to_ty()
             .with_span(span),

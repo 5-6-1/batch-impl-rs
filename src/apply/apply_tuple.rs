@@ -177,25 +177,28 @@ impl Apply for TyFn {
     /// The `is_unsafe` field passes through (`unsafe fn.(A,B)` => `unsafe fn(A,B)`).
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         match self {
-            // A bare fn gets its params via `.`; the right side must be a tuple (a Group like
-            // `fn.((i8,i16))` is unwrapped by the default apply's Group branch; here `o` is always plain)
-            TyFn(None, None, is_unsafe) => match o.kind {
-                TyKind::Tuple(t) => TyFn(t.0.into(), None, is_unsafe).to_ty().with_span(span),
+            // A bare fn / Fn-trait gets its params via `.`; the right side must be a
+            // tuple (a Group like `fn.((i8,i16))` is unwrapped by the default apply's
+            // Group branch; here `o` is always plain).
+            TyFn(None, None, is_unsafe, kind) => match o.kind {
+                TyKind::Tuple(t) => {
+                    TyFn(t.0.into(), None, is_unsafe, kind).to_ty().with_span(span)
+                }
                 _ => err_ty_at(
-                    "batch-impl: the right side of the `fn` prefix must be a tuple type, e.g. fn.(i32, u32)",
+                    "batch-impl: the right side of the `fn`/`Fn` prefix must be a tuple type, e.g. fn.(i32, u32)",
                     span,
                 ),
             },
             // Has params: append the return type (the space/`.` application)
-            TyFn(Some(params), None, is_unsafe) => {
-                TyFn(params.into(), o.into(), is_unsafe).to_ty().with_span(span)
+            TyFn(Some(params), None, is_unsafe, kind) => {
+                TyFn(params.into(), o.into(), is_unsafe, kind).to_ty().with_span(span)
             }
-            TyFn(Some(_), Some(_), _) => err_ty_at(
+            TyFn(Some(_), Some(_), _, _) => err_ty_at(
                 "batch-impl: the `fn` type already has a return type; cannot apply again",
                 span,
             ),
             // Impossible: params None but return Some
-            TyFn(None, Some(_), _) => err_ty_at(
+            TyFn(None, Some(_), _, _) => err_ty_at(
                 "batch-impl: the `fn` type is missing a parameter list; internal error",
                 span,
             ),

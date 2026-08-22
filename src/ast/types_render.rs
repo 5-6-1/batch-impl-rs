@@ -99,18 +99,24 @@ impl ToTokens for Ty {
             TyKind::WithPrefix(wp) => render_optional(wp.1.as_deref(), prefix_token(wp.0), false),
             TyKind::Fn(f) => {
                 let u = f.2.then_some(quote!(unsafe));
+                let head = match f.3 {
+                    crate::ast::FnKind::Bare => quote!(fn),
+                    crate::ast::FnKind::Trait => quote!(Fn),
+                    crate::ast::FnKind::TraitMut => quote!(FnMut),
+                    crate::ast::FnKind::TraitOnce => quote!(FnOnce),
+                };
                 match &f.0 {
                     Some(params) => {
                         let params = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
                         match &f.1 {
                             Some(ret) => {
                                 let ret_tokens = ret.to_token_stream();
-                                quote!(#u fn(#(#params),*) -> #ret_tokens)
+                                quote!(#u #head(#(#params),*) -> #ret_tokens)
                             }
-                            None => quote!(#u fn(#(#params),*)),
+                            None => quote!(#u #head(#(#params),*)),
                         }
                     }
-                    None => quote!(#u fn),
+                    None => quote!(#u #head),
                 }
             }
             TyKind::TypeParam(tp) => params_to_tokens_no_base(tp),

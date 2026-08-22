@@ -42,8 +42,24 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
         }
         "dyn" => swallow_chain(cursor, &id, trait_name),
         "for" => for_block(cursor, trait_name),
-        "Fn" | "FnMut" | "FnOnce" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis) => {
-            fn_trait_block(cursor, &id)
+        "Fn" | "FnMut" | "FnOnce" => {
+            // The Fn-family trait types — structured like `fn`, so a bare
+            // `Fn` (params filled by `.` later) and `Fn(A, B) -> R` both work.
+            // A path segment (`Fn::assoc` — rare, but a qualified path starts
+            // with `::`) must not be hijacked; `Fn` followed by `::` falls
+            // through to the plain-ident path.
+            if matches!(cursor.peek_at(1), Some(TokenTree::Punct(p))
+                if p.as_char() == ':' && matches!(cursor.peek_at(2), Some(TokenTree::Punct(q)) if q.as_char() == ':'))
+            {
+                plain_ident_block(cursor, id, trait_name)
+            } else {
+                let kind = match id.to_string().as_str() {
+                    "FnMut" => crate::ast::FnKind::TraitMut,
+                    "FnOnce" => crate::ast::FnKind::TraitOnce,
+                    _ => crate::ast::FnKind::Trait,
+                };
+                fn_trait_block(cursor, &id, kind)
+            }
         }
         "impl" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace) =>
         {
@@ -98,7 +114,7 @@ pub(crate) fn fn_block(cursor: &mut Cursor, trait_name: Option<&Ident>, is_unsaf
     } else {
         None
     };
-    TyFn(params, ret.map(Into::into), is_unsafe).to_ty()
+    TyFn(params, ret.map(Into::into), is_unsafe, crate::ast::FnKind::Bare).to_ty()
 }
 
 /// `extern "C" fn(...)` — one passthrough block (the ABI literal is not a
@@ -108,9 +124,38 @@ pub(crate) fn extern_fn_block(cursor: &mut Cursor) -> Ty {
     passthrough_block(cursor, 3)
 }
 
-/// `Fn(A) -> B` — fn-trait call block, rendered as a passthrough.
-pub(crate) fn fn_trait_block(cursor: &mut Cursor, _id: &Ident) -> Ty {
-    passthrough_block(cursor, 1) // `Fn`
+/// `Fn(A) -> B` / `FnMut(A)` / `FnOnce(A)` — the Fn-family trait types.
+/// Parsed structurally like `fn` (same `TyFn` shape, `FnKind` marks the
+/// trait), so the `.().N` / `.().N..M` generators work on them — and a bare
+/// `Fn` (no parens) keeps `None` params to be filled by `.` later, exactly
+/// like a bare `fn`.
+pub(crate) fn fn_trait_block(cursor: &mut Cursor, id: &Ident, kind: crate::ast::FnKind) -> Ty {
+    cursor.bump(); // `Fn` / `FnMut` / `FnOnce`
+    let params = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
+    {
+        let g = match cursor.peek() {
+            Some(TokenTree::Group(g)) => g.clone(),
+            _ => unreachable!(),
+        };
+        cursor.bump();
+        let args = g.stream().into_iter().collect::<Vec<_>>();
+        let mut pc = Cursor::new(&args);
+        let mut list = vec![];
+        while let Some(p) = parse_item(&mut pc, Op::Comma, None) {
+            list.push(p);
+        }
+        Some(list)
+    } else {
+        None
+    };
+    let ret = if cursor_is_arrow(cursor) {
+        cursor.advance(2);
+        Some(parse_return_expr(cursor, None))
+    } else {
+        None
+    };
+    let _ = id;
+    TyFn(params, ret.map(Into::into), false, kind).to_ty()
 }
 
 /// Shared tail of the passthrough fn blocks (`extern "C" fn` / `Fn` /

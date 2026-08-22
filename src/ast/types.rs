@@ -121,11 +121,34 @@ pub(crate) enum TyPrefix {
 #[derive(Clone, Debug)]
 /// Bare prefix (`&`/`unsafe` etc.) or `prefix T` — inner `None` means a bare prefix
 pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+/// The callable kind of a [`TyFn`]: a bare `fn` pointer or one of the `Fn`
+/// trait families (`Fn` / `FnMut` / `FnOnce` — rendered without the `fn`
+/// keyword, e.g. `Fn(A) -> B`).
+pub(crate) enum FnKind {
+    /// `fn(A) -> B` — a bare fn pointer type
+    Bare,
+    /// `Fn(A) -> B` — the `Fn` trait (parameterized callable)
+    Trait,
+    /// `FnMut(A) -> B`
+    TraitMut,
+    /// `FnOnce(A) -> B`
+    TraitOnce,
+}
+
 #[derive(Clone, Debug)]
-/// Bare `fn` / `fn(...)` / `fn(...)->T` — params `None` means not filled yet; the
-/// third field `is_unsafe` marks `unsafe fn(...)` types (`unsafe` qualifies the fn
-/// type itself, as opposed to `unsafe.T` marking an unsafe impl)
-pub(crate) struct TyFn(pub(crate) Option<Vec<Ty>>, pub(crate) Option<Box<Ty>>, pub(crate) bool);
+/// Bare `fn` / `fn(...)` / `fn(...)->T` or an `Fn`-family trait type
+/// (`Fn(A)->B` / `FnMut(A)` / `FnOnce(A)`) — params `None` means not filled
+/// yet; the third field `is_unsafe` marks `unsafe fn(...)` types (`unsafe`
+/// qualifies the fn type itself, as opposed to `unsafe.T` marking an unsafe
+/// impl). The [`FnKind`] distinguishes `fn` from the `Fn` trait families —
+/// the same structure serves both, so `.().N` generators work on either.
+pub(crate) struct TyFn(
+    pub(crate) Option<Vec<Ty>>,
+    pub(crate) Option<Box<Ty>>,
+    pub(crate) bool,
+    pub(crate) FnKind,
+);
 #[derive(Clone, Debug)]
 /// `#[...]` — the attribute itself
 pub(crate) struct TyAttr(pub(crate) TokenStream);
