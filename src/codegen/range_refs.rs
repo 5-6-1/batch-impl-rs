@@ -15,6 +15,7 @@ use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::ast::fresh::{FreshRange, parse_range_fresh};
 use crate::ast::{MAX_EXPAND, parse_grouped_fresh};
+use crate::parse::split_at_depth0;
 use crate::util::compile_error_str;
 
 /// The impl's fresh names in document order: grouped fresh names
@@ -103,6 +104,12 @@ fn range_entries<'a>(
         None => fresh,
     };
     let count = range_count(range, slice.len(), proc_macro2::Span::call_site())?;
+    // An open range past the end contributes nothing (`count` is 0) — return
+    // early, never slice `slice[range.start..]` (the index can exceed a
+    // zero-length scope and panic).
+    if count == 0 {
+        return Ok(vec![]);
+    }
     Ok(slice[range.start..range.start + count].iter().map(|&(_, _, n)| n).collect())
 }
 
@@ -147,6 +154,33 @@ pub(crate) fn expand_range_decls(
     Ok(())
 }
 
+/// Drops empty elements from an expanded tuple and rejoins: a `@N..` range
+/// that re-opened to zero entries leaves an empty element (`(,)` / `(, P1,)` /
+/// `(P0, ,)`), which is not valid Rust. Elements are split at depth-0 commas;
+/// empty ones are dropped, and a single surviving element keeps its trailing
+/// comma (`(A)` is a group, not a 1-tuple).
+fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
+    let elems: Vec<&[TokenTree]> =
+        split_at_depth0(tokens, ',').into_iter().filter(|c| !c.is_empty()).collect();
+    let mut out = TokenStream::new();
+    for (i, e) in elems.iter().enumerate() {
+        if i > 0 {
+            out.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                ',',
+                proc_macro2::Spacing::Alone,
+            ))));
+        }
+        out.extend(e.iter().cloned());
+    }
+    if elems.len() == 1 {
+        out.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+            ',',
+            proc_macro2::Spacing::Alone,
+        ))));
+    }
+    out
+}
+
 fn expand_at(
     tokens: &[TokenTree], fresh: &[(usize, usize, &TokenStream)], depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
@@ -182,18 +216,22 @@ fn expand_at(
                     return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
                 }
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
-                let mut inner_ts: TokenStream =
+                // A paren group with a depth-0 comma is a tuple (an empty
+                // range can leave a comma orphaned); `(A)` without commas is
+                // a plain group and must not be re-folded.
+                let is_tuple = g.delimiter() == proc_macro2::Delimiter::Parenthesis
+                    && inner.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == ','));
+                let expanded: Vec<TokenTree> =
                     expand_at(&inner, fresh, depth + 1)?.into_iter().collect();
-                // An empty tuple `(,)`: a `@N..` range in tuple position that
-                // re-opened to zero entries leaves a lone comma in parens —
-                // collapse to the true `()` (`(,)` is not valid Rust).
-                if g.delimiter() == proc_macro2::Delimiter::Parenthesis && {
-                    let mut it = inner_ts.clone().into_iter();
-                    matches!(it.next(), Some(TokenTree::Punct(p)) if p.as_char() == ',')
-                        && it.next().is_none()
-                } {
-                    inner_ts = TokenStream::new();
-                }
+                // Empty-tuple folding: ranges that re-opened to zero entries
+                // leave empty elements (`(,)` / `(, P1,)` / `(P0, ,)`) —
+                // drop the empty elements and rejoin, restoring a valid
+                // tuple (`()` / `(P1,)` / `(P0,)`).
+                let inner_ts = if is_tuple {
+                    fold_empty_tuple(&expanded)
+                } else {
+                    expanded.into_iter().collect()
+                };
                 let mut ng = Group::new(g.delimiter(), inner_ts);
                 ng.set_span(g.span());
                 out.push(TokenTree::Group(ng));

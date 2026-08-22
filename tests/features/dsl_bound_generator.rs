@@ -132,3 +132,21 @@ fn bound_generator_range_fn_once() {
     assert_eq!(<(u8,) as MultiOnce<fn(u8) -> u8, u8>>::arity(&(1,)), 0);
     assert_eq!(<(u8, u16) as MultiOnce<fn(u8, u16) -> u8, u8>>::arity(&(1, 2)), 0);
 }
+
+// HRTB through a bound: `<T: for<'a> Fn.().1 R>` — the `for<'a>` wrapper is
+// structured, so the generator inside still runs and its fresh escapes to the
+// impl generics; the bound renders `T: for<'a> Fn(P0) -> R`.
+#[batch_impl(<R, T: for<'a> Fn.().1 R> ApplyHrtb<T, R> (@0_0,) where{@0_0: Copy} {
+    fn go(&self, f: T) -> R {
+        f(self.0)
+    }
+})]
+trait ApplyHrtb<T, R> {
+    fn go(&self, f: T) -> R;
+}
+
+#[test]
+fn bound_generator_hrtb() {
+    let tup = (7u8,);
+    assert_eq!(ApplyHrtb::go(&tup, |a: u8| a + 1), 8);
+}
