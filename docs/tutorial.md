@@ -477,10 +477,9 @@ constraint):
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(
-    Module<(), ()> ().1..=4 where{
-        @0..: Module<(), (), Scalar: Copy>,
-        @1..: Module<(), (), Scalar = @0::Scalar>,
-    } impl{(A@..)}
+    Module<(), ()> ().1..=4 where @0..: Module<(), (), Scalar: Copy>,
+        @1..: Module<(), (), Scalar = @0::Scalar>
+        impl{(A@..)}
     #Scalar{A0::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
@@ -851,7 +850,7 @@ The alga2-style end-to-end — one spec covers every tuple arity, with
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ().1..=2 where{@0..: Magma} impl{(A@..)}
+    ().1..=2 where @0..: Magma impl{(A@..)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }

@@ -484,10 +484,9 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(
-    Module<(), ()> ().1..=4 where{
-        @0..: Module<(), (), Scalar: Copy>,
-        @1..: Module<(), (), Scalar = @0::Scalar>,
-    } impl{(A@..)}
+    Module<(), ()> ().1..=4 where @0..: Module<(), (), Scalar: Copy>,
+        @1..: Module<(), (), Scalar = @0::Scalar>
+        impl{(A@..)}
     #Scalar{A0::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
@@ -808,7 +807,7 @@ alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@0..`（≡ `
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ().1..=2 where{@0..: Magma} impl{(A@..)}
+    ().1..=2 where @0..: Magma impl{(A@..)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
