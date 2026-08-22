@@ -12,6 +12,7 @@ pub(crate) mod dsl_at_refs;
 pub(crate) mod dsl_basic;
 pub(crate) mod dsl_blanket;
 pub(crate) mod dsl_blanket_generic;
+pub(crate) mod dsl_bound_generator;
 pub(crate) mod dsl_consts;
 pub(crate) mod dsl_directives;
 pub(crate) mod dsl_distribution;

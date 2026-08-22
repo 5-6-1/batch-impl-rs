@@ -35,6 +35,7 @@
 //! fresh-generic name sweeper. Tests live beside their concern (`repeat_tests`,
 //! `where_at_tests`).
 
+mod bound_gen;
 mod extract;
 mod fresh;
 mod generics;
@@ -146,8 +147,36 @@ pub(crate) fn generate_impl(
     if let Ty { kind: TyKind::Error(e), .. } = ty {
         return e.0;
     }
-    let mut parts = extract_impl_parts(ty);
+    let parts = extract_impl_parts(ty);
 
+    // Bound-generator distribution: a generator **range** inside an
+    // impl-generic bound (`<T: Fn.().0..4 R>`) expands to a `TyArray` at the
+    // apply layer; each element becomes its own impl with the bound pinned to
+    // that arity (the array never renders inside a predicate). Runs before
+    // every other generics concern so the distributed impls flow through the
+    // pipeline independently (fresh hoisting, `@0..` re-opening, sweeping).
+    let mut out = TokenStream::new();
+    for parts in crate::codegen::bound_gen::distribute_bound_arrays(parts) {
+        out.extend(generate_parts(
+            parts,
+            trait_name,
+            is_unsafe_trait,
+            trait_bounds,
+            trait_param_names,
+        ));
+    }
+    out
+}
+
+/// The post-extraction pipeline: one `ImplParts` → one rendered impl block
+/// (generics concerns → sync → where → shape → render). Split out of
+/// [`generate_impl`] so bound-generator distribution can run each element
+/// through the full pipeline independently.
+#[allow(clippy::too_many_arguments)]
+fn generate_parts(
+    mut parts: ImplParts, trait_name: &TokenStream, is_unsafe_trait: bool,
+    trait_bounds: &TraitBounds, trait_param_names: &[Ident],
+) -> TokenStream {
     // Codegen postprocess: substitute trait generic params in the body
     // (`From<bool>`: `value: T` → `value: bool` — the directive-copied
     // signature and user code block). ImplParts carries the arg names.
@@ -165,6 +194,13 @@ pub(crate) fn generate_impl(
     let mut nested_params = vec![];
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
+
+    // hoist fresh generics out of impl-generic **bounds** (`<T: Fn.().2>` →
+    // the generator's `<P0,P1>` rides out of the bound, leaving `T: Fn(P0,P1)`;
+    // the fresh declarations join the impl generics). A bound generator
+    // (`Fn.().N`) declares its fresh params inside the bound Ty — they must
+    // live on the impl, not inside the predicate.
+    crate::codegen::generics::hoist_bound_fresh(&mut parts.impl_generics);
 
     // `@0..` in the impl-generic declaration position (`<@0..>` declares every
     // fresh the range covers). The fresh list is whatever the spec's

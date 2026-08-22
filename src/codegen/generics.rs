@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use proc_macro2::{TokenStream, TokenTree};
-use quote::quote;
+use quote::{ToTokens, quote};
 
 use crate::TraitBounds;
 use crate::ast::{Ty, TyPrimitive};
@@ -140,4 +140,51 @@ pub(crate) fn merge_dup_params(parts: &mut ImplParts) {
     }
     parts.impl_generics = merged;
     parts.where_clauses.extend(extra_where);
+}
+
+/// Hoists fresh generics out of impl-generic **bounds**: a bound generator
+/// (`<T: Fn.().2>` → the Fn's params come from `().2`, whose fresh
+/// declarations live inside the bound Ty as a `WithType`) must have its
+/// declarations ride out to the impl generics, leaving the bound as the bare
+/// inner type (`T: Fn(P0, P1)`). Without this the bound renders
+/// `T: <P0,P1> Fn(P0,P1)` — a generic declaration inside a predicate, which
+/// rustc rejects.
+pub(crate) fn hoist_bound_fresh(impl_generics: &mut Vec<(TokenStream, Option<Ty>)>) {
+    let mut hoisted: Vec<(TokenStream, Option<Ty>)> = vec![];
+    for (_, bound) in impl_generics.iter_mut() {
+        if let Some(b) = bound {
+            let (stripped, fresh) = strip_bound_fresh(b);
+            *b = stripped;
+            hoisted.extend(fresh);
+        }
+    }
+    impl_generics.extend(hoisted);
+}
+
+/// Strips `WithType` wrappers from a bound Ty, returning the inner type and
+/// the hoisted declarations (each `WithType.params` entry, in order).
+fn strip_bound_fresh(ty: &Ty) -> (Ty, Vec<(TokenStream, Option<Ty>)>) {
+    use crate::ast::{TyKind, TyWithDyn, TyWithFor};
+    match &ty.kind {
+        TyKind::WithType(wt) => {
+            let params =
+                wt.0.params
+                    .iter()
+                    .map(|(n, b)| (n.to_token_stream(), b.clone()))
+                    .collect::<Vec<_>>();
+            let (inner, more) = strip_bound_fresh(&wt.1);
+            let mut fresh = params;
+            fresh.extend(more);
+            (inner, fresh)
+        }
+        TyKind::WithDyn(wd) => {
+            let (inner, fresh) = strip_bound_fresh(&wd.0);
+            (TyWithDyn(Box::new(inner), wd.1.clone()).to_ty().with_span(ty.span), fresh)
+        }
+        TyKind::WithFor(wf) => {
+            let (inner, fresh) = strip_bound_fresh(&wf.1);
+            (TyWithFor(wf.0.clone(), Box::new(inner)).to_ty().with_span(ty.span), fresh)
+        }
+        _ => (ty.clone(), vec![]),
+    }
 }

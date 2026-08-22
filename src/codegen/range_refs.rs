@@ -182,10 +182,19 @@ fn expand_at(
                     return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
                 }
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
-                let mut ng = Group::new(
-                    g.delimiter(),
-                    expand_at(&inner, fresh, depth + 1)?.into_iter().collect(),
-                );
+                let mut inner_ts: TokenStream =
+                    expand_at(&inner, fresh, depth + 1)?.into_iter().collect();
+                // An empty tuple `(,)`: a `@N..` range in tuple position that
+                // re-opened to zero entries leaves a lone comma in parens —
+                // collapse to the true `()` (`(,)` is not valid Rust).
+                if g.delimiter() == proc_macro2::Delimiter::Parenthesis && {
+                    let mut it = inner_ts.clone().into_iter();
+                    matches!(it.next(), Some(TokenTree::Punct(p)) if p.as_char() == ',')
+                        && it.next().is_none()
+                } {
+                    inner_ts = TokenStream::new();
+                }
+                let mut ng = Group::new(g.delimiter(), inner_ts);
                 ng.set_span(g.span());
                 out.push(TokenTree::Group(ng));
                 i += 1;

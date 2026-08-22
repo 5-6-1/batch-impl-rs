@@ -1,13 +1,15 @@
 error: batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0)
- --> tests/ui/error_aggregation.rs:5:1
+ --> tests/ui/error_aggregation.rs:7:1
   |
-5 | #[batch_impl(0.T, @0..=2)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 | #[batch_impl(0.T, 1.U)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: batch-impl: unexpected `.` after the type
- --> tests/ui/error_aggregation.rs:5:21
+error: batch-impl: number `1` cannot be a left operand; use it on the right (e.g. T.1)
+ --> tests/ui/error_aggregation.rs:7:1
   |
-5 | #[batch_impl(0.T, @0..=2)]
-  |                     ^
+7 | #[batch_impl(0.T, 1.U)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -13,6 +13,7 @@ use crate::parse::split_at_depth0;
 /// The `impl_spec` AST nodes nest in modifier order (e.g. `<T> Trait<T> unsafe Box<T> { body }`);
 /// this function recursively dismantles the tree, collecting: impl generics, trait generics,
 /// associated type bindings, target type, body, attrs, unsafe flag.
+#[derive(Clone)]
 pub(crate) struct ImplParts {
     pub(crate) impl_generics: Vec<(TokenStream, Option<Ty>)>,
     pub(crate) trait_generic_names: Vec<TokenStream>,
