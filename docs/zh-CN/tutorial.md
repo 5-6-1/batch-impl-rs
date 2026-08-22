@@ -344,7 +344,7 @@ trait 泛型参数与 spec 实参同名时，bound 自动继承；改名则明�
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<T> Box<T> where{Box<T>: Clone})]
+#[batch_impl(<T> Box<T> where Box<T>: Clone {})]
 trait B2 {}
 // → impl<T> B2 for Box<T> where Box<T>: Clone {}
 
@@ -406,15 +406,15 @@ batch_trait! {
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(().2 where{@0..=1: Clone})]   // 范围糖：@0..=1 = @0, @1
+#[batch_impl(().2 where @0..=1: Clone {})]   // 范围糖：@0..=1 = @0, @1
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(().3 where{@0..: Copy})]       // = @all_fresh（从 0 到最后一个 fresh）
+#[batch_impl(().3 where @0..: Copy {})]       // = @all_fresh（从 0 到最后一个 fresh）
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
-#[batch_impl(().3 where{@1..: Copy})]       // 开放范围：从下标 1 起
+#[batch_impl(().3 where @1..: Copy {})]       // 开放范围：从下标 1 起
 trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 // （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
@@ -431,12 +431,12 @@ trait OpenRange {}
 ```rust
 # use batch_impl::batch_impl;
 struct Wrap3<A, B, C>(A, B, C);
-#[batch_impl(Wrap3<*().3> where{@0..: Clone} { fn m(&self) {} })]
+#[batch_impl(Wrap3<*().3> where @0..: Clone { fn m(&self) {} })]
 trait RangeAngle { fn m(&self); }
 // → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
 
 trait HasOut { type Out; }
-#[batch_impl(Wrap3<*().3> where{@0..: HasOut, @0..::Out: Clone} { fn m(&self) {} })]
+#[batch_impl(Wrap3<*().3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
 // → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
 ```
@@ -467,7 +467,7 @@ trait GenConv<T, U> { fn m(&self); }
 # use batch_impl::batch_impl;
 struct MultiTarget;
 #[batch_impl(
-    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where{@1_0..: Clone}
+    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where @1_0..: Clone
     { fn m(&self) {} }
 )]
 trait PairGen<A, B, C, D, E> { fn m(&self); }
@@ -487,7 +487,7 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
     Module<(), ()> ().1..=4 where{
         @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
-    } impl{(A@..,)}
+    } impl{(A@..)}
     #Scalar{A0::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
@@ -523,7 +523,7 @@ where 谓词或 `impl{...}` 模板里的 `X<>`（**同名** trait 的空尖括�
 # struct Additive;
 # struct Multiplicative;
 #[batch_impl(
-    Semiring<Additive, Multiplicative> ().1..=2 where{@0..: Semiring<>},
+    Semiring<Additive, Multiplicative> ().1..=2 where @0..: Semiring<> {},
 )]
 trait Semiring<Oa, Om> {}
 // → impl<P0> Semiring<Additive, Multiplicative> for (P0,)
@@ -543,13 +543,13 @@ Self 匹配，仅声明 body 里的 `Tr<>` 引用也同步（body 是任意 Rust
 `FnOnce`）生成 Fn 的参数列表，其 fresh 参数**提升到 impl 泛型**
 （`impl<P0,P1, T: Fn(P0,P1)>`——绝不会把泛型声明留在谓词内部，rustc 会
 拒绝），target 引用同一批 fresh。这就是"按 Fn arity 一条 spec 生成多个
-impl"的形式：`<R, T: Fn.().0..4 R> Tr<T> (@0..,)` 对 arity 0..4（排他）
+impl"的形式：`<R, T: Fn.().0..4 R> Tr<T> (@0..)` 对 arity 0..4（排他）
 各生成一个 impl，每个 impl 的 bound 固定为该 arity、target 元组按该 impl
 自己的 fresh 重新展开：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..,) {
+#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..) {
     fn arity(&self) -> usize { 0 }
 })]
 trait MultiArity<T, R> { fn arity(&self) -> usize; }
@@ -663,11 +663,15 @@ trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 
 ## 8. where 子句
 
-### 8.1 `where{...}` 后缀
+### 8.1 `where` 谓词
+
+`where` 子句给 impl 挂谓词。推荐**裸写**——`where 谓词 { 代码块 }`（谓词后
+直接跟代码块）；`where{...}` 后缀（谓词在花括号里）等价且仍可用，只是多
+一层 `{}`：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Vec<u8> where{Vec<u8>: Clone})]
+#[batch_impl(Vec<u8> where Vec<u8>: Clone {})]
 trait T {}
 ```
 
@@ -774,7 +778,7 @@ body 用 `@(...)..` 重复：**重复块**按所引用段的元素数逐轮输�
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+#[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
 trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 // body → (A0::from(self.0), A1::from(self.1), A2::from(self.2))
 //        → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
@@ -791,7 +795,7 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn elems(&self) -> (u8, u16, u32) { (@(self.@0,)..) } })]
+#[batch_impl((u8, u16, u32) impl{(A@..)} { fn elems(&self) -> (u8, u16, u32) { (@(self.@0,)..) } })]
 trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
 // body → (self.0, self.1, self.2)
 // （单段模板提供长度；`@A(self.@0,)..` 是显式写法，多段模板也可用）
@@ -804,7 +808,7 @@ alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@0..`（≡ `
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ().1..=2 where{@0..: Magma} impl{(A@..,)}
+    ().1..=2 where{@0..: Magma} impl{(A@..)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }

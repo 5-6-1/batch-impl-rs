@@ -328,7 +328,7 @@ When the trait's generic params share names with the spec's args, bounds inherit
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<T> Box<T> where{Box<T>: Clone})]
+#[batch_impl(<T> Box<T> where Box<T>: Clone {})]
 trait B2 {}
 // → impl<T> B2 for Box<T> where Box<T>: Clone {}
 ```
@@ -394,15 +394,15 @@ batch_trait! {
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(().2 where{@0..=1: Clone})]   // range sugar: @0..=1 = @0, @1
+#[batch_impl(().2 where @0..=1: Clone {})]   // range sugar: @0..=1 = @0, @1
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(().3 where{@0..: Copy})]       // = @all_fresh (from 0 to the last fresh)
+#[batch_impl(().3 where @0..: Copy {})]       // = @all_fresh (from 0 to the last fresh)
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
-#[batch_impl(().3 where{@1..: Copy})]       // open range: from index 1 on
+#[batch_impl(().3 where @1..: Copy {})]       // open range: from index 1 on
 trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 // (an arity-1 impl contributes no predicate — `@1..` is empty there)
@@ -420,12 +420,12 @@ list the spec's generators produced:
 ```rust
 # use batch_impl::batch_impl;
 struct Wrap3<A, B, C>(A, B, C);
-#[batch_impl(Wrap3<*().3> where{@0..: Clone} { fn m(&self) {} })]
+#[batch_impl(Wrap3<*().3> where @0..: Clone { fn m(&self) {} })]
 trait RangeAngle { fn m(&self); }
 // → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
 
 trait HasOut { type Out; }
-#[batch_impl(Wrap3<*().3> where{@0..: HasOut, @0..::Out: Clone} { fn m(&self) {} })]
+#[batch_impl(Wrap3<*().3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
 // → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
 ```
@@ -458,7 +458,7 @@ several generators in one spec (`<*().2>` → group 0, `<*().3>` → group 1),
 # use batch_impl::batch_impl;
 struct MultiTarget;
 #[batch_impl(
-    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where{@1_0..: Clone}
+    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where @1_0..: Clone
     { fn m(&self) {} }
 )]
 trait PairGen<A, B, C, D, E> { fn m(&self); }
@@ -480,7 +480,7 @@ constraint):
     Module<(), ()> ().1..=4 where{
         @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
-    } impl{(A@..,)}
+    } impl{(A@..)}
     #Scalar{A0::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
@@ -518,7 +518,7 @@ write `Semiring<>` instead of repeating `Semiring<Additive, Multiplicative>`:
 # struct Additive;
 # struct Multiplicative;
 #[batch_impl(
-    Semiring<Additive, Multiplicative> ().1..=2 where{@0..: Semiring<>},
+    Semiring<Additive, Multiplicative> ().1..=2 where @0..: Semiring<> {},
 )]
 trait Semiring<Oa, Om> {}
 // → impl<P0> Semiring<Additive, Multiplicative> for (P0,)
@@ -541,13 +541,13 @@ A generator can run **inside an impl-generic bound**: `Fn.().N` (and
 out to the impl generics (`impl<P0,P1, T: Fn(P0,P1)>` — never a generic
 declaration inside the predicate, which rustc rejects), and the target
 references the same fresh batch. This is the "one impl per Fn arity" form:
-`<R, T: Fn.().0..4 R> Tr<T> (@0..,)` generates one impl for each arity
+`<R, T: Fn.().0..4 R> Tr<T> (@0..)` generates one impl for each arity
 0..4 (exclusive), each with the bound pinned to that arity and the target
 tuple re-opened to that impl's own fresh list:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..,) {
+#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..) {
     fn arity(&self) -> usize { 0 }
 })]
 trait MultiArity<T, R> { fn arity(&self) -> usize; }
@@ -661,11 +661,16 @@ trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 
 ## 8. `where` Clauses
 
-### 8.1 `where{...}` suffix
+### 8.1 `where` predicates
+
+The `where` clause attaches predicates to the impl. The preferred spelling is
+bare — `where predicate { code block }` with the code block after the
+predicate; a `where{...}` suffix (predicates in braces) is equivalent and
+still works, but writes one `{}` layer more:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Vec<u8> where{Vec<u8>: Clone})]
+#[batch_impl(Vec<u8> where Vec<u8>: Clone {})]
 trait T {}
 ```
 
@@ -803,7 +808,7 @@ of the segment(s) it references:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+#[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
 trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 // body → (A0::from(self.0), A1::from(self.1), A2::from(self.2))
 //        → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
@@ -831,7 +836,7 @@ the tuple-to-tuple re-shaping case:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8, u16, u32) impl{(A@..,)} { fn elems(&self) -> (u8, u16, u32) { (@(self.@0,)..) } })]
+#[batch_impl((u8, u16, u32) impl{(A@..)} { fn elems(&self) -> (u8, u16, u32) { (@(self.@0,)..) } })]
 trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
 // body → (self.0, self.1, self.2)
 // (the single-segment template supplies the length; `@A(self.@0,)..` is the
@@ -846,7 +851,7 @@ The alga2-style end-to-end — one spec covers every tuple arity, with
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ().1..=2 where{@0..: Magma} impl{(A@..,)}
+    ().1..=2 where{@0..: Magma} impl{(A@..)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
