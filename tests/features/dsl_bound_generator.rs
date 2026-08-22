@@ -80,11 +80,13 @@ fn bound_generator_fn_once() {
     assert_eq!(ApplyOnce::go(pair, |a: u8, b: u16| a as u32 + b as u32), 11);
 }
 
-// The reference example: `<R, T: Fn.().0..4 R> Tr<T> (@0..,)` — one impl per
+// The reference example: `<R, T: Fn.().0..4 R> Tr<T> (@0..)` — one impl per
 // arity 0..4 (exclusive: 0, 1, 2, 3). Each impl pins the bound to that arity
 // (`T: Fn() -> R` / `T: Fn(P0) -> R` / ...) and re-opens the target range
 // against that impl's own fresh list (`()` / `(P0,)` / `(P0,P1)` / ...).
-#[batch_impl(<R, T: Fn.().0..4 R> MultiArity<T, R> (@0..,) {
+// The trailing comma is optional: `(@0..)` ≡ `(@0..,)` (the arity-1 impl
+// still renders a real 1-tuple `(P0,)`).
+#[batch_impl(<R, T: Fn.().0..4 R> MultiArity<T, R> (@0..) {
     fn arity(&self) -> usize {
         0
     }

@@ -101,7 +101,16 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
             } else {
                 let inner = parse_item(&mut Cursor::new(&contents), Op::Space, trait_name)
                     .unwrap_or_else(empty);
-                TyGroup(Box::new(inner)).to_ty().with_span(group.span())
+                // `(@0..)` — a **range placeholder** in a comma-less paren:
+                // the trailing comma is optional for range tuples (the
+                // arity-1 impl must render a real 1-tuple `(P0,)`, not a
+                // group `(P0)`). Re-open to the tuple form, so `(@0..)`
+                // ≡ `(@0..,)` on one code path.
+                if is_range_placeholder(&inner) {
+                    TyTuple(vec![inner]).to_ty().with_span(group.span())
+                } else {
+                    TyGroup(Box::new(inner)).to_ty().with_span(group.span())
+                }
             }
         }
         delimiter![[]] => parse_array_group(&contents, group.span(), trait_name),
@@ -117,6 +126,23 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
             group.span(),
         ),
     }
+}
+
+/// Whether a type is a lone range-placeholder ident (`_Param_N_With[_M]_BatchGen_`
+/// or the grouped `_Param_L_N_With[_M]_BatchGen_` form) — the parse product of
+/// `@N..` / `@N..M` / `@L_N..` in a group, recognized so a comma-less paren
+/// can re-open as a tuple.
+fn is_range_placeholder(ty: &Ty) -> bool {
+    if let TyKind::Primitive(p) = &ty.kind {
+        let mut it = p.0.clone().into_iter();
+        if let Some(TokenTree::Ident(id)) = it.next()
+            && it.next().is_none()
+            && crate::ast::fresh::parse_range_fresh(&id.to_string()).is_some()
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// `[...]` group: comma → list (`TyArray`), empty → array/slice builder base,

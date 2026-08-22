@@ -564,6 +564,18 @@ be a bound, but the same generator form appears in type positions). The
 are exactly that impl's Fn parameters (the empty `@0..` of the arity-0 impl
 collapses to `()`).
 
+The target tuple's trailing comma is **optional**: `(@0..)` ≡ `(@0..,)` — a
+comma-less paren holding a range placeholder re-opens as a tuple, so the
+arity-1 impl still renders a real 1-tuple `(P0,)` (never a group `(P0)`).
+
+**Several bound generators** in one spec distribute as the Cartesian product
+of their arities, and the target then addresses each generator's fresh by
+**grouped ranges** (`@0_0..` for the first bound's fresh, `@1_0..` for the
+second's) — the flat `@N..` form indexes across all groups, so two flat
+ranges in one tuple would overlap. A grouped range requires its group to
+exist (a `Fn.().0..N` bound's arity-0 impl has no fresh for that group, so
+the reference errors there — the same rule as `@g_i`).
+
 ## 7. The Directive System `#`
 
 Directives copy item signatures from the trait definition (methods/consts/types all supported); the body is yours to fill — "declare data, not write repetitive code".
