@@ -331,7 +331,15 @@ trait Foo<T> {}
 
 ### 6.1 Built-in constants
 
-**Name families** (a closed set — the language-defined type collections): `@u*`, `@i*`, `@f*`, `@num`, `@scalar`.
+**Name families** (a closed set — the language-defined type collections): `@u*`, `@i*`, `@f*`, `@num`, `@scalar`. Each expands to its members as a list:
+
+| Constant | Expands to |
+|---|---|
+| `@u*` | `u8, u16, u32, u64, u128, usize` |
+| `@i*` | `i8, i16, i32, i64, i128, isize` |
+| `@f*` | `f32, f64` |
+| `@num` | every `@u*` + `@i*` + `@f*` member (14 types) |
+| `@scalar` | the primitive scalars (the numeric families + `bool` + `char`) |
 
 ```rust
 # use batch_impl::batch_impl;
@@ -340,7 +348,9 @@ trait BoxRc {}
 // → impl BoxRc for Box<u8> {} / Box<u16> / ... / Box<usize>
 ```
 
-**Range families**: `@u8..u128`, `@i8..i128`, `@f32..f64` (inclusive). `usize`/`isize` only enter name families, not range families.
+**Range families**: `@u8..u128`, `@i8..i128`, `@f32..f64` (inclusive) — the
+contiguous run of one family (`@u8..u128` → `u8, u16, u32, u64, u128`).
+`usize`/`isize` only enter name families, not range families.
 
 ### 6.2 Lazy expansion and references
 
@@ -369,13 +379,18 @@ batch_trait! {
 
 `@`'s positional references form an **addressing algebra** — not a flat list of notations:
 
-| Notation | Derivation | Meaning |
+| Notation | Derivation | Expands to |
 |---|---|---|
-| `@g_i` | **primitive** — group g, slot i (stable across array distribution) | addresses a macro-generated generic (groups/slots number from 0; dangling refs are targeted errors) |
-| `@N` | `@g_i` flattened by document order within one impl | references a fresh generic (`where{@0: Clone}`) |
-| `@all_fresh` | all fresh generics | range sugar — "every one" (≡ `@0..`); **deprecated**, write `@0..` |
-| `@N..=M` | a contiguous run | range sugar — `@0..=1` = `@0, @1` |
-| `@N..` | an **open** run to the last fresh | range sugar — "from the second element on" (`@1..`); **empty** when N is past the end (an arity-1 impl contributes no such predicate, no error) |
+| `@g_i` | **primitive** — group g, slot i (stable across array distribution) | the i-th fresh of generator group g (`@0_0` → the first fresh of the first generator) |
+| `@N` | `@g_i` flattened by document order within one impl | the N-th fresh generic name (`@0` → `P0` in a `where{@0: Clone}` predicate) |
+| `@all_fresh` | all fresh generics | every fresh name, one predicate each (≡ `@0..`); **deprecated**, write `@0..` |
+| `@N..=M` | a contiguous run | the fresh names N..=M, comma-separated (`@0..=1` → `P0, P1`) |
+| `@N..` | an **open** run to the last fresh | every fresh name from N to the last, comma-separated (`@1..` → `P1, P2, ...`); **empty** when N is past the end (an arity-1 impl contributes no such predicate, no error) |
+
+The fresh names are `_Param_…_BatchGen_` before the per-impl sweep and `P_n`
+after it — the expansion splices the names where the `@` sits (a where
+predicate subject, a target tuple element, a generic argument), so a range
+becomes several names and a `where` tail is copied per fresh.
 
 > **Power-user tier**: `@g_i` / `@all_fresh` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. The whole DSL surface is frozen since 0.7.2 (see README); these notations will not change semantics again.
 
@@ -491,7 +506,7 @@ On the other axis (value classes):
 |---|---|---|
 | `@trait` | **identity** — the current trait name/path (section-level in batch_trait) | package "generic declaration + trait name" across sections |
 | `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` etc. custom | **package** — a type plus its inherent constraints | reuse a "constrained wrapper" (see §7.4) |
+| `@Cow` etc. custom | **package** — a type plus its inherent constraints; **batch_trait!-only** (a §6.3 custom-constant name, not built in) | reuse a "constrained wrapper" (see §7.4) |
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
@@ -940,6 +955,8 @@ trait NeverRet { fn call(&self, x: u8) -> !; }
 ```
 
 > **`unsafe` has two roles** — `unsafe fn(A) -> B` is an *unsafe fn type*: the impl itself stays safe (`impl Tr for unsafe fn(A) -> B`). To mark the **impl** unsafe, apply `unsafe` with `.`: `unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`. If you find yourself writing `unsafe fn(...)` and expecting an unsafe impl, that is the wrong form.
+
+**Arbitrarily nested types are native**: `HashMap<String, Vec<(u8, u16)>>`, `Result<Box<dyn Fn(u8) -> u16>, String>` etc. write and parse directly — the DSL covers nearly every type form, no "passthrough" needed.
 
 ## 11. Three Entry Points
 
