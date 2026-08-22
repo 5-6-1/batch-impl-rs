@@ -125,31 +125,59 @@ pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
     }
 }
 
-/// `@N` position reference (fresh-name resolution at the type-domain entry).
+/// `@N` position reference (fresh-name resolution at the type-domain entry);
+/// `@N..` / `@N..M` / `@L_N..` range references fold into a placeholder ident
+/// (re-opened by codegen) — the type-domain counterpart of `resolve_at_refs`.
 pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
     let at_span = cursor.span();
     cursor.bump(); // `@`
     match cursor.peek() {
-        Some(TokenTree::Literal(lit)) => match at_ref_name(&lit.to_string()) {
-            Some(name) => {
-                cursor.bump();
-                if cursor.is_punct('.') {
-                    return err_ty_at(
-                        "batch-impl: `@N..M` range references are only \
-                         allowed as a where-predicate subject \
-                         (e.g. `where{@0..=2: Clone}`)",
-                        at_span,
-                    );
+        Some(TokenTree::Literal(lit)) => {
+            let lit_str = lit.to_string();
+            // `@N..` / `@L_N..` / `@N..M` / `@N..=M`: fold into a range
+            // placeholder ident (the same shape `resolve_at_refs` produces).
+            let range_lit = crate::parse::parse_range_literal(&lit_str);
+            if let Some((group, start)) = range_lit
+                && matches!(cursor.peek_at(1), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                && matches!(cursor.peek_at(2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+            {
+                cursor.bump(); // the literal
+                cursor.bump(); // first `.`
+                cursor.bump(); // second `.`
+                if cursor.is_punct('=') {
+                    cursor.bump();
                 }
+                let end = match cursor.peek() {
+                    Some(TokenTree::Literal(el)) => {
+                        let Some(e) = el.to_string().parse::<usize>().ok() else {
+                            return err_ty_at(
+                                "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
+                                at_span,
+                            );
+                        };
+                        cursor.bump();
+                        Some(e)
+                    }
+                    _ => None,
+                };
+                let range = crate::ast::fresh::FreshRange { group, start, end };
+                let name = crate::ast::fresh::range_fresh_name(range);
                 let ident = Ident::new(&name, at_span);
-                TyPrimitive(quote!(#ident)).to_ty().with_span(at_span)
+                return TyPrimitive(quote!(#ident)).to_ty().with_span(at_span);
             }
-            None => err_ty_at(
-                "batch-impl: `@` in a type must be followed by a position \
-                 digit (e.g. `@0` or `@0_1`)",
-                at_span,
-            ),
-        },
+            match at_ref_name(&lit_str) {
+                Some(name) => {
+                    cursor.bump();
+                    let ident = Ident::new(&name, at_span);
+                    TyPrimitive(quote!(#ident)).to_ty().with_span(at_span)
+                }
+                None => err_ty_at(
+                    "batch-impl: `@` in a type must be followed by a position \
+                     digit (e.g. `@0` or `@0_1`)",
+                    at_span,
+                ),
+            }
+        }
         _ => err_ty_at(
             "batch-impl: `@` in a type must be a position digit (e.g. `@0` or `@0_1`)",
             at_span,

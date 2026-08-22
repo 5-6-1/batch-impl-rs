@@ -134,7 +134,7 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
 /// (grouped, like `@g_i`). Returns `(group, start)` — `group: None` for the
 /// flat form. Only digits-with-optional-underscore shapes qualify; anything
 /// else (a bare digit is handled by the single-`@N` path) returns `None`.
-fn parse_range_literal(s: &str) -> Option<(Option<usize>, usize)> {
+pub(crate) fn parse_range_literal(s: &str) -> Option<(Option<usize>, usize)> {
     if let Ok(n) = s.parse::<usize>() {
         return Some((None, n));
     }
