@@ -2,30 +2,18 @@
 
 **v0.9.2**（2026-08-21）——`@N..` / `@N..M` 范围引用现在可以在**任何单个 `@N` 能出现的位置**使用：where 谓词（`@1..::Output: Clone`——范围后的尾部逐 fresh 复制）、`<>` 泛型实参（`Wrapper<@0..>`——一个位置重新展开为多个）、impl 泛型声明（`<@0..>`）、元组目标；**组内范围** `@L_N..` / `@L_N..M` 在单个生成器组内切片；变长段不再需要尾随逗号（`impl{(A@..)}`）；见 §6.4 / §8.4；
 
-**v0.9.1**（2026-08-21）——稳定性发布：`+A` 位于 spec 开头得到定向诊断 "not valid at the start of a type" 而非静默生成 0 个 impl；`fn(A) -> ! { body }` 的 body 归属 impl（`!` 块不再吞掉尾随 `{...}`）；`self` 是恒等前缀——矩阵中的**裸类型占位**（`[Box, self] u8` = `Box<u8>` + 裸 `u8`，见 §10）；
-
-**v0.9.0**（2026-08-21）——apply 运算符重命名：`.` 是右结合 apply 运算符，**空格应用取代 `-`** 作为左结合组合（见 §2）；DSL 是**块的任意组合**（声明 / 指令块 / 代码块 / 类型任意顺序，`apply` 折叠）；同名泛型声明合并进 where；`_` 是 `impl{...}` 模板中永不替换的通配；`X<>` 经开关模板（`impl{@trait<>}` / `impl{Tr<>}`）同步为本 spec trait 应用；
-
-**v0.8.3**（2026-08-19）——移除内置指令拼写守卫：单指令 `#name{...}` 可与 `fill`/`delegate`/`blanket` 合法撞名（见 §7）；
-
-**v0.8.2**（2026-08-19）——`impl{...}` 模板变长段（`ident@..`）与 body 重复块（`@(...)..`），见 §8.4；
-
-**v0.8.1**——`where{...}` 尖括号配对 hotfix（见 CHANGELOG）；
-
-**v0.7.2**——0.7.2 加入 `batch_preview!` 展开预览、trait 实参生成器 splat 声明提升、`#blanket` 按值接收者转发、属性宏自定义 `@` 常量段（0.8.0 已回退）与 `@` 诊断用户语言化；0.7.1 加入了定向诊断（残留/相邻/空值 token、拼写建议）取代 rustc 裸错；0.7.0 在既有骨架上加入了 **`*` 摊平操作符**，并把 `<>`/`()`/`[]` 从"被动语法"升级为"可编程结构"：泛型实参内部现在可以写 generator（`().N`）、splat（`*(A,B)`）、常量族（`@u*`）、列表（`[A,B]`）、绑定（`Item=u32`）与嵌套类型。
-
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
 ## 0. 三个系统 + 一个操作符
 
 batch-impl 的一切能力由三根柱子（0.0→0.6 持续打磨）+ 一个操作符（0.7.0）构成：
 
-| 部分 | 记号 | 作用 |
-|---|---|---|
-| **apply 系统** | `.` / 空格 / `[]` / `()` | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
-| **指令系统** | `#name` / `#fill` / `#delegate` / `#blanket` | 从 trait 定义抄签名、批量填 body、委托调用、覆盖式委托 |
-| **常量系统** | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | 宏元层：命名并复用类型矩阵条目，纯词法替换 |
-| **`*` 操作符** | `*[...]` / `*(...)` | 摊平：把容器/生成器展开拼入外层列表——0.7.0 新增，全位置生效 |
+| 部分           | 记号                                          | 作用                                                           |
+|----------------|-----------------------------------------------|----------------------------------------------------------------|
+| **apply 系统** | `.` / 空格 / `[]` / `()`                      | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
+| **指令系统**   | `#name` / `#fill` / `#delegate` / `#blanket`  | 从 trait 定义抄签名、批量填 body、委托调用、覆盖式委托         |
+| **常量系统**   | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | 宏元层：命名并复用类型矩阵条目，纯词法替换                     |
+| **`*` 操作符** | `*[...]` / `*(...)`                           | 摊平：把容器/生成器展开拼入外层列表——0.7.0 新增，全位置生效    |
 
 **预处理顺序**（固定的四阶段管道）：`@` 常量展开 → `<>` 尖括号配对 → `#` 指令展开 → `where` 处理。顺序决定了你能把什么写进什么：`@` 的结果可以包含 `<>`（配对后处理）、`#` 的参数可以引用 `@` 展开的列表、`where` 最后看到的是完整结构。
 
@@ -64,38 +52,37 @@ spec 的骨架：
 
 > **空格到底是什么**：空格**不是 token**——它是 token 之间的**间隔**（proc-macro2 会剥掉空白，DSL 只看到相邻性）。因此空格应用的意思就是"这些 token 相邻，应用它们"（`Box u8` = `Box<u8>`），这与 Rust 自身读取类型语法的方式完全一致（`Box<u8>` 就是 `Box` 与 `<u8>` 相邻）。不需要任何显式运算符符号——**没有分隔符这件事本身就是运算符**。
 
+| 写法                   | 展开                                  |
+|------------------------|---------------------------------------|
+| `Box u32`              | `Box<u32>`                            |
+| `HashMap u32 String`   | `HashMap<u32, String>`（左结合累加）  |
+| `fn(A,B) C`            | `fn(A,B)->C`（也可写 `fn(A,B) -> C`） |
+| `&u8`                  | `&u8`（修饰符链式应用）               |
+| `Tr u8`                | `impl Tr for u8`（裸 trait 名）       |
+| `[Box, Vec] u32`       | `Box<u32>, Vec<u32>`（列表展开）      |
+| `HashMap<u8> String`   | `HashMap<u8, String>`（预填泛型追加） |
+| `Box [u8, u16]`        | `Box<u8>, Box<u16>`（列表分发）       |
+| `[Box, Vec] [u8, u16]` | 笛卡尔积共 4 项                       |
+
+**`.` 是同一运算的右结合形态**——只在需要**嵌套**而非累加时使用。空格累加会把参数并排（`Box Box u8` = `Box<Box, u8>`——对多数容器是笔误）；`.` 嵌套把类型组合（`Box.Box.u8` = `Box<Box<u8>>`）：
+
 | 写法                     | 展开                                 |
 |--------------------------|--------------------------------------|
-| `Box u32`                | `Box<u32>`                           |
-| `HashMap u32 String`     | `HashMap<u32, String>`（左结合累加） |
-| `Box u8 u16`             | `Box<u8, u16>`                       |
-| `fn.(A,B) C`             | `fn(A,B)->C`（也可写 `fn(A,B) -> C`）|
-| `& u8`                   | `&u8`（修饰符链式应用）              |
-| `Tr u8`                  | `impl Tr for u8`（裸 trait 名）      |
-| `[Box, Vec] u32`         | `Box<u32>, Vec<u32>`（列表展开）     |
-| `HashMap<u8> String`     | `HashMap<u8, String>`（预填泛型追加）|
-| `Box [u8, u16]`          | `Box<u8>, Box<u16>`（列表分发）      |
-| `[Box, Vec] [u8, u16]`   | 笛卡尔积共 4 项                      |
+| `Box.Box.u8`             | `Box<Box<u8>>`（右结合嵌套）         |
+| `&Box u8`                | `&Box<u8>`（修饰符作用于嵌套类型）   |
+| `[Box, Vec] T`           | `Box<T>, Vec<T>`                     |
+| `Box [T1, T2]`           | `Box<T1>, Box<T2>`                   |
+| `[HashMap<K>, Vec<K>] V` | `HashMap<K, V>, Vec<K, V>`           |
 
-**`.` 是同一运算的右结合形态**——只在需要**嵌套**而非累加时使用。空格累加会把参数并排（`Box Box u8` = `Box<Box, u8>`——对多数容器是笔误）；`.` 嵌套把类型组合（`Box.Box u8` = `Box<Box<u8>>`）：
-
-| 写法                     | 展开                                 |
-|--------------------------|--------------------------------------|
-| `Box.Box u8`             | `Box<Box<u8>>`（右结合嵌套）         |
-| `&.Box u8`               | `&Box<u8>`（修饰符作用于嵌套类型）   |
-| `[Box, Vec].T`           | `Box<T>, Vec<T>`                     |
-| `Box.[T1, T2]`           | `Box<T1>, Box<T2>`                   |
-| `[HashMap<K>, Vec<K>].V` | `HashMap<K, V>, Vec<K, V>`           |
-
-> **什么时候用哪个**：一个容器/修饰符 + 一个类型——并排写（`Box u8`、`& u8`、`HashMap<u8> String`）。当类型本身需要是组合类型（`Box<Box<u8>>`、`&Box<u8>`）时，用 `.` 连接组合——空格会把每一部分当作独立参数。
+> **什么时候用哪个**：一个容器/修饰符 + 一个类型——并排写（`Box u8`、`&u8`、`HashMap<u8> String`）。当类型本身需要是组合类型（`Box<Box<u8>>`、`&Box<u8>`）时，用 `.` 连接组合——空格会把每一部分当作独立参数。
 
 优先级从低到高：`;` < `,` < 空格 < `.`，`()` 分组在所有运算符之上。
 
-**裸 trait 名**按 impl trait 应用：`Tr u8` = `impl Tr for u8`、`Tr<A> u8` = `impl Tr<A> for u8`。要**类型** `Tr<u8>` 直接写 `Tr<u8>`。
+**裸 trait 名**按 impl trait 应用：`Tr u8` = `impl Tr for u8`、`Tr<A> u8` = `impl Tr<A> for u8`。要**类型** `Tr<u8>` 直接写 `Tr<u8>`。一般情况下，不推荐使用裸Tr。
 
 > **注意**：`Box.Vec u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box.Vec.u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
 
-> **操作数严格性**：`.`/空格/`,` 两侧必须有操作数——`A.`、`.A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
+> **操作数严格性**：`.`/`,` 两侧必须有操作数——`A.`、`.A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -166,11 +153,11 @@ trait Zero {
 
 splat 的直觉来自 Python 的 `*` 解包——`[a, *b]` 拼接列表、`f(*args)` 展开参数。batch-impl 的 `*` 是同样的**单层解包**：splat 把容器/生成器展开拼入外层列表，恰好展开一层。
 
-| Python | batch-impl |
-|---|---|
-| `[a, *b]` | `[A, *[B, C]]`——把列表拼入外层列表 |
-| `f(*args)` | `T *(A, B, C)`——把生成器展开到参数位 |
-| 单层解包 | `*((a,b),)` = 一个 `(a,b)` impl（元组保持完整） |
+| Python     | batch-impl                                      |
+|------------|-------------------------------------------------|
+| `[a, *b]`  | `[A, *[B, C]]`——把列表拼入外层列表              |
+| `f(*args)` | `T *(A, B, C)`——把生成器展开到参数位            |
+| 单层解包   | `*((a,b),)` = 一个 `(a,b)` impl（元组保持完整） |
 
 **动机**：`*` 把嵌套生成器压缩进多参容器。与其手写 `T [A,B,C] [A,B,C] [A,B,C]`（27 组合的嵌套列表），一行得到同样 27 个 impl：
 
@@ -194,7 +181,7 @@ trait SplatList {}
 // → impl SplatList for u8 {}
 // → impl SplatList for u16 {} / u32 / u64
 
-#[batch_impl((u8, u16, u32).*(u64, usize, i8))]
+#[batch_impl((u8, u16, u32) *(u64, usize, i8))]
 trait SplatConcat {}
 // → impl SplatConcat for (u8, u16, u32, u64, usize, i8) {}
 ```
@@ -238,7 +225,7 @@ trait Conv<T, U>: Sized { fn cv(_v: T, _o: U) -> Self; }
 ```rust
 # use batch_impl::batch_impl;
 struct Frac<T, U>(T, U);
-#[batch_impl(Frac<*(*@u*).2>)]
+#[batch_impl(Frac<*(*@u*)2>)]
 trait Pow {}
 // → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}（36 个 impl）
 ```
@@ -256,12 +243,12 @@ trait C {}
 
 ### 4.5 generator 重包
 
-`*(().N)`——生成器 splat——提升 fresh 声明并把元组摊平进容器：
+`*()N`——生成器 splat——提升 fresh 声明并把元组摊平进容器：
 
 ```rust
 # use batch_impl::batch_impl;
 struct Pair2<A, B>(A, B);
-#[batch_impl(Pair2<*().2>)]
+#[batch_impl(Pair2<*()2>)]
 trait GSplat {}
 // → impl<P0, P1> GSplat for Pair2<P0, P1>（摊平成两个实参）
 ```
@@ -323,11 +310,11 @@ struct Wrap<X>(X);
 struct Pair3<A, B>(A, B);
 struct A2; struct B2;
 
-#[batch_impl(Wrap<().2>)]               // generator：<P0,P1> Wrap<(P0,P1)>
+#[batch_impl(Wrap<()2>)]               // generator：<P0,P1> Wrap<(P0,P1)>
 trait GenTup {}
 // → impl<P0,P1> GenTup for Wrap<(P0, P1)>（元组保持单个实参）
 
-#[batch_impl(Pair3<*().2>)]             // generator splat：<P0,P1> Pair3<P0,P1>
+#[batch_impl(Pair3<*()2>)]             // generator splat：<P0,P1> Pair3<P0,P1>
 trait GenSpl {}
 // → impl<P0,P1> GenSpl for Pair3<P0, P1>（摊平成两个实参）
 
@@ -344,7 +331,7 @@ trait 泛型参数与 spec 实参同名时，bound 自动继承；改名则明�
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<T> Box<T> where Box<T>: Clone {})]
+#[batch_impl(<T> Box<T> where Box<T>: Clone)]
 trait B2 {}
 // → impl<T> B2 for Box<T> where Box<T>: Clone {}
 
@@ -362,7 +349,7 @@ trait Foo<T> {}
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Box.@u*)]  // Box 应用 @u* 的每个成员
+#[batch_impl(Box @u*)]  // Box 应用 @u* 的每个成员
 trait BoxRc {}
 // → impl BoxRc for Box<u8> {} / Box<u16> / ... / Box<usize>
 ```
@@ -375,7 +362,7 @@ trait BoxRc {}
 
 ### 6.3 自定义常量段（仅 `batch_trait!`）
 
-前导 `@name=值;` 段定义复用的常量（值可含链式引用与 DSL 表达式）。**`#[batch_impl]` / `#[batch_impl_only]` 不支持自定义常量**——0.7.2 误加的特性已在 0.8.0 回退；属性宏矩阵直接用 `.`/空格/`*` 书写：
+前导 `@name=值;` 段定义复用的常量（值可含链式引用与 DSL 表达式）。**`#[batch_impl]` / `#[batch_impl_only]` 不支持自定义常量，应当利用apply消除重复**——0.7.2 误加的特性已在 0.8.0 回退；属性宏矩阵直接用 `.`/空格/`*` 书写：
 
 ```rust
 # use batch_impl::batch_trait;
@@ -394,27 +381,27 @@ batch_trait! {
 
 `@` 的“位置引用”是一个**寻址代数**——不是并列记号：
 
-| 记号 | 派生关系 | 含义 |
-|---|---|---|
-| `@g_i` | **原语**——组 g、位 i（跨数组分发稳定） | 寻址宏生成的泛型（组/位从 0 编号，悬空引用定向报错） |
-| `@N` | `@g_i` 在单 impl 内按文档序摊平的下标 | 引用 fresh 泛型名（`where{@0: Clone}`） |
-| `@all_fresh` | 全部 fresh 泛型 | 范围糖——“每一个”（≡ `@0..`）；**已废弃**，请写 `@0..` |
-| `@N..=M` | 连续段 | 范围糖——`@0..=1` = `@0, @1` |
-| `@N..` | 到最后一个 fresh 的**开放**段 | 范围糖——“从第二个起”（`@1..`）；N 越界时**为空**（arity 1 的 impl 不产生此类谓词，不报错） |
+| 记号         | 派生关系                               | 含义                                                                                       |
+|--------------|----------------------------------------|--------------------------------------------------------------------------------------------|
+| `@g_i`       | **原语**——组 g、位 i（跨数组分发稳定） | 寻址宏生成的泛型（组/位从 0 编号，悬空引用定向报错）                                       |
+| `@N`         | `@g_i` 在单 impl 内按文档序摊平的下标  | 引用 fresh 泛型名（`where{@0: Clone}`）                                                    |
+| `@all_fresh` | 全部 fresh 泛型                        | 范围糖——“每一个”（≡ `@0..`）；**已废弃**，请写 `@0..`                                      |
+| `@N..=M`     | 连续段                                 | 范围糖——`@0..=1` = `@0, @1`                                                                |
+| `@N..`       | 到最后一个 fresh 的**开放**段          | 范围糖——“从第二个起”（`@1..`）；N 越界时**为空**（arity 1 的 impl 不产生此类谓词，不报错） |
 
 > **Power-user tier**：`@g_i` / `@all_fresh` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。自 0.7.2 起整个 DSL 语法面冻结（见 README），这些记号的语义不再变化。
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(().2 where @0..=1: Clone {})]   // 范围糖：@0..=1 = @0, @1
+#[batch_impl(()2 where @0..=1: Clone)]   // 范围糖：@0..=1 = @0, @1
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(().3 where @0..: Copy {})]       // = @all_fresh（从 0 到最后一个 fresh）
+#[batch_impl(()3 where @0..: Copy)]       // = @all_fresh（从 0 到最后一个 fresh）
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
-#[batch_impl(().3 where @1..: Copy {})]       // 开放范围：从下标 1 起
+#[batch_impl(()3 where @1..: Copy)]       // 开放范围：从下标 1 起
 trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 // （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
@@ -431,12 +418,12 @@ trait OpenRange {}
 ```rust
 # use batch_impl::batch_impl;
 struct Wrap3<A, B, C>(A, B, C);
-#[batch_impl(Wrap3<*().3> where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*()3> where @0..: Clone { fn m(&self) {} })]
 trait RangeAngle { fn m(&self); }
 // → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
 
 trait HasOut { type Out; }
-#[batch_impl(Wrap3<*().3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*()3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
 // → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
 ```
@@ -451,7 +438,7 @@ impl 参数——生成器放在 trait 实参（`GenConv<*().2>`），声明与�
 ```rust
 # use batch_impl::batch_impl;
 struct DeclTarget;
-#[batch_impl(<@0..> GenConv<*().2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(<@0..> GenConv<*()2> DeclTarget where @0..: Clone { fn m(&self) {} })]
 trait GenConv<T, U> { fn m(&self); }
 // → impl<P0,P1> GenConv<P0,P1> for DeclTarget where P0: Clone, P1: Clone
 ```
@@ -467,7 +454,7 @@ trait GenConv<T, U> { fn m(&self); }
 # use batch_impl::batch_impl;
 struct MultiTarget;
 #[batch_impl(
-    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where @1_0..: Clone
+    <@0..> <@1..> PairGen<*()2, *()3> MultiTarget where @1_0..: Clone
     { fn m(&self) {} }
 )]
 trait PairGen<A, B, C, D, E> { fn m(&self); }
@@ -484,7 +471,7 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(
-    Module<(), ()> ().1..=4 where @0..: Module<(), (), Scalar: Copy>,
+    Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
         impl{(A@..)}
     #Scalar{A0::Scalar}
@@ -505,11 +492,11 @@ trait Module<Add, Mul> {
 
 另一根轴（值类别）：
 
-| 记号 | 类别 | 用途 |
-|---|---|---|
-| `@trait` | **身份**——当前 trait 名/路径（batch_trait 段级） | 跨段打包「泛型声明 + trait 名」 |
-| `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合 | `#fill(@all_required_methods, -foo)` 精确选中 |
-| `@Cow` 等自定义 | **打包**——类型 + 固有约束一体 | 复用“带约束的包装”（见 §7.4） |
+| 记号              | 类别                                             | 用途                                          |
+|-------------------|--------------------------------------------------|-----------------------------------------------|
+| `@trait`          | **身份**——当前 trait 名/路径（batch_trait 段级） | 跨段打包「泛型声明 + trait 名」               |
+| `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合            | `#fill(@all_required_methods, -foo)` 精确选中 |
+| `@Cow` 等自定义   | **打包**——类型 + 固有约束一体                    | 复用“带约束的包装”（见 §7.4）                 |
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
@@ -538,17 +525,17 @@ Self 匹配，仅声明 body 里的 `Tr<>` 引用也同步（body 是任意 Rust
 
 ### 6.5 bound 生成器：impl 泛型 bound 里的 Fn 族类型
 
-生成器可以在 **impl 泛型 bound 内部**运行：`Fn.().N`（以及 `FnMut` /
+生成器可以在 **impl 泛型 bound 内部**运行：`Fn()N`（以及 `FnMut` /
 `FnOnce`）生成 Fn 的参数列表，其 fresh 参数**提升到 impl 泛型**
 （`impl<P0,P1, T: Fn(P0,P1)>`——绝不会把泛型声明留在谓词内部，rustc 会
 拒绝），target 引用同一批 fresh。这就是"按 Fn arity 一条 spec 生成多个
-impl"的形式：`<R, T: Fn.().0..4 R> Tr<T> (@0..)` 对 arity 0..4（排他）
+impl"的形式：`<R, T: Fn()0..4 R> Tr<T> (@0..)` 对 arity 0..4（排他）
 各生成一个 impl，每个 impl 的 bound 固定为该 arity、target 元组按该 impl
 自己的 fresh 重新展开：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..) {
+#[batch_impl(<R, T: Fn()0..3 R> MultiArity<T, R> (@0..) {
     fn arity(&self) -> usize { 0 }
 })]
 trait MultiArity<T, R> { fn arity(&self) -> usize; }
@@ -557,7 +544,7 @@ trait MultiArity<T, R> { fn arity(&self) -> usize; }
 // → impl<R, P0,P1, T: Fn(P0,P1)->R> MultiArity<T, R> for (P0,P1)
 ```
 
-`Fn.().N R`——空格 apply 返回类型——渲染为 `Fn(P0,..) -> R`（等价
+`Fn()N R`——空格 apply 返回类型——渲染为 `Fn(P0,..) -> R`（等价
 `-> R`）。`FnMut` / `FnOnce` 渲染各自的 trait 名；裸 `fn.().N` 也可用
 （作为**类型**——`fn` 不是 trait，不能作 bound，但同样的生成器形式出现
 在类型位置）。target 里的 `@N..` 范围**每个 impl 独立展开**，所以每个
@@ -571,7 +558,7 @@ target 元组的尾逗号**可选**：`(@0..)` ≡ `(@0..,)`——无逗号的�
 **多个 bound 生成器**在同一 spec 中按 arity 笛卡尔积分发，target 用
 **组内范围**寻址每个生成器的 fresh（第一个 bound 的 fresh 用 `@0_0..`，
 第二个用 `@1_0..`）——扁平 `@N..` 跨全部组索引，两个扁平范围会在同一
-元组里重叠。组内范围要求其组存在（`Fn.().0..N` bound 的 arity 0 份没有
+元组里重叠。组内范围要求其组存在（`Fn()0..N` bound 的 arity 0 份没有
 该组 fresh，引用在那里报错——与 `@g_i` 同规则）。
 
 ## 7. 指令系统 `#`
@@ -670,7 +657,7 @@ trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Vec<u8> where Vec<u8>: Clone {})]
+#[batch_impl(Vec<u8> where Vec<u8>: Clone)]
 trait T {}
 ```
 
@@ -699,7 +686,7 @@ trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`w
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc].u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
+#[batch_impl([Box, Rc] u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
 trait Make { fn mk(x: u32) -> Self; }
 // → impl Make for Box<u32> { fn mk(x: u32) -> Box<u32> { Box::new(x) } }
 // → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
@@ -725,15 +712,15 @@ trait Make { fn mk(x: u32) -> Self; }
 
 模板与叶子按**结构递归**匹配——每种 `syn::Type` 形态都被识别并递归：
 
-| 模板形态 | 行为 |
-|---|---|
-| `T`（裸 ident） | 绑定整个叶子子树 |
-| `Rc<T>` / `std::rc::Rc<T>`（路径，多段也可） | base/段 ident：相同→字面、不同→槽；泛型实参递归 |
-| `&A` / `&mut A` / `*const A` / `*mut A` | 引用/指针的生命周期与可变性只做结构比较；元素绑定 |
-| `[A]`（切片）、`(A, B, C)`（元组） | 逐位绑定元素 |
-| `[A; 3]`（定长数组，字面长度） | 长度逐字比较；元素绑定 |
-| `[A; N]`（定长数组，const 参数长度） | 长度**绑定**叶子长度（`N := 3`；body 可用 `N`） |
-| `Cow<'_, A>`（生命周期实参） | `'_'` 是**通配**，匹配任意生命周期；`'a` vs `'b` 逐字；类型实参照常绑定 |
+| 模板形态                                     | 行为                                                                    |
+|----------------------------------------------|-------------------------------------------------------------------------|
+| `T`（裸 ident）                              | 绑定整个叶子子树                                                        |
+| `Rc<T>` / `std::rc::Rc<T>`（路径，多段也可） | base/段 ident：相同→字面、不同→槽；泛型实参递归                         |
+| `&A` / `&mut A` / `*const A` / `*mut A`      | 引用/指针的生命周期与可变性只做结构比较；元素绑定                       |
+| `[A]`（切片）、`(A, B, C)`（元组）           | 逐位绑定元素                                                            |
+| `[A; 3]`（定长数组，字面长度）               | 长度逐字比较；元素绑定                                                  |
+| `[A; N]`（定长数组，const 参数长度）         | 长度**绑定**叶子长度（`N := 3`；body 可用 `N`）                         |
+| `Cow<'_, A>`（生命周期实参）                 | `'_'` 是**通配**，匹配任意生命周期；`'a` vs `'b` 逐字；类型实参照常绑定 |
 
 不能绑定（保持逐字比较——定向诊断而非静默误绑）：
 
@@ -747,7 +734,7 @@ trait Make { fn mk(x: u32) -> Self; }
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc].@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
+#[batch_impl([Box, Rc] @num impl{Box<u8>} #max{Box::new(u8::MAX)})]
 trait TMax { fn max() -> Self; }
 // → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
 // → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
@@ -762,7 +749,7 @@ trait TMax { fn max() -> Self; }
 # use std::rc::Rc;
 #[batch_impl(
     [[Box, Rc] impl{Box<u8>},
-     Cow<'_> impl{Cow<'_, u8>}].@num #tag{1}
+     Cow<'_> impl{Cow<'_, u8>}] @num #tag{1}
 )]
 trait Tag { fn tag() -> usize; }
 // Box<u8>..Rc<f64> 由 Box<u8> 原型覆盖；Cow<'_, u8>..Cow<'_, f64> 由 Cow 原型覆盖
@@ -807,7 +794,7 @@ alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@0..`（≡ `
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ().1..=2 where @0..: Magma impl{(A@..)}
+    ()1..=2 where @0..: Magma impl{(A@..)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
@@ -846,24 +833,24 @@ impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 
 ## 9. 元组生成与矩阵
 
-### 9.1 `(A,).N` 长度展开
+### 9.1 `(A,)N` 长度展开
 
-`(A,).N` 生成 1 元到 N 元元组（`(A,)`、`(A,A)`、…）：
+`(A,)N` 生成 1 元到 N 元元组（`(A,)`、`(A,A)`、…）：
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8,).3)]
+#[batch_impl((u8,)3)]
 trait TuplePow {}
 // → impl TuplePow for (u8,) {}
 // → impl TuplePow for (u8, u8) {}
 // → impl TuplePow for (u8, u8, u8) {}
 ```
 
-范围：`(A,).2..4` / `(A,).2..=4` 生成区间长度。空元组 `().N` 是**生成器**——生成 N 个 fresh 泛型参数（见 5.4：`T<().2>` = `<P0,P1>T<(P0,P1)>`）。
+范围：`(A,)2..4` / `(A,)2..=4` 生成区间长度。空元组 `()N` 是**生成器**——生成 N 个 fresh 泛型参数（见 5.4：`T<()2>` = `<P0,P1>T<(P0,P1)>`）。
 
 ### 9.2 笛卡尔积
 
-`[A, B] [C, D]` 全组合；`*(A,B).2` splat 幂产生笛卡尔组合列表：
+`[A, B] [C, D]` 全组合；`*(A,B)2` splat 幂产生笛卡尔组合列表：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -873,7 +860,7 @@ trait Matrix {}
 // → impl Matrix for Box<u8> {} / Box<u16> / Rc<u8> / Rc<u16>（4 项）
 ```
 
-矩阵可以进一步包进容器或组合进更复杂的 spec（`([u8, u16],).2` 等）。
+矩阵可以进一步包进容器或组合进更复杂的 spec（`([u8, u16],)2` 等）。
 
 ## 10. 修饰符大全
 
@@ -923,11 +910,11 @@ trait Slices {}
 
 ## 11. 三个入口
 
-| 入口 | 语义 | trait 定义 |
-|---|---|---|
-| `#[batch_impl]` | 标准：impl + **重发 trait 定义** | 标注在 trait 上 |
+| 入口                 | 语义                                                                                                        | trait 定义            |
+|----------------------|-------------------------------------------------------------------------------------------------------------|-----------------------|
+| `#[batch_impl]`      | 标准：impl + **重发 trait 定义**                                                                            | 标注在 trait 上       |
 | `#[batch_impl_only]` | 只生成 impl，trait 由外部定义（可加 `# 路径::到::Trait:` 前缀声明外部 trait 的真实路径，要求至少一个 `::`） | 标注在 dummy trait 上 |
-| `batch_trait!` | 多段宏：多 trait + 段级 `@` 常量（不支持 `#` 指令） | 段内联 |
+| `batch_trait!`       | 多段宏：多 trait + 段级 `@` 常量（不支持 `#` 指令）                                                         | 段内联                |
 
 ```rust
 # use batch_impl::batch_impl_only;

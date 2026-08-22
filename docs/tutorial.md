@@ -2,18 +2,6 @@
 
 **v0.9.2** (2026-08-21) — `@N..` / `@N..M` range references now work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh), `<>` generic args (`Wrapper<@0..>` — one position re-opens into several), the impl-generic declaration (`<@0..>`), and tuple targets; **grouped ranges** `@L_N..` / `@L_N..M` slice within one generator group; variadic segments no longer need a trailing comma (`impl{(A@..)}`); see §6.4 / §8.4;
 
-**v0.9.1** (2026-08-21) — a stability release: `+A` at the start of a spec gets a targeted "not valid at the start of a type" diagnostic instead of silently generating 0 impls; `fn(A) -> ! { body }` attaches the body to the impl (the `!` block no longer swallows a trailing `{...}`); `self` is the identity prefix — a **bare-type placeholder** in matrices (`[Box, self] u8` = `Box<u8>` + the bare `u8`, see §10);
-
-**v0.9.0** (2026-08-21) — the apply operators are reworded: `.` is the right-associative apply operator and **space application replaces `-`** as the left-associative combination (see §2); the DSL is a **bag of blocks** (declarations / directive blocks / code blocks / types in any order, folded by `apply`); same-name generic declarations merge into a where clause; `_` is a never-replaced wildcard in `impl{...}` templates; `X<>` syncs to the spec trait application via a switch template (`impl{@trait<>}` / `impl{Tr<>}`);
-
-**v0.8.3** (2026-08-19) — the builtin-directive typo guard is removed: single-item `#name{...}` may legitimately collide with `fill`/`delegate`/`blanket` (see §7);
-
-**v0.8.2** (2026-08-19) — variadic segments (`ident@..`) in `impl{...}` templates and repeat blocks (`@(...)..`) in bodies, see §8.4;
-
-**v0.8.1** — the `where{...}` angle-pairing hotfix (see the CHANGELOG);
-
-**v0.7.2** — 0.7.2 adds the `batch_preview!` expansion preview, generator-splat declaration hoisting in trait args, `#blanket` by-value receiver forwarding, custom `@` constant sections for the attribute macros (reverted in 0.8.0), and user-language `@` diagnostics; 0.7.1 adds targeted diagnostics (stray/adjacent/empty tokens, typo suggestions) instead of raw rustc errors; 0.7.0 adds the **`*` flatten operator** on top of the existing skeleton, and upgrades `<>`/`()`/`[]` from "passive syntax" to "programmable structures": generic-argument positions now accept generators (`().N`), splats (`*(A,B)`), constant families (`@u*`), lists (`[A,B]`), bindings (`Item=u32`) and nested types.
-
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
 ## 0. Three systems + one operator
@@ -68,28 +56,27 @@ Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 |----------------------------|--------------------------------------|
 | `Box u32`                  | `Box<u32>`                           |
 | `HashMap u32 String`       | `HashMap<u32, String>` (left-associative accumulation) |
-| `Box u8 u16`               | `Box<u8, u16>`                       |
-| `fn.(A,B) C`               | `fn(A,B)->C` (or write `fn(A,B) -> C`) |
-| `& u8`                     | `&u8` (chained modifiers)            |
+| `fn(A,B) C`                | `fn(A,B)->C` (or write `fn(A,B) -> C`) |
+| `&u8`                      | `&u8` (chained modifiers)            |
 | `Tr u8`                    | `impl Tr for u8` (a bare trait name) |
 | `[Box, Vec] u32`           | `Box<u32>, Vec<u32>` (lists expand)  |
 | `HashMap<u8> String`       | `HashMap<u8, String>` (prefilled generics appended) |
 | `Box [u8, u16]`            | `Box<u8>, Box<u16>` (list distributes) |
 | `[Box, Vec] [u8, u16]`     | Cartesian product, 4 entries         |
 
-**`.` is the same operation with right-associative grouping** — reach for it only when you want **nesting** instead of accumulation. Space accumulation puts arguments side by side (`Box Box u8` = `Box<Box, u8>` — a typo for most containers); `.` nesting composes them (`Box.Box u8` = `Box<Box<u8>>`):
+**`.` is the same operation with right-associative grouping** — reach for it only when you want **nesting** instead of accumulation. Space accumulation puts arguments side by side (`Box Box u8` = `Box<Box, u8>` — a typo for most containers); `.` nesting composes them (`Box.Box.u8` = `Box<Box<u8>>`):
 
 | Writing                    | Expansion                            |
 |----------------------------|--------------------------------------|
-| `Box.Box u8`               | `Box<Box<u8>>` (right-associative nesting) |
-| `&.Box u8`                 | `&Box<u8>` (modifier over the nested type) |
-| `[Box, Vec].T`             | `Box<T>, Vec<T>`                     |
-| `Box.[T1, T2]`             | `Box<T1>, Box<T2>`                   |
-| `[HashMap<K>, Vec<K>].V`   | `HashMap<K, V>, Vec<K, V>`           |
+| `Box.Box.u8`               | `Box<Box<u8>>` (right-associative nesting) |
+| `&Box u8`                  | `&Box<u8>` (modifier over the nested type) |
+| `[Box, Vec] T`             | `Box<T>, Vec<T>`                     |
+| `Box [T1, T2]`             | `Box<T1>, Box<T2>`                   |
+| `[HashMap<K>, Vec<K>] V`   | `HashMap<K, V>, Vec<K, V>`           |
 
-> **When to use which**: one container/modifier + one type — write them side by side (`Box u8`, `& u8`, `HashMap<u8> String`). When the type itself needs to be a composed type (`Box<Box<u8>>`, `&Box<u8>`), join the composition with `.` — the space would treat each part as a separate argument.
+> **When to use which**: one container/modifier + one type — write them side by side (`Box u8`, `&u8`, `HashMap<u8> String`). When the type itself needs to be a composed type (`Box<Box<u8>>`, `&Box<u8>`), join the composition with `.` — the space would treat each part as a separate argument.
 
-**The bare trait name** applies as the impl trait: `Tr u8` = `impl Tr for u8`, `Tr<A> u8` = `impl Tr<A> for u8`. Write `Tr<u8>` for the **type** `Tr<u8>`.
+**The bare trait name** applies as the impl trait: `Tr u8` = `impl Tr for u8`, `Tr<A> u8` = `impl Tr<A> for u8`. Write `Tr<u8>` for the **type** `Tr<u8>`. In general, a bare `Tr` is not recommended.
 
 Precedence from low to high: `;` < `,` < space < `.`; `()` grouping sits above all operators.
 
@@ -233,7 +220,7 @@ A splat power inside generic args distributes its Cartesian result one impl per 
 ```rust
 # use batch_impl::batch_impl;
 struct Frac<T, U>(T, U);
-#[batch_impl(Frac<*(*@u*).2>)]
+#[batch_impl(Frac<*(*@u*)2>)]
 trait Pow {}
 // → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}（36 impls）
 ```
@@ -244,12 +231,12 @@ A group whose content is a lone splat parses as the container holding the splat 
 
 ### 4.5 Generator re-wrap
 
-`*(().N)` — a generator splat — hoists fresh declarations and splats the tuple into a container:
+`*()N` — a generator splat — hoists fresh declarations and splats the tuple into a container:
 
 ```rust
 # use batch_impl::batch_impl;
 struct Pair3<A, B>(A, B);
-#[batch_impl(Pair3<*().2>)]
+#[batch_impl(Pair3<*()2>)]
 trait GenSpl {}
 // → impl<P0, P1> GenSpl for Pair3<P0, P1>（flattened into two args）
 ```
@@ -307,11 +294,11 @@ struct Wrap<X>(X);
 struct Pair3<A, B>(A, B);
 struct A2; struct B2;
 
-#[batch_impl(Wrap<().2>)]               // generator: <P0,P1> Wrap<(P0,P1)>
+#[batch_impl(Wrap<()2>)]               // generator: <P0,P1> Wrap<(P0,P1)>
 trait GenTup {}
 // → impl<P0,P1> GenTup for Wrap<(P0, P1)>（the tuple stays a single arg）
 
-#[batch_impl(Pair3<*().2>)]             // generator splat: <P0,P1> Pair3<P0,P1>
+#[batch_impl(Pair3<*()2>)]             // generator splat: <P0,P1> Pair3<P0,P1>
 trait GenSpl {}
 // → impl<P0,P1> GenSpl for Pair3<P0, P1>（flattened into two args）
 
@@ -348,7 +335,7 @@ trait Foo<T> {}
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Box.@u*)]  // Box applied to every member of @u*
+#[batch_impl(Box @u*)]  // Box applied to every member of @u*
 trait BoxRc {}
 // → impl BoxRc for Box<u8> {} / Box<u16> / ... / Box<usize>
 ```
@@ -394,15 +381,15 @@ batch_trait! {
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(().2 where @0..=1: Clone {})]   // range sugar: @0..=1 = @0, @1
+#[batch_impl(()2 where @0..=1: Clone)]   // range sugar: @0..=1 = @0, @1
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(().3 where @0..: Copy {})]       // = @all_fresh (from 0 to the last fresh)
+#[batch_impl(()3 where @0..: Copy)]       // = @all_fresh (from 0 to the last fresh)
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
-#[batch_impl(().3 where @1..: Copy {})]       // open range: from index 1 on
+#[batch_impl(()3 where @1..: Copy)]       // open range: from index 1 on
 trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 // (an arity-1 impl contributes no predicate — `@1..` is empty there)
@@ -420,12 +407,12 @@ list the spec's generators produced:
 ```rust
 # use batch_impl::batch_impl;
 struct Wrap3<A, B, C>(A, B, C);
-#[batch_impl(Wrap3<*().3> where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*()3> where @0..: Clone { fn m(&self) {} })]
 trait RangeAngle { fn m(&self); }
 // → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
 
 trait HasOut { type Out; }
-#[batch_impl(Wrap3<*().3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*()3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
 // → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
 ```
@@ -441,7 +428,7 @@ declaration and the predicates:
 ```rust
 # use batch_impl::batch_impl;
 struct DeclTarget;
-#[batch_impl(<@0..> GenConv<*().2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(<@0..> GenConv<*()2> DeclTarget where @0..: Clone { fn m(&self) {} })]
 trait GenConv<T, U> { fn m(&self); }
 // → impl<P0,P1> GenConv<P0,P1> for DeclTarget where P0: Clone, P1: Clone
 ```
@@ -458,7 +445,7 @@ several generators in one spec (`<*().2>` → group 0, `<*().3>` → group 1),
 # use batch_impl::batch_impl;
 struct MultiTarget;
 #[batch_impl(
-    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where @1_0..: Clone
+    <@0..> <@1..> PairGen<*()2, *()3> MultiTarget where @1_0..: Clone
     { fn m(&self) {} }
 )]
 trait PairGen<A, B, C, D, E> { fn m(&self); }
@@ -477,7 +464,7 @@ constraint):
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(
-    Module<(), ()> ().1..=4 where @0..: Module<(), (), Scalar: Copy>,
+    Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
         impl{(A@..)}
     #Scalar{A0::Scalar}
@@ -535,18 +522,18 @@ trait reference).
 
 ### 6.5 Bound generators: Fn-family types in impl-generic bounds
 
-A generator can run **inside an impl-generic bound**: `Fn.().N` (and
+A generator can run **inside an impl-generic bound**: `Fn()N` (and
 `FnMut` / `FnOnce`) generates the Fn's parameter list, its fresh params ride
 out to the impl generics (`impl<P0,P1, T: Fn(P0,P1)>` — never a generic
 declaration inside the predicate, which rustc rejects), and the target
 references the same fresh batch. This is the "one impl per Fn arity" form:
-`<R, T: Fn.().0..4 R> Tr<T> (@0..)` generates one impl for each arity
+`<R, T: Fn()0..4 R> Tr<T> (@0..)` generates one impl for each arity
 0..4 (exclusive), each with the bound pinned to that arity and the target
 tuple re-opened to that impl's own fresh list:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<R, T: Fn.().0..3 R> MultiArity<T, R> (@0..) {
+#[batch_impl(<R, T: Fn()0..3 R> MultiArity<T, R> (@0..) {
     fn arity(&self) -> usize { 0 }
 })]
 trait MultiArity<T, R> { fn arity(&self) -> usize; }
@@ -555,9 +542,10 @@ trait MultiArity<T, R> { fn arity(&self) -> usize; }
 // → impl<R, P0,P1, T: Fn(P0,P1)->R> MultiArity<T, R> for (P0,P1)
 ```
 
-`Fn.().N R` — the space-apply return type — renders `Fn(P0,..) -> R`
-(equivalent to `-> R`). `FnMut` / `FnOnce` render their own trait names; a
-bare `fn.().N` works too (as a **type** — `fn` is not a trait, so it cannot
+`Fn()N R` — the space-apply return type — renders `Fn(P0,..) -> R`
+(equivalent to `-> R`). The dot form `Fn.().N` works too (the `.` is
+optional). `FnMut` / `FnOnce` render their own trait names; a
+bare `fn()N` works as a **type** (`fn` is not a trait, so it cannot
 be a bound, but the same generator form appears in type positions). The
 `@N..` range in the target re-opens per impl, so each arity's tuple elements
 are exactly that impl's Fn parameters (the empty `@0..` of the arity-0 impl
@@ -572,7 +560,7 @@ of their arities, and the target then addresses each generator's fresh by
 **grouped ranges** (`@0_0..` for the first bound's fresh, `@1_0..` for the
 second's) — the flat `@N..` form indexes across all groups, so two flat
 ranges in one tuple would overlap. A grouped range requires its group to
-exist (a `Fn.().0..N` bound's arity-0 impl has no fresh for that group, so
+exist (a `Fn()0..N` bound's arity-0 impl has no fresh for that group, so
 the reference errors there — the same rule as `@g_i`).
 
 ## 7. The Directive System `#`
@@ -664,12 +652,14 @@ trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
 
 The `where` clause attaches predicates to the impl. The preferred spelling is
 bare — `where predicate { code block }` with the code block after the
-predicate; a `where{...}` suffix (predicates in braces) is equivalent and
-still works, but writes one `{}` layer more:
+predicate, or **no code block at all** (`where A: Clone` ≡ `where A: Clone {}`
+— the predicate region ends at the spec end); a `where{...}` suffix
+(predicates in braces) is equivalent and still works, but writes one `{}`
+layer more:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Vec<u8> where Vec<u8>: Clone {})]
+#[batch_impl(Vec<u8> where Vec<u8>: Clone)]
 trait T {}
 ```
 
@@ -701,7 +691,7 @@ every leaf:
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc].u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
+#[batch_impl([Box, Rc] u32 impl{W<T>} { fn mk(x: u32) -> W<T> { W::new(x) } })]
 trait Make { fn mk(x: u32) -> Self; }
 // → impl Make for Box<u32> { fn mk(x: u32) -> Box<u32> { Box::new(x) } }
 // → impl Make for Rc<u32>  { fn mk(x: u32) -> Rc<u32>  { Rc::new(x) } }
@@ -761,7 +751,7 @@ Write **one correct implementation for a representative leaf**, and the
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
-#[batch_impl([Box, Rc].@num impl{Box<u8>} #max{Box::new(u8::MAX)})]
+#[batch_impl([Box, Rc] @num impl{Box<u8>} #max{Box::new(u8::MAX)})]
 trait TMax { fn max() -> Self; }
 // → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
 // → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
@@ -779,7 +769,7 @@ a list-wide distribution:
 # use std::rc::Rc;
 #[batch_impl(
     [[Box, Rc] impl{Box<u8>},
-     Cow<'_> impl{Cow<'_, u8>}].@num #tag{1}
+     Cow<'_> impl{Cow<'_, u8>}] @num #tag{1}
 )]
 trait Tag { fn tag() -> usize; }
 // Box<u8>..Rc<f64> covered by the Box<u8> prototype; Cow<'_, u8>..Cow<'_, f64>
@@ -850,7 +840,7 @@ The alga2-style end-to-end — one spec covers every tuple arity, with
 trait Magma { fn combine(&self, rhs: &Self) -> Self; }
 impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 #[batch_impl(
-    ().1..=2 where @0..: Magma impl{(A@..)}
+    ()1..=2 where @0..: Magma impl{(A@..)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
@@ -897,18 +887,18 @@ instead of just a body.**
 
 ### 9.1 Tuple generators
 
-`(T,).N` generates tuples of length 1..=N; `().N` generates N fresh params:
+`(T,)N` generates tuples of length 1..=N; `()N` generates N fresh params:
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8,).3)]
+#[batch_impl((u8,)3)]
 trait T {}
 // → impl T for (u8,) {} / (u8, u8) / (u8, u8, u8)
 ```
 
 ### 9.2 Cartesian products
 
-`[A, B] [C, D]` full combinations; `*(A,B).2` splat pow produces a Cartesian combo list:
+`[A, B] [C, D]` full combinations; `*(A,B)2` splat pow produces a Cartesian combo list:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -918,7 +908,7 @@ trait Matrix {}
 // → impl Matrix for Box<u8> {} / Box<u16> / Rc<u8> / Rc<u16>（4 entries）
 ```
 
-Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u16],).2` etc.).
+Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u16],)2` etc.).
 
 ## 10. The Modifier Gallery
 
