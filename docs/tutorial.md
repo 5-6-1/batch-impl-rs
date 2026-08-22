@@ -506,7 +506,7 @@ On the other axis (value classes):
 |---|---|---|
 | `@trait` | **identity** — the current trait name/path (section-level in batch_trait) | package "generic declaration + trait name" across sections |
 | `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` etc. custom | **package** — a type plus its inherent constraints; **batch_trait!-only** (a §6.3 custom-constant name, not built in) | reuse a "constrained wrapper" (see §7.4) |
+| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus its inherent constraints (`@0: ToOwned + ?Sized, @0::Owned: @trait`) | blanket-usable `Cow` delegation (see §7.4) |
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
@@ -636,7 +636,12 @@ trait Len { fn len(&self) -> usize; }
 
 #### `@Cow` — a constraint-carrying packing (the case study)
 
-`Cow<'_>`'s deref target is `T::Owned`, not `T` — the naive `(**self)` delegation can't pass type checking. `@Cow` packs `Cow<'_>` **plus** the inherent constraint predicates (`@0: ToOwned + ?Sized, @0::Owned: @trait`), making it blanket-usable. This is the demonstration that **a constant carries reuse value only when it carries constraints**:
+`@Cow` is a **built-in `#blanket` wrapper constant** (usable only in the
+`#blanket` wrapper list). `Cow<'_>`'s deref target is `T::Owned`, not `T` —
+the naive `(**self)` delegation can't pass type checking. `@Cow` packs
+`Cow<'_>` **plus** the inherent constraint predicates (`@0: ToOwned + ?Sized,
+`@0::Owned: @trait`), making it blanket-usable. This is the demonstration that
+**a constant carries reuse value only when it carries constraints**:
 
 ```rust
 # use batch_impl::batch_impl;

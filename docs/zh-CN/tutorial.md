@@ -506,7 +506,7 @@ trait Module<Add, Mul> {
 |-------------------|--------------------------------------------------|-----------------------------------------------|
 | `@trait`          | **身份**——当前 trait 名/路径（batch_trait 段级） | 跨段打包「泛型声明 + trait 名」               |
 | `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合            | `#fill(@all_required_methods, -foo)` 精确选中 |
-| `@Cow` 等自定义   | **打包**——类型 + 固有约束一体；**仅 `batch_trait!`**（§6.3 自定义常量段的名字，非内置） | 复用“带约束的包装”（见 §7.4）                 |
+| `@Cow`            | **`#blanket` 专属内置包装常量**——`Cow<'_>` 及其固有约束（`@0: ToOwned + ?Sized, @0::Owned: @trait`） | blanket 可用的 `Cow` 委托（见 §7.4）          |
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
@@ -632,7 +632,7 @@ trait Len { fn len(&self) -> usize; }
 
 #### `@Cow`——携带约束的打包（示范案例）
 
-`Cow<'_>` 的 deref 目标是 `T::Owned` 而非 `T`——朴素 `(**self)` 委托过不了类型检查。`@Cow` 把 `Cow<'_>` **连同**固有约束谓词（`@0: ToOwned + ?Sized, @0::Owned: @trait`）打包，让 blanket 可用。这就是“常量只有携带约束才有复用价值”的示范：
+`@Cow` 是 **`#blanket` 专属内置包装常量**（只在 `#blanket` 包装列表里可用）。`Cow<'_>` 的 deref 目标是 `T::Owned` 而非 `T`——朴素 `(**self)` 委托过不了类型检查。`@Cow` 把 `Cow<'_>` **连同**固有约束谓词（`@0: ToOwned + ?Sized, @0::Owned: @trait`）打包，让 blanket 可用。这就是“常量只有携带约束才有复用价值”的示范：
 
 ```rust
 # use batch_impl::batch_impl;
