@@ -9,25 +9,25 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 
-/// Build `compile_error!(msg);` at `span` (the token the error is about).
+/// Build `::core::compile_error!(msg);` at `span` (the token the error is
+/// about). The **absolute path** keeps the diagnostic hygienic: a user scope
+/// shadowing `compile_error` (or defining its own `core` module) cannot
+/// redirect the macro; the `compile_error` ident keeps the target span so
+/// rustc reports the error at the offending token while the path prefix
+/// keeps call-site spans (avoiding rustc treating it as user code in item
+/// position — "macros that expand to items must be delimited with braces or
+/// followed by a semicolon").
 pub(crate) fn compile_error_str(msg: &str, span: Span) -> TokenStream {
-    // `compile_error!` in a macro's Ok output is only recognized as a
-    // macro-generated error when the invocation parses as macro syntax with a
-    // call-site context; stamping the *ident* with the target span (the
-    // offending token) reports the error at that position while the rest of
-    // the invocation keeps call-site spans (avoiding rustc treating it as user
-    // code in item position — "macros that expand to items must be delimited
-    // with braces or followed by a semicolon").
     let err_ident = Ident::new("compile_error", span);
-    quote! { #err_ident!(#msg); }
+    quote! { :: core :: #err_ident!(#msg); }
 }
 
-/// Type-position `compile_error!(msg)` without a trailing `;` — inside
-/// generic args / type positions a semicolon is a syntax error; same
+/// Type-position `::core::compile_error!(msg)` without a trailing `;` —
+/// inside generic args / type positions a semicolon is a syntax error; same
 /// ident-span scheme as [`compile_error_str`].
 pub(crate) fn compile_error_ty(msg: &str, span: Span) -> TokenStream {
     let err_ident = Ident::new("compile_error", span);
-    quote! { #err_ident!(#msg) }
+    quote! { :: core :: #err_ident!(#msg) }
 }
 
 /// `compile_err!("msg {}", x)` → `compile_error_str(&format!(...), call_site)`.

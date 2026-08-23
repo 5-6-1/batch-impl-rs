@@ -20,15 +20,16 @@ use crate::apply::apply_tuple::map_range;
 use crate::ast::*;
 use proc_macro2::Span;
 
-/// Build a `Ty::Error` containing `compile_error!` (call-site span).
+/// Build a `Ty::Error` containing `::core::compile_error!` (call-site span).
+/// The absolute path is hygienic against user scopes shadowing `compile_error`.
 pub(crate) fn err_ty(msg: &str) -> Ty {
-    TyError(quote! { compile_error!(#msg); }).to_ty()
+    TyError(quote! { ::core::compile_error!(#msg); }).to_ty()
 }
 
 /// `err_ty` with an explicit span: the error renders at `span` (the offending
 /// token / `Ty::span` / the apply `span` parameter in hand at the error site).
 pub(crate) fn err_ty_at(msg: &str, span: Span) -> Ty {
-    let ts = quote_spanned!(span => compile_error!(#msg););
+    let ts = quote_spanned!(span => ::core::compile_error!(#msg););
     TyError(ts).to_ty().with_span(span)
 }
 
