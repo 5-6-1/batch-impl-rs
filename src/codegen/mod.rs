@@ -288,26 +288,34 @@ fn generate_parts(
             parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_entries)).collect();
     }
     if let Some(b) = &mut parts.body {
-        // Repeat blocks expand whether or not a template is present. Without
-        // an `impl{...}`, the **fresh-binding switch** (`impl{@0..}`) drives
-        // cursor-only blocks (`@(args.@0,)..` under a `Fn()N` bound: one
-        // round per bound fresh) and enables `@@N` name references.
+        // Body token postprocessing lives together here, where the impl's
+        // fresh names are in hand:
+        // 1. Repeat blocks expand (`@(…@0,)..`; without an `impl{...}` the
+        //    **fresh-binding switch** `impl{@0..}` drives cursor-only blocks
+        //    — one round per bound fresh — and enables `@@N` references);
+        // 2. Fresh-range placeholders re-open (`#map`-copied signatures
+        //    substitute the trait's generic args verbatim, so `(@0..)`
+        //    lands in the body as `_Param_0_With_BatchGen_`).
         let fresh_names: Vec<TokenStream> = impl_name_streams
             .iter()
             .filter(|n| crate::ast::fresh::is_fresh_name(&n.to_string()))
             .cloned()
             .collect();
         let binding = parts.fresh_binding;
-        match expand_repeat_blocks(b.clone(), &var_segs, binding, &fresh_names) {
-            Ok(expanded) => {
-                *b = if shape_entries.is_empty() {
-                    expanded
-                } else {
-                    apply_mapping(expanded, &shape_entries)
-                };
-            }
+        let expanded = match expand_repeat_blocks(b.clone(), &var_segs, binding, &fresh_names) {
+            Ok(e) => e,
             Err(e) => return e,
-        }
+        };
+        let expanded =
+            match crate::codegen::range_refs::expand_range_refs(expanded, &impl_name_streams) {
+                Ok(e) => e,
+                Err(e) => return e,
+            };
+        *b = if shape_entries.is_empty() {
+            expanded
+        } else {
+            apply_mapping(expanded, &shape_entries)
+        };
     }
     crate::codegen::render::render_impl(
         parts,

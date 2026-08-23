@@ -93,18 +93,14 @@ pub(crate) fn render_impl(
         Err(e) => return e,
     };
 
-    // impl body: associated types + user body. The body may carry fresh-range
-    // placeholders — `#map`-copied signatures substitute the trait's generic
-    // args verbatim, so a spec arg like `(@0..)` lands in the body as
-    // `_Param_0_With_BatchGen_`; re-open those against the impl's fresh list
-    // (the body is otherwise never token-processed).
+    // impl body: associated types + user body. Fresh-range placeholders in
+    // the body were already re-opened by the codegen postprocess
+    // (`expand_range_refs` in `generate_parts`, next to the repeat-block
+    // expansion); render just assembles the tokens.
     let mut body_tokens: Vec<TokenStream> =
         parts.associated_types.iter().map(|(name, value)| quote!(type #name = #value;)).collect();
     if let Some(body) = &parts.body {
-        match crate::codegen::range_refs::expand_range_refs(body.clone(), impl_names) {
-            Ok(expanded) => body_tokens.push(expanded),
-            Err(e) => return e,
-        }
+        body_tokens.push(body.clone());
     }
 
     // attributes

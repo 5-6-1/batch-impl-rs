@@ -232,18 +232,27 @@ fn expand_at(
                     return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
                 }
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
-                // A paren group with a depth-0 comma is a tuple (an empty
-                // range can leave a comma orphaned); `(A)` without commas is
-                // a plain group and must not be re-folded.
-                let is_tuple = g.delimiter() == proc_macro2::Delimiter::Parenthesis
-                    && inner.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == ','));
+                // Empty-tuple folding applies **only to a tuple whose top
+                // level holds a range placeholder** (`(@0..,)` — the folded
+                // `_Param_N_With[_M]_BatchGen_` ident): re-opening the range
+                // is the sole source of orphaned commas. An ordinary paren
+                // (`(expr,)`, `(A)`) never reaches the fold, so its commas —
+                // including flat `<...>` inside an element — are never
+                // re-joined.
+                let has_range_placeholder = inner.iter().any(|t| {
+                    matches!(t, TokenTree::Ident(id)
+                        if crate::ast::fresh::parse_range_fresh(&id.to_string()).is_some())
+                });
+                let foldable =
+                    g.delimiter() == proc_macro2::Delimiter::Parenthesis && has_range_placeholder;
                 let expanded: Vec<TokenTree> =
                     expand_at(&inner, fresh, depth + 1)?.into_iter().collect();
-                // Empty-tuple folding: ranges that re-opened to zero entries
-                // leave empty elements (`(,)` / `(, P1,)` / `(P0, ,)`) —
-                // drop the empty elements and rejoin, restoring a valid
-                // tuple (`()` / `(P1,)` / `(P0,)`).
-                let inner_ts = if is_tuple {
+                // Empty-tuple folding: a range that re-opened to zero entries
+                // leaves orphaned empties (`(,)` / `(, P1,)` / `(P0, ,)`) —
+                // drop them and rejoin, restoring a valid tuple (`()` /
+                // `(P1,)` / `(P0,)`). Only foldable tuples (those that held
+                // a placeholder) reach this branch.
+                let inner_ts = if foldable {
                     fold_empty_tuple(&expanded)
                 } else {
                     expanded.into_iter().collect()
