@@ -176,6 +176,12 @@ pub(crate) fn expand_blanket(
         // Insert predicate streams as wholes (commas between predicates are
         // already in the token streams; cannot connect with per-token commas)
         let mut where_streams = base_preds.clone();
+        if wrapper.is_unsized {
+            // `Box@?` — the fresh generic is `?Sized` (the `T: Trait` bound
+            // would otherwise imply `Sized`); supports unsized targets like
+            // `Box<dyn Trait>`.
+            where_streams.push(quote!(#t : ?Sized));
+        }
         if let Some(wc) = &generics.where_clause {
             let preds = &wc.predicates;
             where_streams.push(quote!(#preds));

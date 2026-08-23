@@ -193,6 +193,26 @@ fn blanket_self_assoc_return_covered() {
     let _: <&u32 as AssocRet>::Output = 1u64;
 }
 
+// `Box@?` — the trailing `@?` suffix adds `where{T: ?Sized}` for that
+// wrapper, so unsized targets work: `Box<dyn DynBox>` delegates through the
+// trait object. Without `@?` the `T: Trait` bound would imply `Sized`.
+#[batch_impl(#blanket(@all_methods){Box@?})]
+trait DynBox {
+    fn foo(&self) -> u32;
+}
+
+impl DynBox for u8 {
+    fn foo(&self) -> u32 {
+        *self as u32
+    }
+}
+
+#[test]
+fn blanket_unsized_wrapper() {
+    let b: Box<dyn DynBox> = Box::new(7u8);
+    assert_eq!(b.foo(), 7);
+}
+
 // `#[attr]` followed by an operator chain (not `.`-joined at the spec
 // level): the attr's `apply` keeps an already-attached inner and applies
 // the operator to it (`#[attr] Box.u8` = `#[attr] Box<u8>` — 0.7.2 fix:

@@ -13,10 +13,10 @@ use crate::util::{compile_err, compile_err_at, compile_error_str, is_single_colo
 /// would expand into a pathological type and overflow rustc.
 pub(crate) const MAX_BLANKET_DEPTH: usize = 128;
 /// A single `#blanket` wrapper element: type expression + deref depth +
-/// optional bound predicates.
+/// optional bound predicates + optional `?Sized` suffix.
 pub(crate) struct BlanketWrapper {
-    /// Wrapper type expression (without the `:N` annotation), applied as-is
-    /// to the fresh generic via `.T`.
+    /// Wrapper type expression (without the `:N` / `@?` suffixes), applied
+    /// as-is to the fresh generic via `.T`.
     pub(crate) ty: TokenStream,
     /// Deref depth of the delegation body (`*` count = depth + 1); `:N`
     /// explicit annotation or default 1.
@@ -25,6 +25,12 @@ pub(crate) struct BlanketWrapper {
     /// `@0` unresolved). Merged into the impl where clause (parallel with
     /// trait generic where predicates, zero-analysis merge).
     pub(crate) where_preds: Option<Vec<TokenTree>>,
+    /// Trailing `@?` suffix — emits a `where{T: ?Sized}` constraint for this
+    /// wrapper (allows is_unsized targets: `Box<dyn Trait>`, `&dyn Trait`, ...).
+    /// Only wrappers that support is_unsized inner types (references, `Box`,
+    /// `Rc`, `Arc`, `Cow`) should use it; a custom `struct Wrapper<T>` keeps
+    /// `T: Sized` by default and errors.
+    pub(crate) is_unsized: bool,
 }
 
 /// Parses the `#blanket` body wrapper list (`&,Box.Arc:2,Cow<'_>`,
@@ -124,6 +130,16 @@ pub(crate) fn parse_blanket_wrappers(
             }
         }
         let ty_tokens = &current[..ty_end];
+        // Trailing `@?` suffix (like `:N`): declares the fresh generic
+        // `?Sized` for this wrapper. Stripped before the type matching.
+        let (ty_tokens, is_unsized) = match ty_tokens {
+            [rest @ .., TokenTree::Punct(at), TokenTree::Punct(q)]
+                if at.as_char() == '@' && q.as_char() == '?' =>
+            {
+                (rest, true)
+            }
+            other => (other, false),
+        };
         match ty_tokens {
             [] => Err(compile_error_str(
                 "batch-impl: #blanket `:N` is missing the wrapper type before it \
@@ -147,6 +163,7 @@ pub(crate) fn parse_blanket_wrappers(
                     ty: quote!(Cow #args),
                     depth,
                     where_preds: Some(preds),
+                    is_unsized: false,
                 });
                 Ok(())
             }
@@ -167,7 +184,7 @@ pub(crate) fn parse_blanket_wrappers(
             )),
             _ => {
                 let ty = ty_tokens.iter().cloned().collect();
-                wrappers.push(BlanketWrapper { ty, depth, where_preds });
+                wrappers.push(BlanketWrapper { ty, depth, where_preds, is_unsized });
                 Ok(())
             }
         }
