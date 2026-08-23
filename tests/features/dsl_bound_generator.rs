@@ -172,12 +172,15 @@ fn bound_generator_with_directive_body() {
     assert_eq!(Map::map(&f, (1u8, 2u16)), 3u32);
 }
 
-// The arity-adaptable body: a **fresh-driven repeat block** — `@(…@0..)..`
-// with no `impl{...}` template repeats once per impl fresh (the `Fn()0..N`
-// bound-generator arity), so one body covers every arity:
-// arity 2 → `self(_args.0, _args.1)`, arity 0 → `self()`.
+// The arity-adaptable body: the **fresh-binding switch** `impl{@0..}`
+// declares that body modification is driven by the impl's fresh generics —
+// a cursor-only repeat block (`@(…@0,)..`) repeats once per bound fresh
+// (the `Fn()0..N` bound-generator arity), so one body covers every arity:
+// arity 2 → `self(_args.0, _args.1)`, arity 0 → `self()`. `@@N` names the
+// N-th fresh generic (e.g. `@@0` → the first fresh's name).
 #[batch_impl(
     <R, F: Fn()0..4 R> MapAll<(@0..), Output=R> F
+    impl{@0..}
     #map{ self( @(_args.@0,).. ) }
 )]
 trait MapAll<Args> {
@@ -195,4 +198,25 @@ fn bound_generator_fresh_driven_body() {
     assert_eq!(MapAll::map(&f2, (1u8, 2u16)), 3);
     let f3 = |a: u8, b: u16, c: u32| a as u64 + b as u64 + c as u64;
     assert_eq!(MapAll::map(&f3, (1u8, 2u16, 3u32)), 6u64);
+}
+
+// `@@N` names a fresh generic **inside a repeat block** (it is a block-level
+// marker): `@@1` is the second fresh (`_Param_…_BatchGen_` before the sweep,
+// `P1` after) — usable as a type in the generated method. The switch
+// `impl{@1..=1}` binds a single fresh, so the block runs one round.
+#[batch_impl(
+    <R, F: Fn()2 R> TypeName<(@0..), Output=R> F
+    impl{@1..=1}
+    #size{ @(let _ = std::mem::size_of::<@@1>();).. 0 }
+)]
+trait TypeName<Args> {
+    type Output;
+    fn size(&self) -> usize;
+}
+
+#[test]
+fn bound_generator_fresh_name_reference() {
+    let f = |a: u8, b: u16| a as u32 + b as u32;
+    // the generated body must type-check `size_of::<P1>()` (P1 = u16)
+    assert_eq!(TypeName::size(&f), 0);
 }

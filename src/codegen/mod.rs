@@ -288,14 +288,17 @@ fn generate_parts(
             parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_entries)).collect();
     }
     if let Some(b) = &mut parts.body {
-        // Repeat blocks expand whether or not a template is present — with
-        // no `impl{...}`, the impl's fresh count drives cursor-only blocks
-        // (`@(args.@0,)..` under a `Fn()N` bound: one round per arity).
-        let fresh_count = impl_name_streams
+        // Repeat blocks expand whether or not a template is present. Without
+        // an `impl{...}`, the **fresh-binding switch** (`impl{@0..}`) drives
+        // cursor-only blocks (`@(args.@0,)..` under a `Fn()N` bound: one
+        // round per bound fresh) and enables `@@N` name references.
+        let fresh_names: Vec<TokenStream> = impl_name_streams
             .iter()
             .filter(|n| crate::ast::fresh::is_fresh_name(&n.to_string()))
-            .count();
-        match expand_repeat_blocks(b.clone(), &var_segs, fresh_count) {
+            .cloned()
+            .collect();
+        let binding = parts.fresh_binding;
+        match expand_repeat_blocks(b.clone(), &var_segs, binding, &fresh_names) {
             Ok(expanded) => {
                 *b = if shape_entries.is_empty() {
                     expanded

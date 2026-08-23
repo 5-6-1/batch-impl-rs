@@ -29,6 +29,12 @@ pub(crate) struct ImplParts {
     /// matched against the leaf target type by `codegen::shape::match_shape`,
     /// the merged slot mapping rewrites the target/where/body.
     pub(crate) impl_templates: Vec<TokenStream>,
+    /// A **fresh-binding switch template** (`impl{@0..}` / `impl{@1..}` /
+    /// `impl{@0_0..}`): declares that the body's repeat blocks are driven by
+    /// the impl's fresh generics in the range's scope — enabling fresh-driven
+    /// cursor-only blocks and `@@N` name references. `None` when no switch
+    /// template is present (fresh-driven body modification is then off).
+    pub(crate) fresh_binding: Option<crate::ast::fresh::FreshRange>,
 }
 
 impl ImplParts {
@@ -44,6 +50,7 @@ impl ImplParts {
             is_unsafe_impl: false,
             where_clauses: vec![],
             impl_templates: vec![],
+            fresh_binding: None,
         }
     }
 }
@@ -122,11 +129,15 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
         TyKind::WithImpl(wi) => match wi.0 {
             Some(inner) => {
                 let mut parts = extract_impl_parts(*inner);
-                // The template is consumed by the codegen shape match (never
-                // emitted); multiple `impl{...}` attachments merge into one
-                // mapping (redundant identical bindings legal, conflicting
-                // ones error).
-                parts.impl_templates.push(wi.1.0);
+                // A **fresh-binding switch** template (`impl{@0..}` etc.) is
+                // consumed as the binding declaration (it does not match
+                // Self like an ordinary shape template); any other template
+                // goes to the shape match (multiple attachments merge).
+                if let Some(range) = parse_fresh_switch(&wi.1.0) {
+                    parts.fresh_binding = Some(range);
+                } else {
+                    parts.impl_templates.push(wi.1.0);
+                }
                 parts
             }
             None => ImplParts::leaf(wi.to_ty().with_span(span)),
@@ -286,4 +297,39 @@ fn replace_idents(ts: TokenStream, map: &[(Ident, TokenStream)]) -> TokenStream 
             other => TokenStream::from(other.clone()),
         })
         .collect()
+}
+
+/// Recognizes a **fresh-binding switch** template: an `impl{...}` whose whole
+/// content is a fresh range reference (`@0..` / `@1..` / `@0_0..` /
+/// `@0..=M` — the same literal forms the type position folds). Returns the
+/// binding range; `None` for any ordinary shape template.
+fn parse_fresh_switch(tokens: &TokenStream) -> Option<crate::ast::fresh::FreshRange> {
+    use crate::ast::fresh::FreshRange;
+    let v = tokens.clone().into_iter().collect::<Vec<_>>();
+    let [
+        TokenTree::Punct(at),
+        TokenTree::Literal(lit),
+        TokenTree::Punct(d1),
+        TokenTree::Punct(d2),
+        rest @ ..,
+    ] = v.as_slice()
+    else {
+        return None;
+    };
+    if at.as_char() != '@' || d1.as_char() != '.' || d2.as_char() != '.' {
+        return None;
+    }
+    let (group, start) = crate::parse::parse_range_literal(&lit.to_string())?;
+    let end = match rest {
+        // `@N..` — open to the last fresh of the scope
+        [] => None,
+        // `@N..=M` — closed
+        [TokenTree::Punct(eq), TokenTree::Literal(el)] if eq.as_char() == '=' => {
+            Some(el.to_string().parse().ok()?)
+        }
+        // `@N..M` — closed
+        _ => return None,
+    };
+    let range = FreshRange { group, start, end };
+    (range.end.is_none_or(|e| range.start <= e)).then_some(range)
 }

@@ -20,7 +20,12 @@ pub(crate) fn collect_drivers(
     let mut i = 0;
     while i < tokens.len() {
         if is_punct_at(tokens, i, '@') {
-            // `@N` index cursors are not segment references — skip them.
+            // `@@N` fresh-name references are not segment references.
+            if is_punct_at(tokens, i + 1, '@') {
+                i += 2;
+                continue;
+            }
+            // `@N` index cursors are not segment references either.
             if matches!(tokens.get(i + 1), Some(TokenTree::Literal(_))) {
                 i += 2;
                 continue;
@@ -91,9 +96,10 @@ pub(crate) fn collect_drivers(
 }
 
 /// Substitutes the markers of one round: `@ident` → the segment's i-th name,
-/// `@N` → `N + i`.
+/// `@N` → `N + i`, and `@@N` → the N-th fresh generic's name (the
+/// fresh-binding switch's name reference — fixed, not per-round).
 pub(crate) fn substitute(
-    tokens: &[TokenTree], segs: &[VarSeg], round: usize, depth: usize,
+    tokens: &[TokenTree], segs: &[VarSeg], fresh_names: &[TokenStream], round: usize, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
@@ -102,6 +108,37 @@ pub(crate) fn substitute(
     let mut i = 0;
     while i < tokens.len() {
         if is_punct_at(tokens, i, '@') {
+            // `@@N` — the fresh name reference (`@@0` → the first fresh's name)
+            if is_punct_at(tokens, i + 1, '@') {
+                let Some(TokenTree::Literal(lit)) = tokens.get(i + 2) else {
+                    return Err(compile_error_str(
+                        "batch-impl: `@@` inside a repeat block must be followed by \
+                         a fresh index (`@@0` names the 0-th fresh generic)",
+                        tokens[i].span(),
+                    ));
+                };
+                let Ok(n) = lit.to_string().parse::<usize>() else {
+                    return Err(compile_error_str(
+                        "batch-impl: `@@` inside a repeat block must be followed by \
+                         a fresh index (`@@0` names the 0-th fresh generic)",
+                        lit.span(),
+                    ));
+                };
+                let Some(name) = fresh_names.get(n) else {
+                    return Err(compile_error_str(
+                        &format!(
+                            "batch-impl: `@@{}` is out of range — this impl has {} \
+                             fresh generics (numbered from 0 in document order)",
+                            n,
+                            fresh_names.len(),
+                        ),
+                        lit.span(),
+                    ));
+                };
+                out.extend(name.clone());
+                i += 3;
+                continue;
+            }
             match tokens.get(i + 1) {
                 Some(TokenTree::Ident(id)) => {
                     let prefix = id.to_string();
@@ -144,7 +181,7 @@ pub(crate) fn substitute(
                 return Err(depth_err(&tokens[i..i + 1], ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let substituted = substitute(&inner, segs, round, depth + 1)?;
+            let substituted = substitute(&inner, segs, fresh_names, round, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), substituted.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));

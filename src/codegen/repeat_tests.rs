@@ -15,14 +15,21 @@ fn segs() -> Vec<VarSeg> {
 
 fn expand(s: &str) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
-    expand_repeat_blocks(ts, &segs(), 0).map(|o| o.to_string()).map_err(|e| e.to_string())
+    expand_repeat_blocks(ts, &segs(), None, &[]).map(|o| o.to_string()).map_err(|e| e.to_string())
 }
 
 /// A cursor-only block with **no** template segment: the fresh count drives
 /// the rounds (`@N` → `N + i` per round).
-fn expand_fresh(s: &str, fresh: usize) -> Result<String, String> {
+fn expand_fresh(s: &str, n: usize) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
-    expand_repeat_blocks(ts, &[], fresh).map(|o| o.to_string()).map_err(|e| e.to_string())
+    let binding = crate::ast::fresh::FreshRange { group: None, start: 0, end: None };
+    expand_repeat_blocks(ts, &[], Some(binding), &fresh_names(n))
+        .map(|o| o.to_string())
+        .map_err(|e| e.to_string())
+}
+
+fn fresh_names(n: usize) -> Vec<TokenStream> {
+    (0..n).map(|i| format!("_Param_0_{}_BatchGen_", i).parse::<TokenStream>().unwrap()).collect()
 }
 
 #[test]
@@ -39,6 +46,29 @@ fn fresh_count_zero_empty() {
     // no segments and no fresh: the block contributes zero rounds (the
     // arity-0 impl of a `Fn()0..N` bound generator)
     assert_eq!(expand_fresh("@(args.@0,)..", 0).unwrap(), "");
+}
+
+#[test]
+fn fresh_name_reference() {
+    // `@@N` → the N-th fresh generic's name, **fixed** (not per-round):
+    // `@@1` names the second fresh in every round
+    assert_eq!(
+        expand_fresh("@(@@1,)..", 3).unwrap(),
+        "_Param_0_1_BatchGen_ , _Param_0_1_BatchGen_ , _Param_0_1_BatchGen_ ,"
+    );
+}
+
+#[test]
+fn fresh_name_out_of_range() {
+    assert!(expand_fresh("@(@@5,)..", 3).is_err());
+}
+
+#[test]
+fn no_switch_no_segment_errors() {
+    // without the fresh-binding switch (`impl{@0..}`), a cursor-only block
+    // with no template segment errors — fresh-driven body modification is off
+    let ts = "@(args.@0,)..".parse::<TokenStream>().unwrap();
+    assert!(expand_repeat_blocks(ts, &[], None, &[]).is_err());
 }
 
 #[test]
@@ -67,7 +97,7 @@ fn multi_segment_parallel_rounds() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
     assert_eq!(out, "A0 + B2 , A1 + B3 ,");
 }
 
@@ -78,7 +108,7 @@ fn unequal_segment_lengths_error() {
         VarSeg { prefix: "B".into(), start: 1, len: 2 },
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs, 0).is_err());
+    assert!(expand_repeat_blocks(ts, &segs, None, &[]).is_err());
 }
 
 #[test]
@@ -106,7 +136,7 @@ fn float_literal_at_path_fixed() {
     // so the cursor expands into `self.0.0`, `self.0.1`, ...
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(@A::from(self.0.@0),)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
     assert_eq!(out, "A0 :: from (self . 0 . 0) , A1 :: from (self . 0 . 1) ,");
 }
 
@@ -122,7 +152,7 @@ fn declared_driver_cursor_only() {
     // body uses only `@N` cursors
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 3 }];
     let ts = "@A(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
     assert_eq!(out, "self .0 , self .1 , self .2 ,");
 }
 
@@ -132,7 +162,7 @@ fn cursor_only_single_segment() {
     // segment provides the length
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
     assert_eq!(out, "self .0 , self .1 ,");
 }
 
@@ -145,7 +175,7 @@ fn cursor_only_multi_segment_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs, 0).is_err());
+    assert!(expand_repeat_blocks(ts, &segs, None, &[]).is_err());
 }
 
 #[test]
@@ -155,7 +185,7 @@ fn declared_driver_conflict_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@A(@B::f(),)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs, 0).is_err());
+    assert!(expand_repeat_blocks(ts, &segs, None, &[]).is_err());
 }
 
 #[test]
