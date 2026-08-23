@@ -8,16 +8,25 @@ use quote::{ToTokens, quote};
 
 use crate::util::compile_error_str;
 
-/// Whether a method's return type references `Self` (making blanket
+/// Whether a method's return type references **bare `Self`** (making blanket
 /// delegation unsound: the forwarded call returns the inner type, not the
-/// wrapper's `Self`).
+/// wrapper's `Self`). `Self::Assoc` (an associated-type projection) is
+/// **allowed**: it resolves through the projected item
+/// (`type Output = <T as Trait>::Output;` — the wrapper's `Self::Output` is
+/// `T::Output`), so it type-checks when the selection covers the associated
+/// item and fails naturally (E0046) when it does not.
 pub(crate) fn return_type_refs_self(output: &syn::ReturnType) -> bool {
     match output {
         syn::ReturnType::Default => false,
-        syn::ReturnType::Type(_, ty) => ty
-            .to_token_stream()
-            .into_iter()
-            .any(|tt| matches!(tt, TokenTree::Ident(id) if id == "Self")),
+        syn::ReturnType::Type(_, ty) => {
+            let tokens: Vec<_> = ty.to_token_stream().into_iter().collect();
+            tokens.iter().enumerate().any(|(i, tt)| {
+                matches!(tt, TokenTree::Ident(id) if id == "Self")
+                    // `Self::` — an associated projection, allowed (see above)
+                    && !(matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == ':')
+                        && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == ':'))
+            })
+        }
     }
 }
 

@@ -168,6 +168,31 @@ fn blanket_by_value_receiver() {
     Box::new(9u8).consume(); // by-value forward: `(*self).consume()` moves out of the Box
 }
 
+// A method returning `Self::Assoc` (an associated-type projection) is
+// blanket-able when the selection covers the associated item: the generated
+// `type Output = <T as Trait>::Output;` makes the wrapper's `Self::Output`
+// equal `T::Output`, so the forwarded call type-checks. Bare `Self` (the
+// wrapper type itself) stays rejected (see `blanket_self_return`).
+#[batch_impl(#blanket(@all){&, Box})]
+trait AssocRet {
+    type Output;
+    fn get(&self) -> Self::Output;
+}
+
+impl AssocRet for u32 {
+    type Output = u64;
+    fn get(&self) -> u64 {
+        *self as u64
+    }
+}
+
+#[test]
+fn blanket_self_assoc_return_covered() {
+    assert_eq!(<&u32 as AssocRet>::get(&&5u32), 5);
+    assert_eq!(<Box<u32> as AssocRet>::get(&Box::new(6u32)), 6);
+    let _: <&u32 as AssocRet>::Output = 1u64;
+}
+
 // `#[attr]` followed by an operator chain (not `.`-joined at the spec
 // level): the attr's `apply` keeps an already-attached inner and applies
 // the operator to it (`#[attr] Box.u8` = `#[attr] Box<u8>` — 0.7.2 fix:
