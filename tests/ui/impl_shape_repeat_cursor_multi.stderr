@@ -1,4 +1,4 @@
-error: batch-impl: a repeat block needs a driving segment to determine its length — write `@ident(...)..` with the segment declared, or reference a segment inside
+error: batch-impl: a cursor-only repeat block needs a driving segment — with several template segments write `@ident(...)..` declaring the driver
  --> tests/ui/impl_shape_repeat_cursor_multi.rs:5:1
   |
 5 | / #[batch_impl(

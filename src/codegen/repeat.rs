@@ -22,11 +22,16 @@ use crate::codegen::VarSeg;
 use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at};
 
 /// Expands every repeat block in a body token stream.
+///
+/// `fresh_count` is the impl's fresh-generic count: a cursor-only block with
+/// no template variadic segment to drive it (`@(args.@0,)..` in a spec whose
+/// template has no `ident@..` segment) repeats once per fresh — the
+/// bound-generator arity (`Fn()0..N`) becomes the body's repetition count.
 pub(crate) fn expand_repeat_blocks(
-    tokens: TokenStream, segs: &[VarSeg],
+    tokens: TokenStream, segs: &[VarSeg], fresh_count: usize,
 ) -> Result<TokenStream, TokenStream> {
     let v = fix_literal_at(tokens.into_iter().collect::<Vec<_>>());
-    expand_stream(&v, segs, 0).map(|out| out.into_iter().collect())
+    expand_stream(&v, segs, fresh_count, 0).map(|out| out.into_iter().collect())
 }
 
 /// Repairs the float-literal tokenization of `数字.@`: the tokenizer reads
@@ -67,7 +72,7 @@ fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
 /// Stream-level scan: expands `@( ... )..` blocks and recurses into groups;
 /// any other `@` in a body is an error.
 fn expand_stream(
-    tokens: &[TokenTree], segs: &[VarSeg], depth: usize,
+    tokens: &[TokenTree], segs: &[VarSeg], fresh_count: usize, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
@@ -85,7 +90,7 @@ fn expand_stream(
                 && is_punct_at(tokens, i + 4, '.')
             {
                 let body = g.stream().into_iter().collect::<Vec<_>>();
-                out.extend(expand_block(&body, segs, depth + 1, Some(id.clone()))?);
+                out.extend(expand_block(&body, segs, fresh_count, depth + 1, Some(id.clone()))?);
                 i += 5;
                 continue;
             }
@@ -96,7 +101,7 @@ fn expand_stream(
                 && is_punct_at(tokens, i + 3, '.')
             {
                 let body = g.stream().into_iter().collect::<Vec<_>>();
-                out.extend(expand_block(&body, segs, depth + 1, None)?);
+                out.extend(expand_block(&body, segs, fresh_count, depth + 1, None)?);
                 i += 4;
                 continue;
             }
@@ -111,7 +116,7 @@ fn expand_stream(
                 return Err(depth_err(&tokens[i..i + 1], ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let expanded = expand_stream(&inner, segs, depth + 1)?;
+            let expanded = expand_stream(&inner, segs, fresh_count, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), expanded.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));
@@ -127,15 +132,16 @@ fn expand_stream(
 /// Expands one repeat block: nested blocks first (their rounds are
 /// independent), then `L` rounds of marker substitution (`L` = the driving
 /// segment's length — a declared `@ident` prefix, the block's inner segment
-/// references, or the template's unique segment for a cursor-only block).
+/// references, the template's unique segment for a cursor-only block, or the
+/// impl's fresh count when there is no segment at all).
 fn expand_block(
-    body: &[TokenTree], segs: &[VarSeg], depth: usize, driver: Option<Ident>,
+    body: &[TokenTree], segs: &[VarSeg], fresh_count: usize, depth: usize, driver: Option<Ident>,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(body, " in a repeat block"));
     }
     // 1. Nested repeat blocks expand first (own rounds).
-    let body = expand_nested(body, segs, depth)?;
+    let body = expand_nested(body, segs, fresh_count, depth)?;
     // 2. The inner segment references (prefixes + their common length).
     let (inner_prefixes, inner_len) = super::repeat_drivers::collect_drivers(&body, segs)?;
     // 3. The repetition count.
@@ -170,18 +176,22 @@ fn expand_block(
         }
         // No declared driver: the inner references decide; a cursor-only
         // block binds the template's unique segment (its length is the only
-        // possible one — no guessing).
+        // possible one — no guessing) or the impl's fresh count when there
+        // is no segment at all (a bound-generator arity drives the body —
+        // zero fresh = zero rounds, the arity-0 impl). Several segments
+        // without a reference cannot pick a length — reject.
         None => match inner_len {
             Some(l) => l,
             None if segs.len() == 1 => segs[0].len,
-            None => {
+            None if segs.len() > 1 => {
                 return Err(compile_error_str(
-                    "batch-impl: a repeat block needs a driving segment to determine \
-                     its length — write `@ident(...)..` with the segment declared, or \
-                     reference a segment inside",
+                    "batch-impl: a cursor-only repeat block needs a driving \
+                     segment — with several template segments write \
+                     `@ident(...)..` declaring the driver",
                     body.first().map_or_else(Span::call_site, |t| t.span()),
                 ));
             }
+            None => fresh_count,
         },
     };
     // 4. L rounds of marker substitution.
@@ -195,7 +205,7 @@ fn expand_block(
 /// Expands nested repeat blocks inside a block body, keeping `@ident` / `@N`
 /// markers untouched (they are substituted per round by the outer block).
 fn expand_nested(
-    tokens: &[TokenTree], segs: &[VarSeg], depth: usize,
+    tokens: &[TokenTree], segs: &[VarSeg], fresh_count: usize, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, " in a repeat block"));
@@ -212,7 +222,7 @@ fn expand_nested(
             && is_punct_at(tokens, i + 4, '.')
         {
             let body = g.stream().into_iter().collect::<Vec<_>>();
-            out.extend(expand_block(&body, segs, depth + 1, Some(id.clone()))?);
+            out.extend(expand_block(&body, segs, fresh_count, depth + 1, Some(id.clone()))?);
             i += 5;
             continue;
         }
@@ -224,7 +234,7 @@ fn expand_nested(
             && is_punct_at(tokens, i + 3, '.')
         {
             let body = g.stream().into_iter().collect::<Vec<_>>();
-            out.extend(expand_block(&body, segs, depth + 1, None)?);
+            out.extend(expand_block(&body, segs, fresh_count, depth + 1, None)?);
             i += 4;
             continue;
         }
@@ -233,7 +243,7 @@ fn expand_nested(
                 return Err(depth_err(&tokens[i..i + 1], ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let expanded = expand_nested(&inner, segs, depth + 1)?;
+            let expanded = expand_nested(&inner, segs, fresh_count, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), expanded.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));

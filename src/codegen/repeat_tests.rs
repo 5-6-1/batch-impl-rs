@@ -15,7 +15,30 @@ fn segs() -> Vec<VarSeg> {
 
 fn expand(s: &str) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
-    expand_repeat_blocks(ts, &segs()).map(|o| o.to_string()).map_err(|e| e.to_string())
+    expand_repeat_blocks(ts, &segs(), 0).map(|o| o.to_string()).map_err(|e| e.to_string())
+}
+
+/// A cursor-only block with **no** template segment: the fresh count drives
+/// the rounds (`@N` → `N + i` per round).
+fn expand_fresh(s: &str, fresh: usize) -> Result<String, String> {
+    let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
+    expand_repeat_blocks(ts, &[], fresh).map(|o| o.to_string()).map_err(|e| e.to_string())
+}
+
+#[test]
+fn fresh_count_drives_cursor_only_block() {
+    // no segments at all — the fresh count (4) repeats the block
+    assert_eq!(
+        expand_fresh("@(args.@0,)..", 4).unwrap(),
+        "args .0 , args .1 , args .2 , args .3 ,"
+    );
+}
+
+#[test]
+fn fresh_count_zero_empty() {
+    // no segments and no fresh: the block contributes zero rounds (the
+    // arity-0 impl of a `Fn()0..N` bound generator)
+    assert_eq!(expand_fresh("@(args.@0,)..", 0).unwrap(), "");
 }
 
 #[test]
@@ -44,7 +67,7 @@ fn multi_segment_parallel_rounds() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
     assert_eq!(out, "A0 + B2 , A1 + B3 ,");
 }
 
@@ -55,7 +78,7 @@ fn unequal_segment_lengths_error() {
         VarSeg { prefix: "B".into(), start: 1, len: 2 },
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs).is_err());
+    assert!(expand_repeat_blocks(ts, &segs, 0).is_err());
 }
 
 #[test]
@@ -83,7 +106,7 @@ fn float_literal_at_path_fixed() {
     // so the cursor expands into `self.0.0`, `self.0.1`, ...
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(@A::from(self.0.@0),)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
     assert_eq!(out, "A0 :: from (self . 0 . 0) , A1 :: from (self . 0 . 1) ,");
 }
 
@@ -99,7 +122,7 @@ fn declared_driver_cursor_only() {
     // body uses only `@N` cursors
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 3 }];
     let ts = "@A(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
     assert_eq!(out, "self .0 , self .1 , self .2 ,");
 }
 
@@ -109,7 +132,7 @@ fn cursor_only_single_segment() {
     // segment provides the length
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs).unwrap().to_string();
+    let out = expand_repeat_blocks(ts, &segs, 0).unwrap().to_string();
     assert_eq!(out, "self .0 , self .1 ,");
 }
 
@@ -122,7 +145,7 @@ fn cursor_only_multi_segment_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs).is_err());
+    assert!(expand_repeat_blocks(ts, &segs, 0).is_err());
 }
 
 #[test]
@@ -132,7 +155,7 @@ fn declared_driver_conflict_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@A(@B::f(),)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs).is_err());
+    assert!(expand_repeat_blocks(ts, &segs, 0).is_err());
 }
 
 #[test]
@@ -146,6 +169,8 @@ fn unknown_segment_errors() {
 }
 
 #[test]
-fn no_driver_errors() {
-    assert!(expand("@(@0,)..").is_err());
+fn no_segments_no_fresh_empty() {
+    // a cursor-only block with no template segments and no fresh contributes
+    // zero rounds (not an error — the arity-0 impl of a bound generator)
+    assert_eq!(expand_fresh("@(@0,)..", 0).unwrap(), "");
 }

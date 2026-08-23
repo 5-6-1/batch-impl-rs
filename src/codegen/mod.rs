@@ -286,11 +286,24 @@ fn generate_parts(
     if !shape_entries.is_empty() {
         parts.where_clauses =
             parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_entries)).collect();
-        if let Some(b) = &mut parts.body {
-            match expand_repeat_blocks(b.clone(), &var_segs) {
-                Ok(expanded) => *b = apply_mapping(expanded, &shape_entries),
-                Err(e) => return e,
+    }
+    if let Some(b) = &mut parts.body {
+        // Repeat blocks expand whether or not a template is present — with
+        // no `impl{...}`, the impl's fresh count drives cursor-only blocks
+        // (`@(args.@0,)..` under a `Fn()N` bound: one round per arity).
+        let fresh_count = impl_name_streams
+            .iter()
+            .filter(|n| crate::ast::fresh::is_fresh_name(&n.to_string()))
+            .count();
+        match expand_repeat_blocks(b.clone(), &var_segs, fresh_count) {
+            Ok(expanded) => {
+                *b = if shape_entries.is_empty() {
+                    expanded
+                } else {
+                    apply_mapping(expanded, &shape_entries)
+                };
             }
+            Err(e) => return e,
         }
     }
     crate::codegen::render::render_impl(
