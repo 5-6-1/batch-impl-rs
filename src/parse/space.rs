@@ -20,7 +20,7 @@ use crate::parse::ident_blocks::ident_block;
 use crate::parse::parse_atom::parse_group;
 use crate::util::Cursor;
 use proc_macro2::{Delimiter, Ident, Spacing, TokenTree};
-use quote::{ToTokens, quote};
+use quote::quote;
 
 /// Whether the token opens a new block: any ident/literal/group or a
 /// block-opening punct (`&` `*` `?` `!` `@` `'` `#`). Operators and
@@ -163,19 +163,20 @@ pub(crate) fn parse_bound_expr(cursor: &mut Cursor, trait_name: Option<&Ident>) 
         }
     }
     if cursor.is_punct('+') {
-        let mut ts = left.to_token_stream();
+        // `+` joins bound elements into a **structured** list — each element
+        // stays a `Ty`, so an empty `X<>` inside keeps its identity for the
+        // later `X<>` sync pass (a flat token stream would drop the brackets).
+        let mut elems = vec![left];
         while cursor.is_punct('+') {
-            ts.extend(cursor.peek().unwrap().to_token_stream());
             cursor.bump();
             if let Some(t) = cursor.peek()
                 && starts_block(t)
                 && !cursor_at_attachment(cursor)
             {
-                let right = parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
-                ts.extend(right.to_token_stream());
+                elems.push(parse_dot_chain(cursor, trait_name).unwrap_or_else(empty));
             }
         }
-        return TyPrimitive(ts).to_ty();
+        return TyBoundList(elems).to_ty();
     }
     left
 }

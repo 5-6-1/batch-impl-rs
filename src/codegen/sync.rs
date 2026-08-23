@@ -12,7 +12,7 @@
 use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 use quote::quote;
 
-use crate::ast::{Ty, TyGeneric, TyKind, TyPrimitive, TyTrait, TyTypeParam};
+use crate::ast::{Ty, TyBoundList, TyGeneric, TyKind, TyPrimitive, TyTrait, TyTypeParam};
 use crate::codegen::extract::ImplParts;
 use crate::util::is_punct_at;
 
@@ -178,6 +178,13 @@ pub(crate) fn sync_bound_ty(ty: &Ty, args: &[TokenStream]) -> Result<Ty, TokenSt
         TyKind::Trait(t) if t.1.params.is_empty() && t.1.bindings.is_empty() => {
             Ok(TyTrait(t.0.clone(), filled_params(args)).to_ty().with_span(ty.span))
         }
+        // A `+`-joined bound list (`A<> + B + C`): sync every element
+        // (the structured list keeps each `X<>` as its own Ty).
+        TyKind::BoundList(b) => {
+            let elems =
+                b.0.iter().map(|e| sync_bound_ty(e, args)).collect::<Result<Vec<_>, _>>()?;
+            Ok(TyBoundList(elems).to_ty().with_span(ty.span))
+        }
         // Any other bound shape: leave as-is (a `Wrapper<X<>>` nested empty
         // bracket is out of scope for now — it renders as the bare `X`).
         _ => Ok(ty.clone()),
@@ -322,5 +329,17 @@ mod tests {
         let bound = TyTrait(quote!(Module), tp).to_ty();
         let out = sync_bound_ty(&bound, &args(&["Additive", "Multiplicative"])).unwrap();
         assert_eq!(out.to_token_stream().to_string(), "Module < Additive , Multiplicative >");
+    }
+
+    #[test]
+    fn bound_plus_chain_fills_empty_angle() {
+        // `A<> + B + C` — the structured bound list syncs each element, so
+        // the empty `A<>` fills while the others stay untouched
+        let a = TyTrait(quote!(A), TyTypeParam { params: vec![], bindings: vec![] }).to_ty();
+        let b = TyPrimitive(quote!(B)).to_ty();
+        let c = TyPrimitive(quote!(C)).to_ty();
+        let bound = TyBoundList(vec![a, b, c]).to_ty();
+        let out = sync_bound_ty(&bound, &args(&["Additive", "Multiplicative"])).unwrap();
+        assert_eq!(out.to_token_stream().to_string(), "A < Additive , Multiplicative > + B + C");
     }
 }

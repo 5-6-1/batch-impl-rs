@@ -4,9 +4,9 @@
 
 use crate::apply::expand_limit_err;
 use crate::ast::types::{
-    MAX_EXPAND, Ty, TyArray, TyFn, TyGeneric, TyGroup, TyKind, TyParams, TyPrimitiveArray, TyTuple,
-    TyTypeParam, TyWithAttr, TyWithCode, TyWithDyn, TyWithFor, TyWithImpl, TyWithPrefix,
-    TyWithTrait, TyWithType, TyWithWhere,
+    MAX_EXPAND, Ty, TyArray, TyBoundList, TyFn, TyGeneric, TyGroup, TyKind, TyParams,
+    TyPrimitiveArray, TyTuple, TyTypeParam, TyWithAttr, TyWithCode, TyWithDyn, TyWithFor,
+    TyWithImpl, TyWithPrefix, TyWithTrait, TyWithType, TyWithWhere,
 };
 use crate::util::cartesian;
 
@@ -182,6 +182,10 @@ impl Ty {
             )
             .to_ty()
             .with_span(span),
+            // `+` bound lists recurse element-wise like tuples.
+            TyKind::BoundList(b) => {
+                TyBoundList(b.0.into_iter().map(|e| f(e)).collect()).to_ty().with_span(span)
+            }
             // No children: keep as-is.
             other => Ty { span, kind: other },
         }

@@ -146,6 +146,10 @@ impl ToTokens for Ty {
                 let end = proc_macro2::Literal::usize_unsuffixed(r.end);
                 if r.inclusive { quote!(#start ..= #end) } else { quote!(#start .. #end) }
             }
+            TyKind::BoundList(b) => {
+                let elems = b.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
+                quote!(#(#elems)+*)
+            }
             TyKind::WithTrait(wt) => {
                 let trait_tokens = params_to_tokens(&wt.0.0, &wt.0.1);
                 let inner = wt.1.to_token_stream();

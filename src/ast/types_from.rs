@@ -70,6 +70,7 @@ impl_from_for_ty! {
     TyWithImpl => WithImpl,
     TyNum => Num,
     TyRange => Range,
+    TyBoundList => BoundList,
     TyError => Error,
 }
 

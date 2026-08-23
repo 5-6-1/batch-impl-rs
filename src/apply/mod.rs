@@ -231,6 +231,13 @@ impl Apply for TyKind {
             TyKind::TypeParam(t) => t.apply_help(o, span),
             TyKind::Num(n) => n.apply_help(o, span),
             TyKind::Range(r) => r.apply_help(o, span),
+            // A `+`-joined bound list is a predicate form — it has no apply
+            // meaning on the left (`(A + B) C` is not a type expression).
+            TyKind::BoundList(_) => err_ty_at(
+                "batch-impl: a `+`-joined bound list cannot be a left operand \
+                 (a bound belongs in a predicate, e.g. `T: A + B`)",
+                span,
+            ),
             TyKind::PrimitiveArray(pa) => pa.apply_help(o, span),
             TyKind::Error(e) => Ty { span, kind: TyKind::Error(e) },
         }

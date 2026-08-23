@@ -166,6 +166,12 @@ pub(crate) struct TyRange {
     pub(crate) inclusive: bool,
 }
 #[derive(Clone, Debug)]
+/// `A + B + C` — a `+`-joined trait bound, kept **structured** so each
+/// element stays a `Ty` (an empty `X<>` inside keeps its identity for the
+/// later sync pass; a flat token stream would lose the empty brackets).
+/// Produced by `parse_bound_expr`'s `+` chain; rendered with `+` separators.
+pub(crate) struct TyBoundList(pub(crate) Vec<Ty>);
+#[derive(Clone, Debug)]
 /// `trait-name<...> T` — trait name applied to non-TypeParam right
 pub(crate) struct TyWithTrait(pub(crate) TyTrait, pub(crate) Box<Ty>);
 #[derive(Clone, Debug)]
@@ -262,6 +268,7 @@ pub(crate) enum TyKind {
     WithImpl(TyWithImpl),
     Num(TyNum),
     Range(TyRange),
+    BoundList(TyBoundList),
     Error(TyError),
 }
 

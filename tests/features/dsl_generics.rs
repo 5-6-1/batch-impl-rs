@@ -312,3 +312,32 @@ fn trait_where_clause_inherit() {
     check_lp::<Vec<Vec<i32>>>();
     check_lp::<HashMap<Vec<i32>, i32>>();
 }
+
+// `X<>` inside a `+` chain in an impl-generic bound syncs to the spec args:
+// the bound list is structured (each element a Ty), so the empty brackets of
+// `SemiringSync<>` survive the parse and fill like a standalone `X<>`.
+struct Additive2;
+struct Multiplicative2;
+impl SemiringSync<Additive2, Multiplicative2> for u8 {
+    fn m(&self) {}
+}
+
+#[batch_impl(
+    <T: SemiringSync<> + Clone> SemiringSync<Additive2, Multiplicative2> Vec<T>
+    { fn m(&self) {} }
+)]
+trait SemiringSync<Oa, Om> {
+    fn m(&self);
+}
+
+#[test]
+fn bound_plus_chain_syncs_empty_angle() {
+    // u8: SemiringSync<Additive2, Multiplicative2> + Clone — the generated
+    // impl is `impl<T: SemiringSync<Additive2, Multiplicative2> + Clone>
+    // SemiringSync<Additive2, Multiplicative2> for Vec<T>`.
+    fn check<T: SemiringSync<Additive2, Multiplicative2> + Clone>(_: &T) {}
+    check(&vec![1u8]);
+    // call the generated method (pins `m` used, and proves the impl exists
+    // with the synced bound)
+    vec![1u8].m();
+}
