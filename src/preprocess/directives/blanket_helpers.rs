@@ -18,16 +18,32 @@ use crate::util::compile_error_str;
 pub(crate) fn return_type_refs_self(output: &syn::ReturnType) -> bool {
     match output {
         syn::ReturnType::Default => false,
-        syn::ReturnType::Type(_, ty) => {
-            let tokens: Vec<_> = ty.to_token_stream().into_iter().collect();
-            tokens.iter().enumerate().any(|(i, tt)| {
-                matches!(tt, TokenTree::Ident(id) if id == "Self")
-                    // `Self::` — an associated projection, allowed (see above)
-                    && !(matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == ':')
-                        && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == ':'))
-            })
-        }
+        syn::ReturnType::Type(_, ty) => ty_refs_bare_self(ty),
     }
+}
+
+/// Whether a method signature (parameters **or** return type) references
+/// bare `Self` — the full delegation-unsoundness check: a `Self` parameter
+/// (`fn cmp(&self, other: Self)`) forwards the wrapper's `Self`, not the
+/// inner type, exactly like a `Self` return. `Self::Assoc` stays allowed
+/// (see [`return_type_refs_self`]).
+pub(crate) fn sig_refs_bare_self(sig: &syn::Signature) -> bool {
+    return_type_refs_self(&sig.output)
+        || sig
+            .inputs
+            .iter()
+            .any(|i| matches!(i, syn::FnArg::Typed(pt) if ty_refs_bare_self(&pt.ty)))
+}
+
+/// A type's token stream references bare `Self` (not `Self::`).
+fn ty_refs_bare_self(ty: &syn::Type) -> bool {
+    let tokens: Vec<_> = ty.to_token_stream().into_iter().collect();
+    tokens.iter().enumerate().any(|(i, tt)| {
+        matches!(tt, TokenTree::Ident(id) if id == "Self")
+            // `Self::` — an associated projection, allowed (see above)
+            && !(matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == ':')
+                && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == ':'))
+    })
 }
 
 /// Whether a wrapper's main part contains the `@0` target marker (`@` +

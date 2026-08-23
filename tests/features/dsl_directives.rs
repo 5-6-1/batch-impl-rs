@@ -207,6 +207,39 @@ fn delegate_typed_receiver() {
     assert_eq!(w.f(42), 42);
 }
 
+// `#delegate(size=len)` — rename delegation: the trait's `size` method
+// forwards to the target's `len` (the `#[call(...)]` mechanism of the
+// `delegate` crate, in the DSL's `=` spelling). Mixes with plain names.
+struct RenameInner;
+impl RenameInner {
+    fn len(&self) -> usize {
+        5
+    }
+    fn count(&self) -> usize {
+        7
+    }
+}
+struct RenameWrap(RenameInner);
+
+#[batch_impl(RenameWrap #delegate(size=len){self.0})]
+trait HasSize {
+    fn size(&self) -> usize;
+}
+
+#[batch_impl(RenameWrap #delegate(size=len, count){self.0})]
+trait HasSizeAndCount {
+    fn size(&self) -> usize;
+    fn count(&self) -> usize;
+}
+
+#[test]
+fn delegate_rename() {
+    let w = RenameWrap(RenameInner);
+    assert_eq!(HasSize::size(&w), 5);
+    assert_eq!(HasSizeAndCount::size(&w), 5);
+    assert_eq!(HasSizeAndCount::count(&w), 7);
+}
+
 // ============================================================
 // Single-item `#name{body}` names may collide with the built-in directive
 // names (`fill` / `delegate` / `blanket`) or close variants — a trait item

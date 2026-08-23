@@ -202,17 +202,17 @@ pub(crate) fn expand_blanket(
                 // impl carries the `t: Trait` bound.
                 syn::TraitItem::Fn(f) => {
                     let sig = f.sig.clone();
-                    // `Self` in the return type breaks delegation: the body
-                    // forwards the inner value (`(**self).m()` / `t::m()`),
-                    // whose return type is the inner `T`, but the impl's
-                    // `Self` is the wrapper — `fn new() -> Self` through
-                    // `Box` used to emit `t::new()` and fail with rustc's
-                    // E0308 at the generated impl. Report with guidance.
-                    if crate::preprocess::directives::blanket_helpers::return_type_refs_self(
-                        &f.sig.output,
-                    ) {
+                    // `Self` in the signature (parameters **or** return)
+                    // breaks delegation: the body forwards the inner value
+                    // (`(**self).m()` / `t::m()`), whose parameter/return
+                    // types are the inner `T`, but the impl's `Self` is the
+                    // wrapper — `fn new() -> Self` through `Box` used to emit
+                    // `t::new()` and fail with rustc's E0308 at the generated
+                    // impl; `fn cmp(&self, other: Self)` has the same problem
+                    // in the parameters. Report with guidance.
+                    if crate::preprocess::directives::blanket_helpers::sig_refs_bare_self(&f.sig) {
                         return Err(compile_err!(
-                            "batch-impl: #blanket method `{}::{}` returns/refers to \
+                            "batch-impl: #blanket method `{}::{}` takes/returns \
                              `Self` (bare or `Self::Assoc` projection); blanket delegation \
                              forwards the inner type, which cannot match the wrapper's \
                              `Self` — write a `#name{{...}}` body for this wrapper instead",
@@ -263,6 +263,25 @@ pub(crate) fn expand_blanket(
                     methods.extend(build_from_item(item, &body));
                 }
                 // Assoc type/const: projection (not through self)
+                syn::TraitItem::Type(t) if !t.generics.params.is_empty() => {
+                    // Generic associated type (GAT): project with the GAT's
+                    // own params — `type Iter<'a> where Self: 'a` →
+                    // `type Iter<'a> where Self: 'a = <T as Trait>::Iter<'a>;`
+                    // (the bare projection would be missing the lifetime
+                    // argument, E0107).
+                    let args = t
+                        .generics
+                        .params
+                        .iter()
+                        .map(|p| match p {
+                            syn::GenericParam::Lifetime(ld) => quote!(#ld),
+                            syn::GenericParam::Type(tp) => quote!(#tp),
+                            syn::GenericParam::Const(cp) => quote!(#cp),
+                        })
+                        .collect::<Vec<_>>();
+                    let body = quote! { < #as_trait >::#name < #(#args),* > };
+                    methods.extend(build_from_item(item, &body));
+                }
                 syn::TraitItem::Type(_) | syn::TraitItem::Const(_) => {
                     let body = quote! { < #as_trait >::#name };
                     methods.extend(build_from_item(item, &body));

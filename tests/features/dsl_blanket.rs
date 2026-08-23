@@ -213,6 +213,34 @@ fn blanket_unsized_wrapper() {
     assert_eq!(b.foo(), 7);
 }
 
+// GAT (generic associated type): the `@all` projection carries the GAT's own
+// params — `type Iter<'a> where Self: 'a = <P0 as Trait>::Iter<'a>;` (the
+// bare projection would be missing the lifetime argument, E0107).
+#[batch_impl(#blanket(@all){Box})]
+trait GatTrait {
+    type Iter<'a>
+    where
+        Self: 'a;
+    fn iter(&self) -> Self::Iter<'_>;
+}
+
+struct GatInner;
+impl GatTrait for GatInner {
+    type Iter<'a>
+        = std::iter::Empty<u8>
+    where
+        Self: 'a;
+    fn iter(&self) -> Self::Iter<'_> {
+        std::iter::empty()
+    }
+}
+
+#[test]
+fn blanket_gat() {
+    let b = Box::new(GatInner);
+    assert_eq!(b.iter().count(), 0);
+}
+
 // `#[attr]` followed by an operator chain (not `.`-joined at the spec
 // level): the attr's `apply` keeps an already-attached inner and applies
 // the operator to it (`#[attr] Box.u8` = `#[attr] Box<u8>` — 0.7.2 fix:

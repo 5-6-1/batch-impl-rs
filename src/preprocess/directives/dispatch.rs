@@ -150,11 +150,53 @@ fn expand_fill(
 /// default body — or any other pattern) are renamed to `arg0`, `arg1`, ...
 /// in both the copied signature and the delegation call, so they can be
 /// forwarded by name.
+///
+/// **Renaming**: an element `size=len` delegates the trait's `size` method
+/// to the target's `len` method (the call body uses `len`; the signature
+/// keeps `size`) — the `#[call(...)]` mechanism of the `delegate` crate, in
+/// the DSL's `=` binding spelling. Mixes freely with plain names and `@all`
+/// (`#delegate(@all, size=len){...}`).
 fn expand_delegate(
     args_group: &Group, target: &Group, trait_def: &ItemTrait,
 ) -> Result<TokenTree, TokenStream> {
     let target_stream = target.stream();
-    expand_many(args_group, trait_def, |name, item| {
+    let arg_tokens = args_group.stream().into_iter().collect::<Vec<_>>();
+    // Split off `ident=ident` rename mappings; the remaining tokens (plain
+    // names / `@all`) go through the standard name-list parser.
+    let mut renames: std::collections::HashMap<String, String> = Default::default();
+    let mut method_tokens: Vec<TokenTree> = vec![];
+    for chunk in crate::parse::split_at_depth0(&arg_tokens, ',') {
+        if let Some(eq) =
+            chunk.iter().position(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '='))
+        {
+            let from_ident = match chunk.get(eq - 1) {
+                Some(TokenTree::Ident(id)) if eq >= 1 => id.clone(),
+                _ => {
+                    return Err(compile_err!(
+                        "batch-impl: #delegate rename `X = Y` needs identifiers on \
+                         both sides (e.g. `#delegate(size = len)`)"
+                    ));
+                }
+            };
+            let to_ident = match chunk.get(eq + 1) {
+                Some(TokenTree::Ident(id)) if eq + 2 == chunk.len() => id.clone(),
+                _ => {
+                    return Err(compile_err!(
+                        "batch-impl: #delegate rename `X = Y` needs a single \
+                         identifier on the right (e.g. `#delegate(size = len)`)"
+                    ));
+                }
+            };
+            renames.insert(from_ident.to_string(), to_ident.to_string());
+            method_tokens.push(from_ident.into());
+        } else {
+            method_tokens.extend(chunk.iter().cloned());
+        }
+    }
+    let method_names = parse_names_from_tokens(&method_tokens, trait_def)?;
+    let mut methods = TokenStream::new();
+    for name in &method_names {
+        let item = get_trait_item(trait_def, name)?;
         let syn::TraitItem::Fn(f) = item else {
             return Err(compile_err!(
                 "batch-impl: #delegate only works on methods; `{}` in trait \
@@ -162,6 +204,11 @@ fn expand_delegate(
                 trait_def.ident,
                 name
             ));
+        };
+        // The delegated target method: the rename mapping or the same name.
+        let call_name = match renames.get(&name.to_string()) {
+            Some(c) => Ident::new(c, name.span()),
+            None => name.clone(),
         };
         let mut sig = f.sig.clone();
         // Only patterns that cannot be used directly as an expression need
@@ -203,7 +250,8 @@ fn expand_delegate(
                 pat
             )
         })?;
-        let body = quote! { (#target_stream) . #name ( #(#call_args),* ) };
-        Ok(build_from_item_sig(item, Some(&sig), &body))
-    })
+        let body = quote! { (#target_stream) . #call_name ( #(#call_args),* ) };
+        methods.extend(build_from_item_sig(item, Some(&sig), &body));
+    }
+    Ok(Group::new(delimiter![{}], methods).into())
 }
