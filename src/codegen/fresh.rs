@@ -77,6 +77,85 @@ pub(crate) fn replace_grouped_fresh(
     out.into_iter().collect()
 }
 
+/// Renames the swept fresh generics (`_Param_0..N_BatchGen_`) to the
+/// readable `P0, P1, ...` scheme — P = Param, the index matches `@N`, so the
+/// generated code is self-documenting (`impl<P0,P1> RangeSugar for (P0,P1)`
+/// — the spelling the tutorial already uses). Runs after the sweep (the last
+/// render step), so every internal protocol (`@N` construction, where
+/// resolution, the sweep itself) sees the reserved names unchanged; the
+/// rename is a pure presentation layer.
+///
+/// Collisions are skipped per fresh: an identifier already in use in the
+/// impl block (a user generic named `P0`, a type named `P1`) pushes that
+/// fresh to `P{n}_` — the numbering never drifts, so `@N` correspondence
+/// stays stable.
+pub(crate) fn readable_fresh_names(tokens: TokenStream) -> TokenStream {
+    use std::collections::{HashMap, HashSet};
+    let mut used: HashSet<String> = HashSet::new();
+    collect_nonfresh_idents(&tokens, &mut used);
+    let mut map: HashMap<String, Ident> = HashMap::new();
+    let mut next = 0usize;
+    rename_numbered_fresh(tokens, &mut map, &mut next, &used, 0)
+}
+
+fn collect_nonfresh_idents(tokens: &TokenStream, out: &mut std::collections::HashSet<String>) {
+    for tt in tokens.clone() {
+        match tt {
+            TokenTree::Ident(id) => {
+                let s = id.to_string();
+                if !crate::ast::fresh::is_fresh_name(&s) {
+                    out.insert(s);
+                }
+            }
+            TokenTree::Group(g) => {
+                let inner = g.stream();
+                collect_nonfresh_idents(&inner, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn rename_numbered_fresh(
+    tokens: TokenStream, map: &mut std::collections::HashMap<String, Ident>, next: &mut usize,
+    used: &std::collections::HashSet<String>, depth: usize,
+) -> TokenStream {
+    if depth > crate::util::MAX_NEST_DEPTH {
+        return tokens;
+    }
+    let mut out = vec![];
+    for tt in tokens {
+        match tt {
+            TokenTree::Ident(id) => {
+                let s = id.to_string();
+                if parse_numbered_fresh(&s).is_some() {
+                    let name = map.entry(s).or_insert_with(|| {
+                        let base = format!("P{}", *next);
+                        *next += 1;
+                        let final_name =
+                            if used.contains(&base) { format!("{}_", base) } else { base };
+                        Ident::new(&final_name, id.span())
+                    });
+                    out.push(TokenTree::Ident(name.clone()));
+                } else {
+                    out.push(TokenTree::Ident(id));
+                }
+            }
+            TokenTree::Group(g) => {
+                let inner = g.stream();
+                let mut new_g = Group::new(
+                    g.delimiter(),
+                    rename_numbered_fresh(inner, map, next, used, depth + 1),
+                );
+                new_g.set_span(g.span());
+                out.push(TokenTree::Group(new_g));
+            }
+            other => out.push(other),
+        }
+    }
+    out.into_iter().collect()
+}
+
 /// `@N` out of range: the impl has fewer fresh generics than the index.
 /// The single authority for this diagnostic — `resolve_where_at` (where
 /// predicates) and [`validate_at_refs`] (target type / trait args) share it,
@@ -156,4 +235,38 @@ fn collect_dangling(
             _ => vec![],
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    #[test]
+    fn readable_basic() {
+        let ts = quote! { impl<_Param_0_BatchGen_> Tr for Box<_Param_0_BatchGen_> };
+        assert_eq!(readable_fresh_names(ts).to_string(), "impl < P0 > Tr for Box < P0 >");
+    }
+
+    #[test]
+    fn readable_multiple_indexed() {
+        let ts = quote! { impl<_Param_0_BatchGen_, _Param_1_BatchGen_> Tr for (_Param_0_BatchGen_, _Param_1_BatchGen_) };
+        assert_eq!(readable_fresh_names(ts).to_string(), "impl < P0 , P1 > Tr for (P0 , P1)");
+    }
+
+    #[test]
+    fn readable_skips_collisions() {
+        // a user ident `P0` pushes that fresh to `P0_`; the numbering stays
+        let ts = quote! { impl<_Param_0_BatchGen_> Tr for Box<P0> where _Param_0_BatchGen_: Sized };
+        assert_eq!(
+            readable_fresh_names(ts).to_string(),
+            "impl < P0_ > Tr for Box < P0 > where P0_ : Sized"
+        );
+    }
+
+    #[test]
+    fn readable_leaves_nonfresh() {
+        let ts = quote! { impl<T> Tr for Box<T> };
+        assert_eq!(readable_fresh_names(ts).to_string(), "impl < T > Tr for Box < T >");
+    }
 }
