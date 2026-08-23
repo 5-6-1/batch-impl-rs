@@ -152,3 +152,47 @@ fn bound_generator_hrtb() {
     let tup = (7u8,);
     assert_eq!(ApplyHrtb::go(&tup, |a: u8| a + 1), 8);
 }
+
+// The full user scenario: a bound generator driving a trait **application** —
+// `Map<(@0..), Output=R>` — with a `#map` directive body. The `#map`-copied
+// signature substitutes the trait's generic args verbatim (`Args` → the
+// `(@0..)` tuple), whose range placeholder must re-open in the body too.
+#[batch_impl(
+    <R, F: Fn()2 R> Map<(@0..), Output=R> F
+    #map{ self(args.0, args.1) }
+)]
+trait Map<Args> {
+    type Output;
+    fn map(&self, args: Args) -> Self::Output;
+}
+
+#[test]
+fn bound_generator_with_directive_body() {
+    let f = |a: u8, b: u16| a as u32 + b as u32;
+    assert_eq!(Map::map(&f, (1u8, 2u16)), 3u32);
+}
+
+// The arity-adaptable body: a **fresh-driven repeat block** — `@(…@0..)..`
+// with no `impl{...}` template repeats once per impl fresh (the `Fn()0..N`
+// bound-generator arity), so one body covers every arity:
+// arity 2 → `self(_args.0, _args.1)`, arity 0 → `self()`.
+#[batch_impl(
+    <R, F: Fn()0..4 R> MapAll<(@0..), Output=R> F
+    #map{ self( @(_args.@0,).. ) }
+)]
+trait MapAll<Args> {
+    type Output;
+    fn map(&self, _args: Args) -> Self::Output;
+}
+
+#[test]
+fn bound_generator_fresh_driven_body() {
+    let f0 = || 5u8;
+    assert_eq!(MapAll::map(&f0, ()), 5);
+    let f1 = |a: u8| a + 1;
+    assert_eq!(MapAll::map(&f1, (4u8,)), 5);
+    let f2 = |a: u8, b: u16| a as u32 + b as u32;
+    assert_eq!(MapAll::map(&f2, (1u8, 2u16)), 3);
+    let f3 = |a: u8, b: u16, c: u32| a as u64 + b as u64 + c as u64;
+    assert_eq!(MapAll::map(&f3, (1u8, 2u16, 3u32)), 6u64);
+}
