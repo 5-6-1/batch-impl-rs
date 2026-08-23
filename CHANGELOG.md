@@ -5,6 +5,41 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.9.3 (2026-08-22)
+
+- **Generative Fn types: Fn/FnMut/FnOnce structured** — the Fn family is no
+  longer a passthrough: `Fn` / `FnMut` / `FnOnce` (and bare `fn`) parse
+  structurally with a parameter list, so a generator can run inside
+  (`Fn()2` → `Fn(P0,P1)`; `Fn()0..4 R` → one `Fn(P0..Pn) -> R` form per
+  arity). The space form is preferred: `Fn()N` ≡ `Fn.().N`, the `.` optional.
+  `dyn` / `for<'a>` wrappers are structured too, so generators penetrate them
+  (`dyn Fn()2 + Send` → `dyn Fn(P0,P1) + Send`) and nested wrappers
+  (`Box<dyn Fn()2>`); the fresh params ride out to the impl generics
+- **Bound generators drive spec-level expansion** — a generator inside an
+  **impl-generic bound** (`<R, T: Fn()0..4 R> Tr<T> (@0..)`) generates one
+  impl per arity, the bound pinned to that arity (`T: Fn(P0,P1) -> R`), and
+  the target's `@0..` re-opens against that impl's own fresh list — the
+  "Fn arity × tuple elements are the same generics" pair, one spec covering
+  every arity
+- **`(@0..)` comma-less range tuple** — the trailing comma is optional for a
+  range placeholder in a paren (`(@0..)` ≡ `(@0..,)`): the comma-less form
+  still renders a real 1-tuple `(P0,)` for arity 1 (never a group `(P0)`)
+- **Bare `where` needs no code block** — `where A: Clone` at the end of a
+  spec ≡ `where A: Clone {}` (the predicate region ends at the spec end;
+  the existing `impl{...}` / `where` / `;` boundaries unchanged). The
+  trailing `{}` is no longer required
+- **Space-form generator spellings** — the `.` is optional between a
+  container/modifier and its matrix source: `()N` ≡ `().N`,
+  `(A,)N` ≡ `(A,).N`, `*()N` ≡ `*().N`, `Box @u*` ≡ `Box.@u*`,
+  `[Box, Rc] u32` ≡ `[Box, Rc].u32` (space is the preferred spelling
+  everywhere except genuine nesting like `Box.Box.u8`)
+- **`@all_fresh` deprecated** — equivalent to `@0..`; docs now mark it
+  deprecated and recommend the `@N..` family (the implementation stays for
+  compatibility)
+- **`@Cow` documented as `#blanket`-only** — the wrapper constant is a
+  built-in of the `#blanket` wrapper list (not a custom constant); the docs
+  now say so, and the `@`-notation tables show what each constant expands to
+
 ## 0.9.2 (2026-08-21)
 
 - **`@N..` range references everywhere** — an open (`@1..`) or closed (`@0..=1`) fresh range now works in **any position a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh, so an associated-type path rides along), `<>` generic args (`Wrapper<@0..>` — one placeholder position re-opens into several), tuple targets, and the **impl-generic declaration position** (`<@0..>` declares every fresh the range covers as an impl param — the generator lives in the trait args, e.g. `<@0..> GenConv<*().2> T`). **Grouped ranges** `@L_N..` / `@L_N..M` / `@L_N..=M` slice **within one generator group** (the in-group counterpart of `@g_i`, stable across array dispatch). The range folds into a single placeholder ident at parse time and re-opens against the impl's fresh list at codegen; the old restriction ("range references are only valid as a where-predicate subject") is gone

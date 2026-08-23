@@ -1,6 +1,15 @@
 # batch-impl Tutorial
 
-**v0.9.2** (2026-08-21) — `@N..` / `@N..M` range references now work **anywhere a single `@N` can**: where predicates (`@1..::Output: Clone` — the tail after the range is copied per fresh), `<>` generic args (`Wrapper<@0..>` — one position re-opens into several), the impl-generic declaration (`<@0..>`), and tuple targets; **grouped ranges** `@L_N..` / `@L_N..M` slice within one generator group; variadic segments no longer need a trailing comma (`impl{(A@..)}`); see §6.4 / §8.4;
+**v0.9.3** (2026-08-22) — **generative Fn types**: `Fn` / `FnMut` / `FnOnce`
+(and bare `fn`) are structured, so a generator runs inside (`Fn()2` →
+`Fn(P0,P1)`; `Fn()0..4 R` → one form per arity), inside `dyn` / `for<'a>`
+wrappers (`dyn Fn()2 + Send`, `Box<dyn Fn()2>`), and inside an **impl-generic
+bound** — `<R, T: Fn()0..4 R> Tr<T> (@0..)` generates one impl per arity with
+the bound pinned to that arity and the target's `@0..` re-opened to the same
+fresh batch (see §6.5). `(@0..)` comma-less range tuple; bare
+`where A: Clone` needs no `{}` (the predicate region ends at the spec end);
+the `.` is optional in generator spellings (`()N`, `(A,)N`, `Box @u*`,
+`[Box, Rc] u32`). `@all_fresh` deprecated (write `@0..`).
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 

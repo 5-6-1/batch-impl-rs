@@ -1,13 +1,13 @@
 error: batch-impl: `where` predicates are missing a code block {...}
- --> tests/ui/where_missing_body.rs:4:1
+ --> tests/ui/where_missing_body.rs:6:1
   |
-4 | #[batch_impl(<T> Sortable<T> Vec<T> where T: Ord)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6 | #[batch_impl(<T> Sortable<T> Vec<T> where)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0601]: `main` function not found in crate `$CRATE`
- --> tests/ui/where_missing_body.rs:7:2
+ --> tests/ui/where_missing_body.rs:9:2
   |
-7 | }
+9 | }
   |  ^ consider adding a `main` function to `$DIR/tests/ui/where_missing_body.rs`
