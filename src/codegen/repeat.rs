@@ -83,35 +83,29 @@ fn expand_stream(
     let mut i = 0;
     while i < tokens.len() {
         if is_punct_at(tokens, i, '@') {
-            // `@ident ( body ) ..` — the driving segment is declared up
-            // front (the length source; the body may use only `@N` cursors).
+            // `@ident ( body ) [sep] ..` — the driving segment declared up
+            // front (the length source; the body may use only `@N` cursors)
             if let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
-                && let Some(TokenTree::Group(g)) = tokens.get(i + 2)
-                && g.delimiter() == delimiter![()]
-                && is_punct_at(tokens, i + 3, '.')
-                && is_punct_at(tokens, i + 4, '.')
+                && let Some((body, sep, next)) = parse_repeat_at(tokens, i + 2)
             {
-                let body = g.stream().into_iter().collect::<Vec<_>>();
                 out.extend(expand_block(
                     &body,
+                    &sep,
                     segs,
                     binding,
                     fresh_names,
                     depth + 1,
                     Some(id.clone()),
                 )?);
-                i += 5;
+                i = next;
                 continue;
             }
-            // `@ ( body ) ..`
-            if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
-                && g.delimiter() == delimiter![()]
-                && is_punct_at(tokens, i + 2, '.')
-                && is_punct_at(tokens, i + 3, '.')
-            {
-                let body = g.stream().into_iter().collect::<Vec<_>>();
-                out.extend(expand_block(&body, segs, binding, fresh_names, depth + 1, None)?);
-                i += 4;
+            // `@ ( body ) [sep] ..` — the inter-round separator (`sep`) is
+            // emitted between rounds, never after the last one (the
+            // `$($A),*` vs `$($A,)*` distinction).
+            if let Some((body, sep, next)) = parse_repeat_at(tokens, i + 1) {
+                out.extend(expand_block(&body, &sep, segs, binding, fresh_names, depth + 1, None)?);
+                i = next;
                 continue;
             }
             return Err(compile_error_str(
@@ -142,10 +136,13 @@ fn expand_stream(
 /// independent), then `L` rounds of marker substitution (`L` = the driving
 /// segment's length — a declared `@ident` prefix, the block's inner segment
 /// references, the template's unique segment for a cursor-only block, or the
-/// impl's fresh count when there is no segment at all).
+/// fresh-binding switch's scope). The literal `sep` tokens are emitted
+/// **between** rounds (never after the last one) — the `$($A),*` form;
+/// write the separator inside the body for the `$($A,)*` form.
 fn expand_block(
-    body: &[TokenTree], segs: &[VarSeg], binding: Option<crate::ast::fresh::FreshRange>,
-    fresh_names: &[TokenStream], depth: usize, driver: Option<Ident>,
+    body: &[TokenTree], sep: &[TokenTree], segs: &[VarSeg],
+    binding: Option<crate::ast::fresh::FreshRange>, fresh_names: &[TokenStream], depth: usize,
+    driver: Option<Ident>,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(body, " in a repeat block"));
@@ -205,12 +202,42 @@ fn expand_block(
             None => binding_len(binding, fresh_names, &body)?,
         },
     };
-    // 4. L rounds of marker substitution.
+    // 4. L rounds of marker substitution, with the literal separator
+    //    between rounds (never after the last one).
     let mut out = vec![];
     for round in 0..len {
         out.extend(super::repeat_drivers::substitute(&body, segs, fresh_names, round, depth + 1)?);
+        if round + 1 < len {
+            out.extend(sep.iter().cloned());
+        }
     }
     Ok(out)
+}
+
+/// Parses a repeat block's parts at `@ ( body ) [sep] ..`: returns the body
+/// tokens, the literal separator tokens between `)` and `..` (empty for the
+/// plain `@(...)..` form), and the index just past `..`. `None` when the
+/// tokens are not a repeat block (missing group or missing `..`).
+fn parse_repeat_at(
+    tokens: &[TokenTree], at: usize,
+) -> Option<(Vec<TokenTree>, Vec<TokenTree>, usize)> {
+    let TokenTree::Group(g) = tokens.get(at)? else {
+        return None;
+    };
+    if g.delimiter() != delimiter![()] {
+        return None;
+    }
+    let body = g.stream().into_iter().collect::<Vec<_>>();
+    let mut j = at + 1;
+    let mut sep = vec![];
+    while j < tokens.len() {
+        if is_punct_at(tokens, j, '.') && is_punct_at(tokens, j + 1, '.') {
+            return Some((body, sep, j + 2));
+        }
+        sep.push(tokens[j].clone());
+        j += 1;
+    }
+    None
 }
 
 /// The fresh-binding switch's scope length: how many fresh generics the
@@ -252,36 +279,29 @@ fn expand_nested(
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        // `@ident ( body ) ..` — declared driver
+        // `@ident ( body ) [sep] ..` — declared driver
         if is_punct_at(tokens, i, '@')
             && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
-            && let Some(TokenTree::Group(g)) = tokens.get(i + 2)
-            && g.delimiter() == delimiter![()]
-            && is_punct_at(tokens, i + 3, '.')
-            && is_punct_at(tokens, i + 4, '.')
+            && let Some((body, sep, next)) = parse_repeat_at(tokens, i + 2)
         {
-            let body = g.stream().into_iter().collect::<Vec<_>>();
             out.extend(expand_block(
                 &body,
+                &sep,
                 segs,
                 binding,
                 fresh_names,
                 depth + 1,
                 Some(id.clone()),
             )?);
-            i += 5;
+            i = next;
             continue;
         }
-        // `@ ( body ) ..`
+        // `@ ( body ) [sep] ..`
         if is_punct_at(tokens, i, '@')
-            && let Some(TokenTree::Group(g)) = tokens.get(i + 1)
-            && g.delimiter() == delimiter![()]
-            && is_punct_at(tokens, i + 2, '.')
-            && is_punct_at(tokens, i + 3, '.')
+            && let Some((body, sep, next)) = parse_repeat_at(tokens, i + 1)
         {
-            let body = g.stream().into_iter().collect::<Vec<_>>();
-            out.extend(expand_block(&body, segs, binding, fresh_names, depth + 1, None)?);
-            i += 4;
+            out.extend(expand_block(&body, &sep, segs, binding, fresh_names, depth + 1, None)?);
+            i = next;
             continue;
         }
         if let TokenTree::Group(g) = &tokens[i] {

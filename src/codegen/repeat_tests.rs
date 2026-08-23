@@ -131,6 +131,29 @@ fn no_trailing_separator_concatenates() {
 }
 
 #[test]
+fn inter_round_separator() {
+    // `@(@A),..` — the comma sits between rounds, never after the last one
+    // (the `$($A),*` form; `@(@A,)..` is the `$($A,)*` form)
+    assert_eq!(expand("@(@A),..").unwrap(), "A0 ,A1 ,A2");
+}
+
+#[test]
+fn inter_round_separator_arbitrary() {
+    // any literal tokens work as the inter-round separator
+    assert_eq!(expand("@(@A)+..").unwrap(), "A0 +A1 +A2");
+    assert_eq!(expand("@(@A)::f()..").unwrap(), "A0 :: f () A1 :: f () A2");
+}
+
+#[test]
+fn inter_round_separator_single_round() {
+    // one round: no separator is emitted at all
+    let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 1 }];
+    let ts = "@(@A),..".parse::<TokenStream>().unwrap();
+    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
+    assert_eq!(out, "A0");
+}
+
+#[test]
 fn float_literal_at_path_fixed() {
     // `self.0.@0` tokenizes `0.` as a float literal; the fix splits it
     // so the cursor expands into `self.0.0`, `self.0.1`, ...
