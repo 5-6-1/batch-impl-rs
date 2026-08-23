@@ -154,14 +154,30 @@ pub(crate) fn expand_range_decls(
     Ok(())
 }
 
-/// Drops empty elements from an expanded tuple and rejoins: a `@N..` range
-/// that re-opened to zero entries leaves an empty element (`(,)` / `(, P1,)` /
-/// `(P0, ,)`), which is not valid Rust. Elements are split at depth-0 commas;
-/// empty ones are dropped, and a single surviving element keeps its trailing
-/// comma (`(A)` is a group, not a 1-tuple).
+/// Drops **orphaned empty elements** from an expanded tuple and rejoins: a
+/// `@N..` range that re-opened to zero entries leaves an empty element
+/// (`(,)` / `(, P1,)` / `(P0, ,)`), which is not valid Rust. A trailing empty
+/// chunk is a legal trailing comma (`(P0,)` / `(expr,)`) and stays untouched;
+/// an ordinary tuple is returned verbatim (the split is only a scan — flat
+/// `<...>` in an element must never be re-joined).
 fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
-    let elems: Vec<&[TokenTree]> =
-        split_at_depth0(tokens, ',').into_iter().filter(|c| !c.is_empty()).collect();
+    let chunks: Vec<&[TokenTree]> = split_at_depth0(tokens, ',').into_iter().collect();
+    // The trailing chunk may be empty (a legal trailing comma) — exclude it
+    // from the orphan check, not from the output.
+    let trimmed: Vec<&[TokenTree]> = if chunks.last().is_some_and(|c| c.is_empty()) {
+        chunks[..chunks.len() - 1].to_vec()
+    } else {
+        chunks
+    };
+    // No orphaned empties: the tuple is ordinary (a lone trailing comma is
+    // fine) — return verbatim, never re-join (the split cannot see through
+    // flat `<...>`, so a re-join would corrupt elements containing commas).
+    if !trimmed.iter().any(|c| c.is_empty()) {
+        return tokens.iter().cloned().collect();
+    }
+    // Orphaned empties: drop them and rejoin; a single surviving element
+    // keeps its trailing comma (`(A)` is a group, not a 1-tuple).
+    let elems: Vec<&[TokenTree]> = trimmed.into_iter().filter(|c| !c.is_empty()).collect();
     let mut out = TokenStream::new();
     for (i, e) in elems.iter().enumerate() {
         if i > 0 {
@@ -391,5 +407,26 @@ mod tests {
         // Group 0 has 1 entry; `@0_2..=3` is out of range.
         let ts: TokenStream = "Wrapper < _Param_0_2_With_3_BatchGen_ >".parse().unwrap();
         assert!(expand_range_refs(ts, &names()).is_err());
+    }
+
+    #[test]
+    fn ordinary_tuple_trailing_comma_preserved() {
+        // a plain tuple element containing flat `<...>` (its commas must not
+        // be re-joined) keeps its trailing comma — `(expr,)` stays a 1-tuple
+        let ts: TokenStream = quote::quote!(
+            fn f() -> (f64,) {
+                (<f64 as Module<f64, f64>>::scale(&r, self.0),)
+            }
+        );
+        let out = expand_range_refs(ts, &names()).unwrap();
+        assert!(out.to_string().contains("self . 0) ,) }"), "{out}");
+    }
+
+    #[test]
+    fn orphan_empties_still_fold() {
+        // the range re-opened to zero entries: `(P0, ,)` folds to `(P0,)`
+        let ts: TokenStream = quote::quote!(_Param_0_0_BatchGen_ , ,);
+        let folded = fold_empty_tuple(&ts.into_iter().collect::<Vec<_>>());
+        assert_eq!(folded.to_string(), "_Param_0_0_BatchGen_ ,");
     }
 }
