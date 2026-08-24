@@ -28,7 +28,7 @@ use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at};
 /// template has no `ident@..` segment) repeats once per fresh — the
 /// bound-generator arity (`Fn()0..N`) becomes the body's repetition count.
 pub(crate) fn expand_repeat_blocks(
-    tokens: TokenStream, segs: &[VarSeg], binding: Option<crate::ast::fresh::FreshRange>,
+    tokens: TokenStream, segs: &[VarSeg], binding: Option<crate::ast::fresh::FreshRef>,
     fresh_names: &[TokenStream],
 ) -> Result<TokenStream, TokenStream> {
     let v = fix_literal_at(tokens.into_iter().collect::<Vec<_>>());
@@ -73,7 +73,7 @@ fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
 /// Stream-level scan: expands `@( ... )..` blocks and recurses into groups;
 /// any other `@` in a body is an error.
 fn expand_stream(
-    tokens: &[TokenTree], segs: &[VarSeg], binding: Option<crate::ast::fresh::FreshRange>,
+    tokens: &[TokenTree], segs: &[VarSeg], binding: Option<crate::ast::fresh::FreshRef>,
     fresh_names: &[TokenStream], depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
@@ -106,6 +106,18 @@ fn expand_stream(
             if let Some((body, sep, next)) = parse_repeat_at(tokens, i + 1) {
                 out.extend(expand_block(&body, &sep, segs, binding, fresh_names, depth + 1, None)?);
                 i = next;
+                continue;
+            }
+            // A fresh-ref carrier (`@{...}` — landed in the body by the
+            // directive signature substitution of trait args) is **not** a
+            // repeat block: pass it through for the later range re-opening
+            // pass (`expand_range_refs` in `generate_parts`).
+            if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
+                if g.delimiter() == proc_macro2::Delimiter::Brace)
+            {
+                out.push(tokens[i].clone());
+                out.push(tokens[i + 1].clone());
+                i += 2;
                 continue;
             }
             return Err(compile_error_str(
@@ -141,7 +153,7 @@ fn expand_stream(
 /// write the separator inside the body for the `$($A,)*` form.
 fn expand_block(
     body: &[TokenTree], sep: &[TokenTree], segs: &[VarSeg],
-    binding: Option<crate::ast::fresh::FreshRange>, fresh_names: &[TokenStream], depth: usize,
+    binding: Option<crate::ast::fresh::FreshRef>, fresh_names: &[TokenStream], depth: usize,
     driver: Option<Ident>,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
@@ -245,7 +257,7 @@ fn parse_repeat_at(
 /// `@L_N..`, a closed run for `@N..=M`). `None` (no switch) errors — the
 /// fresh-driven body modification is off without `impl{@0..}`.
 fn binding_len(
-    binding: Option<crate::ast::fresh::FreshRange>, fresh_names: &[TokenStream], body: &[TokenTree],
+    binding: Option<crate::ast::fresh::FreshRef>, fresh_names: &[TokenStream], body: &[TokenTree],
 ) -> Result<usize, TokenStream> {
     let Some(range) = binding else {
         return Err(compile_error_str(
@@ -264,13 +276,13 @@ fn binding_len(
             .count(),
         None => fresh_names.len(),
     };
-    crate::codegen::range_refs::range_count(range, scope_len, Span::call_site())
+    crate::codegen::range_refs::range_count(&range, scope_len, Span::call_site())
 }
 
 /// Expands nested repeat blocks inside a block body, keeping `@ident` / `@N`
 /// markers untouched (they are substituted per round by the outer block).
 fn expand_nested(
-    tokens: &[TokenTree], segs: &[VarSeg], binding: Option<crate::ast::fresh::FreshRange>,
+    tokens: &[TokenTree], segs: &[VarSeg], binding: Option<crate::ast::fresh::FreshRef>,
     fresh_names: &[TokenStream], depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {

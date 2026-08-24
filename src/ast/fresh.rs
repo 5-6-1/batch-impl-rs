@@ -11,7 +11,7 @@
 //! Keeping the prefix/suffix constants here guarantees the three layers
 //! cannot drift apart.
 
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;
 
 /// Reserved prefix of every macro-generated generic name.
@@ -27,24 +27,6 @@ pub(crate) fn fresh_param(g: usize, i: usize) -> TokenStream {
     let name = format!("{}{}_{}{}", FRESH_PREFIX, g, i, FRESH_SUFFIX);
     let ident = Ident::new(&name, proc_macro2::Span::call_site());
     quote!(#ident)
-}
-
-/// `@N` / `@g_i` position reference → the fresh name: `@0` → `_Param_0_BatchGen_`,
-/// `@0_1` (a literal with an underscore) → `_Param_0_1_BatchGen_`; `None` for
-/// anything else. The single-numbered form is a *reference* (constructed from
-/// `@N`, kept through the sweep because it already matches the swept name);
-/// the grouped form is renumbered by the sweeper along with the generated
-/// names.
-pub(crate) fn at_ref_name(lit: &str) -> Option<String> {
-    if let Ok(n) = lit.parse::<usize>() {
-        return Some(format!("{}{}{}", FRESH_PREFIX, n, FRESH_SUFFIX));
-    }
-    if let Some((g, i)) = lit.split_once('_')
-        && let (Ok(g), Ok(i)) = (g.parse::<usize>(), i.parse::<usize>())
-    {
-        return Some(format!("{}{}_{}{}", FRESH_PREFIX, g, i, FRESH_SUFFIX));
-    }
-    None
 }
 
 /// Parses `_Param_{g}_{i}_BatchGen_`; returns `None` for any other ident
@@ -63,66 +45,95 @@ pub(crate) fn parse_numbered_fresh(s: &str) -> Option<usize> {
     rest.parse().ok()
 }
 
-/// Reserved infix of the `@N..` range placeholders: the open-range form is
-/// `_Param_{N}_With_BatchGen_`, the closed form `_Param_{N}_With_{M}_BatchGen_`.
-/// The `_With` infix keeps `parse_grouped_fresh` / `parse_numbered_fresh`
-/// from ever matching these (`{N}_With` is not a number and `With` is not a
-/// position), so the sweeper and dangling-reference validators cannot touch
-/// them — they are recognized only by [`parse_range_fresh`].
-pub(crate) const RANGE_WITH_INFIX: &str = "_With_";
-
-/// A resolved `@N..` / `@N..M` range reference: an optional `group` (a
-/// `@L_N..` range is **within** generator group L — stable across array
-/// dispatch, like `@g_i`; `None` is the flattened `@N..` form), `start`
-/// (flattened index or in-group position), and an optional inclusive `end`
-/// (`None` = open to the last fresh of the scope).
+/// A resolved `@N` / `@g_i` / `@N..` / `@N..M` position reference — the
+/// structured carrier that rides in the [`Ty`](crate::ast::Ty) tree
+/// (`TyKind::Fresh`) and renders to the self-delimiting token form
+/// `@{...}` (`@{0}`, `@{1_0..}`, `@{0..=3}`) for the token-level resolvers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FreshRange {
+pub(crate) struct FreshRef {
+    /// `Some(L)` for the grouped forms (`@g_i` / `@L_N..` — within generator
+    /// group L, stable across array dispatch); `None` is the flat form.
     pub(crate) group: Option<usize>,
+    /// Flattened index or in-group position (numbered from 0).
     pub(crate) start: usize,
-    pub(crate) end: Option<usize>,
+    pub(crate) end: FreshEnd,
 }
 
-/// The range placeholder name: flattened `_Param_{N}_With[_M]_BatchGen_`, or
-/// grouped `_Param_{L}_{N}_With[_M]_BatchGen_` (`@L_N..` — the group prefix
-/// precedes the position like `@g_i`).
-pub(crate) fn range_fresh_name(range: FreshRange) -> String {
-    let head = match range.group {
-        Some(l) => format!("{}{}_{}", FRESH_PREFIX, l, range.start),
-        None => format!("{}{}", FRESH_PREFIX, range.start),
-    };
-    match range.end {
-        Some(end) => format!("{}{}{}{}", head, RANGE_WITH_INFIX, end, FRESH_SUFFIX),
-        // open: `_With` (no end; the `_BatchGen_` suffix provides the tail `_`)
-        None => format!("{}_With{}", head, FRESH_SUFFIX),
+/// The extent of a [`FreshRef`]: a single position (`@N` / `@g_i`), an open
+/// range to the last fresh (`@N..` / `@L_N..` — empty when `start` is past
+/// the end), or a closed range (`@N..M` / `@N..=M` normalized to inclusive).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FreshEnd {
+    Single,
+    Open,
+    Closed(usize),
+}
+
+impl FreshRef {
+    /// Whether this reference re-opens into several names (a range form).
+    pub(crate) fn is_range(&self) -> bool {
+        !matches!(self.end, FreshEnd::Single)
+    }
+
+    /// The `@{...}` inner spelling (`0`, `1_0..`, `0..=3`) — shared by the
+    /// token emitter and the parser so the two can never drift.
+    pub(crate) fn spell(&self) -> String {
+        let head = match self.group {
+            Some(l) => format!("{l}_{}", self.start),
+            None => format!("{}", self.start),
+        };
+        match self.end {
+            FreshEnd::Single => head,
+            FreshEnd::Open => format!("{head}.."),
+            FreshEnd::Closed(e) => format!("{head}..={e}"),
+        }
+    }
+
+    /// Parses the inner spelling of an `@{...}` group; `None` for anything
+    /// else. The single authority for both directions of the carrier.
+    pub(crate) fn parse(s: &str) -> Option<Self> {
+        let (group, rest) = match s.split_once('_') {
+            // A grouped head needs a following position part; a plain number
+            // has none (`split_once` on `0..=3` would misread `0..=3` — check
+            // the tail parses as digits before accepting the split).
+            Some((l, tail))
+                if tail.split(['.', '_']).next()?.parse::<usize>().is_ok() =>
+            {
+                (Some(l.parse::<usize>().ok()?), tail)
+            }
+            _ => (None, s),
+        };
+        if let Some((start, end)) = rest.split_once("..=") {
+            let start = start.parse::<usize>().ok()?;
+            let end = end.parse::<usize>().ok()?;
+            (start <= end).then_some(FreshRef { group, start, end: FreshEnd::Closed(end) })
+        } else if let Some(stripped) = rest.strip_suffix("..") {
+            let start = stripped.parse::<usize>().ok()?;
+            (!stripped.is_empty()).then_some(FreshRef { group, start, end: FreshEnd::Open })
+        } else {
+            Some(FreshRef { group, start: rest.parse::<usize>().ok()?, end: FreshEnd::Single })
+        }
     }
 }
 
-/// Parses a range placeholder ident: `_Param_{N}_With[_M]_BatchGen_` (flat) or
-/// `_Param_{L}_{N}_With[_M]_BatchGen_` (grouped); `None` for anything else
-/// (including the plain fresh forms — those belong to `parse_grouped_fresh` /
-/// `parse_numbered_fresh`).
-pub(crate) fn parse_range_fresh(s: &str) -> Option<FreshRange> {
-    // `_Param_{...}_With[_M]_BatchGen_` → strip the fixed head/suffix, then
-    // split the middle on the `_With_` / `_With` marker.
-    let rest = s.strip_prefix(FRESH_PREFIX)?.strip_suffix(FRESH_SUFFIX)?;
-    let (pos_str, end) = if let Some((pos_str, tail)) = rest.split_once("_With_") {
-        // closed: `..._With_M`
-        (pos_str, Some(tail.parse::<usize>().ok()?))
-    } else {
-        // open: `..._With` (no trailing `_` — the suffix already consumed it)
-        let (pos_str, marker) = rest.rsplit_once("_With")?;
-        (pos_str, if marker.is_empty() { None } else { return None })
-    };
-    // `pos_str` is either `N` (flat) or `L_N` (grouped)
-    let (group, start) = match pos_str.split_once('_') {
-        Some((l, n)) => (Some(l.parse::<usize>().ok()?), n.parse::<usize>().ok()?),
-        None => (None, pos_str.parse::<usize>().ok()?),
-    };
-    let range = FreshRange { group, start, end };
-    (range.end.is_none_or(|e| range.start <= e)).then_some(range)
+/// Emits the self-delimiting carrier tokens of a reference — a `@` punct
+/// followed by a Brace group holding [`FreshRef::spell`]. The group is an
+/// atomic unit for every token walker, so the reference survives any pass
+/// untouched and can only be consumed by the resolvers that match this shape.
+pub(crate) fn fresh_ref_tokens(r: FreshRef, span: proc_macro2::Span) -> TokenStream {
+    let mut ts = TokenStream::new();
+    let mut at = proc_macro2::Punct::new('@', proc_macro2::Spacing::Alone);
+    at.set_span(span);
+    ts.extend(std::iter::once(TokenTree::Punct(at)));
+    // The spelled inner is always a valid token sequence (digits /
+    // underscore / `..=`); the default keeps the no-panic promise under
+    // internal invariant drift.
+    let inner: TokenStream = r.spell().parse().unwrap_or_default();
+    let mut g = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, inner);
+    g.set_span(span);
+    ts.extend(std::iter::once(TokenTree::Group(g)));
+    ts
 }
-
 /// Whether an identifier matches the reserved fresh pattern
 /// (`_Param_*_BatchGen_`, grouped or single-numbered).
 pub(crate) fn is_fresh_name(s: &str) -> bool {
@@ -132,48 +143,33 @@ pub(crate) fn is_fresh_name(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::FreshEnd;
 
     #[test]
-    fn range_placeholder_roundtrip() {
-        for (range, expect) in [
-            (FreshRange { group: None, start: 0, end: None }, "_Param_0_With_BatchGen_"),
-            (FreshRange { group: None, start: 1, end: None }, "_Param_1_With_BatchGen_"),
-            (FreshRange { group: None, start: 0, end: Some(2) }, "_Param_0_With_2_BatchGen_"),
-            (FreshRange { group: None, start: 1, end: Some(3) }, "_Param_1_With_3_BatchGen_"),
-            // grouped (`@L_N..`): the group prefix precedes the position
-            (FreshRange { group: Some(0), start: 0, end: None }, "_Param_0_0_With_BatchGen_"),
-            (FreshRange { group: Some(0), start: 2, end: None }, "_Param_0_2_With_BatchGen_"),
-            (FreshRange { group: Some(1), start: 0, end: Some(1) }, "_Param_1_0_With_1_BatchGen_"),
-            (FreshRange { group: Some(2), start: 1, end: Some(3) }, "_Param_2_1_With_3_BatchGen_"),
+    fn fresh_ref_spell_parse_roundtrip() {
+        for r in [
+            FreshRef { group: None, start: 0, end: FreshEnd::Single },
+            FreshRef { group: None, start: 1, end: FreshEnd::Open },
+            FreshRef { group: None, start: 0, end: FreshEnd::Closed(2) },
+            FreshRef { group: Some(0), start: 0, end: FreshEnd::Single },
+            FreshRef { group: Some(1), start: 0, end: FreshEnd::Open },
+            FreshRef { group: Some(1), start: 1, end: FreshEnd::Closed(3) },
         ] {
-            let name = range_fresh_name(range);
-            assert_eq!(name, expect);
-            assert_eq!(parse_range_fresh(&name), Some(range), "{name}");
+            assert_eq!(FreshRef::parse(&r.spell()), Some(r), "{}", r.spell());
         }
     }
 
     #[test]
-    fn range_placeholder_not_confused_with_plain_fresh() {
-        // The `_With` infix must keep the sweeper's strict matchers away.
-        for name in
-            ["_Param_0_With_BatchGen_", "_Param_1_With_2_BatchGen_", "_Param_0_1_With_BatchGen_"]
-        {
-            assert_eq!(parse_grouped_fresh(name), None, "{name}");
-            assert_eq!(parse_numbered_fresh(name), None, "{name}");
-        }
-        // And the plain forms are not range placeholders.
-        for name in ["_Param_0_BatchGen_", "_Param_0_1_BatchGen_"] {
-            assert_eq!(parse_range_fresh(name), None, "{name}");
+    fn fresh_ref_invalid_forms() {
+        for s in ["", "x", "0..x", "1_", "2..1", "0_1_2"] {
+            assert_eq!(FreshRef::parse(s), None, "{s}");
         }
     }
 
     #[test]
-    fn range_placeholder_invalid_forms() {
-        assert_eq!(parse_range_fresh("_Param_x_With_BatchGen_"), None);
-        assert_eq!(parse_range_fresh("_Param_2_With_1_BatchGen_"), None); // start > end
-        assert_eq!(parse_range_fresh("_Param_0_With_x_BatchGen_"), None);
-        assert_eq!(parse_range_fresh("_Param_0_2_With_1_BatchGen_"), None); // grouped start > end
-        assert_eq!(parse_range_fresh("_Param_x_0_With_BatchGen_"), None); // bad group
-        assert_eq!(parse_range_fresh("plain"), None);
+    fn plain_fresh_declarations_still_parse() {
+        // The declaration-side protocol (sweeper) is untouched.
+        assert_eq!(parse_grouped_fresh("_Param_0_1_BatchGen_"), Some((0, 1)));
+        assert_eq!(parse_numbered_fresh("_Param_0_BatchGen_"), Some(0));
     }
 }

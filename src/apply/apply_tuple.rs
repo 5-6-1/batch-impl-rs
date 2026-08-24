@@ -261,6 +261,17 @@ impl Apply for TyRange {
         )
     }
 }
+impl Apply for TyFresh {
+    /// A macro-meta position reference cannot be a left operand — it rides
+    /// the tree as an atom until the codegen resolvers consume it.
+    fn apply_help(self, _: Ty, span: Span) -> Ty {
+        err_ty_at(
+            "batch-impl: a `@{...}` position reference cannot be a left operand \
+             (it resolves to fresh generics at codegen)",
+            span,
+        )
+    }
+}
 impl Apply for TyPrimitiveArray {
     /// `[].T` => `[T]` (empty base wraps a slice); `[T].N` => `[T; N]` (fixed-size array)
     ///

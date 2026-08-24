@@ -22,7 +22,11 @@ fn expand(s: &str) -> Result<String, String> {
 /// the rounds (`@N` → `N + i` per round).
 fn expand_fresh(s: &str, n: usize) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
-    let binding = crate::ast::fresh::FreshRange { group: None, start: 0, end: None };
+    let binding = crate::ast::fresh::FreshRef {
+        group: None,
+        start: 0,
+        end: crate::ast::fresh::FreshEnd::Open,
+    };
     expand_repeat_blocks(ts, &[], Some(binding), &fresh_names(n))
         .map(|o| o.to_string())
         .map_err(|e| e.to_string())

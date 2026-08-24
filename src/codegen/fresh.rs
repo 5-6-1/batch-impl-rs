@@ -8,6 +8,7 @@
 use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 
+use crate::ast::fresh::{FreshEnd, FreshRef};
 use crate::ast::{Ty, parse_grouped_fresh, parse_numbered_fresh};
 use crate::util::compile_error_str;
 
@@ -238,14 +239,15 @@ pub(crate) fn at_group_out_of_range(g: usize, pos: usize, span: Span) -> TokenSt
     )
 }
 
-/// Validates `@N` / `@g_i` references that survived into the target type or
+/// Validates `@{...}` references that survived into the target type or
 /// the trait args (where predicates are validated by `resolve_where_at`): a
-/// constructed fresh name not among the impl's declared generics is a dangling
-/// reference — report it in user language instead of leaking the reserved
-/// `_Param_*_BatchGen_` name into rustc's E0412 output.
+/// reference outside the impl's fresh list is dangling — report it in user
+/// language instead of leaking the reserved `_Param_*_BatchGen_` name into
+/// rustc's E0412 output.
 pub(crate) fn validate_at_refs(
     target: &Ty, trait_args: &[TokenStream], impl_names: &[TokenStream],
-) -> Vec<TokenStream> {    let declared = impl_names
+) -> Vec<TokenStream> {
+    let declared = impl_names
         .iter()
         .filter_map(|n| parse_grouped_fresh(&n.to_string()))
         .collect::<std::collections::HashSet<_>>();
@@ -255,34 +257,100 @@ pub(crate) fn validate_at_refs(
     collect_dangling(tokens, &declared, declared.len())
 }
 
-/// Recursive token walk: a grouped name must be declared; a single-numbered
-/// `@N`-constructed name must be within the fresh count.
+/// Recursive token walk: a carrier `@{...}` must be within the impl's fresh
+/// list — a single position indexes it, a grouped form must exist, a range
+/// end must be below the count (an open range never dangles: it truncates).
 fn collect_dangling(
     tokens: TokenStream, declared: &std::collections::HashSet<(usize, usize)>, fresh_count: usize,
 ) -> Vec<TokenStream> {
-    tokens
-        .into_iter()
-        .flat_map(|tt| match tt {
-            TokenTree::Ident(id) => {
-                let s = id.to_string();
-                if let Some((g, pos)) = parse_grouped_fresh(&s) {
-                    (!declared.contains(&(g, pos)))
-                        .then(|| at_group_out_of_range(g, pos, id.span()))
-                        .into_iter()
-                        .collect()
-                } else if let Some(n) = parse_numbered_fresh(&s) {
-                    (n >= fresh_count)
-                        .then(|| at_num_out_of_range(n, fresh_count, id.span()))
-                        .into_iter()
-                        .collect()
-                } else {
-                    vec![]
+    let v: Vec<_> = tokens.into_iter().collect();
+    let mut errs = vec![];
+    let mut i = 0;
+    while i < v.len() {
+        if is_fresh_carrier(&v[i], v.get(i + 1)) {
+            let span = match &v[i] {
+                TokenTree::Punct(p) => p.span(),
+                _ => Span::call_site(),
+            };
+            if let Some(TokenTree::Group(g)) = v.get(i + 1) {
+                let inner: String =
+                    g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+                if let Some(r) = FreshRef::parse(&inner) {
+                    errs.extend(validate_ref(&r, declared, fresh_count, span));
                 }
             }
-            TokenTree::Group(g) => collect_dangling(g.stream(), declared, fresh_count),
-            _ => vec![],
-        })
-        .collect()
+            i += 2;
+            continue;
+        }
+        // Declarations themselves are validated by construction; recurse.
+        if let TokenTree::Group(g) = &v[i] {
+            errs.extend(collect_dangling(g.stream(), declared, fresh_count));
+        }
+        i += 1;
+    }
+    errs
+}
+
+/// Whether a token pair is a fresh-ref carrier: a `@` punct directly
+/// followed by a Brace group.
+fn is_fresh_carrier(at: &TokenTree, g: Option<&TokenTree>) -> bool {
+    matches!(at, TokenTree::Punct(p) if p.as_char() == '@')
+        && matches!(g, Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace)
+}
+
+/// The range/single checks shared by every validator — one authority so the
+/// wording and the bounds cannot drift apart between positions.
+fn validate_ref(
+    r: &FreshRef, declared: &std::collections::HashSet<(usize, usize)>, fresh_count: usize,
+    span: Span,
+) -> Vec<TokenStream> {
+    // Grouped form: the group must exist, then the extent must fit its slice.
+    if let Some(g) = r.group {
+        let len = declared.iter().filter(|&&(gg, _)| gg == g).count();
+        if len == 0 {
+            return vec![at_group_out_of_range(g, r.start, span)];
+        }
+        let fits = match r.end {
+            FreshEnd::Single => r.start < len,
+            FreshEnd::Open => true,
+            FreshEnd::Closed(e) => e < len && r.start <= e,
+        };
+        return if fits {
+            vec![]
+        } else {
+            vec![compile_error_str(
+                &format!(
+                    "batch-impl: `{}_{}` out of range — generator group {} has {} fresh generics",
+                    g,
+                    r.spell(),
+                    g,
+                    len
+                ),
+                span,
+            )]
+        };
+    }
+    // Flat form: index against the whole fresh list.
+    let fits = match r.end {
+        FreshEnd::Single => r.start < fresh_count,
+        FreshEnd::Open => true, // an open range past the end truncates to empty
+        FreshEnd::Closed(e) => e < fresh_count && r.start <= e,
+    };
+    if fits {
+        return vec![];
+    }
+    match r.end {
+        FreshEnd::Single => vec![at_num_out_of_range(r.start, fresh_count, span)],
+        _ => vec![compile_error_str(
+            &format!(
+                "batch-impl: `@{}` out of range — this scope has {} fresh \
+                 generics (numbered from 0 in document order)",
+                r.spell(),
+                fresh_count,
+            ),
+            span,
+        )],
+    }
 }
 
 #[cfg(test)]

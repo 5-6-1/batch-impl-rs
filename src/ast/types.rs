@@ -2,6 +2,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use std::cell::Cell;
 
+use crate::ast::fresh::FreshRef;
+
 #[derive(Clone, Debug)]
 /// `[...,]`
 pub(crate) struct TyArray(pub(crate) Vec<Ty>);
@@ -216,6 +218,15 @@ pub(crate) struct TyWithFor(pub(crate) TokenStream, pub(crate) Box<Ty>);
 pub(crate) struct TyImplTemplate(pub(crate) TokenStream);
 
 #[derive(Clone, Debug)]
+/// `@{...}` — a macro-meta position reference (`@N` / `@g_i` / ranges),
+/// carried **structurally** through the Ty tree (a leaf for every traversal:
+/// apply / expand / dispatch treat it as an atom) and rendered to the
+/// self-delimiting token form `@{inner}` (`crate::ast::fresh::FreshRef::spell`)
+/// so the token-level resolvers can find it unambiguously — no reserved
+/// placeholder ident is ever minted for a reference.
+pub(crate) struct TyFresh(pub(crate) FreshRef);
+
+#[derive(Clone, Debug)]
 pub(crate) struct Ty {
     /// Source span: the user-written token(s) this node came from;
     /// `Span::call_site()` for macro-generated nodes (fresh generics,
@@ -268,6 +279,7 @@ pub(crate) enum TyKind {
     WithImpl(TyWithImpl),
     Num(TyNum),
     Range(TyRange),
+    Fresh(TyFresh),
     BoundList(TyBoundList),
     Error(TyError),
 }

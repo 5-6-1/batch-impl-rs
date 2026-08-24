@@ -101,12 +101,12 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
             } else {
                 let inner = parse_item(&mut Cursor::new(&contents), Op::Space, trait_name)
                     .unwrap_or_else(empty);
-                // `(@0..)` — a **range placeholder** in a comma-less paren:
+                // `(@0..)` — a **range reference** in a comma-less paren:
                 // the trailing comma is optional for range tuples (the
                 // arity-1 impl must render a real 1-tuple `(P0,)`, not a
                 // group `(P0)`). Re-open to the tuple form, so `(@0..)`
                 // ≡ `(@0..,)` on one code path.
-                if is_range_placeholder(&inner) {
+                if is_range_fresh(&inner) {
                     TyTuple(vec![inner]).to_ty().with_span(group.span())
                 } else {
                     TyGroup(Box::new(inner)).to_ty().with_span(group.span())
@@ -128,21 +128,12 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
     }
 }
 
-/// Whether a type is a lone range-placeholder ident (`_Param_N_With[_M]_BatchGen_`
-/// or the grouped `_Param_L_N_With[_M]_BatchGen_` form) — the parse product of
-/// `@N..` / `@N..M` / `@L_N..` in a group, recognized so a comma-less paren
-/// can re-open as a tuple.
-fn is_range_placeholder(ty: &Ty) -> bool {
-    if let TyKind::Primitive(p) = &ty.kind {
-        let mut it = p.0.clone().into_iter();
-        if let Some(TokenTree::Ident(id)) = it.next()
-            && it.next().is_none()
-            && crate::ast::fresh::parse_range_fresh(&id.to_string()).is_some()
-        {
-            return true;
-        }
-    }
-    false
+/// Whether a type is a lone **range** fresh reference (`@N..` / `@N..M` /
+/// `@L_N..` — the structured [`TyKind::Fresh`] node), recognized so a
+/// comma-less paren can re-open as a tuple. A single-position ref (`@0`) is
+/// a plain value and does not re-open.
+fn is_range_fresh(ty: &Ty) -> bool {
+    matches!(&ty.kind, TyKind::Fresh(f) if f.0.is_range())
 }
 
 /// `[...]` group: comma → list (`TyArray`), empty → array/slice builder base,

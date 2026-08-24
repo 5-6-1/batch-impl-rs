@@ -11,7 +11,6 @@
 //! (`&'a mut u8`) and the fn family (`fn(u8) -> u8`).
 
 use crate::apply::err_ty_at;
-use crate::ast::fresh::at_ref_name;
 use crate::ast::*;
 use crate::parse::generic::{empty, split_at_depth0};
 use crate::parse::parse_atom::parse_range;
@@ -126,16 +125,31 @@ pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
 }
 
 /// `@N` position reference (fresh-name resolution at the type-domain entry);
-/// `@N..` / `@N..M` / `@L_N..` range references fold into a placeholder ident
-/// (re-opened by codegen) — the type-domain counterpart of `resolve_at_refs`.
+/// `@N..` / `@N..M` / `@L_N..` range references become a **structured**
+/// [`TyKind::Fresh`] node — a leaf that rides the Ty tree and renders back to
+/// the self-delimiting `@{...}` carrier for the token-level resolvers. No
+/// reserved placeholder ident is minted. Also accepts the folded carrier
+/// form (`@ { ... }`) directly, so output of an earlier fold re-parses.
 pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
     let at_span = cursor.span();
     cursor.bump(); // `@`
     match cursor.peek() {
+        // Folded carrier: `@{...}` — parse the group's inner spelling.
+        Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace => {
+            let inner = g.stream().into_iter().collect::<Vec<_>>().iter().map(|t| t.to_string()).collect::<String>();
+            if let Some(r) = crate::ast::fresh::FreshRef::parse(&inner) {
+                cursor.bump();
+                return crate::ast::TyFresh(r).to_ty().with_span(at_span);
+            }
+            err_ty_at(
+                "batch-impl: `@{...}` must hold a position reference \
+                 (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`)",
+                at_span,
+            )
+        }
         Some(TokenTree::Literal(lit)) => {
             let lit_str = lit.to_string();
-            // `@N..` / `@L_N..` / `@N..M` / `@N..=M`: fold into a range
-            // placeholder ident (the same shape `resolve_at_refs` produces).
+            // `@N..` / `@L_N..` / `@N..M` / `@N..=M`: a structured range ref.
             let range_lit = crate::parse::parse_range_literal(&lit_str);
             if let Some((group, start)) = range_lit
                 && matches!(cursor.peek_at(1), Some(TokenTree::Punct(p)) if p.as_char() == '.')
@@ -156,20 +170,19 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
                             );
                         };
                         cursor.bump();
-                        Some(e)
+                        FreshEnd::Closed(e)
                     }
-                    _ => None,
+                    _ => FreshEnd::Open,
                 };
-                let range = crate::ast::fresh::FreshRange { group, start, end };
-                let name = crate::ast::fresh::range_fresh_name(range);
-                let ident = Ident::new(&name, at_span);
-                return TyPrimitive(quote!(#ident)).to_ty().with_span(at_span);
+                return crate::ast::TyFresh(crate::ast::fresh::FreshRef { group, start, end })
+                    .to_ty()
+                    .with_span(at_span);
             }
-            match at_ref_name(&lit_str) {
-                Some(name) => {
+            // `@N` / `@g_i`: a single-position reference.
+            match parse_single_ref(&lit_str) {
+                Some(fresh) => {
                     cursor.bump();
-                    let ident = Ident::new(&name, at_span);
-                    TyPrimitive(quote!(#ident)).to_ty().with_span(at_span)
+                    crate::ast::TyFresh(fresh).to_ty().with_span(at_span)
                 }
                 None => err_ty_at(
                     "batch-impl: `@` in a type must be followed by a position \
@@ -183,6 +196,20 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
             at_span,
         ),
     }
+}
+
+/// Parses a single-position reference literal: `N` → flat, `g_i` → grouped.
+fn parse_single_ref(lit: &str) -> Option<crate::ast::fresh::FreshRef> {
+    use crate::ast::fresh::{FreshEnd, FreshRef};
+    if let Ok(n) = lit.parse::<usize>() {
+        return Some(FreshRef { group: None, start: n, end: FreshEnd::Single });
+    }
+    let (l, i) = lit.split_once('_')?;
+    Some(FreshRef {
+        group: Some(l.parse().ok()?),
+        start: i.parse().ok()?,
+        end: FreshEnd::Single,
+    })
 }
 
 /// Number / range block: `N` / `N..M` / `N..=M` (a range stays one block —

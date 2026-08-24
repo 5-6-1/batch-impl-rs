@@ -34,7 +34,7 @@ pub(crate) struct ImplParts {
     /// the impl's fresh generics in the range's scope — enabling fresh-driven
     /// cursor-only blocks and `@@N` name references. `None` when no switch
     /// template is present (fresh-driven body modification is then off).
-    pub(crate) fresh_binding: Option<crate::ast::fresh::FreshRange>,
+    pub(crate) fresh_binding: Option<crate::ast::fresh::FreshRef>,
 }
 
 impl ImplParts {
@@ -303,8 +303,8 @@ fn replace_idents(ts: TokenStream, map: &[(Ident, TokenStream)]) -> TokenStream 
 /// content is a fresh range reference (`@0..` / `@1..` / `@0_0..` /
 /// `@0..=M` — the same literal forms the type position folds). Returns the
 /// binding range; `None` for any ordinary shape template.
-fn parse_fresh_switch(tokens: &TokenStream) -> Option<crate::ast::fresh::FreshRange> {
-    use crate::ast::fresh::FreshRange;
+fn parse_fresh_switch(tokens: &TokenStream) -> Option<crate::ast::fresh::FreshRef> {
+    use crate::ast::fresh::{FreshEnd, FreshRef};
     let v = tokens.clone().into_iter().collect::<Vec<_>>();
     let [
         TokenTree::Punct(at),
@@ -330,6 +330,6 @@ fn parse_fresh_switch(tokens: &TokenStream) -> Option<crate::ast::fresh::FreshRa
         // `@N..M` — closed
         _ => return None,
     };
-    let range = FreshRange { group, start, end };
-    (range.end.is_none_or(|e| range.start <= e)).then_some(range)
+    let range = FreshRef { group, start, end: end.map(FreshEnd::Closed).unwrap_or(FreshEnd::Open) };
+    (match range.end { FreshEnd::Closed(e) => range.start <= e, _ => true }).then_some(range)
 }

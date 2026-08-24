@@ -6,6 +6,7 @@ use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 
 use super::FreshCtx;
 use super::{at_group_out_of_range, at_num_out_of_range};
+use crate::ast::fresh::{FreshEnd, FreshRef};
 use crate::ast::MAX_EXPAND;
 use crate::util::{compile_err, compile_error_str};
 
@@ -124,17 +125,13 @@ pub(crate) fn resolve_where_at(
                                     ));
                                 };
                                 consumed += 1;
-                                Some(e)
+                                FreshEnd::Closed(e)
                             }
-                            _ => None,
+                            _ => FreshEnd::Open,
                         };
-                        let range =
-                            crate::ast::fresh::FreshRange { group: Some(group), start, end };
-                        let count = crate::codegen::range_refs::range_count(
-                            range,
-                            slice.len(),
-                            tokens[i].span(),
-                        )?;
+                        let r = FreshRef { group: Some(group), start, end };
+                        let count =
+                            crate::codegen::range_refs::range_count(&r, slice.len(), tokens[i].span())?;
                         let tail = resolve_tail(&tokens[i + consumed..], ctx)?;
                         emit_fresh_predicates(&mut out, &slice[start..start + count], &tail);
                         i = tokens.len();

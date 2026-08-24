@@ -59,6 +59,15 @@ impl ToTokens for Ty {
     fn to_tokens(&self, out: &mut TokenStream) {
         out.extend(match &self.kind {
             TyKind::Primitive(p) => p.0.clone(),
+            // `@{...}` — the self-delimiting carrier of a macro-meta
+            // position reference (the token-level resolvers match this
+            // exact shape; no reserved placeholder ident is involved).
+            TyKind::Fresh(f) => {
+                // Delegate to the carrier emitter — the same self-delimiting
+                // `@{...}` form the token-level resolvers match, so a Ty-side
+                // reference and a token-side one are indistinguishable.
+                crate::ast::fresh::fresh_ref_tokens(f.0, self.span)
+            }
             TyKind::Generic(g) => params_to_tokens(&g.0.to_token_stream(), &g.1),
             TyKind::Trait(t) => params_to_tokens(&t.0, &t.1),
             TyKind::Array(a) => {
