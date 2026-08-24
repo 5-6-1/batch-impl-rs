@@ -9,7 +9,7 @@ use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 
 use crate::ast::fresh::{FreshEnd, FreshRef};
-use crate::ast::{Ty, parse_grouped_fresh, parse_numbered_fresh};
+use crate::ast::{Ty, parse_grouped_fresh};
 use crate::util::compile_error_str;
 
 /// Sweeps grouped fresh names (`_Param_{g}_{i}_BatchGen_`) in a rendered
@@ -21,148 +21,12 @@ use crate::util::compile_error_str;
 /// that do not match the grouped form pass through (user-written names or the
 /// single-numbered `@N`-constructed ones). Returns the input unchanged when
 /// no grouped fresh names exist.
-pub(crate) fn sweep_fresh_names(tokens: TokenStream) -> TokenStream {
-    let mut groups: Vec<(usize, usize)> = vec![];
-    collect_grouped_fresh(&tokens, &mut groups);
-    if groups.is_empty() {
-        return tokens;
-    }
-    groups.sort_unstable();
-    groups.dedup();
-    let map: std::collections::HashMap<(usize, usize), usize> =
-        groups.iter().enumerate().map(|(k, &gi)| (gi, k)).collect();
-    replace_grouped_fresh(tokens, &map)
-}
-
-pub(crate) fn collect_grouped_fresh(tokens: &TokenStream, out: &mut Vec<(usize, usize)>) {
-    for tt in tokens.clone() {
-        match tt {
-            TokenTree::Ident(id) => {
-                if let Some(gi) = parse_grouped_fresh(&id.to_string()) {
-                    out.push(gi);
-                }
-            }
-            TokenTree::Group(g) => {
-                let inner = g.stream();
-                collect_grouped_fresh(&inner, out);
-            }
-            _ => {}
-        }
-    }
-}
-
-pub(crate) fn replace_grouped_fresh(
-    tokens: TokenStream, map: &std::collections::HashMap<(usize, usize), usize>,
-) -> TokenStream {
-    let mut out = vec![];
-    for tt in tokens {
-        match tt {
-            TokenTree::Ident(id) => {
-                let s = id.to_string();
-                if let Some(&k) = parse_grouped_fresh(&s).and_then(|gi| map.get(&gi)) {
-                    let name = format!("_Param_{}_BatchGen_", k);
-                    out.push(TokenTree::Ident(Ident::new(&name, id.span())));
-                } else {
-                    out.push(TokenTree::Ident(id));
-                }
-            }
-            TokenTree::Group(g) => {
-                let inner = g.stream();
-                let mut new_g = Group::new(g.delimiter(), replace_grouped_fresh(inner, map));
-                new_g.set_span(g.span());
-                out.push(TokenTree::Group(new_g));
-            }
-            other => out.push(other),
-        }
-    }
-    out.into_iter().collect()
-}
-
-/// Renames the swept fresh generics (`_Param_0..N_BatchGen_`) to the
-/// readable `P0, P1, ...` scheme — P = Param, the index matches `@N`, so the
-/// generated code is self-documenting (`impl<P0,P1> RangeSugar for (P0,P1)`
-/// — the spelling the tutorial already uses). Runs after the sweep (the last
-/// render step), so every internal protocol (`@N` construction, where
-/// resolution, the sweep itself) sees the reserved names unchanged; the
-/// rename is a pure presentation layer.
-///
-/// Collisions are skipped per fresh: an identifier already in use in the
-/// impl block (a user generic named `P0`, a type named `P1`) pushes that
-/// fresh to `P{n}_` — the numbering never drifts, so `@N` correspondence
-/// stays stable.
-pub(crate) fn readable_fresh_names(tokens: TokenStream) -> TokenStream {
-    use std::collections::{HashMap, HashSet};
-    let mut used: HashSet<String> = HashSet::new();
-    collect_nonfresh_idents(&tokens, &mut used);
-    let mut map: HashMap<String, Ident> = HashMap::new();
-    let mut next = 0usize;
-    rename_numbered_fresh(tokens, &mut map, &mut next, &used, 0)
-}
-
-fn collect_nonfresh_idents(tokens: &TokenStream, out: &mut std::collections::HashSet<String>) {
-    for tt in tokens.clone() {
-        match tt {
-            TokenTree::Ident(id) => {
-                let s = id.to_string();
-                if !crate::ast::fresh::is_fresh_name(&s) {
-                    out.insert(s);
-                }
-            }
-            TokenTree::Group(g) => {
-                let inner = g.stream();
-                collect_nonfresh_idents(&inner, out);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn rename_numbered_fresh(
-    tokens: TokenStream, map: &mut std::collections::HashMap<String, Ident>, next: &mut usize,
-    used: &std::collections::HashSet<String>, depth: usize,
-) -> TokenStream {
-    if depth > crate::util::MAX_NEST_DEPTH {
-        return tokens;
-    }
-    let mut out = vec![];
-    for tt in tokens {
-        match tt {
-            TokenTree::Ident(id) => {
-                let s = id.to_string();
-                if parse_numbered_fresh(&s).is_some() {
-                    let name = map.entry(s).or_insert_with(|| {
-                        let base = format!("P{}", *next);
-                        *next += 1;
-                        let final_name =
-                            if used.contains(&base) { format!("{}_", base) } else { base };
-                        Ident::new(&final_name, id.span())
-                    });
-                    out.push(TokenTree::Ident(name.clone()));
-                } else {
-                    out.push(TokenTree::Ident(id));
-                }
-            }
-            TokenTree::Group(g) => {
-                let inner = g.stream();
-                let mut new_g = Group::new(
-                    g.delimiter(),
-                    rename_numbered_fresh(inner, map, next, used, depth + 1),
-                );
-                new_g.set_span(g.span());
-                out.push(TokenTree::Group(new_g));
-            }
-            other => out.push(other),
-        }
-    }
-    out.into_iter().collect()
-}
-
 /// The per-impl fresh-generic context, built once in [`generate_parts`] and
 /// shared by every macro-meta consumer (`where_at` / `range_refs` / shape /
 /// repeat): grouped fresh names sorted by (group, position) — exactly the
-/// document order the sweeper renumbers to `_Param_0..N_BatchGen_`, so `@N`
-/// indexes straight into [`FreshCtx::names`]. User-written params do not
-/// participate (`@N` exists exactly because fresh names are unknowable).
+/// document order the finalizer numbers to `P0..Pn`, so `@N` indexes straight
+/// into [`FreshCtx::names`]. User-written params do not participate (`@N`
+/// exists exactly because fresh names are unknowable).
 pub(crate) struct FreshCtx<'a> {
     pub(crate) names: Vec<(usize, usize, &'a TokenStream)>,
 }
@@ -205,7 +69,86 @@ impl<'a> FreshCtx<'a> {
         Ok(&self.names[start..end])
     }
 }
+/// The final naming pass — **one fused traversal** replacing the former
+/// sweep (`_Param_{g}_{i}_` → `_Param_{N}_`) + readable rename
+/// (`_Param_{N}_` → `P{N}`, collision-aware): grouped fresh names are
+/// numbered by (group, position) document order and directly rewritten to
+/// their display names, so no intermediate reserved form is ever emitted.
+///
+/// Collision handling keeps the numbering stable: a display name already in
+/// use by the impl (a user generic named `P0`, a type named `P1`) pushes
+/// that fresh to `P{n}_` — `@N` correspondence never drifts.
+pub(crate) fn finalize_fresh_names(tokens: TokenStream) -> TokenStream {
+    // Pass 1 — collect: grouped pairs (for document-order numbering) and
+    // every non-fresh ident (the collision set for display names).
+    let mut groups: Vec<(usize, usize)> = vec![];
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    collect_idents(&tokens, &mut groups, &mut used);
+    if groups.is_empty() {
+        return tokens;
+    }
+    groups.sort_unstable();
+    groups.dedup();
+    // Display names: P0..Pn, skipping idents the impl already uses.
+    let map: std::collections::HashMap<(usize, usize), String> = groups
+        .iter()
+        .enumerate()
+        .map(|(k, &gi)| {
+            let base = format!("P{}", k);
+            let final_name =
+                if used.contains(&base) { format!("{}_", base) } else { base };
+            (gi, final_name)
+        })
+        .collect();
+    // Pass 2 — rewrite grouped idents to their display names.
+    rewrite_grouped(tokens, &map)
+}
 
+/// One walk gathering both inputs of the naming pass.
+fn collect_idents(
+    tokens: &TokenStream, groups: &mut Vec<(usize, usize)>, used: &mut std::collections::HashSet<String>,
+) {
+    for tt in tokens.clone() {
+        match tt {
+            TokenTree::Ident(id) => {
+                let s = id.to_string();
+                if let Some(gi) = parse_grouped_fresh(&s) {
+                    groups.push(gi);
+                } else if !crate::ast::fresh::is_fresh_name(&s) {
+                    used.insert(s);
+                }
+            }
+            TokenTree::Group(g) => collect_idents(&g.stream(), groups, used),
+            _ => {}
+        }
+    }
+}
+
+fn rewrite_grouped(
+    tokens: TokenStream, map: &std::collections::HashMap<(usize, usize), String>,
+) -> TokenStream {
+    let mut out = vec![];
+    for tt in tokens {
+        match tt {
+            TokenTree::Ident(id) => {
+                let s = id.to_string();
+                if let Some(name) = parse_grouped_fresh(&s).and_then(|gi| map.get(&gi)) {
+                    out.push(TokenTree::Ident(Ident::new(name, id.span())));
+                } else {
+                    out.push(TokenTree::Ident(id));
+                }
+            }
+            TokenTree::Group(g) => {
+                let inner = g.stream();
+                let mut new_g = Group::new(g.delimiter(), rewrite_grouped(inner, map));
+                new_g.set_span(g.span());
+                out.push(TokenTree::Group(new_g));
+            }
+            other => out.push(other),
+        }
+    }
+    out.into_iter().collect()
+}
 /// `@N` out of range: the impl has fewer fresh generics than the index.
 /// The single authority for this diagnostic — `resolve_where_at` (where
 /// predicates) and [`validate_at_refs`] (target type / trait args) share it,
@@ -360,22 +303,23 @@ mod tests {
 
     #[test]
     fn readable_basic() {
-        let ts = quote! { impl<_Param_0_BatchGen_> Tr for Box<_Param_0_BatchGen_> };
-        assert_eq!(readable_fresh_names(ts).to_string(), "impl < P0 > Tr for Box < P0 >");
+        let ts = quote! { impl<_Param_0_0_BatchGen_> Tr for Box<_Param_0_0_BatchGen_> };
+        assert_eq!(finalize_fresh_names(ts).to_string(), "impl < P0 > Tr for Box < P0 >");
     }
 
     #[test]
     fn readable_multiple_indexed() {
-        let ts = quote! { impl<_Param_0_BatchGen_, _Param_1_BatchGen_> Tr for (_Param_0_BatchGen_, _Param_1_BatchGen_) };
-        assert_eq!(readable_fresh_names(ts).to_string(), "impl < P0 , P1 > Tr for (P0 , P1)");
+        let ts = quote! { impl<_Param_0_0_BatchGen_, _Param_0_1_BatchGen_> Tr for (_Param_0_0_BatchGen_, _Param_0_1_BatchGen_) };
+        assert_eq!(finalize_fresh_names(ts).to_string(), "impl < P0 , P1 > Tr for (P0 , P1)");
     }
 
     #[test]
     fn readable_skips_collisions() {
         // a user ident `P0` pushes that fresh to `P0_`; the numbering stays
-        let ts = quote! { impl<_Param_0_BatchGen_> Tr for Box<P0> where _Param_0_BatchGen_: Sized };
+        let ts =
+            quote! { impl<_Param_0_0_BatchGen_> Tr for Box<P0> where _Param_0_0_BatchGen_: Sized };
         assert_eq!(
-            readable_fresh_names(ts).to_string(),
+            finalize_fresh_names(ts).to_string(),
             "impl < P0_ > Tr for Box < P0 > where P0_ : Sized"
         );
     }
@@ -383,6 +327,6 @@ mod tests {
     #[test]
     fn readable_leaves_nonfresh() {
         let ts = quote! { impl<T> Tr for Box<T> };
-        assert_eq!(readable_fresh_names(ts).to_string(), "impl < T > Tr for Box < T >");
+        assert_eq!(finalize_fresh_names(ts).to_string(), "impl < T > Tr for Box < T >");
     }
 }

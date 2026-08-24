@@ -138,7 +138,7 @@ pub(crate) fn generate_impl(
                         proc_macro2::Span::call_site(),
                     )
                 } else {
-                    sweep_fresh_names(rewrite_macro_input(mac, spec))
+                    finalize_fresh_names(rewrite_macro_input(mac, spec))
                 }
             }
             Err(e) => e,

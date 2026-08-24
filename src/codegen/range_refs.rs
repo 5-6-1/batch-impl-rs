@@ -280,7 +280,6 @@ fn is_fresh_carrier_pair(at: &TokenTree, g: &TokenTree) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::fresh::FreshEnd;
     use quote::quote;
 
     fn fresh_ctx() -> FreshCtx<'static> {

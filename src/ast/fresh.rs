@@ -38,13 +38,6 @@ pub(crate) fn parse_grouped_fresh(s: &str) -> Option<(usize, usize)> {
     Some((g.parse().ok()?, i.parse().ok()?))
 }
 
-/// Parses the single-numbered `_Param_{n}_BatchGen_` form
-/// (constructed from `@N` references); `None` for any other ident.
-pub(crate) fn parse_numbered_fresh(s: &str) -> Option<usize> {
-    let rest = s.strip_prefix(FRESH_PREFIX)?.strip_suffix(FRESH_SUFFIX)?;
-    rest.parse().ok()
-}
-
 /// A resolved `@N` / `@g_i` / `@N..` / `@N..M` position reference — the
 /// structured carrier that rides in the [`Ty`](crate::ast::Ty) tree
 /// (`TyKind::Fresh`) and renders to the self-delimiting token form
@@ -276,6 +269,6 @@ mod tests {
     fn plain_fresh_declarations_still_parse() {
         // The declaration-side protocol (sweeper) is untouched.
         assert_eq!(parse_grouped_fresh("_Param_0_1_BatchGen_"), Some((0, 1)));
-        assert_eq!(parse_numbered_fresh("_Param_0_BatchGen_"), Some(0));
+        assert!(is_fresh_name("_Param_0_BatchGen_"));
     }
 }

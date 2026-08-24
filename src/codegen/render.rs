@@ -124,9 +124,8 @@ pub(crate) fn render_impl(
             #(#body_tokens)*
         }
     };
-    // Sweep the fresh names (`_Param_{g}_{i}_` → `_Param_0..N_`), then make
-    // them readable (`P0, P1, ...` — the tutorial spelling) as the final
-    // presentation step; every internal protocol ran before this.
-    let swept = crate::codegen::fresh::sweep_fresh_names(rendered);
-    crate::codegen::fresh::readable_fresh_names(swept)
+    // Final naming: grouped fresh names are numbered by document order and
+    // rewritten straight to their readable display names (`P0, P1, ...`) in
+    // one fused pass — every internal protocol ran before this.
+    crate::codegen::fresh::finalize_fresh_names(rendered)
 }
