@@ -14,50 +14,10 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::ast::fresh::{FreshRange, parse_range_fresh};
-use crate::ast::{MAX_EXPAND, parse_grouped_fresh};
+use crate::ast::MAX_EXPAND;
+use crate::codegen::FreshCtx;
 use crate::parse::split_at_depth0;
 use crate::util::compile_error_str;
-
-/// The impl's fresh names in document order: grouped fresh names
-/// (`_Param_{g}_{i}_BatchGen_`) sorted by (group, position) — exactly the
-/// order `@N` uses (the sweeper renumbers to `_Param_0..N_BatchGen_`
-/// afterwards). Anything else is a user-written param and does not
-/// participate in `@N` indexing. Each entry carries its (group, position)
-/// so a grouped range (`@L_N..`) can slice within its group.
-fn sorted_fresh(impl_names: &[TokenStream]) -> Vec<(usize, usize, &TokenStream)> {
-    let mut fresh_sorted: Vec<(usize, usize, &TokenStream)> = impl_names
-        .iter()
-        .filter_map(|n| {
-            let (g, i) = parse_grouped_fresh(&n.to_string())?;
-            Some((g, i, n))
-        })
-        .collect();
-    fresh_sorted.sort_by_key(|&(g, i, _)| (g, i));
-    fresh_sorted
-}
-
-/// The entries of one generator group (sorted by position within the group);
-/// an unknown group errors (mirrors `@g_i`'s `at_group_out_of_range`).
-/// The nested `&TokenStream` reference needs an explicit lifetime; clippy's
-/// `needless_lifetimes` does not account for elision across the inner ref.
-#[allow(clippy::needless_lifetimes)]
-pub(crate) fn group_fresh<'a>(
-    fresh: &'a [(usize, usize, &'a TokenStream)], group: usize, span: proc_macro2::Span,
-) -> Result<&'a [(usize, usize, &'a TokenStream)], TokenStream> {
-    let start = fresh.iter().position(|&(g, _, _)| g == group).ok_or_else(|| {
-        compile_error_str(
-            &format!(
-                "batch-impl: `@{}_..` group {} does not exist — this impl has \
-                 no generator group {}",
-                group, group, group,
-            ),
-            span,
-        )
-    })?;
-    let end =
-        fresh[start..].iter().position(|&(g, _, _)| g != group).map_or(fresh.len(), |p| start + p);
-    Ok(&fresh[start..end])
-}
 
 /// Number of entries a range covers within its slice scope; a closed range
 /// out of bounds errors, an open range past the end contributes zero.
@@ -97,10 +57,11 @@ pub(crate) fn range_count(
 /// covered entries — empty for an open range past the end, an error for a
 /// closed range out of bounds or an unknown group.
 fn range_entries<'a>(
-    range: FreshRange, fresh: &'a [(usize, usize, &'a TokenStream)],
+    range: FreshRange, ctx: &'a FreshCtx<'a>,
 ) -> Result<Vec<&'a TokenStream>, TokenStream> {
+    let fresh = &ctx.names;
     let slice: &[(usize, usize, &TokenStream)] = match range.group {
-        Some(l) => group_fresh(fresh, l, proc_macro2::Span::call_site())?,
+        Some(l) => ctx.group(l, proc_macro2::Span::call_site())?,
         None => fresh,
     };
     let count = range_count(range, slice.len(), proc_macro2::Span::call_site())?;
@@ -120,12 +81,10 @@ fn range_entries<'a>(
 /// Recurses into groups; a range placeholder with no covering fresh names
 /// errors (an open range past the end is legal and contributes nothing).
 pub(crate) fn expand_range_refs(
-    tokens: TokenStream, impl_names: &[TokenStream],
+    tokens: TokenStream, ctx: &FreshCtx,
 ) -> Result<TokenStream, TokenStream> {
-    let fresh = sorted_fresh(impl_names);
-
     let v = tokens.into_iter().collect::<Vec<_>>();
-    let out = expand_at(&v, &fresh, 0)?;
+    let out = expand_at(&v, ctx, 0)?;
     Ok(out.into_iter().collect())
 }
 
@@ -136,14 +95,13 @@ pub(crate) fn expand_range_refs(
 /// fresh name. Runs before `merge_dup_params`, so a range declaration that
 /// overlaps a generator's fresh declarations collapses cleanly.
 pub(crate) fn expand_range_decls(
-    impl_generics: &mut Vec<(TokenStream, Option<crate::ast::Ty>)>, impl_names: &[TokenStream],
+    impl_generics: &mut Vec<(TokenStream, Option<crate::ast::Ty>)>, ctx: &FreshCtx,
 ) -> Result<(), TokenStream> {
-    let fresh = sorted_fresh(impl_names);
     let mut out: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![];
     for (name, bound) in impl_generics.iter() {
         let s = name.to_string();
         if let Some(range) = parse_range_fresh(&s) {
-            for n in range_entries(range, &fresh)? {
+            for n in range_entries(range, ctx)? {
                 out.push(((*n).clone(), None));
             }
         } else {
@@ -198,7 +156,7 @@ fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
 }
 
 fn expand_at(
-    tokens: &[TokenTree], fresh: &[(usize, usize, &TokenStream)], depth: usize,
+    tokens: &[TokenTree], ctx: &FreshCtx, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > crate::util::MAX_NEST_DEPTH {
         return Err(crate::util::depth_err(tokens, ""));
@@ -211,7 +169,7 @@ fn expand_at(
                 let s = id.to_string();
                 if let Some(range) = parse_range_fresh(&s) {
                     let mut first = true;
-                    for n in range_entries(range, fresh)? {
+                    for n in range_entries(range, ctx)? {
                         if !first {
                             out.push(TokenTree::Punct(proc_macro2::Punct::new(
                                 ',',
@@ -246,7 +204,7 @@ fn expand_at(
                 let foldable =
                     g.delimiter() == proc_macro2::Delimiter::Parenthesis && has_range_placeholder;
                 let expanded: Vec<TokenTree> =
-                    expand_at(&inner, fresh, depth + 1)?.into_iter().collect();
+                    expand_at(&inner, ctx, depth + 1)?.into_iter().collect();
                 // Empty-tuple folding: a range that re-opened to zero entries
                 // leaves orphaned empties (`(,)` / `(, P1,)` / `(P0, ,)`) —
                 // drop them and rejoin, restoring a valid tuple (`()` /
@@ -276,6 +234,10 @@ mod tests {
     use super::*;
     use quote::quote;
 
+    fn fresh_ctx() -> FreshCtx<'static> {
+        // Leak is fine in tests: the ctx borrows the names for the call only.
+        FreshCtx::new(Box::leak(Box::new(names())))
+    }
     fn names() -> Vec<TokenStream> {
         // Grouped fresh names (the pre-sweep form): `@N` indexes them by
         // (group, position) document order.
@@ -289,7 +251,7 @@ mod tests {
     #[test]
     fn open_range_in_generic_args() {
         let ts: TokenStream = "Wrapper < _Param_0_With_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(
             out.to_string(),
             "Wrapper < _Param_0_0_BatchGen_ , _Param_1_0_BatchGen_ , _Param_1_1_BatchGen_ >"
@@ -299,21 +261,21 @@ mod tests {
     #[test]
     fn closed_range() {
         let ts: TokenStream = "Wrapper < _Param_1_With_2_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_1_0_BatchGen_ , _Param_1_1_BatchGen_ >");
     }
 
     #[test]
     fn open_range_with_offset() {
         let ts: TokenStream = "Wrapper < _Param_1_With_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_1_0_BatchGen_ , _Param_1_1_BatchGen_ >");
     }
 
     #[test]
     fn tuple_range() {
         let ts: TokenStream = "( _Param_0_With_BatchGen_ , u8 )".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(
             out.to_string(),
             "(_Param_0_0_BatchGen_ , _Param_1_0_BatchGen_ , _Param_1_1_BatchGen_ , u8)"
@@ -323,13 +285,13 @@ mod tests {
     #[test]
     fn closed_range_out_of_bounds_errors() {
         let ts: TokenStream = "Wrapper < _Param_1_With_5_BatchGen_ >".parse().unwrap();
-        assert!(expand_range_refs(ts, &names()).is_err());
+        assert!(expand_range_refs(ts, &fresh_ctx()).is_err());
     }
 
     #[test]
     fn plain_fresh_names_untouched() {
         let ts: TokenStream = "Wrapper < _Param_0_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_0_BatchGen_ >");
     }
 
@@ -339,7 +301,7 @@ mod tests {
         // expands into one bare declaration per fresh.
         let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
             vec![("_Param_0_With_BatchGen_".parse().unwrap(), None)];
-        expand_range_decls(&mut gens, &names()).unwrap();
+        expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
         assert_eq!(got, ["_Param_0_0_BatchGen_", "_Param_1_0_BatchGen_", "_Param_1_1_BatchGen_"]);
     }
@@ -348,7 +310,7 @@ mod tests {
     fn decl_position_closed_range() {
         let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
             vec![("_Param_1_With_2_BatchGen_".parse().unwrap(), None)];
-        expand_range_decls(&mut gens, &names()).unwrap();
+        expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
         assert_eq!(got, ["_Param_1_0_BatchGen_", "_Param_1_1_BatchGen_"]);
     }
@@ -358,7 +320,7 @@ mod tests {
         // A user param and a range declaration coexist; the plain one stays.
         let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
             vec![("X".parse().unwrap(), None), ("_Param_0_With_BatchGen_".parse().unwrap(), None)];
-        expand_range_decls(&mut gens, &names()).unwrap();
+        expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
         assert_eq!(
             got,
@@ -370,14 +332,14 @@ mod tests {
     fn decl_position_closed_out_of_bounds_errors() {
         let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
             vec![("_Param_0_With_5_BatchGen_".parse().unwrap(), None)];
-        assert!(expand_range_decls(&mut gens, &names()).is_err());
+        assert!(expand_range_decls(&mut gens, &fresh_ctx()).is_err());
     }
 
     #[test]
     fn grouped_range_open_in_generic_args() {
         // `@0_0..` — group 0 from position 0: its only entry.
         let ts: TokenStream = "Wrapper < _Param_0_0_With_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_0_0_BatchGen_ >");
     }
 
@@ -385,7 +347,7 @@ mod tests {
     fn grouped_range_open_group1() {
         // `@1_0..` — group 1 from position 0: both entries of group 1.
         let ts: TokenStream = "Wrapper < _Param_1_0_With_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_1_0_BatchGen_ , _Param_1_1_BatchGen_ >");
     }
 
@@ -393,7 +355,7 @@ mod tests {
     fn grouped_range_closed_in_generic_args() {
         // `@1_0..=0` — group 1, positions 0..=0 → just the first.
         let ts: TokenStream = "Wrapper < _Param_1_0_With_0_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_1_0_BatchGen_ >");
     }
 
@@ -401,21 +363,21 @@ mod tests {
     fn grouped_range_second_group_tail() {
         // `@1_1..` — group 1 from position 1: only the group's tail.
         let ts: TokenStream = "Wrapper < _Param_1_1_With_BatchGen_ >".parse().unwrap();
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert_eq!(out.to_string(), "Wrapper < _Param_1_1_BatchGen_ >");
     }
 
     #[test]
     fn grouped_range_unknown_group_errors() {
         let ts: TokenStream = "Wrapper < _Param_3_0_With_BatchGen_ >".parse().unwrap();
-        assert!(expand_range_refs(ts, &names()).is_err());
+        assert!(expand_range_refs(ts, &fresh_ctx()).is_err());
     }
 
     #[test]
     fn grouped_range_out_of_group_errors() {
         // Group 0 has 1 entry; `@0_2..=3` is out of range.
         let ts: TokenStream = "Wrapper < _Param_0_2_With_3_BatchGen_ >".parse().unwrap();
-        assert!(expand_range_refs(ts, &names()).is_err());
+        assert!(expand_range_refs(ts, &fresh_ctx()).is_err());
     }
 
     #[test]
@@ -427,7 +389,7 @@ mod tests {
                 (<f64 as Module<f64, f64>>::scale(&r, self.0),)
             }
         );
-        let out = expand_range_refs(ts, &names()).unwrap();
+        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
         assert!(out.to_string().contains("self . 0) ,) }"), "{out}");
     }
 

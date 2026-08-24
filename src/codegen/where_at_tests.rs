@@ -3,6 +3,7 @@
 //! ranges, group references, and open ranges.
 
 use super::where_at::resolve_where_at;
+use crate::codegen::FreshCtx;
 use crate::analyze::extract_trait_bounds;
 use crate::ast::*;
 use crate::codegen::generate_impl;
@@ -16,7 +17,8 @@ fn fresh_names(n: usize) -> Vec<TokenStream> {
 
 fn resolve(s: &str, names: &[TokenStream]) -> String {
     let pred: TokenStream = s.parse().unwrap();
-    resolve_where_at(&pred, names).unwrap().to_string()
+    let ctx = FreshCtx::new(names);
+    resolve_where_at(&pred, &ctx).unwrap().to_string()
 }
 
 #[test]
@@ -47,7 +49,7 @@ fn at_ref_inside_group_resolves() {
     let none = Group::new(proc_macro2::Delimiter::None, inner);
     let pred = TokenStream::from(TokenTree::Group(none));
     assert_eq!(
-        resolve_where_at(&pred, &names).unwrap().to_string(),
+        resolve_where_at(&pred, &FreshCtx::new(&names)).unwrap().to_string(),
         "Scalar = _Param_0_0_BatchGen_ :: Scalar"
     );
 }

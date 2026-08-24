@@ -156,6 +156,55 @@ fn rename_numbered_fresh(
     out.into_iter().collect()
 }
 
+/// The per-impl fresh-generic context, built once in [`generate_parts`] and
+/// shared by every macro-meta consumer (`where_at` / `range_refs` / shape /
+/// repeat): grouped fresh names sorted by (group, position) — exactly the
+/// document order the sweeper renumbers to `_Param_0..N_BatchGen_`, so `@N`
+/// indexes straight into [`FreshCtx::names`]. User-written params do not
+/// participate (`@N` exists exactly because fresh names are unknowable).
+pub(crate) struct FreshCtx<'a> {
+    pub(crate) names: Vec<(usize, usize, &'a TokenStream)>,
+}
+
+impl<'a> FreshCtx<'a> {
+    /// Collects and sorts the grouped fresh names of one impl.
+    pub(crate) fn new(impl_names: &'a [TokenStream]) -> Self {
+        let mut names: Vec<(usize, usize, &TokenStream)> = impl_names
+            .iter()
+            .filter_map(|n| {
+                let (g, i) = parse_grouped_fresh(&n.to_string())?;
+                Some((g, i, n))
+            })
+            .collect();
+        names.sort_by_key(|&(g, i, _)| (g, i));
+        Self { names }
+    }
+
+    /// The entries of one generator group (sorted by position within the
+    /// group); an unknown group errors (the single authority for that
+    /// diagnostic — shared by the flat and predicate-subject resolvers).
+    pub(crate) fn group(
+        &self, group: usize, span: Span,
+    ) -> Result<&[(usize, usize, &TokenStream)], TokenStream> {
+        let start =
+            self.names.iter().position(|&(g, _, _)| g == group).ok_or_else(|| {
+                compile_error_str(
+                    &format!(
+                        "batch-impl: `@{}_..` group {} does not exist — this impl has \
+                         no generator group {}",
+                        group, group, group,
+                    ),
+                    span,
+                )
+            })?;
+        let end = self.names[start..]
+            .iter()
+            .position(|&(g, _, _)| g != group)
+            .map_or(self.names.len(), |p| start + p);
+        Ok(&self.names[start..end])
+    }
+}
+
 /// `@N` out of range: the impl has fewer fresh generics than the index.
 /// The single authority for this diagnostic — `resolve_where_at` (where
 /// predicates) and [`validate_at_refs`] (target type / trait args) share it,
@@ -196,8 +245,7 @@ pub(crate) fn at_group_out_of_range(g: usize, pos: usize, span: Span) -> TokenSt
 /// `_Param_*_BatchGen_` name into rustc's E0412 output.
 pub(crate) fn validate_at_refs(
     target: &Ty, trait_args: &[TokenStream], impl_names: &[TokenStream],
-) -> Vec<TokenStream> {
-    let declared = impl_names
+) -> Vec<TokenStream> {    let declared = impl_names
         .iter()
         .filter_map(|n| parse_grouped_fresh(&n.to_string()))
         .collect::<std::collections::HashSet<_>>();

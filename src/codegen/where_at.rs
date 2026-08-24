@@ -4,8 +4,9 @@
 
 use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 
+use super::FreshCtx;
 use super::{at_group_out_of_range, at_num_out_of_range};
-use crate::ast::{MAX_EXPAND, parse_grouped_fresh};
+use crate::ast::MAX_EXPAND;
 use crate::util::{compile_err, compile_error_str};
 
 /// Macro-meta position references in where predicates: `@N` → the N-th fresh
@@ -23,7 +24,7 @@ use crate::util::{compile_err, compile_error_str};
 /// `@N..M`) against `impl_name_streams`. All errors are collected and
 /// returned at once (the caller emits only the errors — no partial impl).
 pub(crate) fn resolve_where_predicates(
-    where_clauses: &[TokenStream], impl_name_streams: &[TokenStream],
+    where_clauses: &[TokenStream], ctx: &FreshCtx,
 ) -> Result<Vec<TokenStream>, Vec<TokenStream>> {
     let mut where_resolved = vec![];
     let mut errs = vec![];
@@ -50,7 +51,7 @@ pub(crate) fn resolve_where_predicates(
             ));
             continue;
         }
-        match resolve_where_at(pred, impl_name_streams) {
+        match resolve_where_at(pred, ctx) {
             // An empty result (a `@N..` open range with no fresh past N, or a
             // trailing-comma empty segment) contributes no predicate — skip
             // it instead of emitting a dangling comma into the where clause.
@@ -63,21 +64,11 @@ pub(crate) fn resolve_where_predicates(
 }
 
 pub(crate) fn resolve_where_at(
-    pred: &TokenStream, impl_names: &[TokenStream],
+    pred: &TokenStream, ctx: &FreshCtx,
 ) -> Result<TokenStream, TokenStream> {
-    // Fresh params sorted by (group, position) — the sweep order, so `@N`
-    // matches the final `_Param_{N}_BatchGen_` the sweeper will emit. The
-    // parse result rides in the tuple (filter_map), so the sort key can
-    // never unwrap — the library promises no panics, even on adversarial
-    // input or internal invariant drift.
-    let mut fresh_sorted: Vec<(usize, usize, &TokenStream)> = impl_names
-        .iter()
-        .filter_map(|n| {
-            let (g, i) = parse_grouped_fresh(&n.to_string())?;
-            Some((g, i, n))
-        })
-        .collect();
-    fresh_sorted.sort_by_key(|&(g, i, _)| (g, i));
+    // `ctx.names` is already sorted by (group, position) — the sweep order,
+    // so `@N` matches the final `_Param_{N}_BatchGen_` the sweeper will emit.
+    let fresh_sorted = &ctx.names;
     let tokens = pred.clone().into_iter().collect::<Vec<_>>();
     let mut out = vec![];
     let mut i = 0;
@@ -103,8 +94,8 @@ pub(crate) fn resolve_where_at(
                             MAX_EXPAND
                         ));
                     }
-                    let tail = resolve_tail(&tokens[i + 2..], impl_names)?;
-                    emit_fresh_predicates(&mut out, &fresh_sorted, &tail);
+                    let tail = resolve_tail(&tokens[i + 2..], ctx)?;
+                    emit_fresh_predicates(&mut out, fresh_sorted, &tail);
                     i = tokens.len();
                     continue;
                 }
@@ -118,11 +109,7 @@ pub(crate) fn resolve_where_at(
                         && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
                         && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
                     {
-                        let slice = crate::codegen::range_refs::group_fresh(
-                            &fresh_sorted,
-                            group,
-                            tokens[i].span(),
-                        )?;
+                        let slice = ctx.group(group, tokens[i].span())?;
                         let mut consumed = 4;
                         if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=')
                         {
@@ -148,7 +135,7 @@ pub(crate) fn resolve_where_at(
                             slice.len(),
                             tokens[i].span(),
                         )?;
-                        let tail = resolve_tail(&tokens[i + consumed..], impl_names)?;
+                        let tail = resolve_tail(&tokens[i + consumed..], ctx)?;
                         emit_fresh_predicates(&mut out, &slice[start..start + count], &tail);
                         i = tokens.len();
                         continue;
@@ -172,7 +159,7 @@ pub(crate) fn resolve_where_at(
                                 MAX_EXPAND
                             ));
                         }
-                        let tail = resolve_tail(&tokens[i + 4..], impl_names)?;
+                        let tail = resolve_tail(&tokens[i + 4..], ctx)?;
                         emit_fresh_predicates(&mut out, &fresh_sorted[start..start + count], &tail);
                         i = tokens.len();
                         continue;
@@ -186,7 +173,7 @@ pub(crate) fn resolve_where_at(
                     {
                         let (count, _end_idx, tail) =
                             parse_fresh_range(&tokens, i, start, fresh_sorted.len())?;
-                        let tail = resolve_tail(&tail, impl_names)?;
+                        let tail = resolve_tail(&tail, ctx)?;
                         emit_fresh_predicates(&mut out, &fresh_sorted[start..start + count], &tail);
                         i = tokens.len();
                         continue;
@@ -215,8 +202,11 @@ pub(crate) fn resolve_where_at(
                     if let Some((g, pos)) = s.split_once('_')
                         && let (Ok(g), Ok(pos)) = (g.parse::<usize>(), pos.parse::<usize>())
                     {
-                        let target = format!("_Param_{}_{}_BatchGen_", g, pos);
-                        let Some(name) = impl_names.iter().find(|n| n.to_string() == target) else {
+                        // Pair lookup on the sorted context (no name-string
+                        // round-trip — the ctx carries the parsed pairs).
+                        let Some(&(_, _, name)) =
+                            ctx.names.iter().find(|&&(gg, pp, _)| gg == g && pp == pos)
+                        else {
                             return Err(at_group_out_of_range(g, pos, tokens[i].span()));
                         };
                         out.extend(name.clone());
@@ -242,7 +232,7 @@ pub(crate) fn resolve_where_at(
             // value reference that must resolve like the top level, mirroring
             // `parse::resolve_at_refs`).
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let resolved = resolve_tail(&inner, impl_names)?;
+            let resolved = resolve_tail(&inner, ctx)?;
             let mut ng = Group::new(g.delimiter(), resolved.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));
@@ -257,11 +247,9 @@ pub(crate) fn resolve_where_at(
 
 /// Resolves the `@` references in a predicate tail (the type position after
 /// `:` — `@N` may appear inside angle groups, e.g. `Scalar = @0::Scalar`).
-fn resolve_tail(
-    tail: &[TokenTree], impl_names: &[TokenStream],
-) -> Result<Vec<TokenTree>, TokenStream> {
+fn resolve_tail(tail: &[TokenTree], ctx: &FreshCtx) -> Result<Vec<TokenTree>, TokenStream> {
     let ts = tail.iter().cloned().collect();
-    resolve_where_at(&ts, impl_names).map(|r| r.into_iter().collect())
+    resolve_where_at(&ts, ctx).map(|r| r.into_iter().collect())
 }
 
 /// Emits `name0 tail, name1 tail, ...` (comma-separated) into `out` — the

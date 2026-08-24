@@ -213,8 +213,10 @@ fn generate_parts(
             .iter()
             .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
             .collect::<Vec<_>>();
+        // A pre-declaration context: `<@0..>` re-opens against the
+        // generators' fresh list as it stands *before* the declarations land.
         if let Err(e) =
-            crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &names)
+            crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &FreshCtx::new(&names))
         {
             return e;
         }
@@ -235,6 +237,10 @@ fn generate_parts(
         .iter()
         .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
         .collect::<Vec<TokenStream>>();
+    // The per-impl macro-meta context: grouped fresh names sorted by
+    // (group, position), shared by every `@` consumer from here on
+    // (inheritance / sync / where resolution / range re-opening / render).
+    let fresh_ctx = FreshCtx::new(&impl_name_streams);
     let impl_names = impl_name_streams.iter().map(|n| n.to_string()).collect::<HashSet<String>>();
     let trait_args =
         parts.trait_generic_names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
@@ -249,7 +255,7 @@ fn generate_parts(
         return e;
     }
     // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
-    let where_resolved = match resolve_where_predicates(&parts.where_clauses, &impl_name_streams) {
+    let where_resolved = match resolve_where_predicates(&parts.where_clauses, &fresh_ctx) {
         Ok(ws) => ws,
         Err(es) => {
             errs.extend(es);
@@ -307,7 +313,7 @@ fn generate_parts(
             Err(e) => return e,
         };
         let expanded =
-            match crate::codegen::range_refs::expand_range_refs(expanded, &impl_name_streams) {
+            match crate::codegen::range_refs::expand_range_refs(expanded, &fresh_ctx) {
                 Ok(e) => e,
                 Err(e) => return e,
             };
@@ -323,6 +329,6 @@ fn generate_parts(
         trait_name,
         is_unsafe_trait,
         &shape_entries,
-        &impl_name_streams,
+        &fresh_ctx,
     )
 }
