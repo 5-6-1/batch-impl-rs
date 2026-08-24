@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.9.3**（2026-08-22）——**可生成 Fn 类型**：`Fn` / `FnMut` / `FnOnce`（以及裸 `fn`）结构化解析，生成器可以跑在内部（`Fn()2` → `Fn(P0,P1)`；`Fn()0..4 R` → 每个 arity 一个形态）、`dyn` / `for<'a>` 包装内部（`dyn Fn()2 + Send`、`Box<dyn Fn()2>`）、以及 **impl 泛型 bound 内部**——`<R, T: Fn()0..4 R> Tr<T> (@0..)` 每个 arity 生成一个 impl，bound 固定为该 arity，target 的 `@0..` 引用同一批 fresh（见 §6.5）。`(@0..)` 无尾逗号元组；裸 `where A: Clone` 不需要 `{}`（谓词区域在 spec 结束处终止）；生成器写法的 `.` 可选（`()N`、`(A,)N`、`Box @u*`、`[Box, Rc] u32`）。`@all_fresh` 已废弃（请写 `@0..`）。
+**v0.9.4**（2026-08-24）——**blanket 委托与 `#delegate` 改名增强**：`#blanket` 委托 GAT（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`）、裸 `Self` 参数/返回定向报错（`Self::Assoc` 返回放行）、wrapper `@?` 后缀加 `T: ?Sized`（`Box@?`——非 Sized 目标如 `Box<dyn Trait>`）；`#delegate(size = len)` 改名委托目标方法（见 §7.3）；生成的 impl 显示可读 fresh 泛型（`P0, P1, ...`）；`X<>` 在 `+` 连接 bound 内同步；fresh 范围在 impl body 内重开；repeat 块新增轮间分隔符与 fresh 驱动 cursor-only 块（`impl{@0..}` + `@@N` 名称引用，见 §8.4）。`@all_fresh` 已废弃（请写 `@0..`）。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
@@ -614,6 +614,25 @@ trait MyLen { fn d_len(&self) -> usize; }
 // → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
 ```
 
+#### 改名委托目标：`foo = call_foo`（0.9.4）
+
+元素 `foo = call_foo` 把 trait 的 `foo` 方法委托给目标的 `call_foo` 方法——delegate crate 的 `#[call(...)]` 机制，用 DSL 的 `=` 绑定拼写。签名保留 `foo`，只有调用用 `call_foo`：
+
+```rust
+# use batch_impl::batch_impl;
+struct Wrapper(String);
+impl Wrapper {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+#[batch_impl(Wrapper #delegate(size = len){self})]
+trait HasSize { fn size(&self) -> usize; }
+// → impl HasSize for Wrapper { fn size(&self) -> usize { (self).len() } }
+```
+
+绑定语义：每个被选方法绑定一个目标——默认同名，改名则绑定 `=` 右侧。改名的左侧**尚未选中**时把该方法加入选择集（`#delegate(size=len)` 单独选中 `size`）；与选中集重叠时**合并**（`#delegate(@all, size=len)`——`size` → `len`，其余同名，不产生重复定义）；同一方法改名两次报错。
+
 ### 7.4 `#blanket(methods){包装列表}` — 覆盖式委托
 
 包装任意类型（含智能指针），逗号分隔，`:N` 标注 deref 深度（默认 1，`&`/`Box` 这类单层包装不用写）：
@@ -629,6 +648,22 @@ trait Len { fn len(&self) -> usize; }
 > **`:N` deref 深度**——委托体要解引用多少层才能到达内部 `T`。单层包装（`&`、`Box`、`Rc`）默认 **1**，不用写：body 解引用 N+1 次（`&`/`Box` → `**self`）。`:2` 表示包装本身嵌套两层——`Box.Arc:2` = `Box<Arc<T>>`，委托体 `***self`。只有嵌套包装才写 `:N`；单层包装什么都不用写。
 
 > **按值接收者**：`fn consume(self)` 的委托体是 `(*self).consume()`——按值 `self` 本身就是包装，少一层 deref（`&self` 方法才是 `(**self)`，穿透引用再穿包装）。移出语义对共享包装（`&`/`Rc`）不可过类型检查，生成物会带一条 `#[doc]` 提示（proc macro 无稳定 warning 通道，E0658）；跳过这类方法用 `@all_ref_methods`（保留 trait 默认），或手写 `#name{...}`。
+
+#### GAT、`Self` 与非 Sized 目标（0.9.4）
+
+**泛型关联类型（GAT）** 用带自身参数的投影委托——`trait Iterable { type Iter<'a> where Self: 'a; }` 变成 `type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;`（裸投影缺生命周期实参，E0107）。普通关联类型/常量保持既有 `<T as Trait>::Item` 投影。
+
+**裸 `Self`** 出现在方法的参数或返回里无法 blanket 委托（转发产生内部类型，匹配不上包装的 `Self`）——定向报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）放行——内部 `T` 携带同一关联类型。
+
+**`@?` 非 Sized 后缀**：以 `@?` 结尾的包装（`Box@?`）给该 spec 的 where 子句加 `T: ?Sized`，fresh 泛型可以是非 Sized 目标：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(#blanket(@all_methods){Box@?})]
+trait DynLen { fn dlen(&self) -> usize; }
+impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
+// → impl<T: DynLen + ?Sized> DynLen for Box<T> — T（以及目标）可以是非 Sized
+```
 
 #### `@Cow`——携带约束的打包（示范案例）
 
@@ -962,11 +997,11 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径与泛型声明——定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path"）
 - **类型位置的 `;`/`=`/`@`/`#`/`-` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断；孤 `-` 是已退役运算符——排除语义仅存于指令列表）
 - **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `fn(A) B`）
-- **blanket 方法返回 `Self`**：`#blanket` 无法委托返回 `Self`/`Self::Assoc` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`
+- **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型
 - **binding/bound 缺值**：`Conv<Item =>` / `Conv<T:> X`——报 "missing a value" / "missing a bound"
 - **非整数类型字面量**：`1.5` / `"hi"` / `'a'`——类型位置只能是整数（usize）
 - **range 端点非整数**：`1..x` / `A..B`——报 "needs integer endpoints"
 - **数组长度畸形**：`[u8; 3; 4]` / `[u8;]`——报 "missing or malformed"
 - **类型起始 `+`**：`+A`——报 "not valid at the start of a type"（`+` 属于 bound，如 `T: Clone + Send`）；前导 `.` 报操作数缺失；`?` 前缀类型（`?Sized`）透传由 rustc 报错
-- **未知指令拼写建议**：`#delgate` / `#blanlet`——报 "did you mean `#delegate`?"（开放扩展名距离 >2 不报）
+- **未知指令**：无内置拼写守卫——非内置指令、也非 trait item 名的 `#name(args){body}` 展开为你同名的宏（开放扩展）；拼写错误以 rustc 自己的 "macro not found" 呈现
 

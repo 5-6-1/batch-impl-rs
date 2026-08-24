@@ -25,6 +25,8 @@ fn ui() {
     t.compile_fail("tests/ui/fill_bad_comma.rs");
     t.compile_fail("tests/ui/single_name_not_found.rs");
     t.compile_fail("tests/ui/delegate_on_non_fn.rs");
+    // a trait method can be renamed to only one target method
+    t.compile_fail("tests/ui/delegate_double_rename.rs");
 
     // DSL semantic errors
     t.compile_fail("tests/ui/empty_range.rs");

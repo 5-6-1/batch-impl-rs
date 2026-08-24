@@ -5,6 +5,149 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.9.4 (2026-08-24)
+
+> The blanket-delegation and `#delegate`-rename work — the user's manual
+> side-by-side comparison of batch-impl against `auto_impl` / `delegate` /
+> `impl-trait-for-tuples` / `fortuples` / `trait-gen` (cargo-expand of real
+> code, both crates' full expansions inspected by hand) surfaced three gaps;
+> all three closed: auto_impl's GAT + assoc-type forwarding, delegate's
+> `#[call(...)]` renaming, and the `Box<dyn Trait>` unsized-target shape.
+
+- **`#blanket` GAT projection** (`preprocess/directives/blanket.rs`): a
+  `TraitItem::Type` with generic params delegates as
+  `type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a;` — the GAT's own
+  params are copied into the projection call (`t.generics.params` → args),
+  fixing the E0107 "missing lifetime argument" the bare projection produced.
+  The non-generic assoc-type/const path is untouched.
+- **`#blanket` bare-`Self` diagnostics** (`blanket.rs` +
+  `blanket_helpers.rs::sig_refs_bare_self`): `sig_refs_bare_self` walks the
+  signature — receiver type + parameter types + return type — flagging a
+  **bare** `Self` (`Type::Path` with the single segment `Self`) and
+  `Self::Assoc` projections in parameters (E0308: the forward's types are
+  the inner `T`'s, the impl's `Self` is the wrapper). `Self::Assoc` in the
+  **return** is allowed (the inner `T` carries the same assoc type). The
+  report is a targeted error with `#name{...}` guidance instead of rustc's
+  generic E0308/E0614. Covered in
+  `tests/features/dsl_blanket.rs::blanket_self_assoc_return_covered`.
+- **`#blanket` `@?` unsized suffix** (`blanket_wrappers.rs`): a wrapper
+  element ending in `@?` (`Box@?`) is parsed with the suffix stripped and
+  `is_unsized = true`; the spec's where clause gains `T: ?Sized` (without
+  it, `T: Trait` implies `Sized` and `Box<dyn Trait>` fails). The suffix
+  rides to the innermost wrapper of a chain (`Box<Rc@?>`). `unsized` is an
+  edition-2024 reserved word — the field is `is_unsized`. Covered in
+  `tests/features/dsl_blanket.rs::blanket_unsized_wrapper`.
+- **`#delegate` rename — `foo = call_foo`** (`dispatch.rs::expand_delegate`):
+  an arg element containing a depth-0 `=` is split off from the name list:
+  the left ident is the trait method (looked up, signature copied), the
+  right ident the target method (the call body uses it). The rename map
+  (`renames: HashMap<String, String>`) is consulted at call-body build;
+  `split_at_depth0` chunking keeps `@all`-expanded Bracket groups whole.
+  **Binding semantics** (user-specified): every selected method binds to a
+  target — same-name by default, or the right of `=` when renamed; a rename
+  whose left side is not yet selected **adds** that method; a rename
+  overlapping the selected set **merges** (no duplicate definition — the
+  name-list parser deduplicates, keeping the first occurrence, so
+  `#delegate(@all, size=len)` yields `size→len` + the rest by name); a
+  second rename of the same method errors ("renamed twice"). Covered in
+  `tests/features/dsl_directives.rs` (`delegate_rename` /
+  `delegate_rename_foo_call_foo` / `delegate_all_rename` /
+  `delegate_all_overlap`) + `tests/ui/delegate_double_rename.rs`.
+- **Name-list dedup** (`name_list.rs::parse_name_tokens`): the keep-list is
+  deduplicated (first occurrence wins, order preserved) before the exclude
+  filter — the merge side of rename-overlap. This also makes `#fill(@all,
+  foo)` / `#fill(foo, foo)` safe (no duplicate item in the generated impl).
+- **Readable fresh names** (`codegen/fresh.rs::readable_fresh_names`): after
+  `sweep_fresh_names` renumbers `_Param_{g}_{i}_BatchGen_` →
+  `_Param_0..N_BatchGen_`, the render tail renames `_Param_{n}_BatchGen_` →
+  `P{n}` (P = Param, index matches `@N` — the tutorial spelling). Non-fresh
+  idents are collected first; a collision (`P0` already used in the impl)
+  pushes that fresh to `P0_`, the numbering never drifts, so `@N`
+  correspondence stays stable. Pure presentation: every internal protocol
+  (`@N` construction, where resolution, the sweep) ran before it.
+- **Hygienic generated diagnostics** (`util/diagnostic.rs` + `apply/mod.rs`):
+  the `compile_error!` stream for DSL errors is spelled
+  `::core::compile_error!` — an absolute path, immune to a user scope
+  shadowing `compile_error`; the ident keeps the target span (ident-span
+  scheme).
+- **`X<>` sync inside `+`-joined bounds** (`codegen/sync.rs::sync_bound_ty`):
+  a `TyBoundList` bound (`A<> + B + C`) syncs each element through
+  `sync_bound_ty` individually — the empty `A<>` fills, the rest untouched
+  (the structured bound list keeps each `X<>` its own `Ty`).
+- **Fresh-range placeholders re-open in bodies** (`codegen/mod.rs` body
+  postprocess): `expand_range_refs` runs on the body next to the repeat
+  expansion — a `#map`-copied signature carrying `(@0..)` (substituted
+  verbatim from the trait's generic args) lands in the body as
+  `_Param_0_With_BatchGen_` and re-opens against the impl's fresh list.
+- **Repeat-block inter-round separator** (`codegen/repeat.rs`): the block
+  body's trailing `,` is now the **per-round separator** — emitted with each
+  round (`@(A,)..` → `A, A, A`), so side-by-side generated elements join
+  correctly; write no comma between side-by-side blocks (the old behavior
+  emitted the block verbatim each round, producing `A,,A` for list joins).
+- **Fresh count drives cursor-only repeat blocks** (`repeat.rs`): a
+  cursor-only block (no template `ident@..` driver) repeats once per fresh
+  generic — `expand_repeat_blocks` receives the impl's fresh-name list as
+  the fallback driver (the bound-generator arity `Fn()0..N` becomes the
+  repetition count). A **fresh-binding switch** (`impl{@0..}` — the
+  fresh-range form of a shape template, parsed by
+  `extract.rs::parse_fresh_switch` into `ImplParts.fresh_binding`) declares
+  the scope explicitly and enables `@@N` name references (the bound fresh's
+  **name**, e.g. `@@0` → `P0` — as opposed to `@N` position references).
+- **Precise empty-tuple fold** (`codegen/range_refs.rs::fold_empty_tuple`):
+  the range placeholder folds to a real 1-tuple only when the tuple's top
+  level contains a range placeholder (`has_range_placeholder` check) — an
+  ordinary `(expr,)` tuple keeps its trailing comma verbatim, `<...>` is
+  never re-拼 by the fold. The parse/apply/expand pipeline stays untouched;
+  only the codegen re-open is conditional.
+- **Body postprocessing cohesion** (`codegen/mod.rs::generate_parts`): the
+  body's postprocess (repeat expansion + range-placeholder re-open) lives
+  together in `generate_parts`, where the impl's fresh names are in hand;
+  render is a pure assembly step.
+
+## 0.9.3 (2026-08-22)
+
+> The generative-Fn / bound-generator work — driven by the alga2 use case
+> ("one spec covering every Fn arity"), plus the docs pass that followed.
+
+- **Fn-family types structured** (`ast/types.rs::TyFn` gains `FnKind` — Bare /
+  Trait / TraitMut / TraitOnce; `parse_atom.rs` / `parse/blocks.rs`): `fn` /
+  `Fn` / `FnMut` / `FnOnce` parse with a real parameter list (a `TyTuple`
+  after the keyword), so a generator runs inside (`Fn()2`). The space form
+  (`Fn()N`) is sugar for the dot form (`Fn.().N`); the `is_unsafe` flag
+  distinguishes `unsafe fn` types from the `unsafe` impl marker. The passthrough
+  fn block is gone — `Fn` renders back with its params/return.
+- **`dyn` / `for<'a>` wrappers structured** (`TyWithDyn` / `TyWithFor` keep
+  the inner type structural): a generator inside a trait object
+  (`dyn Fn()2 + Send`) or an HRTB (`for<'a> Fn()2`) expands and the fresh
+  params ride out through the wrapper; the `+ Bound` tail of `dyn` rides
+  along as verbatim fragments.
+- **Bound generators distribute over arity ranges** (`codegen/bound_gen.rs`):
+  a generator **range** inside an impl-generic bound (`<T: Fn()0..4 R>`)
+  expands to a `TyArray` at the apply layer; `generate_impl` distributes
+  each element through the whole pipeline independently (`generate_parts`),
+  the bound pinned to that arity (`T: Fn(P0,P1) -> R`), the target's `@0..`
+  re-opened against that impl's own fresh list. Runs before every other
+  generics concern.
+- **`(@0..)` comma-less range tuple** (`codegen/range_refs.rs`): the range
+  fold no longer requires a trailing comma inside the paren; arity 1 still
+  renders a real 1-tuple (the fold trigger checks the tuple's top level
+  contains a range placeholder — a plain `(expr,)` keeps its comma).
+- **Fresh hoisting from target generic args** (`codegen/extract.rs`):
+  `hoist_type_params` recurses into `TyGeneric` params explicitly (the
+  `map_children` visitor does not descend into generic args), so a fresh
+  declaration inside `Box<().2>`-style args rides out to the impl generics.
+- **Bare `where` without a code block** (`preprocess/where_process.rs`): the
+  predicate region ends at the spec end (stream end), a body-less
+  `where{...}` suffix; the `;` / `where` / `impl{...}` boundaries unchanged.
+- **Space-form generator spellings**: `()`/`(A,)`/`*()`/`Box`/`[Box,Rc]`
+  accept a space before the matrix source (`()N`, `Box @u*`) — the `.` is
+  optional except in genuine nesting.
+- **`@all_fresh` deprecated** (docs only — implementation stays for
+  compatibility): equivalent to `@0..`.
+- **`@Cow` documented as `#blanket`-only**: the wrapper constant is a
+  built-in of the blanket wrapper list, not a custom constant; the `@`
+  notation tables in the tutorial show what each constant expands to.
+
 ## 0.9.2 (2026-08-21)
 
 > The `@N..` range work — driven by the user's observation that `<>` and

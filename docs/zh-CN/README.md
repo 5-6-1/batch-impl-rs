@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.3**（2026-08-22）——**可生成 Fn 类型**：`Fn` / `FnMut` / `FnOnce`（以及裸 `fn`）结构化解析，生成器可跑在内部（`Fn()2` → `Fn(P0,P1)`；`Fn()0..4 R` → 每个 arity 一个形态）、`dyn` / `for<'a>` 包装内部（`dyn Fn()2 + Send`、`Box<dyn Fn()2>`）、以及 **impl 泛型 bound 内部**——`<R, T: Fn()0..4 R> Tr<T> (@0..)` 每个 arity 一个 impl、bound 固定为该 arity、target 的 `@0..` 引用同一批 fresh。`(@0..)` 无尾逗号元组；裸 `where A: Clone` 不需要 `{}`；生成器写法的 `.` 可选（`()N`、`(A,)N`、`Box @u*`、`[Box, Rc] u32`）。`@all_fresh` 已废弃（请写 `@0..`）。
+**v0.9.4**（2026-08-24）——**blanket 委托与 `#delegate` 改名增强**：`#blanket` 委托泛型关联类型（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`）、裸 `Self` 参数/返回定向报错并给指导（`Self::Assoc` 返回放行）、wrapper `@?` 后缀加 `T: ?Sized`（`Box@?` → 非 Sized 目标如 `Box<dyn Trait>`）；`#delegate(size = len)` 改名委托目标方法（delegate crate 的 `#[call(...)]` 机制）——rename/`@all` 重叠合并、二次改名报错；生成的 impl 显示可读 fresh 泛型（`P0, P1, ...`，替代 `_Param_*_BatchGen_`）；`X<>` 在 `+` 连接 bound 内同步；fresh 范围在 impl body 内重开；repeat 块新增轮间分隔符与 fresh 驱动 cursor-only 块（`impl{@0..}` + `@@N` 名称引用）。`@all_fresh` 已废弃（请写 `@0..`）。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 

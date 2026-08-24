@@ -93,7 +93,12 @@ fn parse_name_tokens(
             what
         ));
     }
-    let names = keep.into_iter().filter(|id| !exclude.iter().any(|e| e == id)).collect::<Vec<_>>();
+    let mut seen = std::collections::HashSet::new();
+    let names = keep
+        .into_iter()
+        .filter(|id| seen.insert(id.to_string()))
+        .filter(|id| !exclude.iter().any(|e| e == id))
+        .collect::<Vec<_>>();
     if names.is_empty() {
         return Err(compile_err!("batch-impl: {} cannot be empty", what));
     }

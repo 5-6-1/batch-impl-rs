@@ -212,11 +212,17 @@ fn delegate_typed_receiver() {
 // `delegate` crate, in the DSL's `=` spelling). Mixes with plain names.
 struct RenameInner;
 impl RenameInner {
+    fn size(&self) -> usize {
+        3
+    }
     fn len(&self) -> usize {
         5
     }
     fn count(&self) -> usize {
         7
+    }
+    fn call_foo(&self) -> usize {
+        9
     }
 }
 struct RenameWrap(RenameInner);
@@ -238,6 +244,49 @@ fn delegate_rename() {
     assert_eq!(HasSize::size(&w), 5);
     assert_eq!(HasSizeAndCount::size(&w), 5);
     assert_eq!(HasSizeAndCount::count(&w), 7);
+}
+
+// `#delegate(foo=call_foo)` — the same `=` rename in the exact spelling the
+// `delegate` crate's `#[call(...)]` covers: trait `foo` → target `call_foo`.
+#[batch_impl(RenameWrap #delegate(foo=call_foo){self.0})]
+trait HasFoo {
+    fn foo(&self) -> usize;
+}
+
+#[test]
+fn delegate_rename_foo_call_foo() {
+    assert_eq!(HasFoo::foo(&RenameWrap(RenameInner)), 9);
+}
+
+// `#delegate(@all, size=len)` — rename combined with `@all`: `@all` expands
+// (in the consts layer) to `[size, count]`, and the rename's `size` overlaps
+// that set — it must merge (rename the call), not duplicate the definition.
+#[batch_impl(RenameWrap #delegate(@all, size=len){self.0})]
+trait HasAllRename {
+    fn size(&self) -> usize;
+    fn count(&self) -> usize;
+}
+
+#[test]
+fn delegate_all_rename() {
+    let w = RenameWrap(RenameInner);
+    assert_eq!(HasAllRename::size(&w), 5);
+    assert_eq!(HasAllRename::count(&w), 7);
+}
+
+// `#delegate(@all, count)` — an explicit name overlapping `@all` must merge
+// too (no duplicate definition).
+#[batch_impl(RenameWrap #delegate(@all, count){self.0})]
+trait HasAllOverlap {
+    fn size(&self) -> usize;
+    fn count(&self) -> usize;
+}
+
+#[test]
+fn delegate_all_overlap() {
+    let w = RenameWrap(RenameInner);
+    assert_eq!(HasAllOverlap::size(&w), 3);
+    assert_eq!(HasAllOverlap::count(&w), 7);
 }
 
 // ============================================================

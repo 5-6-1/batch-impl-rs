@@ -2,6 +2,38 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.9.4 (2026-08-24)
+
+> blanket 委托与 `#delegate` 改名工作——用户对 batch-impl 与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测（逐一核对双方 cargo expand 的完整展开）暴露三个缺口，全部补齐：auto_impl 的 GAT + 关联类型转发、delegate 的 `#[call(...)]` 改名、以及 `Box<dyn Trait>` 非 Sized 目标形态。
+
+- **`#blanket` GAT 投影**（`preprocess/directives/blanket.rs`）：带泛型参数的 `TraitItem::Type` 委托为 `type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a;`——GAT 自身参数复制进投影调用（`t.generics.params` → args），修复裸投影产生的 E0107 "missing lifetime argument"。非泛型关联类型/常量路径不变。
+- **`#blanket` 裸 `Self` 诊断**（`blanket.rs` + `blanket_helpers.rs::sig_refs_bare_self`）：`sig_refs_bare_self` 遍历签名——接收者类型 + 参数类型 + 返回类型——标记**裸** `Self`（`Type::Path` 单段 `Self`）与参数里的 `Self::Assoc` 投影（E0308：转发的类型是内部 `T` 的，impl 的 `Self` 是包装类型）。**返回**里的 `Self::Assoc` 放行（内部 `T` 携带同一关联类型）。报告为带 `#name{...}` 指导的定向错误，而非 rustc 通用 E0308/E0614。覆盖于 `tests/features/dsl_blanket.rs::blanket_self_assoc_return_covered`。
+- **`#blanket` `@?` 非 Sized 后缀**（`blanket_wrappers.rs`）：以 `@?` 结尾的 wrapper 元素（`Box@?`）解析时剥掉后缀、置 `is_unsized = true`；该 spec 的 where 子句加 `T: ?Sized`（不加时 `T: Trait` 隐含 `Sized`，`Box<dyn Trait>` 失败）。后缀随链到达最内层 wrapper（`Box<Rc@?>`）。`unsized` 是 edition 2024 保留字——字段名为 `is_unsized`。覆盖于 `tests/features/dsl_blanket.rs::blanket_unsized_wrapper`。
+- **`#delegate` 改名——`foo = call_foo`**（`dispatch.rs::expand_delegate`）：含深度 0 `=` 的实参元素从名字列表拆出：左侧 ident 是 trait 方法（查找、复制签名），右侧 ident 是目标方法（调用体使用）。改名映射（`renames: HashMap<String, String>`）在调用体构建时查表；`split_at_depth0` 分块保持 `@all` 展开的 Bracket 组完整。**绑定语义**（用户指定）：每个被选方法绑定一个目标——默认同名，改名绑定 `=` 右侧；改名的左侧尚未选中时**加入**该方法；与选中集重叠时**合并**（不产生重复定义——名字列表解析去重、保留首个出现，`#delegate(@all, size=len)` 得 `size→len` + 其余同名）；同一方法第二次改名报错（"renamed twice"）。覆盖于 `tests/features/dsl_directives.rs`（`delegate_rename` / `delegate_rename_foo_call_foo` / `delegate_all_rename` / `delegate_all_overlap`）+ `tests/ui/delegate_double_rename.rs`。
+- **名字列表去重**（`name_list.rs::parse_name_tokens`）：keep 列表在排除过滤前先去重（首现保留、顺序不变）——改名-重叠的合并侧。这同时让 `#fill(@all, foo)` / `#fill(foo, foo)` 安全（生成的 impl 无重复项）。
+- **可读 fresh 名**（`codegen/fresh.rs::readable_fresh_names`）：`sweep_fresh_names` 把 `_Param_{g}_{i}_BatchGen_` 重编号为 `_Param_0..N_BatchGen_` 之后，render 尾部把 `_Param_{n}_BatchGen_` 重命名为 `P{n}`（P = Param，索引与 `@N` 一致——教程拼写）。先收集非 fresh ident；撞名（impl 里已有 `P0`）把该 fresh 推成 `P0_`，编号从不漂移，`@N` 对应关系保持稳定。纯展示层：每个内部协议（`@N` 构造、where 解析、sweep）都在它之前跑完。
+- **生成的诊断卫生化**（`util/diagnostic.rs` + `apply/mod.rs`）：DSL 错误的 `compile_error!` 流拼写为 `::core::compile_error!`——绝对路径，免疫用户作用域遮蔽 `compile_error`；ident 保留目标 span（ident-span 方案）。
+- **`X<>` 在 `+` 连接的 bound 内同步**（`codegen/sync.rs::sync_bound_ty`）：`TyBoundList` bound（`A<> + B + C`）逐元素过 `sync_bound_ty`——空 `A<>` 填充、其余不动（结构化 bound 列表让每个 `X<>` 保持自己的 `Ty`）。
+- **fresh 范围占位符在 body 内重新展开**（`codegen/mod.rs` body 后处理）：`expand_range_refs` 与 repeat 展开一起作用于 body——`#map` 复制的签名携带 `(@0..)`（从 trait 泛型实参按字面替换）以 `_Param_0_With_BatchGen_` 落在 body 里，对照 impl 的 fresh 列表重新展开。
+- **repeat 块轮间分隔符**（`codegen/repeat.rs`）：块体尾逗号现在是**轮间分隔符**——随每轮发出（`@(A,)..` → `A, A, A`），并排生成的元素正确连接；块与块之间不写逗号（旧行为逐轮按字面发块，列表连接时产生 `A,,A`）。
+- **fresh 数驱动 cursor-only repeat 块**（`repeat.rs`）：cursor-only 块（无模板 `ident@..` 驱动）每个 fresh 泛型重复一次——`expand_repeat_blocks` 收到 impl 的 fresh 名列表作兜底驱动（bound 生成器元数 `Fn()0..N` 即重复次数）。**fresh 绑定开关**（`impl{@0..}`——形状模板的 fresh 范围形态，`extract.rs::parse_fresh_switch` 解析进 `ImplParts.fresh_binding`）显式声明作用域并启用 `@@N` 名称引用（被绑 fresh 的**名字**，如 `@@0` → `P0`——区别于 `@N` 位置引用）。
+- **空元组折叠精确化**（`codegen/range_refs.rs::fold_empty_tuple`）：范围占位符仅在元组**顶层**含范围占位符时折叠成真正的 1 元组（`has_range_placeholder` 检查）——普通 `(expr,)` 元组按字面保留尾逗号，`<...>` 绝不被折叠重拼。parse/apply/expand 管线不动；只有 codegen 的重新展开是条件性的。
+- **body 后处理职责内聚**（`codegen/mod.rs::generate_parts`）：body 的后处理（repeat 展开 + 范围占位符重新展开）集中在 `generate_parts`——impl 的 fresh 名在手上；render 是纯组装步骤。
+
+## 0.9.3 (2026-08-22)
+
+> 生成式 Fn / bound 生成器工作——由 alga2 用例驱动（"一个 spec 覆盖每个 Fn 元数"），以及随后的文档修订。
+
+- **Fn 家族类型结构化**（`ast/types.rs::TyFn` 加 `FnKind`——Bare / Trait / TraitMut / TraitOnce；`parse_atom.rs` / `parse/blocks.rs`）：`fn` / `Fn` / `FnMut` / `FnOnce` 带真实参数列表解析（关键字后的 `TyTuple`），生成器可在内部运行（`Fn()2`）。空格形态（`Fn()N`）是点形态（`Fn.().N`）的糖；`is_unsafe` 标志区分 `unsafe fn` 类型与 `unsafe` impl 标记。passthrough fn 块删除——`Fn` 带参数/返回渲染回去。
+- **`dyn` / `for<'a>` 包装结构化**（`TyWithDyn` / `TyWithFor` 保持内部类型结构化）：trait 对象（`dyn Fn()2 + Send`）或 HRTB（`for<'a> Fn()2`）内的生成器展开，fresh 参数穿过包装乘出；`dyn` 的 `+ Bound` 尾部作为逐字片段携带。
+- **bound 生成器按元数范围分发**（`codegen/bound_gen.rs`）：impl 泛型 bound 内的生成器**范围**（`<T: Fn()0..4 R>`）在 apply 层展开成 `TyArray`；`generate_impl` 把每个元素独立送过整条管线（`generate_parts`）、bound 钉死在该元数（`T: Fn(P0,P1) -> R`）、目标的 `@0..` 对照该 impl 自己的 fresh 列表重新展开。先于所有其他 generics concern 运行。
+- **`(@0..)` 无逗号范围元组**（`codegen/range_refs.rs`）：范围折叠不再要求括号内尾逗号；元数 1 仍渲染真正的 1 元组（折叠触发检查元组顶层含范围占位符——普通 `(expr,)` 保留逗号）。
+- **从目标泛型实参 hoist fresh**（`codegen/extract.rs`）：`hoist_type_params` 显式递归进 `TyGeneric` 参数（`map_children` 访问器不进泛型实参），`Box<().2>` 风格实参里的 fresh 声明乘到 impl 泛型。
+- **裸 `where` 无需代码块**（`preprocess/where_process.rs`）：谓词区在 spec 末尾（流末）结束，生成无 body 的 `where{...}` 后缀；`;` / `where` / `impl{...}` 边界不变。
+- **空格形态生成器拼写**：`()`/`(A,)`/`*()`/`Box`/`[Box,Rc]` 在矩阵源前接受空格（`()N`、`Box @u*`）——除真正嵌套外 `.` 可选。
+- **`@all_fresh` 弃用**（仅文档——实现保留兼容）：等价于 `@0..`。
+- **`@Cow` 文档化为 `#blanket` 专属**：包装常量是 blanket 包装列表的内置，绝非自定义常量；教程的 `@` 记法表格展示各常量展开结果。
+
 ## 0.9.2 (2026-08-21)
 
 > `@N..` 范围工作——由用户的观察驱动：`<>` 与 where 谓词应该统一寻址 fresh 泛型。

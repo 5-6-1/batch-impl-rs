@@ -5,6 +5,80 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.9.4 (2026-08-24)
+
+> The blanket-delegation and #delegate-rename work — driven by the user's
+> side-by-side comparison of batch-impl against `auto_impl` / `delegate` /
+> `impl-trait-for-tuples` / `fortuples` / `trait-gen` (manual, hands-on):
+> auto_impl's GAT + assoc-type forwarding and delegate's `#[call(...)]`
+> renaming were the two missing capabilities; both are now in.
+
+- **`#blanket` GAT projection** — a generic associated type in the trait
+  (`trait Iterable { type Iter<'a> where Self: 'a; }`) now delegates as
+  `type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;` — the GAT's
+  own params are passed through the projection (a bare
+  `<T as Iterable>::Iter` used to be E0107 "missing lifetime argument").
+  Plain assoc types/consts keep their existing projection
+  (`type Item = <T as Trait>::Item;`)
+- **`#blanket` `Self`-parameter/return diagnostics** — a method taking or
+  returning **bare `Self`** (`fn new() -> Self`, `fn cmp(&self, other: Self)`)
+  cannot blanket-delegate: the forward emits the inner type, which cannot
+  match the wrapper's `Self`. Previously the generated impl failed with
+  rustc's generic E0308/E0614; now the macro reports a targeted error with
+  guidance (`#name{...}` for that wrapper). A `Self::Assoc` projection
+  return (`fn iter(&self) -> Self::Iter`) is fine and passes through —
+  the inner `T` carries the same assoc type
+- **`#blanket` `@?` suffix — unsized wrappers** — a wrapper element ending
+  in `@?` (`Box@?`, `Box<Rc@?>`... the suffix rides to the innermost) adds
+  `T: ?Sized` to that spec's where clause, so the fresh generic can be an
+  unsized target (`#blanket(@all){Box@?}` + `Box<dyn Trait>` now works;
+  without it `T: Trait` implies `Sized` and the dyn target fails)
+- **`#delegate` rename — `foo = call_foo`** — an element `size = len`
+  delegates the trait's `size` method to the target's `len` method (the
+  `#[call(...)]` mechanism of the `delegate` crate, in the DSL's `=`
+  binding spelling): the signature keeps `size`, only the call uses `len`.
+  Binding semantics: every selected method binds to a target — by default
+  to the same-named method, or to the right of `=` when renamed. A rename
+  whose left side is **not yet selected** adds that method
+  (`#delegate(size=len)` selects `size` alone); a rename overlapping the
+  selected set merges (`#delegate(@all, size=len)` — `size` forwards to
+  `len`, the rest by same name — no duplicate definition); renaming the
+  same method twice (`#delegate(size=len, size=other)`) is a compile error
+- **Readable fresh generics — `P0, P1, ...`** — generated impls no longer
+  show the internal `_Param_*_BatchGen_` names: after the internal sweep
+  every fresh generic is renamed to `P0, P1, ...` (P = Param, the index
+  matches `@N`, the spelling the tutorial already used). A name collision
+  in the impl (a user generic or type named `P0`) pushes that fresh to
+  `P0_` — the numbering never drifts, so `@N` correspondence stays stable
+- **Hygienic generated diagnostics** — the `compile_error!` emitted for DSL
+  errors inside generated code is spelled `::core::compile_error!` (absolute
+  path), so a user's own `compile_error` macro or module cannot shadow it
+- **`X<>` sync inside `+`-joined bound lists** — with a switch template
+  (`impl{Tr<>}`) active, an empty-bracket bound inside a `+` chain
+  (`<T: A<> + B + C>`) syncs like any other `X<>` (each element of the
+  structured bound list is synced individually)
+- **Fresh ranges re-open in impl bodies** — a `#map`-copied signature that
+  substituted the trait's generic args verbatim could land a `(@0..)`
+  placeholder inside the body; the body postprocess now re-opens fresh-range
+  placeholders there too (`(@0..)` → `(@0, @1, ...)` against the impl's own
+  fresh list)
+- **Repeat-block round separators** — a repeat block `@(...)..` now accepts
+  an explicit **inter-round separator**: `@(A,)..` repeats `A,` once per
+  element (`A, A, A`) — the trailing comma inside the block is the separator
+  and is repeated with it, so side-by-side generated elements join correctly
+- **Fresh-driven cursor-only repeat blocks** — a cursor-only block
+  (`@(args.@0,)..` with no template variadic segment to drive it) now
+  repeats **once per impl fresh generic** — the fresh count is the
+  repetition count — and a **fresh-binding switch** (`impl{@0..}`, the
+  fresh-range form of a shape template) declares the scope explicitly and
+  enables `@@N` name references (the bound fresh's name itself, e.g.
+  `@@0` → `P0` — for writing the fresh's name, not its position)
+- **Precise empty-tuple fold** — the range placeholder folds into a real
+  1-tuple only when the tuple's **top level** contains a range placeholder
+  (`(@0..)` → `(P0,)`); an ordinary `(expr,)` tuple keeps its trailing comma
+  verbatim (`(a, b,)` stays `(a, b,)`) — the fold never rewrites
+  non-range tuples
+
 ## 0.9.3 (2026-08-22)
 
 - **Generative Fn types: Fn/FnMut/FnOnce structured** — the Fn family is no

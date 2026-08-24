@@ -1,15 +1,15 @@
 # batch-impl Tutorial
 
-**v0.9.3** (2026-08-22) — **generative Fn types**: `Fn` / `FnMut` / `FnOnce`
-(and bare `fn`) are structured, so a generator runs inside (`Fn()2` →
-`Fn(P0,P1)`; `Fn()0..4 R` → one form per arity), inside `dyn` / `for<'a>`
-wrappers (`dyn Fn()2 + Send`, `Box<dyn Fn()2>`), and inside an **impl-generic
-bound** — `<R, T: Fn()0..4 R> Tr<T> (@0..)` generates one impl per arity with
-the bound pinned to that arity and the target's `@0..` re-opened to the same
-fresh batch (see §6.5). `(@0..)` comma-less range tuple; bare
-`where A: Clone` needs no `{}` (the predicate region ends at the spec end);
-the `.` is optional in generator spellings (`()N`, `(A,)N`, `Box @u*`,
-`[Box, Rc] u32`). `@all_fresh` deprecated (write `@0..`).
+**v0.9.4** (2026-08-24) — **blanket-delegation and `#delegate`-rename
+enhancements**: `#blanket` delegates GATs (`type Iter<'a> =
+<T as Trait>::Iter<'a> where Self: 'a`), reports bare-`Self`
+parameters/returns (`Self::Assoc` returns pass), and the `@?` suffix adds
+`T: ?Sized` (`Box@?` — unsized targets like `Box<dyn Trait>`);
+`#delegate(size = len)` renames the delegated target (see §7.3); generated
+impls show readable fresh generics (`P0, P1, ...`); `X<>` syncs inside
+`+`-joined bounds; fresh ranges re-open in impl bodies; repeat blocks gain
+round separators and fresh-driven cursor-only blocks (`impl{@0..}` +
+`@@N` name refs, see §8.4). `@all_fresh` deprecated (write `@0..`).
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
@@ -622,6 +622,33 @@ trait MyLen { fn d_len(&self) -> usize; }
 // → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
 ```
 
+#### Renaming the delegated target: `foo = call_foo` (0.9.4)
+
+An element `foo = call_foo` delegates the trait's `foo` method to the
+target's `call_foo` method — the `#[call(...)]` mechanism of the `delegate`
+crate, in the DSL's `=` binding spelling. The signature keeps `foo`; only
+the call uses `call_foo`:
+
+```rust
+# use batch_impl::batch_impl;
+struct Wrapper(String);
+impl Wrapper {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+#[batch_impl(Wrapper #delegate(size = len){self})]
+trait HasSize { fn size(&self) -> usize; }
+// → impl HasSize for Wrapper { fn size(&self) -> usize { (self).len() } }
+```
+
+Binding semantics: every selected method binds to a target — same-name by
+default, or the right of `=` when renamed. A rename whose left side is
+**not yet selected** adds that method (`#delegate(size=len)` selects `size`
+alone); a rename overlapping the selected set **merges**
+(`#delegate(@all, size=len)` — `size` → `len`, the rest by same name, no
+duplicate definition); renaming the same method twice errors.
+
 ### 7.4 `#blanket(@all_methods){wrapper matrix}` — blanket delegation
 
 Wraps any type (smart pointers included); wrappers are comma-separated, and a `:N` suffix marks the deref depth:
@@ -642,6 +669,31 @@ trait Len { fn len(&self) -> usize; }
 > **`:N` deref depth** — how many layers the delegation dereferences to reach the inner `T`. Default **1** for single wrappers (`&`, `Box`, `Rc`): the body derefs N+1 times (`&`/`Box` → `**self`). A `:N` of 2 means the wrapper itself is nested two deep — `Box.Arc:2` = `Box<Arc<T>>`, delegation `***self`. Write `:2` only for nested wrappers; single wrappers need nothing.
 
 > **By-value receivers**: `fn consume(self)` forwards as `(*self).consume()` — a by-value `self` IS the wrapper, one deref fewer (`&self` methods use `(**self)`: through the reference, then the wrapper). Moving out cannot type-check for shared wrappers (`&`/`Rc`); the generated impls carry a `#[doc]` note (proc macros have no stable warning channel, E0658). Skip such methods with `@all_ref_methods` (the trait default stays) or hand-write `#name{...}`.
+
+#### GATs, `Self`, and unsized targets (0.9.4)
+
+**Generic associated types** are delegated by projection with their own
+params — `trait Iterable { type Iter<'a> where Self: 'a; }` becomes
+`type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;` (the bare
+projection would be missing the lifetime argument, E0107). Plain assoc
+types/consts keep their existing `<T as Trait>::Item` projection.
+
+**Bare `Self`** in a method's parameters or return cannot be blanket-
+delegated (the forward emits the inner type, which cannot match the
+wrapper's `Self`) — a targeted error with a `#name{...}` suggestion. A
+`Self::Assoc` **return** (`fn iter(&self) -> Self::Iter`) passes — the
+inner `T` carries the same associated type.
+
+**`@?` unsized suffix**: a wrapper ending in `@?` (`Box@?`) adds `T: ?Sized`
+to that spec's where clause, so the fresh generic can be an unsized target:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(#blanket(@all_methods){Box@?})]
+trait DynLen { fn dlen(&self) -> usize; }
+impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
+// → impl<T: DynLen + ?Sized> DynLen for Box<T> — T (and thus the target) may be unsized
+```
 
 #### `@Cow` — a constraint-carrying packing (the case study)
 
@@ -1004,10 +1056,17 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **`=`/`:` in concrete-type args**: bindings/bounds are trait-path/declaration-only — targeted error (`Assoc<Item = u32>` with a struct reports "binding args are only valid on a trait path")
 - **Stray `;`/`=`/`@`/`#`/`-` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic; a lone `-` is the retired operator — the exclusion lives only in directive lists)
 - **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `fn(A) B`)
-- **Blanket method returns `Self`**: `#blanket` cannot delegate a method returning `Self`/`Self::Assoc` (forwarding yields the inner type, not the wrapper's `Self`) — error with a `#name{...}` suggestion
+- **Blanket method takes/returns bare `Self`**: `#blanket` cannot delegate a
+  method taking or returning bare `Self` (forwarding yields the inner type,
+  not the wrapper's `Self`) — error with a `#name{...}` suggestion. A
+  `Self::Assoc` **return** (`fn iter(&self) -> Self::Iter`) is fine — the
+  inner `T` carries the same associated type
 - **Empty binding/bound value**: `Conv<Item =>` / `Conv<T:> X` — "missing a value" / "missing a bound"
 - **Non-integer type literal**: `1.5` / `"hi"` / `'a'` — only an integer (usize) is a type
 - **Non-integer range endpoint**: `1..x` / `A..B` — "needs integer endpoints"
 - **Malformed array length**: `[u8; 3; 4]` / `[u8;]` — "missing or malformed"
 - **`+` at a type start**: `+A` — "not valid at the start of a type" (`+` belongs in a bound, e.g. `T: Clone + Send`); a leading `.` reports a missing operand; `?`-prefixed types (`?Sized`) pass through and rustc reports them
-- **Unknown-directive typo suggestion**: `#delgate` / `#blanlet` — "did you mean `#delegate`?" (open-extension names farther than 2 stay silent)
+- **Unknown directive**: no builtin-typo guard — a `#name(args){body}` that is
+  not a built-in directive and not a trait item name expands to your
+  same-named macro (the open extension); a typo surfaces as rustc's own
+  "macro not found"

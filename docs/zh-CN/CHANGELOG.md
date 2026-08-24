@@ -2,6 +2,32 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## 0.9.4 (2026-08-24)
+
+> blanket 委托与 `#delegate` 改名工作——由用户对 batch-impl 与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测驱动（逐行核对双方 cargo expand 完整展开）：auto_impl 的 GAT + 关联类型转发、delegate 的 `#[call(...)]` 改名是缺失的两个能力，现已补齐。
+
+- **`#blanket` GAT 投影**——trait 里的泛型关联类型（`trait Iterable { type Iter<'a> where Self: 'a; }`）现在委托为 `type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;`——GAT 自身参数穿过投影（此前裸 `<T as Iterable>::Iter` 报 E0107 "missing lifetime argument"）。普通关联类型/常量保持既有投影（`type Item = <T as Trait>::Item;`）
+- **`#blanket` 裸 `Self` 参数/返回诊断**——方法带**裸 `Self`** 参数或返回（`fn new() -> Self`、`fn cmp(&self, other: Self)`）无法 blanket 委托：转发产生内部类型，与包装类型的 `Self` 不匹配。此前生成的 impl 报 rustc 通用 E0308/E0614；现在宏定向报错并给指导（该 wrapper 改用 `#name{...}`）。`Self::Assoc` 投影返回（`fn iter(&self) -> Self::Iter`）合法放行——内部 `T` 携带同一关联类型
+- **`#blanket` `@?` 后缀——非 Sized 包装**——wrapper 元素以 `@?` 结尾（`Box@?`、`Box<Rc@?>`……后缀随链到达最内层）给该 spec 的 where 子句加 `T: ?Sized`，fresh 泛型可为非 Sized 目标（`#blanket(@all){Box@?}` + `Box<dyn Trait>` 现在可用；不加时 `T: Trait` 隐含 `Sized`，dyn 目标失败）
+- **`#delegate` 改名——`foo = call_foo`**——元素 `size = len` 把 trait 的 `size` 方法委托给目标的 `len` 方法（delegate crate 的 `#[call(...)]` 机制，用 DSL 的 `=` 绑定拼写）：签名保留 `size`，只有调用用 `len`。绑定语义：每个被选方法绑定一个目标——默认同名，改名则绑定 `=` 右侧。改名的左侧**尚未选中**时把该方法加入选择集（`#delegate(size=len)` 单独选中 `size`）；与选中集重叠时合并（`#delegate(@all, size=len)`——`size` 转发给 `len`，其余同名——不产生重复定义）；同一方法改名两次（`#delegate(size=len, size=other)`）编译报错
+- **可读 fresh 泛型——`P0, P1, ...`**——生成的 impl 不再暴露内部 `_Param_*_BatchGen_` 名：内部 sweep 之后每个 fresh 泛型重命名为 `P0, P1, ...`（P = Param，索引与 `@N` 一致，教程早已使用的拼写）。impl 内撞名（用户泛型或类型叫 `P0`）把该 fresh 推成 `P0_`——编号从不漂移，`@N` 对应关系保持稳定
+- **生成的诊断卫生化**——DSL 错误在生成代码里发出的 `compile_error!` 拼写为 `::core::compile_error!`（绝对路径），用户自己的 `compile_error` 宏或模块无法遮蔽
+- **`X<>` 在 `+` 连接的 bound 列表内同步**——开关模板（`impl{Tr<>}`）激活时，`+` 链里的空尖括号 bound（`<T: A<> + B + C>`）与任何 `X<>` 一样同步（结构化 bound 列表逐元素同步）
+- **fresh 范围在 impl body 内重新展开**——`#map` 复制的签名按字面替换了 trait 泛型实参，可能把 `(@0..)` 占位符带进 body；body 后处理现在也在此重新展开 fresh 范围占位符（`(@0..)` → 对照本 impl 的 fresh 列表展开为 `(@0, @1, ...)`）
+- **repeat 块轮间分隔符**——repeat 块 `@(...)..` 现在接受显式**轮间分隔符**：`@(A,)..` 逐元素重复 `A,`（`A, A, A`）——块内尾逗号即分隔符、随之重复，并排生成的元素正确连接
+- **fresh 数驱动 cursor-only repeat 块**——cursor-only 块（`@(args.@0,)..`，无模板变长段驱动）现在**每个 impl fresh 泛型重复一次**——fresh 数即重复次数——**fresh 绑定开关**（`impl{@0..}`，形状模板的 fresh 范围形态）显式声明作用域并启用 `@@N` 名称引用（被绑 fresh 的名字本身，如 `@@0` → `P0`——写名字而非位置）
+- **空元组折叠精确化**——范围占位符仅在元组**顶层**含范围占位符时折叠成真正的 1 元组（`(@0..)` → `(P0,)`）；普通 `(expr,)` 元组按字面保留尾逗号（`(a, b,)` 保持 `(a, b,)`）——折叠绝不改写非范围元组
+
+## 0.9.3 (2026-08-22)
+
+- **生成式 Fn 类型：Fn/FnMut/FnOnce 结构化**——Fn 家族不再是 passthrough：`Fn` / `FnMut` / `FnOnce`（以及裸 `fn`）带参数列表结构化解析，生成器可以在内部运行（`Fn()2` → `Fn(P0,P1)`；`Fn()0..4 R` → 每个元数一个 `Fn(P0..Pn) -> R` 形态）。空格形态更优：`Fn()N` ≡ `Fn.().N`，`.` 可省略。`dyn` / `for<'a>` 包装也结构化，生成器可穿透（`dyn Fn()2 + Send` → `dyn Fn(P0,P1) + Send`）与嵌套包装（`Box<dyn Fn()2>`）；fresh 参数乘到 impl 泛型
+- **bound 生成器驱动 spec 级展开**——**impl 泛型 bound** 内的生成器（`<R, T: Fn()0..4 R> Tr<T> (@0..)`）每个元数生成一个 impl、bound 钉死在该元数（`T: Fn(P0,P1) -> R`），目标的 `@0..` 对照该 impl 自己的 fresh 列表重新展开——"Fn 元数 × 元组元素是同一批泛型"，一个 spec 覆盖所有元数
+- **`(@0..)` 无逗号范围元组**——括号里范围占位符的尾逗号可选（`(@0..)` ≡ `(@0..,)`）：无逗号形态对元数 1 仍渲染真正的 1 元组 `(P0,)`（绝非组 `(P0)`）
+- **裸 `where` 无需代码块**——spec 末尾的 `where A: Clone` ≡ `where A: Clone {}`（谓词区在 spec 末尾结束；既有 `impl{...}` / `where` / `;` 边界不变）。尾随 `{}` 不再必须
+- **空格形态生成器拼写**——容器/修饰符与矩阵源之间的 `.` 可选：`()N` ≡ `().N`、`(A,)N` ≡ `(A,).N`、`*()N` ≡ `*().N`、`Box @u*` ≡ `Box.@u*`、`[Box, Rc] u32` ≡ `[Box, Rc].u32`（空格是首选拼写，除真正嵌套如 `Box.Box.u8` 之外）
+- **`@all_fresh` 弃用**——等价于 `@0..`；文档标注弃用并推荐 `@N..` 家族（实现保留以兼容）
+- **`@Cow` 文档化为 `#blanket` 专属**——包装常量是 `#blanket` 包装列表的内置（绝非自定义常量）；文档已说明，`@` 记法表格展示各常量展开结果
+
 ## 0.9.2 (2026-08-21)
 
 - **`@N..` 范围引用随处可用**——开放（`@1..`）或闭合（`@0..=1`）fresh 范围现在可以出现在**任何单个 `@N` 能出现的位置**：where 谓词（`@1..::Output: Clone`——范围后的尾部逐 fresh 复制，关联类型路径随之携带）、`<>` 泛型实参（`Wrapper<@0..>`——一个占位位置重新展开为多个）、元组目标，以及 **impl 泛型声明位置**（`<@0..>` 把范围覆盖的每个 fresh 声明为 impl 参数——生成器放在 trait 实参，如 `<@0..> GenConv<*().2> T`）。**组内范围** `@L_N..` / `@L_N..M` / `@L_N..=M` 在**单个生成器组内**切片（`@g_i` 的组内对应物，跨数组分发稳定）。范围在 parse 时折叠成单个占位标识符、codegen 时对照 impl 的 fresh 列表重新展开；旧的"范围引用仅限 where 谓词主体"限制已移除

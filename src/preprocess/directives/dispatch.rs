@@ -187,6 +187,20 @@ fn expand_delegate(
                     ));
                 }
             };
+            // A trait method can be bound to only one target method: a
+            // second `foo = ...` for the same `foo` is a conflict, not a
+            // merge (the merged set may also hold `foo` via `@all` — that
+            // overlap is deduplicated downstream by the name-list parser,
+            // keeping the first occurrence).
+            if renames.contains_key(&from_ident.to_string()) {
+                return Err(compile_err!(
+                    "batch-impl: #delegate method `{}` is renamed twice \
+                     (`{}=...` appears more than once); a method can delegate \
+                     to only one target",
+                    from_ident,
+                    from_ident
+                ));
+            }
             renames.insert(from_ident.to_string(), to_ident.to_string());
             method_tokens.push(from_ident.into());
         } else {

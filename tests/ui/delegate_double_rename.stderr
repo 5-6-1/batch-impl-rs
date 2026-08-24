@@ -1,0 +1,7 @@
+error: batch-impl: #delegate method `size` is renamed twice (`size=...` appears more than once); a method can delegate to only one target
+  --> tests/ui/delegate_double_rename.rs:17:1
+   |
+17 | #[batch_impl(Wrap #delegate(size=len, size=other){self.0})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
