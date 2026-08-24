@@ -1,15 +1,19 @@
-//! The fresh-generic naming protocol — the single source of truth for the
-//! `_Param_*_BatchGen_` reserved pattern shared by three layers:
+//! The fresh-generic protocol — the single source of truth for both sides of
+//! the macro-meta layer:
 //!
-//! - **generate** ([`fresh_param`]) — the apply layer mints group-position
-//!   names `_Param_{g}_{i}_BatchGen_` (the codegen sweeper renumbers them);
-//! - **construct** ([`at_ref_name`]) — the parse layer turns `@N` / `@g_i`
-//!   position references into `_Param_{N}_BatchGen_` / `_Param_{g}_{i}_BatchGen_`;
-//! - **parse** ([`parse_grouped_fresh`]) — the codegen sweeper and the where
-//!   resolver identify and renumber the grouped form.
+//! - **Declarations** ([`fresh_param`] + the `FRESH_PREFIX`/`FRESH_SUFFIX`
+//!   reserved pattern) — the apply layer mints group-position names
+//!   `_Param_{g}_{i}_BatchGen_`; the codegen finalizer numbers and renames
+//!   them per impl in one fused pass.
+//! - **References** ([`FreshRef`] / [`FreshEnd`]) — `@N` / `@g_i` / range
+//!   references ride the Ty tree structurally (`TyKind::Fresh`) and carry in
+//!   token domains as the self-delimiting `@{...}` group; [`fold_flat_refs`]
+//!   normalizes user-spelled input to that carrier, and
+//!   [`FreshRef::parse`] / [`FreshRef::spell`] are the two directions of the
+//!   encoding so parser and emitter can never drift.
 //!
-//! Keeping the prefix/suffix constants here guarantees the three layers
-//! cannot drift apart.
+//! No reference is ever minted as a reserved ident — only declarations use
+//! the reserved pattern, and it never reaches rendered output.
 
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::quote;

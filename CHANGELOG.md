@@ -5,6 +5,11 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased (internal)
+
+- No user-visible changes; the macro-meta reference machinery was rebuilt
+  internally (structured `@{...}` references, single-pass fresh naming) —
+  all diagnostics and expansions are byte-identical to 0.9.4.
 ## 0.9.4 (2026-08-24)
 
 > The blanket-delegation and #delegate-rename work — driven by the user's

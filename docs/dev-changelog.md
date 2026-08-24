@@ -5,6 +5,34 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased (post-0.9.4 internal refactor)
+
+- **Macro-meta references are first-class** — the four-phase refactor that
+  retires every reserved placeholder ident on the reference side:
+  - `TyKind::Fresh(FreshRef)` carries `@N` / `@g_i` / ranges structurally in
+    the Ty tree (a leaf for apply / expand / dispatch); it renders to the
+    self-delimiting carrier `@{...}` (`ast/fresh.rs::fresh_ref_tokens`), and
+    `FreshRef::spell` / `FreshRef::parse` are the two directions of the
+    encoding so parser and emitter cannot drift;
+  - `parse::resolve_at_refs` emits the carrier instead of minting
+    `_Param_N_With[_M]_BatchGen_` idents; `RANGE_WITH_INFIX`,
+    `range_fresh_name`, `parse_range_fresh` and `at_ref_name` are deleted —
+    the four mutually-exclusive string parsers collapse into
+    `FreshRef::parse`;
+  - `where_at::resolve_where_at` normalizes its input through
+    `fold_flat_refs` (which also absorbs the deprecated `@all_fresh` as
+    `{0..}`) and then matches carriers only — the flat-token lookahead
+    arithmetic (`parse_fresh_range` / `parse_group_start`) is gone;
+  - `codegen/fresh.rs` gains `FreshCtx` (the per-impl sorted fresh list,
+    built once in `generate_parts`, shared by where resolution / range
+    re-opening / render) — the duplicated `sorted_fresh` sort sites are
+    deduplicated; `sweep_fresh_names` + `readable_fresh_names` are fused
+    into one traversal `finalize_fresh_names` (numbering + collision-aware
+    display names in a single rewrite);
+  - repeat blocks pass fresh-ref carriers through untouched (`@{...}` inside
+    an impl body is not a repeat block — the later range pass consumes it).
+- No user-visible behavior change: all 82 UI snapshots byte-identical, 175
+  dsl tests green.
 ## 0.9.4 (2026-08-24)
 
 > The blanket-delegation and `#delegate`-rename work — the user's manual
