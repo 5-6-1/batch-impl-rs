@@ -7,7 +7,6 @@ use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 use super::FreshCtx;
 use super::{at_group_out_of_range, at_num_out_of_range};
 use crate::ast::fresh::{FreshEnd, FreshRef};
-use crate::ast::MAX_EXPAND;
 use crate::util::{compile_err, compile_error_str};
 
 /// Macro-meta position references in where predicates: `@N` → the N-th fresh
@@ -67,167 +66,84 @@ pub(crate) fn resolve_where_predicates(
 pub(crate) fn resolve_where_at(
     pred: &TokenStream, ctx: &FreshCtx,
 ) -> Result<TokenStream, TokenStream> {
-    // `ctx.names` is already sorted by (group, position) — the sweep order,
-    // so `@N` matches the final `_Param_{N}_BatchGen_` the sweeper will emit.
+    // Normalize first: every flat spelling (`@N` / `@g_i` / ranges /
+    // `@all_fresh`) folds into the self-delimiting carrier `@{...}` — one
+    // representation for the whole scan below, no lookahead arithmetic.
+    let folded = crate::ast::fresh::fold_flat_refs(&pred.clone().into_iter().collect::<Vec<_>>());
+    let tokens = folded;
     let fresh_sorted = &ctx.names;
-    let tokens = pred.clone().into_iter().collect::<Vec<_>>();
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        if let TokenTree::Punct(p) = &tokens[i]
-            && p.as_char() == '@'
-        {
-            match tokens.get(i + 1) {
-                Some(TokenTree::Ident(id)) if id == "all_fresh" => {
-                    // `@all_fresh: Bound` → every fresh generic gets the
-                    // predicate tail (`_Param_0_: Bound, _Param_1_: Bound,
-                    // ...`) — comma-separated, subject-only.
-                    if fresh_sorted.is_empty() {
-                        return Err(compile_error_str(
-                            "batch-impl: `@all_fresh` in a where predicate but this impl has no fresh generics",
-                            tokens[i].span(),
-                        ));
-                    }
-                    if fresh_sorted.len() > MAX_EXPAND {
-                        return Err(compile_err!(
-                            "batch-impl: `@all_fresh` expands to {} predicates (max {}); use `@N..M` for a subset",
-                            fresh_sorted.len(),
-                            MAX_EXPAND
-                        ));
-                    }
+        let is_carrier = matches!(&tokens[i], TokenTree::Punct(p) if p.as_char() == '@')
+            && match tokens.get(i + 1) {
+                Some(TokenTree::Group(g)) => g.delimiter() == proc_macro2::Delimiter::Brace,
+                _ => false,
+            };
+        if is_carrier {
+            // Parse the reference out of the carrier group.
+            let inner: String = match &tokens[i + 1] {
+                TokenTree::Group(g) => g
+                    .stream()
+                    .into_iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(""),
+                _ => unreachable!("matched above"),
+            };
+            let at_span = match &tokens[i] {
+                TokenTree::Punct(p) => p.span(),
+                _ => unreachable!("matched above"),
+            };
+            let r = FreshRef::parse(&inner).ok_or_else(|| {
+                compile_error_str(
+                    "batch-impl: `@{...}` must hold a position reference \
+                     (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`)",
+                    at_span,
+                )
+            })?;
+            match r.end {
+                FreshEnd::Single => {
+                    // Document-order index (flat) or exact group position.
+                    let name: Option<TokenStream> = match r.group {
+                        None => fresh_sorted.get(r.start).map(|&(_, _, n)| n.clone()),
+                        Some(g) => ctx
+                            .names
+                            .iter()
+                            .find(|&&(gg, pp, _)| gg == g && pp == r.start)
+                            .map(|&(_, _, n)| n.clone()),
+                    };
+                    let Some(name) = name else {
+                        return Err(match r.group {
+                            Some(g) => at_group_out_of_range(g, r.start, at_span),
+                            None => at_num_out_of_range(r.start, fresh_sorted.len(), at_span),
+                        });
+                    };
+                    out.extend(name);
+                    i += 2;
+                    continue;
+                }
+                FreshEnd::Open | FreshEnd::Closed(_) => {
+                    // Range subject: every covered fresh gets the predicate
+                    // tail (comma-separated). An open range past the end
+                    // contributes zero predicates (`@{1..}` on arity 1).
+                    let slice = match r.group {
+                        Some(g) => ctx.group(g, at_span)?,
+                        None => fresh_sorted,
+                    };
+                    let count =
+                        crate::codegen::range_refs::range_count(&r, slice.len(), at_span)?;
                     let tail = resolve_tail(&tokens[i + 2..], ctx)?;
-                    emit_fresh_predicates(&mut out, fresh_sorted, &tail);
+                    emit_fresh_predicates(&mut out, &slice[r.start..r.start + count], &tail);
                     i = tokens.len();
                     continue;
                 }
-                Some(TokenTree::Literal(lit)) => {
-                    let s = lit.to_string();
-                    // `@L_N..` grouped open range / `@L_N..M` / `@L_N..=M` —
-                    // within generator group L (stable across array dispatch,
-                    // like `@g_i`). Slices the group's fresh entries by
-                    // in-group position.
-                    if let Some((group, start)) = parse_group_start(&s)
-                        && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                        && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                    {
-                        let slice = ctx.group(group, tokens[i].span())?;
-                        let mut consumed = 4;
-                        if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=')
-                        {
-                            consumed += 1;
-                        }
-                        let end = match tokens.get(i + consumed) {
-                            Some(TokenTree::Literal(el)) => {
-                                let Some(e) = el.to_string().parse::<usize>().ok() else {
-                                    return Err(compile_error_str(
-                                        "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
-                                        tokens[i].span(),
-                                    ));
-                                };
-                                consumed += 1;
-                                FreshEnd::Closed(e)
-                            }
-                            _ => FreshEnd::Open,
-                        };
-                        let r = FreshRef { group: Some(group), start, end };
-                        let count =
-                            crate::codegen::range_refs::range_count(&r, slice.len(), tokens[i].span())?;
-                        let tail = resolve_tail(&tokens[i + consumed..], ctx)?;
-                        emit_fresh_predicates(&mut out, &slice[start..start + count], &tail);
-                        i = tokens.len();
-                        continue;
-                    }
-                    // `@N..` open range: from N to the last fresh — empty
-                    // when N is past the end (legal: an arity-1 impl
-                    // contributes no "from the second element" predicate,
-                    // e.g. `@1..: Module<...>`).
-                    if let Ok(start) = s.parse::<usize>()
-                        && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                        && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                        && !matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=')
-                        && !matches!(tokens.get(i + 4), Some(TokenTree::Literal(_)))
-                    {
-                        let count = fresh_sorted.len().saturating_sub(start);
-                        if count > MAX_EXPAND {
-                            return Err(compile_err!(
-                                "batch-impl: `@{}..` expands to {} predicates (max {})",
-                                start,
-                                count,
-                                MAX_EXPAND
-                            ));
-                        }
-                        let tail = resolve_tail(&tokens[i + 4..], ctx)?;
-                        emit_fresh_predicates(&mut out, &fresh_sorted[start..start + count], &tail);
-                        i = tokens.len();
-                        continue;
-                    }
-                    // `@N..M` / `@N..=M`: a contiguous fresh range — each
-                    // indexed fresh gets the predicate tail (comma-separated).
-                    // Out of range or over MAX_EXPAND predicates errors.
-                    if let Ok(start) = s.parse::<usize>()
-                        && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                        && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                    {
-                        let (count, _end_idx, tail) =
-                            parse_fresh_range(&tokens, i, start, fresh_sorted.len())?;
-                        let tail = resolve_tail(&tail, ctx)?;
-                        emit_fresh_predicates(&mut out, &fresh_sorted[start..start + count], &tail);
-                        i = tokens.len();
-                        continue;
-                    }
-                    if let Ok(idx) = s.parse::<usize>() {
-                        // Document-order index: `@N` resolves to the N-th fresh
-                        // after (group, position) sorting — the same order the
-                        // sweeper renumbers to `_Param_0..N_BatchGen_`.
-                        let Some(&(_, _, name)) = fresh_sorted.get(idx) else {
-                            return Err(at_num_out_of_range(
-                                idx,
-                                fresh_sorted.len(),
-                                tokens[i].span(),
-                            ));
-                        };
-                        out.extend(name.clone());
-                        i += 2;
-                        continue;
-                    }
-                    // `@g_i` (literal with an underscore): group g, position i
-                    // of that group — resolves to the grouped fresh name
-                    // `_Param_{g}_{i}_BatchGen_` (which the sweeper renumbers
-                    // along with the generated names). Unlike `@N` it is
-                    // stable across array-dispatch impls (a group absent from
-                    // an impl errors here instead of silently shifting).
-                    if let Some((g, pos)) = s.split_once('_')
-                        && let (Ok(g), Ok(pos)) = (g.parse::<usize>(), pos.parse::<usize>())
-                    {
-                        // Pair lookup on the sorted context (no name-string
-                        // round-trip — the ctx carries the parsed pairs).
-                        let Some(&(_, _, name)) =
-                            ctx.names.iter().find(|&&(gg, pp, _)| gg == g && pp == pos)
-                        else {
-                            return Err(at_group_out_of_range(g, pos, tokens[i].span()));
-                        };
-                        out.extend(name.clone());
-                        i += 2;
-                        continue;
-                    }
-                    return Err(compile_error_str(
-                        "batch-impl: `@` in a where predicate must be followed by \
-                         a position digit (e.g. `@0` or `@0_1`)",
-                        tokens[i].span(),
-                    ));
-                }
-                _ => {
-                    return Err(compile_error_str(
-                        "batch-impl: `@` in a where predicate must be a position digit (e.g. `@0` or `@0_1`)",
-                        tokens[i].span(),
-                    ));
-                }
             }
-        } else if let TokenTree::Group(g) = &tokens[i] {
-            // Recurse into groups (`Module<..., Scalar = @0::Scalar>` — the
-            // angle group is paired by angle_collect; `@N` inside it is a
-            // value reference that must resolve like the top level, mirroring
-            // `parse::resolve_at_refs`).
+        }
+        if let TokenTree::Group(g) = &tokens[i] {
+            // Recurse into groups (`Module<..., Scalar = @{0}::Scalar>` — the
+            // angle group is paired by angle_collect; a reference inside is a
+            // value reference that must resolve like the top level).
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let resolved = resolve_tail(&inner, ctx)?;
             let mut ng = Group::new(g.delimiter(), resolved.into_iter().collect());
@@ -241,7 +157,6 @@ pub(crate) fn resolve_where_at(
     }
     Ok(out.into_iter().collect())
 }
-
 /// Resolves the `@` references in a predicate tail (the type position after
 /// `:` — `@N` may appear inside angle groups, e.g. `Scalar = @0::Scalar`).
 fn resolve_tail(tail: &[TokenTree], ctx: &FreshCtx) -> Result<Vec<TokenTree>, TokenStream> {
@@ -263,62 +178,4 @@ fn emit_fresh_predicates(
         out.extend(name.clone());
         out.extend(tail.iter().cloned());
     }
-}
-
-/// Parse the `@N..M` / `@N..=M` fresh-range subject (the `@N` and the `..`/
-/// `..=` are already confirmed by the caller). Returns `(count, end_idx, tail)`
-/// — `count` fresh names starting at `start`, the predicate tail after the
-/// range, and the token index just past the range. All range checks (empty /
-/// out-of-range / over `MAX_EXPAND`) error here.
-fn parse_fresh_range(
-    tokens: &[TokenTree], i: usize, start: usize, fresh_len: usize,
-) -> Result<(usize, usize, Vec<TokenTree>), TokenStream> {
-    let inclusive = matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=');
-    let end_idx = if inclusive { i + 5 } else { i + 4 };
-    let Some(TokenTree::Literal(end_lit)) = tokens.get(end_idx) else {
-        return Err(compile_error_str(
-            "batch-impl: a `@N..M` range in a where predicate must end with a number (e.g. `@0..=2`)",
-            tokens[i].span(),
-        ));
-    };
-    let Ok(end) = end_lit.to_string().parse::<usize>() else {
-        return Err(compile_error_str(
-            "batch-impl: a `@N..M` range in a where predicate must end with a number (e.g. `@0..=2`)",
-            end_lit.span(),
-        ));
-    };
-    let count = if inclusive { end.saturating_sub(start) + 1 } else { end.saturating_sub(start) };
-    if count == 0 {
-        return Err(compile_err!(
-            "batch-impl: `@{}..{}` is an empty range (start not below end); no predicates will be generated",
-            start,
-            end
-        ));
-    }
-    if end >= fresh_len || start > end {
-        return Err(compile_err!(
-            "batch-impl: `@{}..{}` out of range in a where predicate (impl has {} fresh generics, numbered from 0 in document order)",
-            start,
-            end,
-            fresh_len
-        ));
-    }
-    if count > MAX_EXPAND {
-        return Err(compile_err!(
-            "batch-impl: `@{}..{}` expands to {} predicates (max {})",
-            start,
-            end,
-            count,
-            MAX_EXPAND
-        ));
-    }
-    let tail = tokens[end_idx + 1..].to_vec();
-    Ok((count, end_idx, tail))
-}
-
-/// Parses a grouped range literal `L_N` (the part after `@`) into
-/// `(group, start)`; `None` for a plain digit (that is the flat `@N` form).
-fn parse_group_start(s: &str) -> Option<(usize, usize)> {
-    let (l, n) = s.split_once('_')?;
-    Some((l.parse::<usize>().ok()?, n.parse::<usize>().ok()?))
 }

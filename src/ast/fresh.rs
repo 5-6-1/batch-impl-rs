@@ -134,12 +134,118 @@ pub(crate) fn fresh_ref_tokens(r: FreshRef, span: proc_macro2::Span) -> TokenStr
     ts.extend(std::iter::once(TokenTree::Group(g)));
     ts
 }
+
+/// Folds every **flat** position reference in `tokens` into the carrier form:
+/// `@0` / `@g_i` / `@N..` / `@N..M` / `@N..=M` (and the deprecated
+/// `@all_fresh`, normalized to `@{0..}`) become `@` + Brace groups. Existing
+/// carriers pass through untouched, so this is idempotent — the single
+/// normalization point for resolvers that may receive user-spelled input
+/// (where predicates, blanket wrapper clauses). A malformed reference
+/// (non-digit after `@`, malformed end, empty exclusive range) is left
+/// as-is for the caller's validation to report.
+pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
+    let mut out = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while i < tokens.len() {
+        let at_span = match &tokens[i] {
+            TokenTree::Punct(p) if p.as_char() == '@' => p.span(),
+            _ => {
+                out.push(tokens[i].clone());
+                i += 1;
+                continue;
+            }
+        };
+        // Already a carrier (`@{...}`): keep both tokens verbatim.
+        if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
+            if g.delimiter() == proc_macro2::Delimiter::Brace)
+        {
+            out.push(tokens[i].clone());
+            out.push(tokens[i + 1].clone());
+            i += 2;
+            continue;
+        }
+        // Deprecated batch form: `@all_fresh` ≡ `@{0..}`.
+        if let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
+            && id == "all_fresh"
+        {
+            out.extend(fresh_ref_tokens(
+                FreshRef { group: None, start: 0, end: FreshEnd::Open },
+                at_span,
+            ));
+            i += 2;
+            continue;
+        }
+        if let Some(TokenTree::Literal(lit)) = tokens.get(i + 1) {
+            let s = lit.to_string();
+            // Head classification: `N` (flat) or `L_N` (grouped).
+            let (group, start): (Option<usize>, usize) = if let Ok(n) = s.parse::<usize>() {
+                (None, n)
+            } else if let Some((l, n)) = s.split_once('_')
+                && let (Ok(l), Ok(n)) = (l.parse::<usize>(), n.parse::<usize>())
+            {
+                (Some(l), n)
+            } else {
+                out.push(tokens[i].clone());
+                i += 1;
+                continue;
+            };
+            // Optional range tail: `..` (open) / `..=M` / `..M`.
+            let mut consumed = 2usize;
+            let end = if matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+            {
+                consumed = 4;
+                let inclusive =
+                    matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=');
+                if inclusive {
+                    consumed += 1;
+                }
+                match tokens.get(i + consumed) {
+                    Some(TokenTree::Literal(el)) => match el.to_string().parse::<usize>() {
+                        Ok(e) => {
+                            consumed += 1;
+                            if inclusive {
+                                Some(FreshEnd::Closed(e))
+                            } else if start < e {
+                                Some(FreshEnd::Closed(e - 1))
+                            } else {
+                                // empty exclusive range — leave for validation
+                                out.push(tokens[i].clone());
+                                i += 1;
+                                continue;
+                            }
+                        }
+                        Err(_) => {
+                            out.push(tokens[i].clone());
+                            i += 1;
+                            continue;
+                        }
+                    },
+                    _ => Some(FreshEnd::Open),
+                }
+            } else {
+                Some(FreshEnd::Single)
+            };
+            if let Some(end) = end {
+                out.extend(fresh_ref_tokens(
+                    FreshRef { group, start, end },
+                    at_span,
+                ));
+                i += consumed;
+                continue;
+            }
+        }
+        out.push(tokens[i].clone());
+        i += 1;
+    }
+    out
+}
+
 /// Whether an identifier matches the reserved fresh pattern
 /// (`_Param_*_BatchGen_`, grouped or single-numbered).
 pub(crate) fn is_fresh_name(s: &str) -> bool {
     s.starts_with(FRESH_PREFIX) && s.ends_with(FRESH_SUFFIX)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
