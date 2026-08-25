@@ -5,18 +5,17 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased (internal)
-
-- No user-visible changes; the macro-meta reference machinery was rebuilt
-  internally (structured `@{...}` references, single-pass fresh naming) —
-  all diagnostics and expansions are byte-identical to 0.9.4.
-## 0.9.4 (2026-08-24)
+## 0.9.4 (2026-08-25)
 
 > The blanket-delegation and #delegate-rename work — driven by the user's
 > side-by-side comparison of batch-impl against `auto_impl` / `delegate` /
 > `impl-trait-for-tuples` / `fortuples` / `trait-gen` (manual, hands-on):
 > auto_impl's GAT + assoc-type forwarding and delegate's `#[call(...)]`
-> renaming were the two missing capabilities; both are now in.
+> renaming were the two missing capabilities; both are now in. On top of
+> that, the macro-meta layer was rebuilt internally: structured carriers
+> replace every reserved name, and fresh display names escape collisions
+> with spreadsheet-style letter suffixes (`P0A`, `P0B`, ...) — the
+> numbering never skips, so `@N` correspondence stays stable.
 
 - **`#blanket` GAT projection** — a generic associated type in the trait
   (`trait Iterable { type Iter<'a> where Self: 'a; }`) now delegates as
@@ -54,7 +53,7 @@
   every fresh generic is renamed to `P0, P1, ...` (P = Param, the index
   matches `@N`, the spelling the tutorial already used). A name collision
   in the impl (a user generic or type named `P0`) pushes that fresh to
-  `P0_` — the numbering never drifts, so `@N` correspondence stays stable
+  `P0A`, `P0B`, ... (spreadsheet-style letter suffixes, bijective base-26) — the numbering never skips, so `@N` correspondence stays stable
 - **Hygienic generated diagnostics** — the `compile_error!` emitted for DSL
   errors inside generated code is spelled `::core::compile_error!` (absolute
   path), so a user's own `compile_error` macro or module cannot shadow it

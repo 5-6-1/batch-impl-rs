@@ -1,7 +1,11 @@
 # batch-impl Tutorial
 
-**v0.9.4** (2026-08-24) — **blanket-delegation and `#delegate`-rename
-enhancements**: `#blanket` delegates GATs (`type Iter<'a> =
+**v0.9.4** (2026-08-25) — **macro-meta carrier rebuild + blanket-delegation
+and `#delegate`-rename**: internally every reserved name was replaced by
+structured carriers (`@{g_i}` fresh carriers, `[Prefix; ()]` segment
+markers, `@{A_pos}` slot references) and fresh display names escape
+collisions by letter suffixes (`P0A`, `P0B`, ...); user-facing:
+`#blanket` delegates GATs (`type Iter<'a> =
 <T as Trait>::Iter<'a> where Self: 'a`), reports bare-`Self`
 parameters/returns (`Self::Assoc` returns pass), and the `@?` suffix adds
 `T: ?Sized` (`Box@?` — unsized targets like `Box<dyn Trait>`);
@@ -396,8 +400,9 @@ batch_trait! {
 | `@N..=M` | a contiguous run | the fresh names N..=M, comma-separated (`@0..=1` → `P0, P1`) |
 | `@N..` | an **open** run to the last fresh | every fresh name from N to the last, comma-separated (`@1..` → `P1, P2, ...`); **empty** when N is past the end (an arity-1 impl contributes no such predicate, no error) |
 
-The fresh names are `_Param_…_BatchGen_` before the per-impl sweep and `P_n`
-after it — the expansion splices the names where the `@` sits (a where
+Fresh display names are numbered `P0, P1, ...` in document order (a collision
+with an ident the impl already writes escapes by spreadsheet-style letter
+suffixes: `P0A`, `P0B`, ... `P0Z`, `P0AA`) — the expansion splices the names where the `@` sits (a where
 predicate subject, a target tuple element, a generic argument), so a range
 becomes several names and a `where` tail is copied per fresh.
 
@@ -491,7 +496,7 @@ constraint):
     Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
         impl{(A@..)}
-    #Scalar{A0::Scalar}
+    #Scalar{@{A_0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
 trait Module<Add, Mul> {
@@ -811,6 +816,7 @@ The template is matched against the leaf by **structural recursion** — every
 | `[A]` (slice), `(A, B, C)` (tuple) | elements bind position by position |
 | `[A; 3]` (fixed array, literal length) | the length compares verbatim; the element binds |
 | `[A; N]` (fixed array, const-param length) | the length **binds** to the leaf's length (`N := 3`; the body may use `N`) |
+| `[A; ()]` | **reserved shape** — the internal variadic-segment marker (an array length of `()` cannot exist in compilable code); do not write it in a template by hand |
 | `Cow<'_, A>` (lifetime arg) | `'_'` is a **wildcard** matching any lifetime; `'a` vs `'b` compares verbatim; the type arg binds |
 
 Not bindable (kept as verbatim comparison — a targeted diagnostic instead of
@@ -866,8 +872,8 @@ segment needs **no comma** — `impl{(A@..)}` and `impl{(A@..,)}` are
 equivalent (0.9.2; the trailing comma is supplied automatically so the
 template still parses as a tuple). The segment's
 names are **aligned with the leaf position** — `(u8, A@..,)` on
-`(u8, u16, u32)` yields `A1`, `A2` (there is no `A0`; the index cursor
-starts at `@1`), while `(A@..,)` on `(u8, u16, u32)` yields `A0`, `A1`,
+`(u8, u16, u32)` yields `@{A_1}`, `@{A_2}` (none at 0; the index cursor
+starts at `@1`), while `(A@..,)` on `(u8, u16, u32)` yields `@{A_0}`, `@{A_1}`,
 `A2`. Same-level segments split the leaf evenly (`(A@.., B@..,)` on an
 arity-4 leaf → A len 2, B len 2); an uneven split errors. Segments recurse
 into nested tuples (`((A@..,),(B@..,))`), and duplicate segment prefixes in
@@ -880,12 +886,12 @@ of the segment(s) it references:
 # use batch_impl::batch_impl;
 #[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
 trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
-// body → (A0::from(self.0), A1::from(self.1), A2::from(self.2))
+// body → (@{A_0}::from(self.0), @{A_1}::from(self.1), @{A_2}::from(self.2))
 //        → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
 ```
 
 - `@ident` inside a block is a **name reference** — the i-th element's slot
-  name (`A0`, `A1`, ...), which the slot mapping then rewrites to the bound
+  slot carrier `@{A_pos}` (`A_0`, `A_1`, ... — prefix + `_` + the absolute leaf position), which the slot mapping then rewrites to the bound
   leaf element;
 - `@N` is an **index cursor** — the numeric literal `N + i`; write the path
   prefix yourself (`self.@1` for a segment starting at leaf index 1);
@@ -925,8 +931,8 @@ impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
-// → impl<A0> TupleMagma for (A0,) where A0: Magma { ... }
-// → impl<A0, A1> TupleMagma for (A0, A1) where A0: Magma, A1: Magma { ... }
+// → impl<P0> TupleMagma for (P0,) where P0: Magma { ... }
+// → impl<P0, P1> TupleMagma for (P0, P1) where P0: Magma, P1: Magma { ... }
 ```
 
 ### 8.5 The impl entry (0.8.0, ItemImpl)

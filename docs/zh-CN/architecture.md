@@ -1,6 +1,6 @@
 # batch-impl 内部架构
 
-**v0.9.4**（2026-08-24）——blanket 委托与 `#delegate` 改名工作（来自用户与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测）：`#blanket` GAT 投影（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`——GAT 自身参数穿过投影，`blanket.rs`）、裸 `Self` 参数/返回检测（`blanket_helpers.rs::sig_refs_bare_self`；`Self::Assoc` 返回放行）、`@?` 非 Sized 后缀（`Box@?` → `where{T: ?Sized}`，`blanket_wrappers.rs`——字段名 `is_unsized`，`unsized` 是 edition 2024 保留字）；`#delegate` 改名 `foo = call_foo`（`dispatch.rs::expand_delegate`——`=` 拆出改名映射，名字列表解析首现保留去重使 rename/`@all` 重叠合并、二次改名报错）；可读 fresh 名 `P0, P1, ...`（`codegen/fresh.rs::readable_fresh_names`——sweep 后的纯展示层，撞名 → `P{n}_`，编号从不漂移）；生成的诊断卫生化 `::core::compile_error!`；`X<>` 在 `+` 连接的 bound 列表内同步（`sync.rs::sync_bound_ty`——结构化 `TyBoundList` 逐元素同步）；fresh 范围占位符在 impl body 内重新展开；repeat 块轮间分隔符 + fresh 数驱动 cursor-only 块 + fresh 绑定开关 `impl{@0..}` 与 `@@N` 名称引用（`repeat.rs` / `repeat_drivers.rs` / `extract.rs::parse_fresh_switch`）；空元组折叠精确化（`range_refs.rs::fold_empty_tuple`——仅顶层含范围占位符）；
+**v0.9.4**（2026-08-25）——blanket 委托与 `#delegate` 改名工作（来自用户与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测）：`#blanket` GAT 投影（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`——GAT 自身参数穿过投影，`blanket.rs`）、裸 `Self` 参数/返回检测（`blanket_helpers.rs::sig_refs_bare_self`；`Self::Assoc` 返回放行）、`@?` 非 Sized 后缀（`Box@?` → `where{T: ?Sized}`，`blanket_wrappers.rs`——字段名 `is_unsized`，`unsized` 是 edition 2024 保留字）；`#delegate` 改名 `foo = call_foo`（`dispatch.rs::expand_delegate`——`=` 拆出改名映射，名字列表解析首现保留去重使 rename/`@all` 重叠合并、二次改名报错）；可读 fresh 名 `P0, P1, ...`（`codegen/fresh.rs::display_name`——`FreshCtx` 一次性分配、撞名按电子表格式字母后缀逃逸 `P0A`/`P0B`...，编号从不漂移）；生成的诊断卫生化 `::core::compile_error!`；`X<>` 在 `+` 连接的 bound 列表内同步（`sync.rs::sync_bound_ty`——结构化 `TyBoundList` 逐元素同步）；fresh 范围占位符在 impl body 内重新展开；repeat 块轮间分隔符 + fresh 数驱动 cursor-only 块 + fresh 绑定开关 `impl{@0..}` 与 `@@N` 名称引用（`repeat.rs` / `repeat_drivers.rs` / `extract.rs::parse_fresh_switch`）；空元组折叠精确化（`range_refs.rs::fold_empty_tuple`——仅顶层含范围占位符）；
 
 **v0.9.3**（2026-08-22）——**生成式 Fn 类型**：`Fn` / `FnMut` / `FnOnce`（以及裸 `fn`）带真实参数列表结构化解析（`ast/types.rs::TyFn` + `FnKind`，`parse_atom.rs` / `parse/blocks.rs`），生成器可跑在内部（`Fn()2` → `Fn(P0,P1)`；空格形态 `Fn()N` ≡ `Fn.().N`）；`dyn` / `for<'a>` 包装结构化（`TyWithDyn` / `TyWithFor` 保持内部类型结构化）——生成器穿透 trait 对象与 HRTB；**bound 生成器**按元数范围分发（`codegen/bound_gen.rs`——每个元数一个 impl、bound 钉死、目标 `@0..` 对照该 impl 的 fresh 列表重开）；`(@0..)` 无逗号范围元组；从目标泛型实参 hoist fresh（`extract.rs::hoist_type_params` 显式递归进 `TyGeneric` 参数）；裸 `where A: Clone` 无需 `{}`；空格形态生成器拼写；`@all_fresh` 弃用（写 `@0..`）；`@Cow` 文档化为 `#blanket` 专属包装常量；
 
@@ -49,7 +49,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧还原），parse 层不再管 <> 深度
   ├── ast/                  AST 层
   │   ├── mod.rs            struct Ty { span, kind: TyKind }（TyKind 20 个变体，含 Error）+ Op 优先级定义；span 放 Ty 层、贯穿 apply 产物
-  │   ├── fresh.rs          fresh 名协议（`_Param_*_BatchGen_` 常量 + 生成/构造/解析三函数）
+  │   ├── fresh.rs          fresh/段槽载体协议（`FreshRef` + `SegRef`：spell/parse 双向、声明与引用载体发射）
   │   └── types_render.rs   AST 渲染：ToTokens impl for Ty + params_to_tokens 系列
   ├── apply/                运算层
   │   ├── mod.rs            Apply trait（默认 apply 做右操作数结构化分发；全部 Ty* 子类型实现 Apply）
@@ -60,7 +60,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── postprocess.rs    ImplParts 上的 trait 泛型替换（`From<bool>`：指令 body 里 `value: T` → `value: bool`）
   │   ├── shape.rs          shape template / impl entry 共享内核：match_shape（模板 vs 叶子逐位匹配）+ Mapping + ShapeError——对每种 syn::Type 形态结构递归（切片/元组/数组/引用/指针/Paren/路径）；裸 const 参数数组长度与 `'_'` 生命周期通配可绑定；fn 指针/trait 对象模板与跨类（生命周期/const vs 类型）实参逐字比较
   │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
-  │   ├── fresh.rs          fresh 名清扫（`_Param_{g}_{i}_` → 每个 impl 的 `_Param_0..N_`）+ `@N`/`@g_i` 引用校验（目标类型 / trait 实参）
+  │   ├── fresh.rs          fresh 显示命名（`FreshCtx`：文档序 `P0..` 编号、撞名按电子表格式字母后缀逃逸 `P0A`/`P0B`...）+ `@N`/`@g_i` 引用校验（目标类型 / trait 实参）
   │   └── where_at.rs       `@` where 谓词解析（`@N`/`@g_i`/`@all_fresh`/`@N..M`）
   └── testing/              测试基建（cfg(test)）
       └── fuzz.rs           proptest：随机 token 喂真实宏入口（expand_attr_macro），承诺不 panic

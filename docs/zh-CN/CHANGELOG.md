@@ -2,15 +2,15 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## 0.9.4 (2026-08-24)
+## 0.9.4 (2026-08-25)
 
-> blanket 委托与 `#delegate` 改名工作——由用户对 batch-impl 与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测驱动（逐行核对双方 cargo expand 完整展开）：auto_impl 的 GAT + 关联类型转发、delegate 的 `#[call(...)]` 改名是缺失的两个能力，现已补齐。
+> blanket 委托与 `#delegate` 改名工作——由用户对 batch-impl 与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测驱动（逐行核对双方 cargo expand 完整展开）：auto_impl 的 GAT + 关联类型转发、delegate 的 `#[call(...)]` 改名是缺失的两个能力，现已补齐。在此基础上宏元层内部重建：结构化载体替换全部保留名，fresh 显示名撞名按电子表格式字母后缀逃逸（`P0A`、`P0B`、……）——编号从不跳过，`@N` 对应关系保持稳定。
 
 - **`#blanket` GAT 投影**——trait 里的泛型关联类型（`trait Iterable { type Iter<'a> where Self: 'a; }`）现在委托为 `type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;`——GAT 自身参数穿过投影（此前裸 `<T as Iterable>::Iter` 报 E0107 "missing lifetime argument"）。普通关联类型/常量保持既有投影（`type Item = <T as Trait>::Item;`）
 - **`#blanket` 裸 `Self` 参数/返回诊断**——方法带**裸 `Self`** 参数或返回（`fn new() -> Self`、`fn cmp(&self, other: Self)`）无法 blanket 委托：转发产生内部类型，与包装类型的 `Self` 不匹配。此前生成的 impl 报 rustc 通用 E0308/E0614；现在宏定向报错并给指导（该 wrapper 改用 `#name{...}`）。`Self::Assoc` 投影返回（`fn iter(&self) -> Self::Iter`）合法放行——内部 `T` 携带同一关联类型
 - **`#blanket` `@?` 后缀——非 Sized 包装**——wrapper 元素以 `@?` 结尾（`Box@?`、`Box<Rc@?>`……后缀随链到达最内层）给该 spec 的 where 子句加 `T: ?Sized`，fresh 泛型可为非 Sized 目标（`#blanket(@all){Box@?}` + `Box<dyn Trait>` 现在可用；不加时 `T: Trait` 隐含 `Sized`，dyn 目标失败）
 - **`#delegate` 改名——`foo = call_foo`**——元素 `size = len` 把 trait 的 `size` 方法委托给目标的 `len` 方法（delegate crate 的 `#[call(...)]` 机制，用 DSL 的 `=` 绑定拼写）：签名保留 `size`，只有调用用 `len`。绑定语义：每个被选方法绑定一个目标——默认同名，改名则绑定 `=` 右侧。改名的左侧**尚未选中**时把该方法加入选择集（`#delegate(size=len)` 单独选中 `size`）；与选中集重叠时合并（`#delegate(@all, size=len)`——`size` 转发给 `len`，其余同名——不产生重复定义）；同一方法改名两次（`#delegate(size=len, size=other)`）编译报错
-- **可读 fresh 泛型——`P0, P1, ...`**——生成的 impl 不再暴露内部 `_Param_*_BatchGen_` 名：内部 sweep 之后每个 fresh 泛型重命名为 `P0, P1, ...`（P = Param，索引与 `@N` 一致，教程早已使用的拼写）。impl 内撞名（用户泛型或类型叫 `P0`）把该 fresh 推成 `P0_`——编号从不漂移，`@N` 对应关系保持稳定
+- **可读 fresh 泛型——`P0, P1, ...`**——生成的 impl 不再暴露内部保留名：每个 fresh 泛型显示为 `P0, P1, ...`（P = Param，索引与 `@N` 一致，教程早已使用的拼写）。impl 内撞名（用户泛型或类型叫 `P0`）把该 fresh 逃逸为 `P0A`、`P0B`、……（电子表格式字母后缀，双射 base-26）——编号从不跳过，`@N` 对应关系保持稳定
 - **生成的诊断卫生化**——DSL 错误在生成代码里发出的 `compile_error!` 拼写为 `::core::compile_error!`（绝对路径），用户自己的 `compile_error` 宏或模块无法遮蔽
 - **`X<>` 在 `+` 连接的 bound 列表内同步**——开关模板（`impl{Tr<>}`）激活时，`+` 链里的空尖括号 bound（`<T: A<> + B + C>`）与任何 `X<>` 一样同步（结构化 bound 列表逐元素同步）
 - **fresh 范围在 impl body 内重新展开**——`#map` 复制的签名按字面替换了 trait 泛型实参，可能把 `(@0..)` 占位符带进 body；body 后处理现在也在此重新展开 fresh 范围占位符（`(@0..)` → 对照本 impl 的 fresh 列表展开为 `(@0, @1, ...)`）

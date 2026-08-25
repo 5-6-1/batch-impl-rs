@@ -5,7 +5,42 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased (post-0.9.4 internal refactor)
+## 0.9.4 (2026-08-25, continued) — the macro-meta carrier rebuild
+
+- **Phase 6 — variadic-segment template markers de-magicked**:
+  the `A@..` placeholder no longer mints a reserved ident
+  (`__batch_varseg_*`); it marks as the structural array type
+  `[Prefix; ()]` — unit-tuple length (a shape that cannot exist in
+  compilable code), ordinary Rust for `syn`, decoded by shape, never a name.
+  The slot mapping is two-channel (`Mapping::slots` user-written names /
+  `Mapping::segs` structured `(prefix, position)` bindings) and
+  `apply_mapping` resolves segment carriers `@{prefix#pos}` structurally;
+  the repeat-block body-side emitter produces the same carriers
+  (`repeat_drivers.rs::substitute` — no minted name exists between
+  expansion and rewrite), nested rounds pass them through untouched, and
+  the slot mapping rewrites them to the bound leaf subtrees. The documented
+  positional spellings (`A0`, `B1` — frozen DSL surface) remain the
+  user-facing naming; they are now resolved against structured keys.
+
+- **Phase 5 — the declaration side joins the carrier protocol** (the
+  reserved `_Param_*_BatchGen_` pattern no longer exists anywhere):
+  - generators mint structured `TyKind::Fresh` nodes for both their tuple
+    references and their `WithType` declaration names
+    (`apply/apply_tuple.rs::fresh_params`) — a declaration's identity is the
+    parsed `(group, position)` pair, so `(T,).N` clones dedup by identity,
+    never by token spelling (`extract.rs::hoist_type_params`);
+  - `FreshCtx` is built after hoisting and assigns display names (`P0..`,
+    collision-aware against every ident the impl writes) once; `where_at` /
+    `range_refs` / repeat drivers resolve straight to display names, and the
+    final renaming sweep is gone from the impl path (the top-level `{! ...}`
+    macro form keeps a carrier→display pass in `finalize_fresh_names`);
+  - the target type resolves its references **before** the shape kernel
+    syn-parses it (a carrier is not valid Rust); impl-generic bounds with
+    bound-generator references resolve next to the declaration rename;
+  - `<@0..>` range declarations expand after the context exists and skip
+    identities the list already declares (overlap = skip, not duplicate);
+  - blanket mints its fresh generic as a declaration carrier; the parse
+    layer passes existing carriers through (`resolve_at_refs`).
 
 - **Macro-meta references are first-class** — the four-phase refactor that
   retires every reserved placeholder ident on the reference side:
@@ -90,7 +125,7 @@
   `_Param_0..N_BatchGen_`, the render tail renames `_Param_{n}_BatchGen_` →
   `P{n}` (P = Param, index matches `@N` — the tutorial spelling). Non-fresh
   idents are collected first; a collision (`P0` already used in the impl)
-  pushes that fresh to `P0_`, the numbering never drifts, so `@N`
+  escapes that fresh with spreadsheet-style letters (`P0A`, `P0B`, ... `P0Z`, `P0AA`; the numbering never skips), so `@N`
   correspondence stays stable. Pure presentation: every internal protocol
   (`@N` construction, where resolution, the sweep) ran before it.
 - **Hygienic generated diagnostics** (`util/diagnostic.rs` + `apply/mod.rs`):

@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.9.4**（2026-08-24）——**blanket 委托与 `#delegate` 改名增强**：`#blanket` 委托 GAT（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`）、裸 `Self` 参数/返回定向报错（`Self::Assoc` 返回放行）、wrapper `@?` 后缀加 `T: ?Sized`（`Box@?`——非 Sized 目标如 `Box<dyn Trait>`）；`#delegate(size = len)` 改名委托目标方法（见 §7.3）；生成的 impl 显示可读 fresh 泛型（`P0, P1, ...`）；`X<>` 在 `+` 连接 bound 内同步；fresh 范围在 impl body 内重开；repeat 块新增轮间分隔符与 fresh 驱动 cursor-only 块（`impl{@0..}` + `@@N` 名称引用，见 §8.4）。`@all_fresh` 已废弃（请写 `@0..`）。
+**v0.9.4**（2026-08-25）——**宏元层载体化重建 + blanket 委托与 `#delegate` 改名**：内部全部保留名替换为结构化载体（`@{g_i}` fresh 载体、`[前缀; ()]` 段标记、`@{A_pos}` 槽引用），fresh 显示名碰撞按字母序后缀逃逸（`P0A`、`P0B`、…）；用户可见特性：`#blanket` 委托 GAT（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`）、裸 `Self` 参数/返回定向报错（`Self::Assoc` 返回放行）、wrapper `@?` 后缀加 `T: ?Sized`（`Box@?`——非 Sized 目标如 `Box<dyn Trait>`）；`#delegate(size = len)` 改名委托目标方法（见 §7.3）；生成的 impl 显示可读 fresh 泛型（`P0, P1, ...`）；`X<>` 在 `+` 连接 bound 内同步；fresh 范围在 impl body 内重开；repeat 块新增轮间分隔符与 fresh 驱动 cursor-only 块（`impl{@0..}` + `@@N` 名称引用，见 §8.4）。`@all_fresh` 已废弃（请写 `@0..`）。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
@@ -397,7 +397,7 @@ batch_trait! {
 | `@N..=M`     | 连续段                                 | fresh N..=M，逗号分隔（`@0..=1` → `P0, P1`）                                               |
 | `@N..`       | 到最后一个 fresh 的**开放**段          | 从 N 到最后一个 fresh，逗号分隔（`@1..` → `P1, P2, ...`）；N 越界时**为空**（arity 1 的 impl 不产生此类谓词，不报错） |
 
-fresh 名在每 impl 清扫前是 `_Param_…_BatchGen_`、清扫后是 `P_n`——展开把名字拼到 `@` 所在位置（where 谓词主体、target 元组元素、泛型实参），范围变成多个名字，`where` 尾部逐 fresh 复制。
+fresh 的显示名按文档序编号为 `P0, P1, ...`（与 impl 已用 ident 冲突时按表格字母序后缀逃逸：`P0A`、`P0B`、…、`P0Z`、`P0AA`）——展开把名字拼到 `@` 所在位置（where 谓词主体、target 元组元素、泛型实参），范围变成多个名字，`where` 尾部逐 fresh 复制。
 
 > **Power-user tier**：`@g_i` / `@all_fresh` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。自 0.7.2 起整个 DSL 语法面冻结（见 README），这些记号的语义不再变化。
 
@@ -484,7 +484,7 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
     Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
         impl{(A@..)}
-    #Scalar{A0::Scalar}
+    #Scalar{@{A_0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
 trait Module<Add, Mul> {
@@ -765,6 +765,7 @@ trait Make { fn mk(x: u32) -> Self; }
 | `[A]`（切片）、`(A, B, C)`（元组）           | 逐位绑定元素                                                            |
 | `[A; 3]`（定长数组，字面长度）               | 长度逐字比较；元素绑定                                                  |
 | `[A; N]`（定长数组，const 参数长度）         | 长度**绑定**叶子长度（`N := 3`；body 可用 `N`）                         |
+| `[A; ()]`                                    | **保留形状**——变长段的内部标记（数组长度为 `()`，不可能出现在可编译代码中），不要在模板里手写 |
 | `Cow<'_, A>`（生命周期实参）                 | `'_'` 是**通配**，匹配任意生命周期；`'a` vs `'b` 逐字；类型实参照常绑定 |
 
 不能绑定（保持逐字比较——定向诊断而非静默误绑）：
@@ -803,7 +804,7 @@ trait Tag { fn tag() -> usize; }
 
 #### 变长段与 body 重复块
 
-`impl{...}` 模板可以用 `ident@..` 声明**变长段**：它覆盖从自身位置起的所有剩余元组位置（写在固定元素后面的段从固定元素个数开始）。尾随段**不需要逗号**——`impl{(A@..)}` 与 `impl{(A@..,)}` 等价（0.9.2；尾随逗号自动补上，模板仍解析为元组）。段的名字**对齐叶子位置**——`(u8, A@..,)` 匹配 `(u8, u16, u32)` 得到 `A1`、`A2`（没有 `A0`；索引游标从 `@1` 写起），`(A@..,)` 匹配 `(u8, u16, u32)` 得到 `A0`、`A1`、`A2`。同层多段均分剩余位置（`(A@.., B@..,)` 匹配 arity-4 叶子 → A 长 2、B 长 2）；无法均分报错。段可递归进嵌套元组（`((A@..,),(B@..,))`）；同一模板内段名前缀重复报错。
+`impl{...}` 模板可以用 `ident@..` 声明**变长段**：它覆盖从自身位置起的所有剩余元组位置（写在固定元素后面的段从固定元素个数开始）。尾随段**不需要逗号**——`impl{(A@..)}` 与 `impl{(A@..,)}` 等价（0.9.2；尾随逗号自动补上，模板仍解析为元组）。段元素按**叶子位置**编址——`(u8, A@..,)` 匹配 `(u8, u16, u32)` 时 A 覆盖位置 1、2（没有位置 0；索引游标从 `@1` 写起），body 里用**槽载体** `@{A_1}`、`@{A_2}` 引用（拼写是普通标识符 `A_1`：前缀 + `_` + 叶子绝对位）。同层多段均分剩余位置（`(A@.., B@..,)` 匹配 arity-4 叶子 → A 长 2、B 长 2）；无法均分报错。段可递归进嵌套元组（`((A@..,),(B@..,))`）；同一模板内段名前缀重复报错。
 
 body 用 `@(...)..` 重复：**重复块**按所引用段的元素数逐轮输出模式：
 
@@ -811,11 +812,12 @@ body 用 `@(...)..` 重复：**重复块**按所引用段的元素数逐轮输�
 # use batch_impl::batch_impl;
 #[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
 trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
-// body → (A0::from(self.0), A1::from(self.1), A2::from(self.2))
+// body → (@{A_0}::from(self.0), @{A_1}::from(self.1), @{A_2}::from(self.2))
+//     → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
 //        → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
 ```
 
-- 块内 `@ident` 是**名字引用**——第 i 个元素的槽名（`A0`、`A1`、…），随后由槽映射改写成绑定的叶子元素；
+- 块内 `@ident` 是**名字引用**——逐轮发射槽载体 `@{A_pos}`（pos = 叶子绝对位，如 `A_0`、`A_1`、…），随后由槽映射改写成绑定的叶子元素；
 - `@N` 是**索引游标**——数字 `N + i`；路径前缀自己写（段从叶子下标 1 起就写 `self.@1`）；
 - 块重复 L 次，长度有三个来源：块内引用的段（`@ident`，全部等长）、**前置段声明**（`@A(self.@0,)..`——`@` 后直接写段名，适合纯游标块）、或纯游标且无前置声明时用模板的**唯一段**（多段模板的纯游标块因长度歧义报错）；
 - 块体末尾的 `,` 是分隔符，每轮输出——**并列块之间不要再写逗号**（每个块已自带元素分隔）；
@@ -843,8 +845,8 @@ impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
-// → impl<A0> TupleMagma for (A0,) where A0: Magma { ... }
-// → impl<A0, A1> TupleMagma for (A0, A1) where A0: Magma, A1: Magma { ... }
+// → impl<P0> TupleMagma for (P0,) where P0: Magma { ... }
+// → impl<P0, P1> TupleMagma for (P0, P1) where P0: Magma, P1: Magma { ... }
 ```
 
 ### 8.5 impl entry（0.8.0，ItemImpl 入口）

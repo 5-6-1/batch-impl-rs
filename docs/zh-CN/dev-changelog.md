@@ -2,6 +2,25 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.9.4 (2026-08-25, 续)——宏元层载体重建
+
+- **Phase 6——变长段模板标记去魔法化**：`A@..` 占位符不再铸造保留 ident（`__batch_varseg_*`）；改为结构化数组类型 `[Prefix; ()]`——unit 元组长度（可编译代码中不可能存在的形状）、对 `syn` 是普通 Rust、按形状解码、绝非名字。槽映射双通道（`Mapping::slots` 用户写的名字 / `Mapping::segs` 结构化 `(prefix, position)` 绑定），`apply_mapping` 结构化解析段载体 `@{prefix#pos}`；repeat 块 body 侧发射器产生同样的载体（`repeat_drivers.rs::substitute`——展开与改写之间不存在铸造的名字）、嵌套轮次原样透传、槽映射改写为绑定的叶子子树。文档化的位置拼写（`A0`、`B1`——冻结的 DSL 表面）保持为用户可见命名；现在按结构化键解析。
+
+- **Phase 5——声明侧加入载体协议**（保留的 `_Param_*_BatchGen_` 模式不再存在于任何地方）：
+  - 生成器为元组引用与 `WithType` 声明名都铸造结构化 `TyKind::Fresh` 节点（`apply/apply_tuple.rs::fresh_params`）——声明的身份是解析出的 `(group, position)` 对，`(T,).N` 克隆按身份去重、绝不按 token 拼写（`extract.rs::hoist_type_params`）；
+  - `FreshCtx` 在 hoist 之后构建、一次性分配显示名（`P0..`，对 impl 写的每个 ident 撞名感知）；`where_at` / `range_refs` / repeat 驱动直接解析到显示名，最终的改名 sweep 从 impl 路径消失（顶层 `{! ...}` 宏形态保留 carrier→display 的 `finalize_fresh_names` 通道）；
+  - 目标类型在 shape 内核 syn 解析**之前**解析其引用（carrier 不是合法 Rust）；带 bound-generator 引用的 impl 泛型 bound 紧邻声明改名解析；
+  - `<@0..>` 范围声明在上下文存在后展开，跳过列表已声明的身份（重叠 = 跳过，非重复）；
+  - blanket 把 fresh 泛型铸造成声明载体；parse 层原样放行既有 carrier（`resolve_at_refs`）。
+
+- **宏元引用一等公民**——把引用侧每个保留占位符 ident 全部退役的四阶段重构：
+  - `TyKind::Fresh(FreshRef)` 在 Ty 树中结构化携带 `@N` / `@g_i` / 范围（apply/expand/dispatch 的叶子）；渲染为自定界载体 `@{...}`（`ast/fresh.rs::fresh_ref_tokens`），`FreshRef::spell` / `FreshRef::parse` 是编码的两个方向，解析器与发射器永不漂移；
+  - `parse::resolve_at_refs` 发射载体而非铸造 `_Param_N_With[_M]_BatchGen_` ident；`RANGE_WITH_INFIX`、`range_fresh_name`、`parse_range_fresh`、`at_ref_name` 删除——四个互斥字符串解析器坍缩为 `FreshRef::parse`；
+  - `where_at::resolve_where_at` 的输入先过 `fold_flat_refs`（顺带把弃用的 `@all_fresh` 吸收为 `{0..}`）再只匹配载体——扁平 token 前瞻算术（`parse_fresh_range` / `parse_group_start`）消失；
+  - `codegen/fresh.rs` 新增 `FreshCtx`（每 impl 排序后的 fresh 列表，`generate_parts` 中构建一次，where 解析 / 范围重开 / render 共享）——重复的 `sorted_fresh` 排序点去重；`sweep_fresh_names` + `readable_fresh_names` 融合为单遍遍历 `finalize_fresh_names`（编号 + 撞名感知显示名一次改写）；
+  - repeat 块原样透传 fresh-ref 载体（impl body 里的 `@{...}` 不是 repeat 块——由后面的范围 pass 消费）。
+- 无用户可见行为变化：全部 82 个 UI 快照逐字节一致、175 个 dsl 测试全绿。
+
 ## 0.9.4 (2026-08-24)
 
 > blanket 委托与 `#delegate` 改名工作——用户对 batch-impl 与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测（逐一核对双方 cargo expand 的完整展开）暴露三个缺口，全部补齐：auto_impl 的 GAT + 关联类型转发、delegate 的 `#[call(...)]` 改名、以及 `Box<dyn Trait>` 非 Sized 目标形态。
@@ -11,7 +30,7 @@
 - **`#blanket` `@?` 非 Sized 后缀**（`blanket_wrappers.rs`）：以 `@?` 结尾的 wrapper 元素（`Box@?`）解析时剥掉后缀、置 `is_unsized = true`；该 spec 的 where 子句加 `T: ?Sized`（不加时 `T: Trait` 隐含 `Sized`，`Box<dyn Trait>` 失败）。后缀随链到达最内层 wrapper（`Box<Rc@?>`）。`unsized` 是 edition 2024 保留字——字段名为 `is_unsized`。覆盖于 `tests/features/dsl_blanket.rs::blanket_unsized_wrapper`。
 - **`#delegate` 改名——`foo = call_foo`**（`dispatch.rs::expand_delegate`）：含深度 0 `=` 的实参元素从名字列表拆出：左侧 ident 是 trait 方法（查找、复制签名），右侧 ident 是目标方法（调用体使用）。改名映射（`renames: HashMap<String, String>`）在调用体构建时查表；`split_at_depth0` 分块保持 `@all` 展开的 Bracket 组完整。**绑定语义**（用户指定）：每个被选方法绑定一个目标——默认同名，改名绑定 `=` 右侧；改名的左侧尚未选中时**加入**该方法；与选中集重叠时**合并**（不产生重复定义——名字列表解析去重、保留首个出现，`#delegate(@all, size=len)` 得 `size→len` + 其余同名）；同一方法第二次改名报错（"renamed twice"）。覆盖于 `tests/features/dsl_directives.rs`（`delegate_rename` / `delegate_rename_foo_call_foo` / `delegate_all_rename` / `delegate_all_overlap`）+ `tests/ui/delegate_double_rename.rs`。
 - **名字列表去重**（`name_list.rs::parse_name_tokens`）：keep 列表在排除过滤前先去重（首现保留、顺序不变）——改名-重叠的合并侧。这同时让 `#fill(@all, foo)` / `#fill(foo, foo)` 安全（生成的 impl 无重复项）。
-- **可读 fresh 名**（`codegen/fresh.rs::readable_fresh_names`）：`sweep_fresh_names` 把 `_Param_{g}_{i}_BatchGen_` 重编号为 `_Param_0..N_BatchGen_` 之后，render 尾部把 `_Param_{n}_BatchGen_` 重命名为 `P{n}`（P = Param，索引与 `@N` 一致——教程拼写）。先收集非 fresh ident；撞名（impl 里已有 `P0`）把该 fresh 推成 `P0_`，编号从不漂移，`@N` 对应关系保持稳定。纯展示层：每个内部协议（`@N` 构造、where 解析、sweep）都在它之前跑完。
+- **可读 fresh 名**（`codegen/fresh.rs::readable_fresh_names`）：`sweep_fresh_names` 把 `_Param_{g}_{i}_BatchGen_` 重编号为 `_Param_0..N_BatchGen_` 之后，render 尾部把 `_Param_{n}_BatchGen_` 重命名为 `P{n}`（P = Param，索引与 `@N` 一致——教程拼写）。先收集非 fresh ident；撞名（impl 里已有 `P0`）把该 fresh 按电子表格式字母后缀逃逸（`P0A`、`P0B`、…… `P0Z`、`P0AA`；编号从不跳过），`@N` 对应关系保持稳定。纯展示层：每个内部协议（`@N` 构造、where 解析、sweep）都在它之前跑完。（后续被载体重建的 `FreshCtx` 单遍命名方案取代。）
 - **生成的诊断卫生化**（`util/diagnostic.rs` + `apply/mod.rs`）：DSL 错误的 `compile_error!` 流拼写为 `::core::compile_error!`——绝对路径，免疫用户作用域遮蔽 `compile_error`；ident 保留目标 span（ident-span 方案）。
 - **`X<>` 在 `+` 连接的 bound 内同步**（`codegen/sync.rs::sync_bound_ty`）：`TyBoundList` bound（`A<> + B + C`）逐元素过 `sync_bound_ty`——空 `A<>` 填充、其余不动（结构化 bound 列表让每个 `X<>` 保持自己的 `Ty`）。
 - **fresh 范围占位符在 body 内重新展开**（`codegen/mod.rs` body 后处理）：`expand_range_refs` 与 repeat 展开一起作用于 body——`#map` 复制的签名携带 `(@0..)`（从 trait 泛型实参按字面替换）以 `_Param_0_With_BatchGen_` 落在 body 里，对照 impl 的 fresh 列表重新展开。
