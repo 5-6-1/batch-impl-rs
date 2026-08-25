@@ -136,7 +136,13 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
     match cursor.peek() {
         // Folded carrier: `@{...}` — parse the group's inner spelling.
         Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace => {
-            let inner = g.stream().into_iter().collect::<Vec<_>>().iter().map(|t| t.to_string()).collect::<String>();
+            let inner = g
+                .stream()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<String>();
             if let Some(r) = crate::ast::fresh::FreshRef::parse(&inner) {
                 cursor.bump();
                 return crate::ast::TyFresh(r).to_ty().with_span(at_span);
@@ -205,11 +211,7 @@ fn parse_single_ref(lit: &str) -> Option<crate::ast::fresh::FreshRef> {
         return Some(FreshRef { group: None, start: n, end: FreshEnd::Single });
     }
     let (l, i) = lit.split_once('_')?;
-    Some(FreshRef {
-        group: Some(l.parse().ok()?),
-        start: i.parse().ok()?,
-        end: FreshEnd::Single,
-    })
+    Some(FreshRef { group: Some(l.parse().ok()?), start: i.parse().ok()?, end: FreshEnd::Single })
 }
 
 /// Number / range block: `N` / `N..M` / `N..=M` (a range stays one block —

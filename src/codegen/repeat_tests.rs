@@ -15,7 +15,14 @@ fn segs() -> Vec<VarSeg> {
 
 fn expand(s: &str) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
-    expand_repeat_blocks(ts, &segs(), None, &[]).map(|o| o.to_string()).map_err(|e| e.to_string())
+    expand_repeat_blocks(
+        ts,
+        &segs(),
+        None,
+        &crate::codegen::FreshCtx::new(&[], &Default::default()),
+    )
+    .map(|o| o.to_string())
+    .map_err(|e| e.to_string())
 }
 
 /// A cursor-only block with **no** template segment: the fresh count drives
@@ -27,13 +34,19 @@ fn expand_fresh(s: &str, n: usize) -> Result<String, String> {
         start: 0,
         end: crate::ast::fresh::FreshEnd::Open,
     };
-    expand_repeat_blocks(ts, &[], Some(binding), &fresh_names(n))
-        .map(|o| o.to_string())
-        .map_err(|e| e.to_string())
+    expand_repeat_blocks(
+        ts,
+        &[],
+        Some(binding),
+        &crate::codegen::FreshCtx::new(&fresh_names(n), &Default::default()),
+    )
+    .map(|o| o.to_string())
+    .map_err(|e| e.to_string())
 }
 
 fn fresh_names(n: usize) -> Vec<TokenStream> {
-    (0..n).map(|i| format!("_Param_0_{}_BatchGen_", i).parse::<TokenStream>().unwrap()).collect()
+    // Declaration carriers `@{0_i}` — the identity form the ctx parses.
+    (0..n).map(|i| crate::ast::fresh::fresh_decl_tokens(0, i)).collect()
 }
 
 #[test]
@@ -56,10 +69,7 @@ fn fresh_count_zero_empty() {
 fn fresh_name_reference() {
     // `@@N` → the N-th fresh generic's name, **fixed** (not per-round):
     // `@@1` names the second fresh in every round
-    assert_eq!(
-        expand_fresh("@(@@1,)..", 3).unwrap(),
-        "_Param_0_1_BatchGen_ , _Param_0_1_BatchGen_ , _Param_0_1_BatchGen_ ,"
-    );
+    assert_eq!(expand_fresh("@(@@1,)..", 3).unwrap(), "P1 , P1 , P1 ,");
 }
 
 #[test]
@@ -72,14 +82,22 @@ fn no_switch_no_segment_errors() {
     // without the fresh-binding switch (`impl{@0..}`), a cursor-only block
     // with no template segment errors — fresh-driven body modification is off
     let ts = "@(args.@0,)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &[], None, &[]).is_err());
+    assert!(
+        expand_repeat_blocks(
+            ts,
+            &[],
+            None,
+            &crate::codegen::FreshCtx::new(&[], &Default::default())
+        )
+        .is_err()
+    );
 }
 
 #[test]
 fn single_segment_rounds() {
     assert_eq!(
         expand("@(@A::f(&self.@0),)..").unwrap(),
-        "A0 :: f (& self .0) , A1 :: f (& self .1) , A2 :: f (& self .2) ,"
+        "@ { A_0 } :: f (& self .0) , @ { A_1 } :: f (& self .1) , @ { A_2 } :: f (& self .2) ,"
     );
 }
 
@@ -88,7 +106,7 @@ fn offset_start_name_numbering() {
     // B starts at leaf index 1: names B1, B2; `@1` cursor → 1, 2.
     assert_eq!(
         expand("@(@B::f(&self.@1),)..").unwrap(),
-        "B1 :: f (& self .1) , B2 :: f (& self .2) ,"
+        "@ { B_1 } :: f (& self .1) , @ { B_2 } :: f (& self .2) ,"
     );
 }
 
@@ -101,8 +119,15 @@ fn multi_segment_parallel_rounds() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
-    assert_eq!(out, "A0 + B2 , A1 + B3 ,");
+    let out = expand_repeat_blocks(
+        ts,
+        &segs,
+        None,
+        &crate::codegen::FreshCtx::new(&[], &Default::default()),
+    )
+    .unwrap()
+    .to_string();
+    assert_eq!(out, "@ { A_0 } + @ { B_2 } , @ { A_1 } + @ { B_3 } ,");
 }
 
 #[test]
@@ -112,7 +137,15 @@ fn unequal_segment_lengths_error() {
         VarSeg { prefix: "B".into(), start: 1, len: 2 },
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs, None, &[]).is_err());
+    assert!(
+        expand_repeat_blocks(
+            ts,
+            &segs,
+            None,
+            &crate::codegen::FreshCtx::new(&[], &Default::default())
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -123,29 +156,29 @@ fn nested_cartesian() {
     let out = expand("@(@A::f(&self.@0) @(@B::g(&self.@1),)..)..").unwrap();
     assert_eq!(
         out,
-        "A0 :: f (& self .0) B1 :: g (& self .1) , B2 :: g (& self .2) , \
-         A1 :: f (& self .1) B1 :: g (& self .1) , B2 :: g (& self .2) , \
-         A2 :: f (& self .2) B1 :: g (& self .1) , B2 :: g (& self .2) ,"
+        "@ { A_0 } :: f (& self .0) @ { B_1 } :: g (& self .1) , @ { B_2 } :: g (& self .2) , \
+         @ { A_1 } :: f (& self .1) @ { B_1 } :: g (& self .1) , @ { B_2 } :: g (& self .2) , \
+         @ { A_2 } :: f (& self .2) @ { B_1 } :: g (& self .1) , @ { B_2 } :: g (& self .2) ,"
     );
 }
 
 #[test]
 fn no_trailing_separator_concatenates() {
-    assert_eq!(expand("@(@A)..").unwrap(), "A0 A1 A2");
+    assert_eq!(expand("@(@A)..").unwrap(), "@ { A_0 } @ { A_1 } @ { A_2 }");
 }
 
 #[test]
 fn inter_round_separator() {
     // `@(@A),..` — the comma sits between rounds, never after the last one
     // (the `$($A),*` form; `@(@A,)..` is the `$($A,)*` form)
-    assert_eq!(expand("@(@A),..").unwrap(), "A0 ,A1 ,A2");
+    assert_eq!(expand("@(@A),..").unwrap(), "@ { A_0 } ,@ { A_1 } ,@ { A_2 }");
 }
 
 #[test]
 fn inter_round_separator_arbitrary() {
     // any literal tokens work as the inter-round separator
-    assert_eq!(expand("@(@A)+..").unwrap(), "A0 +A1 +A2");
-    assert_eq!(expand("@(@A)::f()..").unwrap(), "A0 :: f () A1 :: f () A2");
+    assert_eq!(expand("@(@A)+..").unwrap(), "@ { A_0 } +@ { A_1 } +@ { A_2 }");
+    assert_eq!(expand("@(@A)::f()..").unwrap(), "@ { A_0 } :: f () @ { A_1 } :: f () @ { A_2 }");
 }
 
 #[test]
@@ -153,8 +186,15 @@ fn inter_round_separator_single_round() {
     // one round: no separator is emitted at all
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 1 }];
     let ts = "@(@A),..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
-    assert_eq!(out, "A0");
+    let out = expand_repeat_blocks(
+        ts,
+        &segs,
+        None,
+        &crate::codegen::FreshCtx::new(&[], &Default::default()),
+    )
+    .unwrap()
+    .to_string();
+    assert_eq!(out, "@ { A_0 }");
 }
 
 #[test]
@@ -163,8 +203,15 @@ fn float_literal_at_path_fixed() {
     // so the cursor expands into `self.0.0`, `self.0.1`, ...
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(@A::from(self.0.@0),)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
-    assert_eq!(out, "A0 :: from (self . 0 . 0) , A1 :: from (self . 0 . 1) ,");
+    let out = expand_repeat_blocks(
+        ts,
+        &segs,
+        None,
+        &crate::codegen::FreshCtx::new(&[], &Default::default()),
+    )
+    .unwrap()
+    .to_string();
+    assert_eq!(out, "@ { A_0 } :: from (self . 0 . 0) , @ { A_1 } :: from (self . 0 . 1) ,");
 }
 
 #[test]
@@ -179,7 +226,14 @@ fn declared_driver_cursor_only() {
     // body uses only `@N` cursors
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 3 }];
     let ts = "@A(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
+    let out = expand_repeat_blocks(
+        ts,
+        &segs,
+        None,
+        &crate::codegen::FreshCtx::new(&[], &Default::default()),
+    )
+    .unwrap()
+    .to_string();
     assert_eq!(out, "self .0 , self .1 , self .2 ,");
 }
 
@@ -189,7 +243,14 @@ fn cursor_only_single_segment() {
     // segment provides the length
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(ts, &segs, None, &[]).unwrap().to_string();
+    let out = expand_repeat_blocks(
+        ts,
+        &segs,
+        None,
+        &crate::codegen::FreshCtx::new(&[], &Default::default()),
+    )
+    .unwrap()
+    .to_string();
     assert_eq!(out, "self .0 , self .1 ,");
 }
 
@@ -202,7 +263,15 @@ fn cursor_only_multi_segment_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs, None, &[]).is_err());
+    assert!(
+        expand_repeat_blocks(
+            ts,
+            &segs,
+            None,
+            &crate::codegen::FreshCtx::new(&[], &Default::default())
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -212,7 +281,15 @@ fn declared_driver_conflict_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@A(@B::f(),)..".parse::<TokenStream>().unwrap();
-    assert!(expand_repeat_blocks(ts, &segs, None, &[]).is_err());
+    assert!(
+        expand_repeat_blocks(
+            ts,
+            &segs,
+            None,
+            &crate::codegen::FreshCtx::new(&[], &Default::default())
+        )
+        .is_err()
+    );
 }
 
 #[test]

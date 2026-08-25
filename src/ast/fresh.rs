@@ -1,10 +1,11 @@
 //! The fresh-generic protocol — the single source of truth for both sides of
 //! the macro-meta layer:
 //!
-//! - **Declarations** ([`fresh_param`] + the `FRESH_PREFIX`/`FRESH_SUFFIX`
-//!   reserved pattern) — the apply layer mints group-position names
-//!   `_Param_{g}_{i}_BatchGen_`; the codegen finalizer numbers and renames
-//!   them per impl in one fused pass.
+//! - **Declarations** ([`fresh_decl_tokens`] / [`decl_fresh_pos`]) — the
+//!   apply layer mints a declaration carrier for each generator position;
+//!   its identity is the structured `(group, position)` pair, never a name
+//!   string. The codegen stage assigns display names (`P0, P1, ...`) once
+//!   per impl, collision-aware against everything the impl already uses.
 //! - **References** ([`FreshRef`] / [`FreshEnd`]) — `@N` / `@g_i` / range
 //!   references ride the Ty tree structurally (`TyKind::Fresh`) and carry in
 //!   token domains as the self-delimiting `@{...}` group; [`fold_flat_refs`]
@@ -12,34 +13,99 @@
 //!   [`FreshRef::parse`] / [`FreshRef::spell`] are the two directions of the
 //!   encoding so parser and emitter can never drift.
 //!
-//! No reference is ever minted as a reserved ident — only declarations use
-//! the reserved pattern, and it never reaches rendered output.
+//! Declarations and references share one token shape — the self-delimiting
+//! `@{...}` carrier — so no reserved identifier pattern exists anywhere in
+//! the pipeline and nothing internal can collide with user code or leak
+//! into rendered output.
 
-use proc_macro2::{Ident, TokenStream, TokenTree};
-use quote::quote;
+use proc_macro2::{TokenStream, TokenTree};
 
-/// Reserved prefix of every macro-generated generic name.
-pub(crate) const FRESH_PREFIX: &str = "_Param_";
-/// Reserved suffix of every macro-generated generic name.
-pub(crate) const FRESH_SUFFIX: &str = "_BatchGen_";
-
-/// Generates a fresh generic param name `_Param_{g}_{i}_BatchGen_` (group g,
-/// position i within the generator) that never collides with user code
-/// (`_Param_*_BatchGen_` is a reserved pattern). The codegen sweeper
-/// renumbers these to `_Param_0..N_BatchGen_` per impl before rendering.
-pub(crate) fn fresh_param(g: usize, i: usize) -> TokenStream {
-    let name = format!("{}{}_{}{}", FRESH_PREFIX, g, i, FRESH_SUFFIX);
-    let ident = Ident::new(&name, proc_macro2::Span::call_site());
-    quote!(#ident)
+/// Mints the **declaration carrier** of generator fresh `(group g, position
+/// i)`: the same self-delimiting `@{g_i}` form a reference carries. The
+/// declaration's identity is this structured pair — dedup across cloned
+/// generators compares parsed pairs, not spellings, so token spacing can
+/// never split one logical declaration in two.
+pub(crate) fn fresh_decl_tokens(g: usize, i: usize) -> TokenStream {
+    fresh_ref_tokens(
+        FreshRef { group: Some(g), start: i, end: FreshEnd::Single },
+        proc_macro2::Span::call_site(),
+    )
 }
 
-/// Parses `_Param_{g}_{i}_BatchGen_`; returns `None` for any other ident
-/// (including the single-numbered `_Param_{n}_BatchGen_` form constructed
-/// from `@N` references).
-pub(crate) fn parse_grouped_fresh(s: &str) -> Option<(usize, usize)> {
-    let rest = s.strip_prefix(FRESH_PREFIX)?.strip_suffix(FRESH_SUFFIX)?;
-    let (g, i) = rest.split_once('_')?;
-    Some((g.parse().ok()?, i.parse().ok()?))
+/// Emits the self-delimiting carrier for an arbitrary spelled reference —
+/// a `@` punct followed by a Brace group holding `inner`. Shared emitter of
+/// every carrier protocol (fresh references, declarations, segment slots).
+fn carrier_tokens(inner: String, span: proc_macro2::Span) -> TokenStream {
+    let mut ts = TokenStream::new();
+    let mut at = proc_macro2::Punct::new('@', proc_macro2::Spacing::Alone);
+    at.set_span(span);
+    ts.extend(std::iter::once(TokenTree::Punct(at)));
+    // The spelled inner is always a valid token sequence; the default keeps
+    // the no-panic promise under internal invariant drift.
+    let parsed: TokenStream = inner.parse().unwrap_or_default();
+    let mut g = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, parsed);
+    g.set_span(span);
+    ts.extend(std::iter::once(TokenTree::Group(g)));
+    ts
+}
+
+/// A **variadic-segment slot reference** — the structured identity of one
+/// element of an `impl{...}` shape template's `ident@..` segment: the
+/// user-written segment name plus the absolute leaf position it feeds.
+/// Carries in token domains as `@{prefix_pos}` — the same self-delimiting
+/// carrier shape as a fresh reference, so no minted identifier exists
+/// between the repeat-block expansion and the slot-mapping rewrite.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SegRef {
+    /// The user-written segment name (`A` in `impl{(A@..)}`).
+    pub(crate) prefix: String,
+    /// The absolute leaf tuple position this slot feeds (`start + round`).
+    pub(crate) pos: usize,
+}
+
+impl SegRef {
+    /// The carrier's inner spelling (`A_3`). The separator cannot occur in
+    /// an identifier, so the split is unambiguous.
+    #[allow(dead_code)]
+    pub(crate) fn spell(&self) -> String {
+        format!("{}_{}", self.prefix, self.pos)
+    }
+
+    /// Parses the inner spelling; `None` for anything else. The single
+    /// authority for both directions of the encoding.
+    pub(crate) fn parse(s: &str) -> Option<Self> {
+        let (prefix, pos) = s.rsplit_once('_')?;
+        (!prefix.is_empty()).then_some(Self { prefix: prefix.to_string(), pos: pos.parse().ok()? })
+    }
+}
+
+/// Emits the `@{prefix_pos}` carrier of a segment-slot reference. Kept
+/// alongside the parser: the two directions of the segment-slot encoding
+/// (currently exercised by [`SegRef`] tests; the body-side emitter rides on
+/// the documented positional names — see `repeat_drivers`).
+#[allow(dead_code)]
+pub(crate) fn seg_ref_tokens(r: &SegRef, span: proc_macro2::Span) -> TokenStream {
+    carrier_tokens(r.spell(), span)
+}
+
+/// Parses a **declaration carrier**: a lone `@{g_i}` pair (single position,
+/// grouped). Returns the structured identity; `None` for anything else —
+/// user-written params, range carriers, malformed pairs.
+pub(crate) fn decl_fresh_pos(tokens: &TokenStream) -> Option<(usize, usize)> {
+    let v: Vec<_> = tokens.clone().into_iter().collect();
+    match v.as_slice() {
+        [TokenTree::Punct(p), TokenTree::Group(g)]
+            if p.as_char() == '@' && g.delimiter() == proc_macro2::Delimiter::Brace =>
+        {
+            let inner: String =
+                g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+            match FreshRef::parse(&inner)? {
+                FreshRef { group: Some(g), start: i, end: FreshEnd::Single } => Some((g, i)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// A resolved `@N` / `@g_i` / `@N..` / `@N..M` position reference — the
@@ -93,9 +159,7 @@ impl FreshRef {
             // A grouped head needs a following position part; a plain number
             // has none (`split_once` on `0..=3` would misread `0..=3` — check
             // the tail parses as digits before accepting the split).
-            Some((l, tail))
-                if tail.split(['.', '_']).next()?.parse::<usize>().is_ok() =>
-            {
+            Some((l, tail)) if tail.split(['.', '_']).next()?.parse::<usize>().is_ok() => {
                 (Some(l.parse::<usize>().ok()?), tail)
             }
             _ => (None, s),
@@ -118,18 +182,7 @@ impl FreshRef {
 /// atomic unit for every token walker, so the reference survives any pass
 /// untouched and can only be consumed by the resolvers that match this shape.
 pub(crate) fn fresh_ref_tokens(r: FreshRef, span: proc_macro2::Span) -> TokenStream {
-    let mut ts = TokenStream::new();
-    let mut at = proc_macro2::Punct::new('@', proc_macro2::Spacing::Alone);
-    at.set_span(span);
-    ts.extend(std::iter::once(TokenTree::Punct(at)));
-    // The spelled inner is always a valid token sequence (digits /
-    // underscore / `..=`); the default keeps the no-panic promise under
-    // internal invariant drift.
-    let inner: TokenStream = r.spell().parse().unwrap_or_default();
-    let mut g = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, inner);
-    g.set_span(span);
-    ts.extend(std::iter::once(TokenTree::Group(g)));
-    ts
+    carrier_tokens(r.spell(), span)
 }
 
 /// Folds every **flat** position reference in `tokens` into the carrier form:
@@ -224,10 +277,7 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
                 Some(FreshEnd::Single)
             };
             if let Some(end) = end {
-                out.extend(fresh_ref_tokens(
-                    FreshRef { group, start, end },
-                    at_span,
-                ));
+                out.extend(fresh_ref_tokens(FreshRef { group, start, end }, at_span));
                 i += consumed;
                 continue;
             }
@@ -238,11 +288,6 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
     out
 }
 
-/// Whether an identifier matches the reserved fresh pattern
-/// (`_Param_*_BatchGen_`, grouped or single-numbered).
-pub(crate) fn is_fresh_name(s: &str) -> bool {
-    s.starts_with(FRESH_PREFIX) && s.ends_with(FRESH_SUFFIX)
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,9 +315,38 @@ mod tests {
     }
 
     #[test]
-    fn plain_fresh_declarations_still_parse() {
-        // The declaration-side protocol (sweeper) is untouched.
-        assert_eq!(parse_grouped_fresh("_Param_0_1_BatchGen_"), Some((0, 1)));
-        assert!(is_fresh_name("_Param_0_BatchGen_"));
+    fn decl_carriers_roundtrip() {
+        // The declaration carrier mints and parses back to the same identity.
+        assert_eq!(decl_fresh_pos(&fresh_decl_tokens(0, 1)), Some((0, 1)));
+        assert_eq!(decl_fresh_pos(&fresh_decl_tokens(3, 12)), Some((3, 12)));
+        // Ranges and flat refs are not declarations.
+        let range = fresh_ref_tokens(
+            FreshRef { group: None, start: 0, end: FreshEnd::Open },
+            proc_macro2::Span::call_site(),
+        );
+        assert_eq!(decl_fresh_pos(&range), None);
+        assert_eq!(decl_fresh_pos(&"T".parse::<TokenStream>().unwrap()), None);
+    }
+}
+#[test]
+fn probe_marker_final() {
+    use quote::ToTokens;
+    use syn::parse2;
+    // The chosen marker and its near-miss shapes
+    for s in ["[A;()]", "[A; ()]", "[(); A]", "[(); N]", "[A; 3]", "[A; N]", "[A; []]"] {
+        let ts: proc_macro2::TokenStream = s.parse().unwrap();
+        match parse2::<syn::Type>(ts) {
+            Ok(t) => println!("{s:12} => OK: {}", t.to_token_stream()),
+            Err(e) => println!("{s:12} => FAIL: {}", e),
+        }
+    }
+    // Structure of the () length
+    let ts: proc_macro2::TokenStream = "[A;()]".parse().unwrap();
+    if let Ok(syn::Type::Array(a)) = parse2::<syn::Type>(ts) {
+        println!("len tokens: {}", a.len.to_token_stream());
+        match &a.len {
+            syn::Expr::Tuple(tp) => println!("len = Expr::Tuple with {} elems", tp.elems.len()),
+            o => println!("len kind: {:?}", std::mem::discriminant(o)),
+        }
     }
 }

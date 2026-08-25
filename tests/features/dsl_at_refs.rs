@@ -33,7 +33,8 @@ trait JoinAtNum {}
 #[test]
 fn at_refs_numbered_match_in_join() {
     // Trigger instantiation of the generated impl (its where clause checks
-    // `_Param_0_: JoinMarker` and `_Param_5_: Copy` against the concrete type).
+    // `P0: JoinMarker` and `P5: Copy` — the fresh display names — against
+    // the concrete type).
     fn assert_impl<T: JoinAtNum>() {}
     assert_impl::<(u8, u16, u32, (u64, u128, usize))>();
 }
@@ -52,7 +53,7 @@ fn at_all_fresh_and_range() {
     // nested). @all_fresh: all 4 fresh generics (swept 0..4) must be Clone.
     fn assert_impl_all<T: AllFreshWhere>() {}
     assert_impl_all::<(u8, u16, (u32, u64))>();
-    // @0..=1: only the first two freshes (swept `_Param_0_`, `_Param_1_` —
+    // @0..=1: only the first two freshes (`P0`, `P1` —
     // A and B) must be Copy; C, D are unconstrained (String / Vec are not
     // Copy — if the range leaked past `=1` this would fail to compile)
     fn assert_impl_range<T: RangeWhere>() {}
@@ -72,8 +73,8 @@ fn at_all_fresh_with_range_same_group() {
     assert_impl::<(u8, u16, u32, (u64, u128, usize))>();
 }
 
-// Fresh names are swept per impl to `_Param_0..N_BatchGen_` (grouped
-// `_Param_{g}_{i}_` generation → document-order renumber), so `@N` is a pure
+// Fresh names are numbered per impl in document order (the (group, position)
+// identity pairs sorted), so `@N` is a pure
 // construction that works across generation units: a range spec generates one
 // impl per length, each sweeping its own fresh to 0..N — `@0` is "this impl's
 // first" in every length (previously the numbering drifted across lengths and

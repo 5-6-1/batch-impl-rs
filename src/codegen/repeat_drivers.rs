@@ -4,7 +4,7 @@
 //! and their common length; `substitute` rewrites the markers of one round
 //! (`@ident` → the segment's i-th name, `@N` → `N + i`).
 
-use proc_macro2::{Group, Ident, Literal, TokenStream, TokenTree};
+use proc_macro2::{Group, Literal, TokenStream, TokenTree};
 
 use crate::codegen::VarSeg;
 use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at};
@@ -27,6 +27,14 @@ pub(crate) fn collect_drivers(
             }
             // `@N` index cursors are not segment references either.
             if matches!(tokens.get(i + 1), Some(TokenTree::Literal(_))) {
+                i += 2;
+                continue;
+            }
+            // A slot carrier from an already-expanded nested round: not a
+            // driver — pass through.
+            if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
+                if g.delimiter() == proc_macro2::Delimiter::Brace)
+            {
                 i += 2;
                 continue;
             }
@@ -99,7 +107,7 @@ pub(crate) fn collect_drivers(
 /// `@N` → `N + i`, and `@@N` → the N-th fresh generic's name (the
 /// fresh-binding switch's name reference — fixed, not per-round).
 pub(crate) fn substitute(
-    tokens: &[TokenTree], segs: &[VarSeg], fresh_names: &[TokenStream], round: usize, depth: usize,
+    tokens: &[TokenTree], segs: &[VarSeg], ctx: &super::FreshCtx, round: usize, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
@@ -107,6 +115,17 @@ pub(crate) fn substitute(
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
+        // A slot carrier emitted by an inner round (`@{B#2}` from the nested
+        // block that already expanded): pass through untouched.
+        if is_punct_at(tokens, i, '@')
+            && matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
+                if g.delimiter() == proc_macro2::Delimiter::Brace)
+        {
+            out.push(tokens[i].clone());
+            out.push(tokens[i + 1].clone());
+            i += 2;
+            continue;
+        }
         if is_punct_at(tokens, i, '@') {
             // `@@N` — the fresh name reference (`@@0` → the first fresh's name)
             if is_punct_at(tokens, i + 1, '@') {
@@ -124,13 +143,13 @@ pub(crate) fn substitute(
                         lit.span(),
                     ));
                 };
-                let Some(name) = fresh_names.get(n) else {
+                let Some((_, _, name)) = ctx.names.get(n) else {
                     return Err(compile_error_str(
                         &format!(
                             "batch-impl: `@@{}` is out of range — this impl has {} \
                              fresh generics (numbered from 0 in document order)",
                             n,
-                            fresh_names.len(),
+                            ctx.names.len(),
                         ),
                         lit.span(),
                     ));
@@ -149,8 +168,12 @@ pub(crate) fn substitute(
                             id.span(),
                         ));
                     };
-                    let name = Ident::new(&format!("{}{}", prefix, seg.start + round), id.span());
-                    out.push(TokenTree::Ident(name));
+                    // Emit the slot's **carrier** (`@{prefix#pos}`) — the
+                    // structured `(prefix, leaf position)` identity,
+                    // resolved by the later slot-mapping rewrite. No minted
+                    // name exists between expansion and rewrite.
+                    let r = crate::ast::fresh::SegRef { prefix, pos: seg.start + round };
+                    out.extend(crate::ast::fresh::seg_ref_tokens(&r, id.span()));
                     i += 2;
                     continue;
                 }
@@ -181,7 +204,7 @@ pub(crate) fn substitute(
                 return Err(depth_err(&tokens[i..i + 1], ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let substituted = substitute(&inner, segs, fresh_names, round, depth + 1)?;
+            let substituted = substitute(&inner, segs, ctx, round, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), substituted.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));

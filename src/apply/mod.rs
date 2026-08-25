@@ -137,7 +137,7 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             // When both operands carry declarations (fresh-fresh chains like
             // `().3-().3`), merge params left-first: declaration order then
             // matches the target type's document order (`<A,B,C,D,E,F>` for
-            // `(A,B,C,(D,E,F))`), so hoisting collects `_Param_0..5` in order.
+            // `(A,B,C,(D,E,F))`), so hoisting collects the freshs in order.
             // The inner type takes only the left's inner part (`left_wt.1`
             // apply right's inner) — the left's declaration layer is consumed
             // by the merge, otherwise hoisting would collect it twice (E0403).

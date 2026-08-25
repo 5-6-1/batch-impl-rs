@@ -3,21 +3,22 @@
 //! ranges, group references, and open ranges.
 
 use super::where_at::resolve_where_at;
-use crate::codegen::FreshCtx;
 use crate::analyze::extract_trait_bounds;
 use crate::ast::*;
+use crate::codegen::FreshCtx;
 use crate::codegen::generate_impl;
 use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::quote;
 use syn::parse_quote;
 
 fn fresh_names(n: usize) -> Vec<TokenStream> {
-    (0..n).map(|i| format!("_Param_0_{}_BatchGen_", i).parse().unwrap()).collect()
+    // Declaration carriers `@{0_i}` — the identity form the ctx parses.
+    (0..n).map(|i| crate::ast::fresh::fresh_decl_tokens(0, i)).collect()
 }
 
 fn resolve(s: &str, names: &[TokenStream]) -> String {
     let pred: TokenStream = s.parse().unwrap();
-    let ctx = FreshCtx::new(names);
+    let ctx = FreshCtx::new(names, &Default::default());
     resolve_where_at(&pred, &ctx).unwrap().to_string()
 }
 
@@ -27,8 +28,8 @@ fn open_range_from_second() {
     let names = fresh_names(4);
     assert_eq!(
         resolve("@1.. : Bound", &names),
-        "_Param_0_1_BatchGen_ : Bound , _Param_0_2_BatchGen_ : Bound , \
-             _Param_0_3_BatchGen_ : Bound"
+        "P1 : Bound , P2 : Bound , \
+             P3 : Bound"
     );
 }
 
@@ -49,8 +50,8 @@ fn at_ref_inside_group_resolves() {
     let none = Group::new(proc_macro2::Delimiter::None, inner);
     let pred = TokenStream::from(TokenTree::Group(none));
     assert_eq!(
-        resolve_where_at(&pred, &FreshCtx::new(&names)).unwrap().to_string(),
-        "Scalar = _Param_0_0_BatchGen_ :: Scalar"
+        resolve_where_at(&pred, &FreshCtx::new(&names, &Default::default())).unwrap().to_string(),
+        "Scalar = P0 :: Scalar"
     );
 }
 
@@ -62,8 +63,8 @@ fn range_tail_value_ref() {
     let out = resolve("@1.. : Module < Scalar = @0 :: Scalar >", &names);
     assert_eq!(
         out,
-        "_Param_0_1_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar > , \
-             _Param_0_2_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar >"
+        "P1 : Module < Scalar = P0 :: Scalar > , \
+             P2 : Module < Scalar = P0 :: Scalar >"
     );
 }
 
@@ -73,8 +74,8 @@ fn closed_range_tail_value_ref() {
     let out = resolve("@1..=2 : Module < Scalar = @0 :: Scalar >", &names);
     assert_eq!(
         out,
-        "_Param_0_1_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar > , \
-             _Param_0_2_BatchGen_ : Module < Scalar = _Param_0_0_BatchGen_ :: Scalar >"
+        "P1 : Module < Scalar = P0 :: Scalar > , \
+             P2 : Module < Scalar = P0 :: Scalar >"
     );
 }
 

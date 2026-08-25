@@ -3,25 +3,25 @@
 //! described in `mod.rs`.
 
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 
 use crate::ast::types_render::render_param;
-use crate::codegen::extract::ImplParts;
 use crate::codegen::FreshCtx;
+use crate::codegen::extract::ImplParts;
 use crate::codegen::shape::{Mapping, ShapeError, VarSeg, match_shape};
 
 /// Matches every `impl{...}` template against the leaf target type and
 /// merges the slot mappings (identical re-bindings legal, conflicting ones
 /// error). Both sides must be standard Rust types: the template is
 /// user-written (syn-parsed, with variadic-segment placeholders already in
-/// place), the target is the rendered leaf (a generator / DSL leftover
-/// cannot be destructured). Returns the merged mapping and the resolved
-/// variadic segments.
+/// place), the target is the rendered leaf with its fresh references already
+/// resolved to display names (a carrier is not valid Rust — syn could not
+/// destructure it). Returns the merged mapping and the resolved variadic
+/// segments.
 pub(crate) fn collect_shape_mapping(
-    parts: &ImplParts,
+    target_tokens: &TokenStream, templates: &[TokenStream],
 ) -> Result<(Mapping, Vec<VarSeg>), ShapeError> {
-    let target_tokens = parts.target_type.to_token_stream();
-    let target: syn::Type = syn::parse2(target_tokens).map_err(|_| {
+    let target: syn::Type = syn::parse2(target_tokens.clone()).map_err(|_| {
         ShapeError::ShapeMismatch(
             "the target type is not a standard Rust type (DSL leftovers cannot be destructured by an `impl{...}` template)"
                 .into(),
@@ -29,7 +29,7 @@ pub(crate) fn collect_shape_mapping(
     })?;
     let mut merged = Mapping::default();
     let mut segs = vec![];
-    for t in &parts.impl_templates {
+    for t in templates {
         let template: syn::Type = syn::parse2(t.clone()).map_err(|_| {
             ShapeError::ShapeMismatch(
                 "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)"
@@ -45,13 +45,17 @@ pub(crate) fn collect_shape_mapping(
 
 /// Renders the final `impl<...> Trait<...> for Target where ... { ... }`
 /// block from the extracted parts (bounds inherited, `@` refs resolved).
-/// `shape_entries` (the `impl{...}` shape-template slot mapping) rewrites the target
-/// type at render — the where predicates and body were already rewritten by
-/// the caller. `fresh_ctx` feeds the `@N..` range-placeholder expansion
-/// (a range in the target type / trait args re-opens into the fresh list).
+/// `target_tokens` is the target type with its fresh references already
+/// resolved to display names (resolved in `generate_parts`, before the shape
+/// kernel needs valid-Rust leaf tokens); the shape-template slot mapping was
+/// applied to the where predicates and body by the caller — the target gets
+/// the mapping here, where the final tokens are in hand. `fresh_ctx` feeds
+/// the `@N..` range-placeholder expansion of the trait args (a range in a
+/// trait arg re-opens into the fresh list).
 pub(crate) fn render_impl(
-    parts: ImplParts, where_resolved: Vec<TokenStream>, trait_name: &TokenStream,
-    is_unsafe_trait: bool, shape_entries: &[(String, TokenStream)], fresh_ctx: &FreshCtx,
+    parts: ImplParts, where_resolved: Vec<TokenStream>, target_tokens: TokenStream,
+    trait_name: &TokenStream, is_unsafe_trait: bool, shape_map: &crate::codegen::Mapping,
+    fresh_ctx: &FreshCtx,
 ) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
@@ -81,17 +85,14 @@ pub(crate) fn render_impl(
         trait_gen = quote!(<#(#names),*>);
     }
 
-    // target type — shape template slot mapping applied at render (the leaf tokens
-    // are in hand here; slot names in the target are replaced with the
-    // bound subtrees, e.g. `A<B>` → `Box<usize>`), then `@N..` ranges re-open.
-    let target = if shape_entries.is_empty() {
-        parts.target_type.to_token_stream()
+    // target type — shape template slot mapping applied here (the resolved
+    // leaf tokens are in hand; slot names in the target are replaced with
+    // the bound subtrees, e.g. `A<B>` → `Box<usize>`). References were
+    // already resolved in `generate_parts`.
+    let target = if shape_map.slots().is_empty() && shape_map.seg_entries().is_empty() {
+        target_tokens
     } else {
-        crate::codegen::shape::apply_mapping(parts.target_type.to_token_stream(), shape_entries)
-    };
-    let target = match crate::codegen::range_refs::expand_range_refs(target, fresh_ctx) {
-        Ok(t) => t,
-        Err(e) => return e,
+        crate::codegen::shape::apply_mapping(target_tokens, shape_map)
     };
 
     // impl body: associated types + user body. Fresh-range placeholders in
@@ -118,14 +119,13 @@ pub(crate) fn render_impl(
     // Splat expansion happens structurally in `expand_splat_elems` (target /
     // trait args); bodies are never touched, so `a * b` inside a fn stays
     // multiplication. `where`-predicate splats are unsupported (rustc error).
-    let rendered = quote! {
+    // Every internal name was resolved before this point: fresh declarations
+    // carry their display names, references resolved against them — no
+    // final renaming pass exists.
+    quote! {
         #(#attrs)*
         #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target #where_clause {
             #(#body_tokens)*
         }
-    };
-    // Final naming: grouped fresh names are numbered by document order and
-    // rewritten straight to their readable display names (`P0, P1, ...`) in
-    // one fused pass — every internal protocol ran before this.
-    crate::codegen::fresh::finalize_fresh_names(rendered)
+    }
 }

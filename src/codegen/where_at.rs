@@ -10,15 +10,14 @@ use crate::ast::fresh::{FreshEnd, FreshRef};
 use crate::util::{compile_err, compile_error_str};
 
 /// Macro-meta position references in where predicates: `@N` → the N-th fresh
-/// generic in document order (grouped fresh names `_Param_{g}_{i}_BatchGen_`
-/// sorted by (group, position), which is exactly the order the codegen
-/// sweeper renumbers to `_Param_0..N_BatchGen_`) — user-written params are
-/// addressed by their own names; `@N` exists exactly because fresh names are
-/// unknowable. `@N` out of range or a non-position digit / other token after
-/// `@` errors. `@trait` is resolved earlier (constant stage for batch_impl,
-/// segment-level replacement for batch_trait!) and never reaches here.
-/// Blanket-wrapped where is pre-resolved; only user where predicates are
-/// handled here.
+/// generic in document order (the impl's fresh declarations sorted by
+/// (group, position), each resolving straight to its display name) —
+/// user-written params are addressed by their own names; `@N` exists exactly
+/// because fresh names are unknowable. `@N` out of range or a non-position
+/// digit / other token after `@` errors. `@trait` is resolved earlier
+/// (constant stage for batch_impl, segment-level replacement for
+/// batch_trait!) and never reaches here. Blanket-wrapped where is
+/// pre-resolved; only user where predicates are handled here.
 /// Resolves every where predicate of an impl: rejects a bare splat subject
 /// and expands the `@` position references (`@N` / `@g_i` / `@all_fresh` /
 /// `@N..M`) against `impl_name_streams`. All errors are collected and
@@ -83,12 +82,9 @@ pub(crate) fn resolve_where_at(
         if is_carrier {
             // Parse the reference out of the carrier group.
             let inner: String = match &tokens[i + 1] {
-                TokenTree::Group(g) => g
-                    .stream()
-                    .into_iter()
-                    .map(|t| t.to_string())
-                    .collect::<Vec<_>>()
-                    .join(""),
+                TokenTree::Group(g) => {
+                    g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("")
+                }
                 _ => unreachable!("matched above"),
             };
             let at_span = match &tokens[i] {
@@ -106,12 +102,12 @@ pub(crate) fn resolve_where_at(
                 FreshEnd::Single => {
                     // Document-order index (flat) or exact group position.
                     let name: Option<TokenStream> = match r.group {
-                        None => fresh_sorted.get(r.start).map(|&(_, _, n)| n.clone()),
+                        None => fresh_sorted.get(r.start).map(|(_, _, n)| n.clone()),
                         Some(g) => ctx
                             .names
                             .iter()
                             .find(|&&(gg, pp, _)| gg == g && pp == r.start)
-                            .map(|&(_, _, n)| n.clone()),
+                            .map(|(_, _, n)| n.clone()),
                     };
                     let Some(name) = name else {
                         return Err(match r.group {
@@ -131,8 +127,7 @@ pub(crate) fn resolve_where_at(
                         Some(g) => ctx.group(g, at_span)?,
                         None => fresh_sorted,
                     };
-                    let count =
-                        crate::codegen::range_refs::range_count(&r, slice.len(), at_span)?;
+                    let count = crate::codegen::range_refs::range_count(&r, slice.len(), at_span)?;
                     let tail = resolve_tail(&tokens[i + 2..], ctx)?;
                     emit_fresh_predicates(&mut out, &slice[r.start..r.start + count], &tail);
                     i = tokens.len();
@@ -168,10 +163,10 @@ fn resolve_tail(tail: &[TokenTree], ctx: &FreshCtx) -> Result<Vec<TokenTree>, To
 /// single authority for the fresh-predicate emission shared by `@all_fresh`
 /// and the `@N..M` range form.
 fn emit_fresh_predicates(
-    out: &mut Vec<TokenTree>, names: &[(usize, usize, &TokenStream)], tail: &[TokenTree],
+    out: &mut Vec<TokenTree>, names: &[(usize, usize, TokenStream)], tail: &[TokenTree],
 ) {
     let comma = TokenTree::Punct(Punct::new(',', Spacing::Alone));
-    for (k, &(_, _, name)) in names.iter().enumerate() {
+    for (k, (_, _, name)) in names.iter().enumerate() {
         if k > 0 {
             out.push(comma.clone());
         }

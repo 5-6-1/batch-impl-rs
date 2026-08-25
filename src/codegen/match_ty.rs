@@ -13,14 +13,6 @@ fn is_bare_ident(tp: &syn::TypePath) -> bool {
         && matches!(tp.path.segments[0].arguments, syn::PathArguments::None)
 }
 
-/// The ident of a variadic-segment placeholder type (defensive: the caller
-/// has already checked `is_varseg_type`; `None` keeps the no-panic promise
-/// on any internal drift).
-fn varseg_ident(tp: &syn::Type) -> Option<&syn::Ident> {
-    let syn::Type::Path(p) = tp else { return None };
-    (p.path.segments.len() == 1).then(|| &p.path.segments[0].ident)
-}
-
 /// The ident of a bare single-segment path expression (`N` in `[T; N]`);
 /// `None` for any other expression (literals, arithmetic, `N + 1`, ...).
 fn bare_path_ident(expr: &syn::Expr) -> Option<String> {
@@ -214,14 +206,9 @@ pub(crate) fn match_ty(
                 let mut leaf_idx = 0;
                 for te in &t.elems {
                     if is_varseg_type(te) {
-                        let Some(ident) = varseg_ident(te) else {
+                        let Some(prefix) = varseg_prefix(te) else {
                             return Err(ShapeError::ShapeMismatch(
-                                "malformed variadic segment placeholder".into(),
-                            ));
-                        };
-                        let Some(prefix) = varseg_prefix(ident) else {
-                            return Err(ShapeError::ShapeMismatch(
-                                "malformed variadic segment placeholder".into(),
+                                "malformed variadic segment marker".into(),
                             ));
                         };
                         if segs.iter().any(|s| s.prefix == prefix) {
@@ -233,8 +220,14 @@ pub(crate) fn match_ty(
                         }
                         segs.push(VarSeg { prefix: prefix.clone(), start: leaf_idx, len: seg_len });
                         for k in 0..seg_len {
-                            let name = format!("{}{}", prefix, leaf_idx + k);
-                            map.bind(&name, l.elems[leaf_idx + k].to_token_stream())?;
+                            // Structured binding: (prefix, leaf position) —
+                            // no minted name; the body's repeat blocks
+                            // reference the slot via its carrier.
+                            map.bind_seg(
+                                &prefix,
+                                leaf_idx + k,
+                                l.elems[leaf_idx + k].to_token_stream(),
+                            )?;
                         }
                         leaf_idx += seg_len;
                     } else {

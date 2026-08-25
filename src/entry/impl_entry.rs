@@ -102,7 +102,7 @@ fn expand_one_spec(
             let check = match_shape(&template, &for_type)
                 .map(|(m, _)| m)
                 .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
-            if !check.entries().is_empty() {
+            if !check.slots().is_empty() {
                 return Err(compile_error_str(
                     "batch-impl: the impl's for-Type must match the shape template \
                      ident-for-ident (write the same placeholder names, e.g. `impl Tr for A<B>` \
@@ -138,7 +138,7 @@ fn expand_one_spec(
                     .map(|(m, _)| m)
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                 // for-Type: slot names rewritten to the bound leaf subtrees.
-                let for_ty = apply_mapping(item.self_ty.to_token_stream(), m.entries());
+                let for_ty = apply_mapping(item.self_ty.to_token_stream(), &m);
                 out.extend(crate::entry::impl_spec::assemble_impl(
                     item,
                     trait_path,

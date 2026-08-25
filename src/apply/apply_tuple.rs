@@ -55,7 +55,7 @@ fn pow_empty(n: usize) -> Ty {
     let g = take_group();
     let params = fresh_params(g, n);
     let tp = TyTypeParam {
-        params: params.clone().into_iter().map(|p| (p.into(), None)).collect(),
+        params: params.clone().into_iter().map(|p| (Box::new(p), None)).collect(),
         bindings: vec![],
     }
     .to_ty();
@@ -79,7 +79,7 @@ fn pow_single(template: Ty, n: usize) -> Ty {
             params: params
                 .clone()
                 .into_iter()
-                .map(|p| (p.into(), Some(bound_ty.clone())))
+                .map(|p| (Box::new(p.clone()), Some(bound_ty.clone())))
                 .collect(),
             bindings: vec![],
         }
@@ -114,17 +114,21 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
         let elem_span = elem.span;
         match elem.kind {
             TyKind::TypeParam(tp) => {
-                let name = fresh_param(g, pos);
+                // The fresh reference and its declaration share one identity:
+                // the structured (group, position) pair — the tuple element
+                // is the structured reference node, the declaration carries
+                // the same pair, so hoisting can dedup by identity alone.
+                let name = fresh_ref_ty(g, pos);
                 pos += 1;
                 // Keep the original bound (previously the param name was mistaken for the bound;
                 // `(A: Clone, T).N` produced `_Param: A` instead of `_Param: Clone`)
                 let params = tp
                     .params
                     .iter()
-                    .map(|(_, bound)| (TyPrimitive(name.clone()).to_ty().into(), bound.clone()))
+                    .map(|(_, bound)| (Box::new(name.clone()), bound.clone()))
                     .collect();
                 param_decls.push(TyTypeParam { params, bindings: vec![] });
-                tuple_elems.push(TyPrimitive(name).to_ty().with_span(elem_span));
+                tuple_elems.push(name.with_span(elem_span));
             }
             _ => tuple_elems.push(Ty { span: elem_span, kind: elem.kind }),
         }
@@ -143,8 +147,21 @@ fn instantiate_combo(elems: Vec<Ty>) -> Ty {
     merged.to_ty().apply(tuple)
 }
 
+/// One fresh **reference** node per generator position — the structured
+/// carrier (`TyKind::Fresh`) that renders to the self-delimiting `@{g_i}`
+/// token form. The same nodes serve as the declaration names inside the
+/// `WithType` wrapper, so reference and declaration share one identity.
 fn fresh_params(g: usize, n: usize) -> Vec<Ty> {
-    (0..n).map(|i| TyPrimitive(fresh_param(g, i)).into()).collect()
+    (0..n).map(|i| fresh_ref_ty(g, i)).collect()
+}
+
+fn fresh_ref_ty(g: usize, i: usize) -> Ty {
+    TyFresh(crate::ast::fresh::FreshRef {
+        group: Some(g),
+        start: i,
+        end: crate::ast::fresh::FreshEnd::Single,
+    })
+    .to_ty()
 }
 
 impl Apply for TyTuple {

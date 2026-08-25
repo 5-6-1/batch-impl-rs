@@ -10,7 +10,7 @@ use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
 
-use crate::ast::{fresh_param, take_group};
+use crate::ast::{fresh_decl_tokens, take_group};
 use crate::preprocess::{
     angle_collect, build_from_item, collect_call_args, get_trait_item, parse_blanket_wrappers,
     parse_names_from_tokens,
@@ -60,9 +60,10 @@ pub(crate) fn expand_blanket(
         parse_names_from_tokens(&args_group.stream().into_iter().collect::<Vec<_>>(), trait_def)?;
     // Fresh generic: avoids clashing with other names (same mechanism as the
     // `().N` tuple generic); group 0 position 0 — the blanket is the spec's
-    // only fresh generator, and the codegen sweeper renumbers it to
-    // `_Param_0_BatchGen_`.
-    let t = fresh_param(take_group(), 0);
+    // only fresh generator, and codegen assigns its display name (`P0`).
+    // The declaration carrier (`@{g_0}`) rides the spec text like any
+    // generator's declaration; the parse layer passes it through.
+    let t = fresh_decl_tokens(take_group(), 0);
 
     // Generic trait copy: param order = trait params first, fresh T last
     // (`T: Foo<X>` references X; reversed order is E0401).

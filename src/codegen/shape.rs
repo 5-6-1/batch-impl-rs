@@ -24,11 +24,20 @@ pub(crate) struct VarSeg {
     pub(crate) len: usize,
 }
 
-/// The slot mapping produced by a shape match: slot name → bound leaf
-/// subtree. Order-preserving (rendering walks it in match order).
+/// The slot mapping produced by a shape match. Two channels, split by who
+/// wrote the name:
+/// - `slots` — **user-written** fixed placeholder names (`W`, `T` in
+///   `impl{W<T>}`); replaced wherever the ident appears (the documented
+///   substitution semantics — the name is the user's own).
+/// - `segs` — **variadic-segment elements** (`A@..`), keyed by the
+///   structured `(prefix, leaf position)` pair and carried in token domains
+///   as `@{prefix#pos}`; matched structurally, never as a bare name.
+///
+/// Both order-preserving (rendering walks them in match order).
 #[derive(Default)]
 pub(crate) struct Mapping {
     slots: Vec<(String, TokenStream)>,
+    segs: Vec<((String, usize), TokenStream)>,
 }
 
 impl Mapping {
@@ -46,21 +55,49 @@ impl Mapping {
         Ok(())
     }
 
-    /// The slot entries (slot name, bound value), in match order.
-    pub(crate) fn entries(&self) -> &[(String, TokenStream)] {
+    /// Binds segment element `(prefix, pos)` to its leaf subtree; same
+    /// re-binding rules as [`Mapping::bind`].
+    pub(crate) fn bind_seg(
+        &mut self, prefix: &str, pos: usize, value: TokenStream,
+    ) -> Result<(), ShapeError> {
+        if let Some(entry) = self.segs.iter_mut().find(|((p, k), _)| *p == prefix && *k == pos) {
+            let old = entry.1.clone();
+            if old.to_string() != value.to_string() {
+                return Err(ShapeError::InconsistentBinding(
+                    format!("{prefix}#{}", pos),
+                    old,
+                    value,
+                ));
+            }
+            return Ok(());
+        }
+        self.segs.push(((prefix.to_string(), pos), value));
+        Ok(())
+    }
+
+    /// The user-slot entries (slot name, bound value), in match order.
+    pub(crate) fn slots(&self) -> &[(String, TokenStream)] {
         &self.slots
     }
 
-    /// Merges another mapping into this one; a conflicting re-binding of the
-    /// same slot errors (`InconsistentBinding`), identical ones are kept.
+    /// The segment-slot entries (`(prefix, position)`, bound value), in
+    /// match order.
+    pub(crate) fn seg_entries(&self) -> &[((String, usize), TokenStream)] {
+        &self.segs
+    }
+
+    /// Merges another mapping into this one; a conflicting re-binding of
+    /// the same slot errors (`InconsistentBinding`), identical ones are kept.
     pub(crate) fn merge(&mut self, other: Mapping) -> Result<(), ShapeError> {
         for (name, value) in other.slots {
             self.bind(&name, value)?;
         }
+        for (key, value) in other.segs {
+            self.bind_seg(&key.0, key.1, value)?;
+        }
         Ok(())
     }
 }
-
 /// Shape-match failure: the template cannot destructure the leaf.
 #[derive(Debug)]
 pub(crate) enum ShapeError {
@@ -100,27 +137,61 @@ pub(crate) fn match_shape(
     Ok((map, segs))
 }
 
-/// Rewrites a token stream, replacing every ident equal to a slot name with
-/// the slot's bound value. Recursive (groups descended) — the same shape the
-/// slot rewrites need for the target type / where predicates / body.
-pub(crate) fn apply_mapping(tokens: TokenStream, entries: &[(String, TokenStream)]) -> TokenStream {
-    tokens
-        .into_iter()
-        .flat_map(|tt| match tt {
+/// Rewrites a token stream through the mapping. Two matchers, one per
+/// channel:
+/// - a bare ident equal to a **user slot** name is replaced (the user wrote
+///   that name to be substituted);
+/// - an `@{prefix#pos}` **segment-slot carrier** (parsed as a SegRef,
+///   matched by the structured `(prefix, position)` pair) is replaced by
+///   the bound leaf subtree — the repeat-block expansion emits these
+///   carriers, so no minted identifier ever needs a textual search.
+///
+/// Recursive (groups descended).
+pub(crate) fn apply_mapping(tokens: TokenStream, map: &Mapping) -> TokenStream {
+    let v: Vec<_> = tokens.into_iter().collect();
+    let mut out: Vec<TokenTree> = Vec::with_capacity(v.len());
+    let mut i = 0;
+    while i < v.len() {
+        // Segment-slot carrier: `@` + Brace group holding `prefix#pos`.
+        if let (TokenTree::Punct(p), Some(TokenTree::Group(g))) = (&v[i], v.get(i + 1))
+            && p.as_char() == '@'
+            && g.delimiter() == proc_macro2::Delimiter::Brace
+        {
+            let inner: String =
+                g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+            if let Some(r) = crate::ast::fresh::SegRef::parse(&inner)
+                && let Some(((_, _), repl)) =
+                    map.segs.iter().find(|((p2, k2), _)| *p2 == r.prefix && *k2 == r.pos)
+            {
+                out.extend(repl.clone());
+                i += 2;
+                continue;
+            }
+            // Not a known segment slot: keep verbatim (validation reports
+            // dangling references elsewhere).
+            out.push(v[i].clone());
+            out.push(v[i + 1].clone());
+            i += 2;
+            continue;
+        }
+        match &v[i] {
             TokenTree::Ident(id) => {
                 let s = id.to_string();
-                match entries.iter().find(|(name, _)| name.as_str() == s) {
-                    Some((_, repl)) => repl.clone(),
-                    None => TokenStream::from(TokenTree::Ident(id)),
+                // User-written fixed slots (`W`, `T`).
+                match map.slots.iter().find(|(name, _)| name.as_str() == s) {
+                    Some((_, repl)) => out.extend(repl.clone()),
+                    None => out.push(TokenTree::Ident(id.clone())),
                 }
             }
             TokenTree::Group(g) => {
-                let inner = apply_mapping(g.stream(), entries);
+                let inner = apply_mapping(g.stream(), map);
                 let mut ng = proc_macro2::Group::new(g.delimiter(), inner);
                 ng.set_span(g.span());
-                TokenStream::from(TokenTree::Group(ng))
+                out.push(TokenTree::Group(ng));
             }
-            other => TokenStream::from(other),
-        })
-        .collect()
+            other => out.push(other.clone()),
+        }
+        i += 1;
+    }
+    out.into_iter().collect()
 }

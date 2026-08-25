@@ -99,10 +99,10 @@ fn multi_segment_parallel_rounds() {
 }
 
 // ------------------------------------------------------------
-// 5. A single-element segment (`(A@..,)` on an arity-1 leaf) and a segment
-//    name used directly (not via `@ident`) in the body.
+// 5. A single-element segment (`(A@..,)` on an arity-1 leaf) referenced
+//    directly by its slot carrier `@{A_pos}` (pos = the leaf position).
 // ------------------------------------------------------------
-#[batch_impl((u8,) impl{(A@..,)} { fn get(&self) -> A0 { self.0 } })]
+#[batch_impl((u8,) impl{(A@..,)} { fn get(&self) -> @{A_0} { self.0 } })]
 trait ShapeOne {
     fn get(&self) -> u8;
 }
@@ -123,7 +123,7 @@ fn single_element_segment_direct_name() {
         @all_fresh: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)}
-    #Scalar{A0::Scalar}
+    #Scalar{@{A_0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
 trait Module<Add, Mul> {

@@ -21,7 +21,6 @@ pub(crate) fn assemble_impl(
     item: &ItemImpl, trait_path: &syn::Path, new_gen: Option<&TokenStream>,
     where_preds: &[TokenTree], m: &Mapping, for_ty: TokenStream,
 ) -> Result<TokenStream, TokenStream> {
-    let entries = m.entries();
     let item_params = item.generics.params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
     // Generics: the attr new-generic-decl first, then the impl's own params.
     let gen_tokens = match new_gen {
@@ -60,18 +59,15 @@ pub(crate) fn assemble_impl(
     let mut preds = vec![];
     if !where_preds.is_empty() {
         let p = sync_trait_application(where_preds.iter().cloned().collect(), &trait_args)?;
-        preds.push(apply_mapping(p, entries));
+        preds.push(apply_mapping(p, m));
     }
     if let Some(wc) = &item.generics.where_clause {
         let p = sync_trait_application(wc.predicates.to_token_stream(), &trait_args)?;
-        preds.push(apply_mapping(p, entries));
+        preds.push(apply_mapping(p, m));
     }
     let where_clause = if preds.is_empty() { quote!() } else { quote!(where #(#preds),*) };
-    let items = item
-        .items
-        .iter()
-        .map(|it| apply_mapping(it.to_token_stream(), entries))
-        .collect::<Vec<_>>();
+    let items =
+        item.items.iter().map(|it| apply_mapping(it.to_token_stream(), m)).collect::<Vec<_>>();
     let unsafe_kw = if item.unsafety.is_some() { quote!(unsafe) } else { quote!() };
     Ok(quote! {
         #unsafe_kw impl #gen_tokens #trait_path for #for_ty #where_clause {

@@ -77,7 +77,7 @@ fn ui() {
     t.compile_fail("tests/ui/const_attr_unsupported.rs");
     t.compile_fail("tests/ui/at_group_out_of_range.rs");
     // @N / @g_i in the target type: dangling references error at the DSL
-    // layer instead of leaking the reserved _Param_*_BatchGen_ name via E0412
+    // layer instead of leaking the reserved an internal reserved ident name via E0412
     t.compile_fail("tests/ui/at_num_in_type.rs");
     t.compile_fail("tests/ui/at_group_in_type.rs");
 

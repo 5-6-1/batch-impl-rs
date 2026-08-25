@@ -4,22 +4,20 @@
 //! otherwise reject the unknown `@`), before `angle_collect`, and before
 //! the syn parse in codegen.
 //!
-//! The replacement is a placeholder ident encoding the segment's name
-//! prefix: `__batch_varseg_{prefix}_{seq}` (seq disambiguates repeated
-//! prefixes, which codegen rejects anyway). Codegen recovers the prefix
-//! by stripping the reserved head and the trailing `_seq`.
+//! The replacement is a **structural marker**, not a reserved name: an
+//! array type `[Prefix; ()]` — unit-tuple length. It parses as
+//! ordinary Rust (so `syn` accepts the template), and codegen decodes it by
+//! shape; the two stacked features never co-occur in a meaningful template,
+//! recovering the segment's name prefix from the element position. No
+//! reserved identifier pattern exists anywhere in the pipeline.
 //!
 //! Only `impl{...}` template groups are entered (via
 //! `util::is_impl_template`); every other Brace group stays passthrough —
 //! bodies keep their `@` repeat-block markers untouched, and user constant
 //! definitions at the top level are never scanned.
-
-use proc_macro2::{Group, Ident, TokenStream, TokenTree};
+use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::{MAX_NEST_DEPTH, depth_err, is_impl_template, is_punct_at};
-
-/// Reserved head of a variadic-segment placeholder ident.
-pub(crate) const VARSEG_PREFIX: &str = "__batch_varseg_";
 
 /// Replaces every `ident@..` in `impl{...}` templates with a placeholder.
 pub(crate) fn mark_varseg(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
@@ -39,7 +37,7 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
             && g.delimiter() == delimiter![{}]
         {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let (marked, _) = mark_template(&inner, depth + 1, 0)?;
+            let marked = mark_template(&inner, depth + 1)?;
             let mut ng = Group::new(delimiter![{}], marked.into_iter().collect());
             ng.set_span(g.span());
             out.push(tokens[i].clone());
@@ -76,11 +74,8 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
 }
 
 /// Marks `ident@..` inside one template's token stream; recurses into every
-/// group (tuples `(A@..,)`, flat `<...>` args, arrays, ...). Returns the
-/// marked stream and the next segment sequence number.
-fn mark_template(
-    tokens: &[TokenTree], depth: usize, mut seq: usize,
-) -> Result<(Vec<TokenTree>, usize), TokenStream> {
+/// group (tuples `(A@..,)`, flat `<...>` args, arrays, ...).
+fn mark_template(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
     }
@@ -95,10 +90,22 @@ fn mark_template(
             && is_punct_at(tokens, i + 2, '.')
             && is_punct_at(tokens, i + 3, '.')
         {
-            let placeholder = Ident::new(&format!("{}{}_{}", VARSEG_PREFIX, id, seq), id.span());
-            out.push(TokenTree::Ident(placeholder));
+            // Structural marker: `[Prefix; ()]` — an array whose length is
+            // the **unit tuple**: a shape that cannot appear in any
+            // compilable code (array lengths are `usize`; `()` never is), so
+            // no meaningful user template can collide with it. Ordinary Rust
+            // for `syn`, decoded by shape — no reserved name involved.
+            let mut marker: TokenStream = TokenTree::Ident(id.clone()).into();
+            marker.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                ';',
+                proc_macro2::Spacing::Alone,
+            ))));
+            marker.extend(std::iter::once(TokenTree::Group(Group::new(
+                proc_macro2::Delimiter::Parenthesis,
+                TokenStream::new(),
+            ))));
+            out.push(TokenTree::Group(Group::new(proc_macro2::Delimiter::Bracket, marker)));
             i += 4;
-            seq += 1;
             // A variadic segment at the end of a tuple/list element list is
             // normally written with a trailing comma (`(A@..,)`) — the comma
             // keeps syn from parsing `(A@..)` as a parenthesized group. When
@@ -125,8 +132,7 @@ fn mark_template(
                 return Err(depth_err(&tokens[i..i + 1], ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let (marked, s) = mark_template(&inner, depth + 1, seq)?;
-            seq = s;
+            let marked = mark_template(&inner, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), marked.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));
@@ -136,26 +142,37 @@ fn mark_template(
         out.push(tokens[i].clone());
         i += 1;
     }
-    Ok((out, seq))
+    Ok(out)
 }
 
-/// Whether a syn type is a variadic-segment placeholder (a bare ident with
-/// the reserved head).
+/// Whether a syn type is a variadic-segment marker: an array type whose
+/// length is the **unit tuple** (`[Prefix; ()]`) — a shape that cannot
+/// appear in compilable code, decoded by shape, never by a name pattern.
 pub(crate) fn is_varseg_type(tp: &syn::Type) -> bool {
-    let syn::Type::Path(p) = tp else { return false };
-    p.qself.is_none()
-        && p.path.segments.len() == 1
-        && matches!(p.path.segments[0].arguments, syn::PathArguments::None)
-        && p.path.segments[0].ident.to_string().starts_with(VARSEG_PREFIX)
+    let syn::Type::Array(a) = tp else { return false };
+    is_unit_len(&a.len) && varseg_prefix(tp).is_some()
 }
 
-/// The variadic segment's name prefix from its placeholder ident
-/// (`__batch_varseg_A_0` → `A`; `__batch_varseg_Foo_Bar_3` → `Foo_Bar`).
-pub(crate) fn varseg_prefix(ident: &Ident) -> Option<String> {
-    let s = ident.to_string();
-    let rest = s.strip_prefix(VARSEG_PREFIX)?;
-    let (prefix, _seq) = rest.rsplit_once('_')?;
-    (!prefix.is_empty()).then(|| prefix.to_string())
+/// The variadic segment's name prefix from its marker (`[A; ()]` → `A`; the
+/// element must be a bare single-segment path and the length the unit tuple).
+pub(crate) fn varseg_prefix(tp: &syn::Type) -> Option<String> {
+    let syn::Type::Array(a) = tp else { return None };
+    // The length must be the unit tuple — the marker's distinguishing shape.
+    if !is_unit_len(&a.len) {
+        return None;
+    }
+    let syn::Type::Path(p) = &*a.elem else { return None };
+    if !p.qself.is_none() || p.path.segments.len() != 1 {
+        return None;
+    }
+    matches!(p.path.segments[0].arguments, syn::PathArguments::None)
+        .then(|| p.path.segments[0].ident.to_string())
+}
+
+/// Whether an expression is an empty tuple literal — `()`, the marker's
+/// length shape (an array length of `()` cannot exist in compiled code).
+fn is_unit_len(expr: &syn::Expr) -> bool {
+    matches!(expr, syn::Expr::Tuple(t) if t.elems.is_empty())
 }
 
 #[cfg(test)]
@@ -169,56 +186,48 @@ mod tests {
 
     #[test]
     fn top_level_segment_marked() {
-        assert_eq!(mark("impl{(A@..,)}"), "impl { (__batch_varseg_A_0 ,) }");
+        assert_eq!(mark("impl{(A@..,)}"), "impl { ([A ; ()] ,) }");
     }
 
     #[test]
     fn trailing_segment_without_comma() {
         // `impl{(A@..)}` — no trailing comma: the marker supplies one so the
         // template still parses as a tuple, not a parenthesized group.
-        assert_eq!(mark("impl{(A@..)}"), "impl { (__batch_varseg_A_0 ,) }");
+        assert_eq!(mark("impl{(A@..)}"), "impl { ([A ; ()] ,) }");
     }
 
     #[test]
     fn fixed_then_trailing_segment_without_comma() {
-        assert_eq!(mark("impl{(u8, A@..)}"), "impl { (u8 , __batch_varseg_A_0 ,) }");
+        assert_eq!(mark("impl{(u8, A@..)}"), "impl { (u8 , [A ; ()] ,) }");
     }
 
     #[test]
     fn middle_segment_keeps_stream_comma() {
         // `(A@.., B@..)` — the first segment is followed by the real comma.
-        assert_eq!(
-            mark("impl{(A@.., B@..)}"),
-            "impl { (__batch_varseg_A_0 , __batch_varseg_B_1 ,) }"
-        );
+        assert_eq!(mark("impl{(A@.., B@..)}"), "impl { ([A ; ()] , [B ; ()] ,) }");
     }
 
     #[test]
     fn fixed_before_segment() {
-        assert_eq!(mark("impl{(u8, B@..,)}"), "impl { (u8 , __batch_varseg_B_0 ,) }");
+        assert_eq!(mark("impl{(u8, B@..,)}"), "impl { (u8 , [B ; ()] ,) }");
     }
 
     #[test]
     fn nested_tuples() {
-        // The seq counter is template-global: B is the second segment.
-        assert_eq!(
-            mark("impl{((A@..,),(B@..,))}"),
-            "impl { ((__batch_varseg_A_0 ,) , (__batch_varseg_B_1 ,)) }"
-        );
+        assert_eq!(mark("impl{((A@..,),(B@..,))}"), "impl { (([A ; ()] ,) , ([B ; ()] ,)) }");
     }
 
     #[test]
     fn angle_args_marked() {
         // flat `<...>` inside the template (angle_collect has not run yet)
-        assert_eq!(mark("impl{Vec<(A@..,)>}"), "impl { Vec < (__batch_varseg_A_0 ,) > }");
+        assert_eq!(mark("impl{Vec<(A@..,)>}"), "impl { Vec < ([A ; ()] ,) > }");
     }
 
     #[test]
-    fn repeated_prefix_seq() {
-        assert_eq!(
-            mark("impl{(A@.., A@..,)}"),
-            "impl { (__batch_varseg_A_0 , __batch_varseg_A_1 ,) }"
-        );
+    fn repeated_prefix_both_marked() {
+        // Repeated prefixes are rejected later (duplicate-prefix check in
+        // the shape match) — marking itself is uniform.
+        assert_eq!(mark("impl{(A@.., A@..,)}"), "impl { ([A ; ()] , [A ; ()] ,) }");
     }
 
     #[test]
@@ -238,15 +247,17 @@ mod tests {
     }
 
     #[test]
-    fn prefix_roundtrip() {
-        for (ph, expect) in [
-            ("__batch_varseg_A_0", "A"),
-            ("__batch_varseg_Foo_Bar_3", "Foo_Bar"),
-            ("__batch_varseg_u8_0", "u8"),
-        ] {
-            let id = Ident::new(ph, proc_macro2::Span::call_site());
-            assert_eq!(varseg_prefix(&id).as_deref(), Some(expect), "{ph}");
+    fn prefix_roundtrip_by_shape() {
+        for (ph, expect) in [("[A ; ()]", "A"), ("[Foo_Bar ; ()]", "Foo_Bar"), ("[u8 ; ()]", "u8")]
+        {
+            let ts: TokenStream = ph.parse().unwrap();
+            let ty: syn::Type = syn::parse2(ts).unwrap();
+            assert_eq!(varseg_prefix(&ty).as_deref(), Some(expect), "{ph}");
+            assert!(is_varseg_type(&ty), "{ph}");
         }
-        assert_eq!(varseg_prefix(&Ident::new("plain", proc_macro2::Span::call_site())), None);
+        // A real element type: an ordinary array template, never a segment.
+        let plain: syn::Type = syn::parse_str("[A; 3]").unwrap();
+        assert!(!is_varseg_type(&plain));
+        assert_eq!(varseg_prefix(&plain), None);
     }
 }

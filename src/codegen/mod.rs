@@ -32,8 +32,8 @@
 //!    `collect_shape_mapping`).
 //!
 //! `top_level` handles the top-level macro form (`{! ...}`); `fresh` the
-//! fresh-generic name sweeper. Tests live beside their concern (`repeat_tests`,
-//! `where_at_tests`).
+//! fresh-generic naming context and validation. Tests live beside their
+//! concern (`repeat_tests`, `where_at_tests`).
 
 mod bound_gen;
 mod extract;
@@ -68,6 +68,7 @@ use crate::TraitBounds;
 use crate::ast::*;
 use crate::util::compile_error_str;
 use proc_macro2::{Ident, TokenStream, TokenTree};
+use quote::ToTokens;
 use std::collections::HashSet;
 
 /// Generates one impl block (for a single flattened leaf `Ty`).
@@ -202,26 +203,6 @@ fn generate_parts(
     // live on the impl, not inside the predicate.
     crate::codegen::generics::hoist_bound_fresh(&mut parts.impl_generics);
 
-    // `@0..` in the impl-generic declaration position (`<@0..>` declares every
-    // fresh the range covers). The fresh list is whatever the spec's
-    // generators already declared (`*().N` / `().N`); a range with no fresh
-    // coverage errors. Runs before `merge_dup_params` so overlapping
-    // declarations collapse cleanly.
-    {
-        let names = parts
-            .impl_generics
-            .iter()
-            .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
-            .collect::<Vec<_>>();
-        // A pre-declaration context: `<@0..>` re-opens against the
-        // generators' fresh list as it stands *before* the declarations land.
-        if let Err(e) =
-            crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &FreshCtx::new(&names))
-        {
-            return e;
-        }
-    }
-
     // Same-name declaration merge: chained `<>` blocks (`<T: Clone><T: Copy> X`)
     // would declare `T` twice (invalid Rust). Keep a single bare declaration and
     // move every bound of that name into a where predicate
@@ -231,16 +212,47 @@ fn generate_parts(
     // Impl generic names, normalized for const params (`const N` in the parse
     // layer — the keyword is needed to render `const N: usize`; bare `N` here
     // to match trait args and where-predicate refs). Shared by bound
-    // inheritance and where-predicate resolution.
+    // inheritance and where-predicate resolution. Fresh declarations are
+    // still their identity carriers at this point.
     let impl_name_streams = parts
         .impl_generics
         .iter()
         .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
         .collect::<Vec<TokenStream>>();
-    // The per-impl macro-meta context: grouped fresh names sorted by
-    // (group, position), shared by every `@` consumer from here on
-    // (inheritance / sync / where resolution / range re-opening / render).
-    let fresh_ctx = FreshCtx::new(&impl_name_streams);
+
+    // The collision set display names must skip: every ident the impl
+    // already writes (user params, target type, trait args, predicates,
+    // body, attrs, associated types). Template placeholders are excluded —
+    // the shape mapping rewrites them away before output, so counting them
+    // would shift numbering the rendered impl never shows.
+    let mut used = HashSet::new();
+    collect_used_idents(&parts.target_type.to_token_stream(), &mut used);
+    for ts in &parts.trait_generic_names {
+        collect_used_idents(ts, &mut used);
+    }
+    for p in &parts.where_clauses {
+        collect_used_idents(p, &mut used);
+    }
+    if let Some(b) = &parts.body {
+        collect_used_idents(b, &mut used);
+    }
+    for a in &parts.attrs {
+        collect_used_idents(a, &mut used);
+    }
+    for (_, v) in &parts.associated_types {
+        collect_used_idents(v, &mut used);
+    }
+    for n in &impl_name_streams {
+        if crate::ast::fresh::decl_fresh_pos(n).is_none() {
+            collect_used_idents(n, &mut used);
+        }
+    }
+
+    // The per-impl macro-meta context: fresh declarations sorted by
+    // (group, position), each assigned its final display name — shared by
+    // every `@` consumer from here on (inheritance / sync / where resolution
+    // / range re-opening / repeat drivers / render).
+    let fresh_ctx = FreshCtx::new(&impl_name_streams, &used);
     let impl_names = impl_name_streams.iter().map(|n| n.to_string()).collect::<HashSet<String>>();
     let trait_args =
         parts.trait_generic_names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
@@ -264,16 +276,57 @@ fn generate_parts(
     };
     // `@N` / `@g_i` in the target type / trait args (where predicates are
     // validated by resolve_where_predicates): a dangling reference would leak
-    // the reserved `_Param_*_BatchGen_` name into rustc's E0412 output —
-    // validate here and report in user language.
-    errs.extend(validate_at_refs(
-        &parts.target_type,
-        &parts.trait_generic_names,
-        &impl_name_streams,
-    ));
+    // an internal carrier into rustc's E0412 output — validate here and
+    // report in user language. Runs before the declarations are renamed so
+    // the declared set is still readable off the carriers.
+    errs.extend(validate_at_refs(&parts.target_type, &parts.trait_generic_names, &fresh_ctx));
     if !errs.is_empty() {
         return errs.into_iter().collect();
     }
+
+    // Declarations take their final display names — after validation, before
+    // anything renders; no internal carrier ever reaches the output.
+    rename_fresh_decls(&mut parts.impl_generics, &fresh_ctx);
+
+    // Impl-generic **bounds** may hold fresh references (a bound generator's
+    // params ride out of the bound but its references stay): resolve them to
+    // display names like every other type position.
+    for (_, bound) in &mut parts.impl_generics {
+        if let Some(b) = bound
+            && b.to_token_stream().to_string().contains('@')
+        {
+            let resolved = match crate::codegen::range_refs::expand_range_refs(
+                b.to_token_stream(),
+                &fresh_ctx,
+            ) {
+                Ok(t) => t,
+                Err(e) => return e,
+            };
+            *b = TyPrimitive(resolved).to_ty();
+        }
+    }
+
+    // `@0..` in the impl-generic declaration position (`<@0..>` declares every
+    // fresh the range covers). Runs with the resolved context, so inserted
+    // entries already carry display names — unique among freshs and skipping
+    // every user-written ident by construction; an overlap with an existing
+    // declaration is skipped, not duplicated.
+    if let Err(e) =
+        crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &fresh_ctx)
+    {
+        return e;
+    }
+
+    // The target type's references resolve now: its tokens must be valid
+    // Rust before the shape kernel syn-parses them, and the resolvers emit
+    // final names — nothing downstream renames idents anymore.
+    let target_tokens = match crate::codegen::range_refs::expand_range_refs(
+        parts.target_type.to_token_stream(),
+        &fresh_ctx,
+    ) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
     // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
     // rewrites (where predicates + body here; the target type at render,
@@ -281,17 +334,17 @@ fn generate_parts(
     // no-op case. Variadic segments (`ident@..`) additionally drive the
     // body's repeat blocks (`@(...)..`), which expand before the slot
     // mapping rewrites the resulting segment names.
-    let (shape_entries, var_segs) = if parts.impl_templates.is_empty() {
-        (Vec::new(), Vec::new())
+    let (shape_map, var_segs) = if parts.impl_templates.is_empty() {
+        (crate::codegen::Mapping::default(), Vec::new())
     } else {
-        match crate::codegen::render::collect_shape_mapping(&parts) {
-            Ok((m, s)) => (m.entries().to_vec(), s),
+        match crate::codegen::render::collect_shape_mapping(&target_tokens, &parts.impl_templates) {
+            Ok((m, s)) => (m, s),
             Err(e) => return compile_error_str(&e.message(), proc_macro2::Span::call_site()),
         }
     };
-    if !shape_entries.is_empty() {
+    if !shape_map.slots().is_empty() || !shape_map.seg_entries().is_empty() {
         parts.where_clauses =
-            parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_entries)).collect();
+            parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_map)).collect();
     }
     if let Some(b) = &mut parts.body {
         // Body token postprocessing lives together here, where the impl's
@@ -301,34 +354,29 @@ fn generate_parts(
         //    — one round per bound fresh — and enables `@@N` references);
         // 2. Fresh-range placeholders re-open (`#map`-copied signatures
         //    substitute the trait's generic args verbatim, so `(@0..)`
-        //    lands in the body as `_Param_0_With_BatchGen_`).
-        let fresh_names: Vec<TokenStream> = impl_name_streams
-            .iter()
-            .filter(|n| crate::ast::fresh::is_fresh_name(&n.to_string()))
-            .cloned()
-            .collect();
+        //    lands in the body as a carrier reference).
         let binding = parts.fresh_binding;
-        let expanded = match expand_repeat_blocks(b.clone(), &var_segs, binding, &fresh_names) {
+        let expanded = match expand_repeat_blocks(b.clone(), &var_segs, binding, &fresh_ctx) {
             Ok(e) => e,
             Err(e) => return e,
         };
-        let expanded =
-            match crate::codegen::range_refs::expand_range_refs(expanded, &fresh_ctx) {
-                Ok(e) => e,
-                Err(e) => return e,
-            };
-        *b = if shape_entries.is_empty() {
+        let expanded = match crate::codegen::range_refs::expand_range_refs(expanded, &fresh_ctx) {
+            Ok(e) => e,
+            Err(e) => return e,
+        };
+        *b = if shape_map.slots().is_empty() && shape_map.seg_entries().is_empty() {
             expanded
         } else {
-            apply_mapping(expanded, &shape_entries)
+            apply_mapping(expanded, &shape_map)
         };
     }
     crate::codegen::render::render_impl(
         parts,
         where_resolved,
+        target_tokens,
         trait_name,
         is_unsafe_trait,
-        &shape_entries,
+        &shape_map,
         &fresh_ctx,
     )
 }

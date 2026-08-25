@@ -53,6 +53,14 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
             TokenTree::Punct(p) if p.as_char() == '@' => {
                 let at_span = p.span();
                 match tokens.get(i + 1) {
+                    // Already a carrier (`@{...}`): pass both tokens through
+                    // untouched — the self-delimiting group is atomic and the
+                    // resolvers downstream match this exact shape.
+                    Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace => {
+                        out.push(tokens[i].clone());
+                        out.push(tokens[i + 1].clone());
+                        i += 2;
+                    }
                     Some(TokenTree::Literal(lit)) => {
                         let lit_str = lit.to_string();
                         // `@N..` open range / `@N..M` / `@N..=M` closed range, or

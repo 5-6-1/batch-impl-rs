@@ -202,19 +202,30 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
 pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
     match ty.kind {
         // Generic-declaration wrapper: hoist the declaration outward (params
-        // are added to `out`, not to the rebuilt node). Same-named fresh
-        // params are collected once — `(T,).N` clones `T` (a generator such
-        // as `().3`) N times, and each clone carries its own declaration of
-        // the same fresh names; the clones reference one shared generic.
+        // are added to `out`, not to the rebuilt node). A structured fresh
+        // declaration dedups by its **identity** — the parsed (group,
+        // position) pair — so `(T,).N` clones (`T` a generator such as
+        // `().3`, each clone carrying its own declaration of the same fresh
+        // names) collapse onto one shared generic regardless of token
+        // spelling; user-written params pass through verbatim.
         TyKind::WithType(wt) => {
             for (name, bound) in wt.0.params {
-                let name_str = name.to_token_stream().to_string();
-                if is_fresh_name(&name_str)
-                    && let Some(existing) = out.iter_mut().find(|(n, _)| n.to_string() == name_str)
-                {
-                    // Prefer a declaration with a bound over the bare one.
-                    if existing.1.is_none() {
-                        existing.1 = bound;
+                let is_decl = matches!(&name.kind, TyKind::Fresh(f)
+                    if f.0.group.is_some() && f.0.end == crate::ast::fresh::FreshEnd::Single);
+                if is_decl {
+                    let TyFresh(f) = match *name {
+                        Ty { kind: TyKind::Fresh(f), .. } => f,
+                        _ => unreachable!("matched above"),
+                    };
+                    let (g, i) = (f.group.unwrap(), f.start);
+                    let carrier = crate::ast::fresh::fresh_decl_tokens(g, i);
+                    match out.iter_mut().find(|(n, _)| {
+                        crate::ast::fresh::decl_fresh_pos(n).is_some_and(|k| k == (g, i))
+                    }) {
+                        // Prefer a declaration with a bound over the bare one.
+                        Some(existing) if existing.1.is_none() => existing.1 = bound,
+                        Some(_) => {}
+                        None => out.push((carrier, bound)),
                     }
                 } else {
                     out.push((name.to_token_stream(), bound));
@@ -331,5 +342,9 @@ fn parse_fresh_switch(tokens: &TokenStream) -> Option<crate::ast::fresh::FreshRe
         _ => return None,
     };
     let range = FreshRef { group, start, end: end.map(FreshEnd::Closed).unwrap_or(FreshEnd::Open) };
-    (match range.end { FreshEnd::Closed(e) => range.start <= e, _ => true }).then_some(range)
+    (match range.end {
+        FreshEnd::Closed(e) => range.start <= e,
+        _ => true,
+    })
+    .then_some(range)
 }

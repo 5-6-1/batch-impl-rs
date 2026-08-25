@@ -201,7 +201,7 @@ fn bound_generator_fresh_driven_body() {
 }
 
 // `@@N` names a fresh generic **inside a repeat block** (it is a block-level
-// marker): `@@1` is the second fresh (`_Param_…_BatchGen_` before the sweep,
+// marker): `@@1` is the second fresh in document order (display name `P1`,
 // `P1` after) — usable as a type in the generated method. The switch
 // `impl{@1..=1}` binds a single fresh, so the block runs one round.
 #[batch_impl(

@@ -122,8 +122,8 @@ like `().N`), which the user cannot know by name before expansion:
 | `@N..` | an **open** run to the last fresh | every fresh name from N to the last, comma-separated (`@1..` → `P1, P2, ...`); **empty** when N is past the end |
 | `@L_N..` / `@L_N..M` / `@L_N..=M` | **grouped ranges** — slice within one generator group | the group's fresh names from position N, stable across array dispatch |
 
-The fresh names are `_Param_…_BatchGen_` before the per-impl sweep and
-`P0, P1, ...` after it (readable renaming, 0.9.4) — the expansion splices
+Fresh display names are numbered `P0, P1, ...` in document order (escaping
+collisions by prefixing underscores: `_P1`, `__P1`) — the expansion splices
 the names where the `@` sits (a where-predicate subject, a target tuple
 element, a generic argument), so a range becomes several names and a `where`
 tail is copied per fresh.
@@ -215,7 +215,7 @@ e.g. an associated-type binding referencing another fresh's associated type
     Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
         impl{(A@..)}
-    #Scalar{A0::Scalar}
+    #Scalar{@{A_0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
 trait Module<Add, Mul> {

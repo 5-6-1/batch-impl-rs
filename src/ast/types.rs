@@ -347,8 +347,8 @@ thread_local! {
 }
 
 /// Resets the fresh-generator group counter (per spec / `batch_trait!`
-/// segment, so group ids are DSL-local; the codegen sweeper renumbers every
-/// impl's fresh params to `_Param_0..N_BatchGen_` afterwards).
+/// segment, so group ids are DSL-local; codegen resolves every reference to
+/// the impl's display names afterwards).
 pub(crate) fn reset_fresh_counter() {
     GROUP_COUNTER.set(0);
 }
