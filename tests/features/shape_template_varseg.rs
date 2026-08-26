@@ -178,7 +178,7 @@ fn cursor_only_blocks() {
 //    `impl{(A@..)} {body}` (the same collection as bare `where`) — the two
 //    forms are token-equivalent.
 // ------------------------------------------------------------
-#[batch_impl((u8, u16, u32) impl (A@..) { fn tail_bare(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+#[batch_impl((u8, u16, u32) impl (A@..) { fn tail_bare(&self) -> (u8, u16, u32) { (@(@A::from(self.@0)),..) } })]
 trait ShapeTailBare {
     fn tail_bare(&self) -> (u8, u16, u32);
 }

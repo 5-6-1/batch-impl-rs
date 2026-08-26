@@ -223,7 +223,7 @@ fn bound_generator_fresh_name_reference() {
 
 // `@{@N}` — the **per-round** fresh-name reference: `@N` is the cursor, so
 // `@{@N}` inside a repeat block names the round's own fresh
-// (`(@(@{@N}::foo(),)..)` → `(P0::foo(), P1::foo(), P2::foo())` on three
+// (`(@(@{@N}::foo()),..)` → `(P0::foo(), P1::foo(), P2::foo())` on three
 // freshs). The fresh-binding switch `impl{@0..}` drives the cursor-only
 // block; the `@{@0}` bodies must type-check `size_of::<P0/P1/P2>()`.
 #[batch_impl(

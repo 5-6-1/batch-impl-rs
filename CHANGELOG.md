@@ -21,7 +21,7 @@
   block, `@A` now splices the segment's i-th **bound element** straight
   into the round's output (the `$( ... )*` semantics of Rust's declaration
   macros): `impl{(A@..)}` on `(u8, u16, u32)` with body
-  `(@(@A::from(self.@0),)..)` expands to
+  `(@(@A::from(self.@0)),..)` expands to
   `(u8::from(self.0), u16::from(self.1), u32::from(self.2))` in one step.
   The intermediate `@{A_pos}` carrier spelling is gone — no token
   machinery is ever visible between the expansion and the rendered impl;
@@ -77,7 +77,7 @@
   `@@0` → `@{0}`, `@@1` → `@{1}`.
 - **`@{@N}` — per-round fresh-name reference** — inside a repeat block,
   `@{@N}` names the round's own fresh (`@N` is the cursor): on three
-  freshs, `(@(@{@N}::foo(),)..)` expands to
+  freshs, `(@(@{@N}::foo()),..)` expands to
   `(P0::foo(), P1::foo(), P2::foo())` — one name per fresh, driven by
   `impl{@0..}`.
 

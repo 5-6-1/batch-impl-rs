@@ -156,7 +156,7 @@ pub(crate) fn substitute(
         // spelling — the same `@{...}` shape the body uses, one `@` consumed),
         // resolved here against the fresh context. `@{@N}` is its **cursor**
         // form — the index is `N + round`, so each round names its own fresh
-        // (`(@(@{@N}::foo(),)..)` on three freshs →
+        // (`(@(@{@N}::foo()),..)` on three freshs →
         // `(P0::foo(), P1::foo(), P2::foo())`). A **range** carrier
         // (`@{0..}`) passes through untouched for the later range re-opening
         // pass (`expand_range_refs`).

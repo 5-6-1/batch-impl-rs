@@ -106,7 +106,7 @@ fn fresh_name_reference() {
 #[test]
 fn fresh_name_cursor_reference() {
     // `@{@N}` → the (N + round)-th fresh's name, **per-round**: each round
-    // names its own fresh — the user's `(@(@{@N}::foo(),)..)` spelling
+    // names its own fresh — the user's `(@(@{@N}::foo()),..)` spelling
     // emits `(P0::foo(), P1::foo(), P2::foo())` on three freshs
     assert_eq!(
         expand_fresh("@(@{@0}::foo(),)..", 3).unwrap(),

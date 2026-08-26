@@ -2,7 +2,7 @@
 
 **v0.9.5** (2026-08-27) — **direct-splice completion + impl-template
 ergonomics**: repeat blocks splice the segment's **bound element** directly
-into each round (the `$( ... )*` semantics — `(@(@A::from(self.@0),)..)`
+into each round (the `$( ... )*` semantics — `(@(@A::from(self.@0)),..)`
 expands straight to `(u8::from(self.0), u16::from(self.1),
 u32::from(self.2))`, the intermediate carrier spelling is gone); a bare
 `impl` collects like a bare `where` and adjacent bare regions split
@@ -11,7 +11,7 @@ comma-joined (`impl{(A@..,), @0.., @{}}`); a `@{N}` fresh reference in a
 body now requires a declared body slot — `impl{@{}}` or the fresh-binding
 switch `impl{@0..}` ("declare what you use"); the fresh-name reference
 inside repeat blocks is spelled `@{N}` (was `@@N`), with the per-round
-cursor form `@{@N}` (`(@(@{@N}::foo(),)..)` → `(P0::foo(), P1::foo(),
+cursor form `@{@N}` (`(@(@{@N}::foo()),..)` → `(P0::foo(), P1::foo(),
 P2::foo())`, see §8.4). Name a specific segment element with an explicit
 fixed slot (`impl{(A0, @A..,)}`, body writes plain `A0`). New in this
 version too: AsyncFn/AsyncFnMut/AsyncFnOnce bounds, lifetimes first-class
@@ -895,7 +895,7 @@ declaration macros: each round splices the actual bound element):
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+#[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0)),..) } })]
 trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 // body → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
 ```
@@ -930,7 +930,7 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
   fresh-binding switch `impl{@0..}` whose rounds consume `@{N}` (the
   "declare what you use" rule). `@{@N}` is the **per-round** form: the
   cursor `@N` becomes `N + round`, so a cursor-only block names each
-  round's own fresh — `(@(@{@N}::foo(),)..)` on three freshs expands to
+  round's own fresh — `(@(@{@N}::foo()),..)` on three freshs expands to
   `(P0::foo(), P1::foo(), P2::foo())`.
 
 A cursor-only block generates element references without naming the types —

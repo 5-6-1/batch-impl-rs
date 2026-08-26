@@ -227,7 +227,7 @@
 - **`@{@N}` — per-round fresh-name reference** (user idea) — inside a
   repeat block the fresh-name carrier accepts a cursor: `@{@N}` resolves
   `@N` → `N + round` first, then looks up that round's fresh
-  (`(@(@{@N}::foo(),)..)` on three freshs → `(P0::foo(), P1::foo(),
+  (`(@(@{@N}::foo()),..)` on three freshs → `(P0::foo(), P1::foo(),
   P2::foo())`). `repeat_drivers.rs::substitute` expands the inner cursor
   before the fresh lookup; a non-numeric inner (`@{@x}`) errors with
   guidance, and an out-of-range round keeps the `@{n}` diagnostic. A

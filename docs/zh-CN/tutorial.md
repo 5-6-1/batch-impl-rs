@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.9.5**（2026-08-27）——**直接拼接收尾 + impl 模板人体工学**：repeat 块把段的**绑定元素**直接拼进每轮输出（`$( ... )*` 语义——`(@(@A::from(self.@0),)..)` 一步展开为 `(u8::from(self.0), u16::from(self.1), u32::from(self.2))`，中间载体拼写删除）；裸 `impl` 与裸 `where` 同款收集、相邻裸区拆分（`impl A<B> impl @{}` ≡ `impl A<B>, @{}`）；`impl{...}` 附件可逗号并列（`impl{(A@..,), @0.., @{}}`）；body 里的 `@{N}` fresh 引用现在必须声明 body 槽——`impl{@{}}` 或 fresh 绑定开关 `impl{@0..}`（"用必先声明"）；repeat 块内 fresh 名称引用拼写统一为 `@{N}`（原 `@@N`），并新增逐轮游标形态 `@{@N}`（`(@(@{@N}::foo(),)..)` → `(P0::foo(), P1::foo(), P2::foo())`，见 §8.4）。要引用特定元素就在模板里显式写普通固定槽（`impl{(A0, @A..,)}`，body 裸写 `A0`）。本版新增：AsyncFn/AsyncFnMut/AsyncFnOnce bound、lifetime 一等公民（`<'a>` / `'a` 实参 / `+ 'a`）、where 继承按位置替换（改名实参同样继承，路径感知）、固有 impl（`#[batch_impl(spec)] impl Type { … }`）、开放端点 range 族（`@..u128` ≡ `@u8..u128`）、组合展开链封顶 + repeat 块输出预算（组合 spec 不再 OOM）。
+**v0.9.5**（2026-08-27）——**直接拼接收尾 + impl 模板人体工学**：repeat 块把段的**绑定元素**直接拼进每轮输出（`$( ... )*` 语义——`(@(@A::from(self.@0)),..)` 一步展开为 `(u8::from(self.0), u16::from(self.1), u32::from(self.2))`，中间载体拼写删除）；裸 `impl` 与裸 `where` 同款收集、相邻裸区拆分（`impl A<B> impl @{}` ≡ `impl A<B>, @{}`）；`impl{...}` 附件可逗号并列（`impl{(A@..,), @0.., @{}}`）；body 里的 `@{N}` fresh 引用现在必须声明 body 槽——`impl{@{}}` 或 fresh 绑定开关 `impl{@0..}`（"用必先声明"）；repeat 块内 fresh 名称引用拼写统一为 `@{N}`（原 `@@N`），并新增逐轮游标形态 `@{@N}`（`(@(@{@N}::foo()),..)` → `(P0::foo(), P1::foo(), P2::foo())`，见 §8.4）。要引用特定元素就在模板里显式写普通固定槽（`impl{(A0, @A..,)}`，body 裸写 `A0`）。本版新增：AsyncFn/AsyncFnMut/AsyncFnOnce bound、lifetime 一等公民（`<'a>` / `'a` 实参 / `+ 'a`）、where 继承按位置替换（改名实参同样继承，路径感知）、固有 impl（`#[batch_impl(spec)] impl Type { … }`）、开放端点 range 族（`@..u128` ≡ `@u8..u128`）、组合展开链封顶 + repeat 块输出预算（组合 spec 不再 OOM）。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
@@ -810,7 +810,7 @@ body 用 `@(...)..` 重复：**重复块**按所引用段的元素数逐轮输�
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+#[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0)),..) } })]
 trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 // body → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
 ```
@@ -821,7 +821,7 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 - 块重复 L 次，长度有三个来源：块内引用的段（`@ident`，全部等长）、**前置段声明**（`@A(self.@0,)..`——`@` 后直接写段名，适合纯游标块）、或纯游标且无前置声明时用模板的**唯一段**（多段模板的纯游标块因长度歧义报错）；
 - 块体末尾的 `,` 是分隔符，每轮输出——**并列块之间不要再写逗号**（每个块已自带元素分隔）；也可把分隔符写在 `)` 与 `..` 之间（`@(x),..`），这样只在轮**间**输出、最后一轮之后不输出；
 - 嵌套块独立轮次（笛卡尔积语义）——输出是各层轮数的乘积，按 body 封顶 65536 个输出 token（超限报 `repeat-block expansion produces N tokens (limit 65536)`）；
-- 块外 body 中出现 `@` 报错；段元素没有 `@{...}` 拼写——该形式只承载 **fresh 位置引用**：`@{0}` 是本 impl 的第一个 fresh 泛型（显示名 `P0`）。body 里的 `@{N}` 需要声明 body 槽——`impl{@{}}`，或 fresh 绑定开关 `impl{@0..}`（其轮次消费 `@{N}`）——"用必先声明"规则。`@{@N}` 是**逐轮**形态：游标 `@N` 变成 `N + round`，纯游标块每轮命名自己的 fresh——`(@(@{@N}::foo(),)..)` 在三个 fresh 上展开为 `(P0::foo(), P1::foo(), P2::foo())`。
+- 块外 body 中出现 `@` 报错；段元素没有 `@{...}` 拼写——该形式只承载 **fresh 位置引用**：`@{0}` 是本 impl 的第一个 fresh 泛型（显示名 `P0`）。body 里的 `@{N}` 需要声明 body 槽——`impl{@{}}`，或 fresh 绑定开关 `impl{@0..}`（其轮次消费 `@{N}`）——"用必先声明"规则。`@{@N}` 是**逐轮**形态：游标 `@N` 变成 `N + round`，纯游标块每轮命名自己的 fresh——`(@(@{@N}::foo()),..)` 在三个 fresh 上展开为 `(P0::foo(), P1::foo(), P2::foo())`。
 
 纯游标块生成元素引用而不用写类型名——元组到元组的整形场景：
 
