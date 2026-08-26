@@ -30,7 +30,11 @@ pub(crate) fn collect_shape_mapping(
     let mut merged = Mapping::default();
     let mut segs = vec![];
     for t in templates {
-        let template: syn::Type = syn::parse2(t.clone()).map_err(|_| {
+        // The template's `<...>` was angle-paired by `angle_collect`
+        // (`impl{...}` is now entered like `where{...}`), but syn needs flat
+        // `<...>` — restore the pairing before parsing.
+        let flat = crate::preprocess::render_angles(t.clone());
+        let template: syn::Type = syn::parse2(flat).map_err(|_| {
             ShapeError::ShapeMismatch(
                 "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)"
                     .into(),

@@ -176,8 +176,8 @@ fn bound_generator_with_directive_body() {
 // declares that body modification is driven by the impl's fresh generics —
 // a cursor-only repeat block (`@(…@0,)..`) repeats once per bound fresh
 // (the `Fn()0..N` bound-generator arity), so one body covers every arity:
-// arity 2 → `self(_args.0, _args.1)`, arity 0 → `self()`. `@@N` names the
-// N-th fresh generic (e.g. `@@0` → the first fresh's name).
+// arity 2 → `self(_args.0, _args.1)`, arity 0 → `self()`. `@{N}` names the
+// N-th fresh generic (e.g. `@{0}` → the first fresh's name).
 #[batch_impl(
     <R, F: Fn()0..4 R> MapAll<(@0..), Output=R> F
     impl{@0..}
@@ -200,14 +200,14 @@ fn bound_generator_fresh_driven_body() {
     assert_eq!(MapAll::map(&f3, (1u8, 2u16, 3u32)), 6u64);
 }
 
-// `@@N` names a fresh generic **inside a repeat block** (it is a block-level
-// marker): `@@1` is the second fresh in document order (display name `P1`,
-// `P1` after) — usable as a type in the generated method. The switch
+// `@{N}` names a fresh generic **inside a repeat block** (it is a block-level
+// marker): `@{1}` is the second fresh in document order (display name `P1`)
+// — usable as a type in the generated method. The switch
 // `impl{@1..=1}` binds a single fresh, so the block runs one round.
 #[batch_impl(
     <R, F: Fn()2 R> TypeName<(@0..), Output=R> F
     impl{@1..=1}
-    #size{ @(let _ = std::mem::size_of::<@@1>();).. 0 }
+    #size{ @(let _ = std::mem::size_of::<@{1}>();).. 0 }
 )]
 trait TypeName<Args> {
     type Output;

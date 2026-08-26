@@ -1,15 +1,20 @@
-//! Bare `where` new-syntax preprocessing.
+//! Bare-keyword preprocessing: the bare `where predicate {code block}` and
+//! bare `impl template {code block}` forms both collect their region up to a
+//! shared boundary and rewrite it into the legacy `kw{...}` suffix.
 //!
-//! [`where_process`] scans the token stream after directive preprocessing and
-//! before DSL parsing for the bare `where predicates {code block}` form:
-//! collects predicates up to a boundary (a `{...}` code block, an ident
-//! `where`, an `impl{...}` shape template, a depth-0 `;`, or the end of the
-//! token stream) and rewrites it into the legacy `where{predicates}` suffix.
-//! A bare `where` with **no** trailing code block is legal: the predicates
-//! ride into a `where{...}` suffix with an empty body (`where A: Clone` ≡
-//! `where A: Clone {}`). Shared by all three entries (`#[batch_impl]` /
-//! `#[batch_impl_only]` / `batch_trait!`) and the impl entry; the parse layer
-//! need not know about the new syntax.
+//! [`where_process`] and [`impl_process`] are the same collector parameterized
+//! by keyword and boundary rule: where collects predicates and stops at a
+//! following `impl{...}` attachment (an `impl Trait` in a predicate is a
+//! type, not a boundary); impl collects a shape-template fragment and stops
+//! at a bare `impl` ident (a second bare region starts a new one). Both stop
+//! at a `{...}` code block, an ident `where`, a depth-0 `;`, or the stream
+//! end, and both rewrite the collected tokens into a `kw{...}` group. A bare
+//! keyword with **no** trailing code block is legal (the region rides into a
+//! body-less suffix).
+//!
+//! Shared by all three entries (`#[batch_impl]` / `#[batch_impl_only]` /
+//! `batch_trait!`) and the impl entry; the parse layer need not know about the
+//! bare spellings.
 //!
 //! **Boundary rule**: the scan operates on the top-level token list only —
 //! `angle_collect` has already paired `<...>` into opaque groups, and
@@ -17,37 +22,67 @@
 //! so nested code blocks like `Fn({code})` are never mistaken for the body
 //! boundary.
 //!
-//! Stop conditions: a depth-0 `;` ends the predicate region (the `;` stays
-//! in the stream — it is the impl entry spec separator / the `batch_trait!`
-//! segment boundary), and the end of the token stream ends it too (the
-//! predicates become a body-less `where{...}` suffix).
+//! Stop conditions: a depth-0 `;` ends the region (the `;` stays in the
+//! stream — it is the impl entry spec separator / the `batch_trait!` segment
+//! boundary), and the end of the token stream ends it too (the region becomes
+//! a body-less `kw{...}` suffix).
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
-use crate::util::compile_error_str;
-use crate::util::{bracket_is_passthrough, is_impl_template, is_punct};
+use crate::util::{bracket_is_passthrough, compile_error_str, is_impl_template, is_punct};
 
+/// Bare `where` preprocessing: `where predicates {body}` →
+/// `where{predicates} {body}` (the legacy suffix).
 pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
+    let is_boundary = |tokens: &[TokenTree], j: usize| is_impl_template(tokens, j);
+    kw_process(tokens, "where", &is_boundary)
+}
+
+/// Bare `impl` preprocessing: `impl template {body}` → `impl{template} {body}`
+/// (the legacy shape-template suffix). Collects the template fragment up to
+/// the shared boundary — a following `{...}` body, an ident `where` or a bare
+/// `impl` (a second bare region starts a new one), a depth-0 `;`, or the
+/// stream end.
+pub(crate) fn impl_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
+    let is_boundary =
+        |tokens: &[TokenTree], j: usize| matches!(tokens.get(j), Some(TokenTree::Ident(id)) if id == "impl");
+    kw_process(tokens, "impl", &is_boundary)
+}
+
+/// The shared keyword collector: scans for a bare `kw` (not directly followed
+/// by a `{...}` group — that is the legacy suffix, passed through), collects
+/// the region up to the boundary, and rewrites it into a `kw{...}` group.
+/// `is_boundary` decides whether an `impl` at position `j` ends the region
+/// (the two callers differ: where stops at `impl{...}` attachments, impl
+/// stops at any bare `impl`).
+fn kw_process(
+    tokens: &[TokenTree], kw: &str,
+    is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
+) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        // Bare `where`: a directly following {group} is the legacy
-        // `where{...}`, skipped as-is; otherwise rewrite into where{predicates}.
-        // (`where` is a Rust keyword — an Ident `where` can only be the DSL
-        // form, so a missing body always errors here, not at the parse layer.)
+        // Bare `kw`: a directly following {group} is the legacy `kw{...}`,
+        // skipped as-is; otherwise rewrite into kw{region}.
         if let TokenTree::Ident(ident) = &tokens[i]
-            && ident == "where"
+            && ident == kw
             && !matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
                 if g.delimiter() == delimiter![{}])
         {
-            let Some((where_body, rest_index)) = scan_body_boundary(&tokens[i + 1..]) else {
+            let Some((body, rest_index)) =
+                scan_body_boundary(&tokens[i + 1..], is_boundary)
+            else {
                 return Err(compile_error_str(
-                    "batch-impl: `where` predicates are missing a code block {...}",
+                    if kw == "where" {
+                        "batch-impl: `where` predicates are missing a code block {...}"
+                    } else {
+                        "batch-impl: `impl` is missing a template or code block {...}"
+                    },
                     tokens[i].span(),
                 ));
             };
             result.push(ident.clone().into());
-            result.push(where_body);
+            result.push(body);
             i += 1 + rest_index;
         } else if let TokenTree::Group(g) = &tokens[i]
             && g.delimiter() == delimiter!([])
@@ -56,7 +91,7 @@ pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Toke
             && !bracket_is_passthrough(tokens, i)
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
-            let vt = where_process(&v)?;
+            let vt = kw_process(&v, kw, is_boundary)?;
             result.push(Group::new(delimiter![[]], vt.into_iter().collect()).into());
             i += 1
         } else {
@@ -67,35 +102,37 @@ pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Toke
     Ok(result)
 }
 
-/// The predicate-region boundary = the first `{...}` group (excluding
-/// `ident!{...}` macro bodies), an ident `where`, an `impl{...}` shape
-/// template (`impl{...}` is an attachment, never a
-/// predicate), or a depth-0 `;` (impl entry spec separator / `batch_trait!`
-/// segment boundary, left in the stream). The end of the token stream is also
-/// a boundary: the predicates ride into a body-less `where{...}` suffix
-/// (bare `where A: Clone` ≡ `where A: Clone {}`).
-fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
+/// The region boundary = the first `{...}` group (excluding `ident!{...}`
+/// macro bodies), an ident `where`, an `impl` satisfying the caller's
+/// boundary rule, or a depth-0 `;` (impl entry spec separator /
+/// `batch_trait!` segment boundary, left in the stream). The end of the token
+/// stream is also a boundary: the region rides into a body-less `kw{...}`
+/// suffix (bare `where A: Clone` ≡ `where A: Clone {}`).
+fn scan_body_boundary(
+    tokens: &[TokenTree], is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
+) -> Option<(TokenTree, usize)> {
     let mut j = 0;
     let mut result: Vec<TokenTree> = vec![];
     while j < tokens.len() {
         match &tokens[j] {
-            TokenTree::Group(g) if g.delimiter() == delimiter![{}] && !is_macro_body(tokens, j) => {
+            // A `{...}` group is a body boundary — **unless** it is a
+            // `@{...}` carrier (the previous token is `@`), which belongs to
+            // the region (e.g. the `@{}` body-slot switch).
+            TokenTree::Group(g)
+                if g.delimiter() == delimiter![{}]
+                    && !is_macro_body(tokens, j)
+                    && !matches!(result.last(), Some(TokenTree::Punct(p)) if p.as_char() == '@') =>
+            {
                 return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
             }
             TokenTree::Ident(w) if w == "where" => {
                 return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
             }
-            // `impl{...}` attachment boundary: an `impl` ident directly
-            // followed by a Brace group ends the predicate region (the
-            // attachment is peeled by the parse layer). `impl Trait` /
-            // `impl Fn(...)` in a predicate are followed by an Ident/group,
-            // not a Brace, so they stay part of the predicate. The
-            // discrimination is centralized in `util::is_impl_template`.
-            TokenTree::Ident(_) if is_impl_template(tokens, j) => {
+            TokenTree::Ident(_) if is_boundary(tokens, j) => {
                 return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
             }
-            // `;` ends the predicate region; the `;` itself stays in the
-            // stream (spec separator / segment boundary).
+            // `;` ends the region; the `;` itself stays in the stream (spec
+            // separator / segment boundary).
             TokenTree::Punct(p) if p.as_char() == ';' => {
                 return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
             }
@@ -103,10 +140,9 @@ fn scan_body_boundary(tokens: &[TokenTree]) -> Option<(TokenTree, usize)> {
         }
         j += 1;
     }
-    // End of the stream: the predicate region ends with the spec. A bare
-    // `where` needs **some** predicates (an empty `where` with no body is a
-    // typo); a non-empty predicate list becomes a body-less `where{...}`
-    // suffix.
+    // End of the stream: the region ends with the spec. A bare `kw` needs
+    // **some** content (an empty region is a typo); a non-empty region
+    // becomes a body-less `kw{...}` suffix.
     if !result.is_empty() {
         return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
     }
@@ -117,4 +153,48 @@ fn is_macro_body(tokens: &[TokenTree], index: usize) -> bool {
     index >= 2
         && is_punct(&tokens[index - 1], '!')
         && matches!(&tokens[index - 2], TokenTree::Ident(_))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proc_macro2::TokenStream;
+
+    fn run_impl(s: &str) -> String {
+        let ts = s.parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        impl_process(&v).unwrap().into_iter().collect::<TokenStream>().to_string()
+    }
+
+    #[test]
+    fn bare_impl_collects_template() {
+        // `impl (A@..) {body}` → `impl{(A@..)} {body}` — the paren group is
+        // the template, the brace is the body boundary.
+        assert_eq!(
+            run_impl("impl (A@..) { fn m() {} }"),
+            "impl { (A @..) } { fn m () { } }"
+        );
+    }
+
+    #[test]
+    fn bare_impl_collects_angle_template() {
+        // `impl A<B> {body}` → `impl{A<B>} {body}`.
+        assert_eq!(run_impl("impl A<B> { fn m() {} }"), "impl { A < B > } { fn m () { } }");
+    }
+
+    #[test]
+    fn adjacent_bare_impls_split() {
+        // `impl A<B> impl @{} {body}` → two templates, like adjacent `where`
+        // regions: `impl{A<B>} impl{@{}} {body}`.
+        assert_eq!(
+            run_impl("impl A<B> impl @{} { fn m() {} }"),
+            "impl { A < B > } impl { @ { } } { fn m () { } }"
+        );
+    }
+
+    #[test]
+    fn braced_impl_passthrough() {
+        // The legacy `impl{...}` suffix passes through untouched.
+        assert_eq!(run_impl("impl{(A@..)} { fn m() {} }"), "impl { (A @..) } { fn m () { } }");
+    }
 }

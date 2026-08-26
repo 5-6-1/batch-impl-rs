@@ -1,4 +1,4 @@
-error: batch-impl: `impl{...}` template cannot destructure the target type (the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside))
+error: batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`ident@..`) is only legal as a tuple element inside `impl{...}`)
  --> tests/ui/impl_shape_varseg_outside_tuple.rs:4:1
   |
 4 | #[batch_impl(u8 impl{A@..} { fn n(&self) -> usize { 0 } })]

@@ -191,13 +191,30 @@ pub(crate) fn generate_parts(
         // fresh names are in hand:
         // 1. Repeat blocks expand (`@(…@0,)..`; without an `impl{...}` the
         //    **fresh-binding switch** `impl{@0..}` drives cursor-only blocks
-        //    — one round per bound fresh — and enables `@@N` references).
+        //    — one round per bound fresh — and enables `@{N}` references).
         //    The expansion splices each segment round's bound element
         //    directly (the `$(...)*` semantics) — the shape mapping is the
         //    value source, no intermediate spelling reaches the body.
         // 2. Fresh-range placeholders re-open (`#map`-copied signatures
         //    substitute the trait's generic args verbatim, so `(@0..)`
         //    lands in the body as a carrier reference).
+        //
+        // A `@{...}` fresh-position carrier in the body is legal only with
+        // a body-slot switch declared — `impl{@{}}`, or the fresh-binding
+        // switch `impl{@N..}` whose rounds consume `@{N}` references — the
+        // "declare what you use" rule. Without either, a carrier in the body
+        // errors with guidance.
+        if !parts.body_at && parts.fresh_binding.is_none()
+            && crate::ast::fresh::body_has_carrier(b)
+        {
+
+            return compile_error_str(
+                "batch-impl: a `@{N}` fresh reference in the body requires the \
+                 `impl{@{}}` body-slot switch (declare it on the spec, e.g. \
+                 `impl{@{}}`); without it, `@` in a body starts a repeat block",
+                proc_macro2::Span::call_site(),
+            );
+        }
         let binding = parts.fresh_binding;
         let cx = RepeatCtx {
             segs: &var_segs,

@@ -150,7 +150,13 @@ fn mark_template(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, T
 /// appear in compilable code, decoded by shape, never by a name pattern.
 pub(crate) fn is_varseg_type(tp: &syn::Type) -> bool {
     let syn::Type::Array(a) = tp else { return false };
-    is_unit_len(&a.len) && varseg_prefix(tp).is_some()
+    is_varseg_array(a)
+}
+
+/// Whether a syn array type is a variadic-segment marker (`[A; ()]` — the
+/// unit-tuple length). Same test as [`is_varseg_type`] on the array form.
+pub(crate) fn is_varseg_array(a: &syn::TypeArray) -> bool {
+    is_unit_len(&a.len) && varseg_prefix(&syn::Type::Array(a.clone())).is_some()
 }
 
 /// The variadic segment's name prefix from its marker (`[A; ()]` → `A`; the

@@ -157,6 +157,53 @@ pub(crate) fn is_carrier_at(tokens: &[TokenTree], i: usize) -> bool {
             if g.delimiter() == proc_macro2::Delimiter::Brace)
 }
 
+/// Whether a body token stream contains a **user-level fresh-position carrier**
+/// (`@{...}`) that the body-slot switch (`impl{@{}}`) must gate. A **grouped**
+/// carrier (`@{0_0}`) is macro-generated (blanket delegates mint `@{g_i}` for
+/// their fresh generic) and exempt: it always expands to a fresh name. A flat
+/// `@{N}` in an expression, return type, etc. is user-written and requires
+/// the switch ("declare what you use").
+pub(crate) fn body_has_carrier(tokens: &TokenStream) -> bool {
+    let v = tokens.clone().into_iter().collect::<Vec<_>>();
+    carrier_at_any(&v, 0)
+}
+
+fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> bool {
+    if depth > crate::util::MAX_NEST_DEPTH {
+        return false;
+    }
+    let mut i = 0;
+    while i < tokens.len() {
+        if is_carrier_at(tokens, i)
+            && !is_macro_generated_carrier(tokens, i)
+        {
+            return true;
+        }
+        if let TokenTree::Group(g) = &tokens[i] {
+            let inner = g.stream().into_iter().collect::<Vec<_>>();
+            if carrier_at_any(&inner, depth + 1) {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Whether the carrier at `i` (`@{...}`) is **macro-generated**: its Brace
+/// group holds a grouped reference (`@{0_0}` — a `g_i` position, the shape
+/// blanket delegates mint for their fresh generic) or a range (`@{0..}` —
+/// the shape trait-argument substitution produces ranges). Flat single
+/// `@{0}` references are user-written.
+fn is_macro_generated_carrier(tokens: &[TokenTree], i: usize) -> bool {
+    let Some(TokenTree::Group(g)) = tokens.get(i + 1) else { return false };
+    let inner: String =
+        g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+    // A grouped head (`0_0`) contains an underscore; a range contains `..`.
+    // A flat single reference (`0`) has neither.
+    inner.contains('_') || inner.contains("..")
+}
+
 /// Folds every **flat** position reference in `tokens` into the carrier form:
 /// `@0` / `@g_i` / `@N..` / `@N..M` / `@N..=M` (and the deprecated
 /// `@all_fresh`, normalized to `@{0..}`) become `@` + Brace groups. Existing

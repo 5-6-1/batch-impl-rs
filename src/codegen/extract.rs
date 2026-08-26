@@ -32,9 +32,13 @@ pub(crate) struct ImplParts {
     /// A **fresh-binding switch template** (`impl{@0..}` / `impl{@1..}` /
     /// `impl{@0_0..}`): declares that the body's repeat blocks are driven by
     /// the impl's fresh generics in the range's scope — enabling fresh-driven
-    /// cursor-only blocks and `@@N` name references. `None` when no switch
+    /// cursor-only blocks and `@{N}` name references. `None` when no switch
     /// template is present (fresh-driven body modification is then off).
     pub(crate) fresh_binding: Option<crate::ast::fresh::FreshRef>,
+    /// Whether the **`@{N}` body-slot switch** (`impl{@{}}`) is present: the
+    /// body's `@{N}` fresh-position carriers are legal only with this
+    /// declaration (the "declare what you use" rule — see the switch docs).
+    pub(crate) body_at: bool,
 }
 
 impl ImplParts {
@@ -51,6 +55,7 @@ impl ImplParts {
             where_clauses: vec![],
             impl_templates: vec![],
             fresh_binding: None,
+            body_at: false,
         }
     }
 }
@@ -132,14 +137,23 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
         TyKind::WithImpl(wi) => match wi.0 {
             Some(inner) => {
                 let mut parts = extract_impl_parts(*inner);
-                // A **fresh-binding switch** template (`impl{@0..}` etc.) is
+                // An `impl{...}` attachment may carry several switches /
+                // templates comma-separated (`impl{@(A<B>), @0.., @{}}`); each
+                // depth-0 segment is classified independently. A
+                // **fresh-binding switch** template (`impl{@0..}` etc.) is
                 // consumed as the binding declaration (it does not match
-                // Self like an ordinary shape template); any other template
-                // goes to the shape match (multiple attachments merge).
-                if let Some(range) = parse_fresh_switch(&wi.1.0) {
-                    parts.fresh_binding = Some(range);
-                } else {
-                    parts.impl_templates.push(wi.1.0);
+                // Self like an ordinary shape template); the **`@{N}`
+                // body-slot switch** (`impl{@{}}`) is consumed as the
+                // body-carrier declaration; any other template goes to the
+                // shape match (multiple attachments merge).
+                for seg in split_impl_attachments(&wi.1.0) {
+                    if let Some(range) = parse_fresh_switch(&seg) {
+                        parts.fresh_binding = Some(range);
+                    } else if parse_at_brace_switch(&seg) {
+                        parts.body_at = true;
+                    } else {
+                        parts.impl_templates.push(seg);
+                    }
                 }
                 parts
             }
@@ -280,6 +294,19 @@ pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names
     parts.body = Some(crate::util::subst::replace_map(&body, &map));
 }
 
+/// Split an `impl{...}` attachment list at depth-0 commas. Angle brackets are
+/// already paired into opaque groups by `angle_collect` (the impl-template
+/// groups are covered), so the flat `split_at_depth0` cut is safe — commas
+/// inside `@(A<B>)`, `A<B>` and `@{}` never surface at the top level.
+fn split_impl_attachments(tokens: &TokenStream) -> Vec<TokenStream> {
+    let v = tokens.clone().into_iter().collect::<Vec<_>>();
+    split_at_depth0(&v, ',')
+        .iter()
+        .filter(|seg| !seg.is_empty())
+        .map(|seg| seg.iter().cloned().collect())
+        .collect()
+}
+
 /// Recognizes a **fresh-binding switch** template: an `impl{...}` whose whole
 /// content is a fresh range reference (`@0..` / `@1..` / `@0_0..` /
 /// `@0..=M` — the same literal forms the type position folds). Returns the
@@ -317,4 +344,19 @@ fn parse_fresh_switch(tokens: &TokenStream) -> Option<crate::ast::fresh::FreshRe
         _ => true,
     })
     .then_some(range)
+}
+
+/// Recognizes the **`@{N}` body-slot switch**: an `impl{...}` whose whole
+/// content is the empty carrier `@{}` (a `@` punct + an empty Brace group —
+/// the "use `@{N}` in the body" declaration). `true` only for that exact
+/// shape; anything else is an ordinary template.
+fn parse_at_brace_switch(tokens: &TokenStream) -> bool {
+    let v = tokens.clone().into_iter().collect::<Vec<_>>();
+    matches!(
+        v.as_slice(),
+        [TokenTree::Punct(at), TokenTree::Group(g)]
+            if at.as_char() == '@'
+                && g.delimiter() == proc_macro2::Delimiter::Brace
+                && g.stream().is_empty()
+    )
 }

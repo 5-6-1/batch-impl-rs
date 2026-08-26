@@ -56,11 +56,6 @@ pub(crate) fn collect_drivers(
     let mut i = 0;
     while i < tokens.len() {
         if is_punct_at(tokens, i, '@') {
-            // `@@N` fresh-name references are not segment references.
-            if is_punct_at(tokens, i + 1, '@') {
-                i += 2;
-                continue;
-            }
             // `@N` index cursors are not segment references either.
             if matches!(tokens.get(i + 1), Some(TokenTree::Literal(_))) {
                 i += 2;
@@ -143,7 +138,7 @@ pub(crate) fn collect_drivers(
 /// Substitutes the markers of one round: `@ident` → the segment's i-th
 /// **bound element** (spliced directly from the shape mapping — the
 /// `$(...)*` semantics; no intermediate name or carrier exists between the
-/// expansion and the output), `@N` → `N + i`, and `@@N` → the N-th fresh
+/// expansion and the output), `@N` → `N + i`, and `@{N}` → the N-th fresh
 /// generic's name (the fresh-binding switch's name reference — fixed, not
 /// per-round).
 pub(crate) fn substitute(
@@ -155,47 +150,41 @@ pub(crate) fn substitute(
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        // A fresh-ref carrier (`@{g_i}` — landed in the body by the
-        // directive signature substitution): pass through untouched for the
-        // later range re-opening pass (`expand_range_refs`).
+        // A fresh-ref carrier (`@{g_i}`) inside a repeat block: `@{N}` is a
+        // **fixed fresh-name reference** (the successor of the retired `@@N`
+        // spelling — the same `@{...}` shape the body uses, one `@` consumed),
+        // resolved here against the fresh context. A **range** carrier
+        // (`@{0..}`) passes through untouched for the later range re-opening
+        // pass (`expand_range_refs`).
         if crate::ast::fresh::is_carrier_at(tokens, i) {
+            let Some(TokenTree::Group(g)) = tokens.get(i + 1) else {
+                unreachable!("matched above");
+            };
+            let inner: String =
+                g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+            if let Ok(n) = inner.parse::<usize>() {
+                let Some((_, _, name)) = cx.fresh.names.get(n) else {
+                    return Err(compile_error_str(
+                        &format!(
+                            "batch-impl: `@{{{}}}` is out of range — this impl has {} \
+                             fresh generics (numbered from 0 in document order)",
+                            n,
+                            cx.fresh.names.len(),
+                        ),
+                        tokens[i].span(),
+                    ));
+                };
+                out.extend(name.clone());
+                i += 2;
+                continue;
+            }
+            // A range or grouped carrier: pass through for range re-opening.
             out.push(tokens[i].clone());
             out.push(tokens[i + 1].clone());
             i += 2;
             continue;
         }
         if is_punct_at(tokens, i, '@') {
-            // `@@N` — the fresh name reference (`@@0` → the first fresh's name)
-            if is_punct_at(tokens, i + 1, '@') {
-                let Some(TokenTree::Literal(lit)) = tokens.get(i + 2) else {
-                    return Err(compile_error_str(
-                        "batch-impl: `@@` inside a repeat block must be followed by \
-                         a fresh index (`@@0` names the 0-th fresh generic)",
-                        tokens[i].span(),
-                    ));
-                };
-                let Ok(n) = lit.to_string().parse::<usize>() else {
-                    return Err(compile_error_str(
-                        "batch-impl: `@@` inside a repeat block must be followed by \
-                         a fresh index (`@@0` names the 0-th fresh generic)",
-                        lit.span(),
-                    ));
-                };
-                let Some((_, _, name)) = cx.fresh.names.get(n) else {
-                    return Err(compile_error_str(
-                        &format!(
-                            "batch-impl: `@@{}` is out of range — this impl has {} \
-                             fresh generics (numbered from 0 in document order)",
-                            n,
-                            cx.fresh.names.len(),
-                        ),
-                        lit.span(),
-                    ));
-                };
-                out.extend(name.clone());
-                i += 3;
-                continue;
-            }
             match tokens.get(i + 1) {
                 Some(TokenTree::Ident(id)) => {
                     let prefix = id.to_string();

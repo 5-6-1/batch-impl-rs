@@ -93,14 +93,14 @@ fn fresh_count_zero_empty() {
 
 #[test]
 fn fresh_name_reference() {
-    // `@@N` → the N-th fresh generic's name, **fixed** (not per-round):
-    // `@@1` names the second fresh in every round
-    assert_eq!(expand_fresh("@(@@1,)..", 3).unwrap(), "P1 , P1 , P1 ,");
+    // `@{N}` → the N-th fresh generic's name, **fixed** (not per-round):
+    // `@{1}` names the second fresh in every round
+    assert_eq!(expand_fresh("@(@{1},)..", 3).unwrap(), "P1 , P1 , P1 ,");
 }
 
 #[test]
 fn fresh_name_out_of_range() {
-    assert!(expand_fresh("@(@@5,)..", 3).is_err());
+    assert!(expand_fresh("@(@{5},)..", 3).is_err());
 }
 
 #[test]

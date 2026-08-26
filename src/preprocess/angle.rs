@@ -21,14 +21,23 @@ fn is_where_group(tokens: &[TokenTree], i: usize) -> bool {
     i >= 1 && matches!(&tokens[i - 1], TokenTree::Ident(id) if id == "where")
 }
 
+/// `true` when `tokens[i]` is a Brace group directly preceded by the `impl`
+/// keyword — the `impl{...}` shape template (DSL: its content is a Rust type
+/// template whose `<...>` must be paired — see [`is_impl_template`]),
+/// as opposed to a code-block body.
+fn is_impl_template_group(tokens: &[TokenTree], i: usize) -> bool {
+    i >= 1 && matches!(&tokens[i - 1], TokenTree::Ident(id) if id == "impl")
+}
+
 /// Entry transformation: a single pass flattens None groups and pairs `<...>`.
 ///
 /// - `Brace` groups are not entered — **except** `where{...}` predicate
-///   groups, whose content is DSL (type constraints such as
-///   `Semiring<Additive, Multiplicative>`): pairing keeps the comma inside
-///   the angle group, so downstream predicate splitting cannot cut it
-///   (a two-arg bound like `@all_fresh: Semiring<Additive, Multiplicative>`
-///   used to be split at the depth-0 comma);
+///   groups and `impl{...}` shape templates, whose content is DSL: pairing
+///   keeps the comma inside the angle group, so downstream predicate
+///   splitting cannot cut it (a two-arg bound like
+///   `@all_fresh: Semiring<Additive, Multiplicative>` used to be split at
+///   the depth-0 comma; an `impl{@(A<B>)}` template's `<B>` must be an
+///   opaque group so the `@(...)` switch list splits at depth-0 commas);
 /// - `Paren` groups (DSL tuples) recurse; `Bracket` groups (DSL lists) recurse,
 ///   but `ident![...]` macro bodies / `#[...]` attributes are **not entered**
 ///   (their content may be arbitrary Rust, including comparison `<`);
@@ -72,10 +81,11 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
                 i += 1;
             }
             // Passthrough code (body): do not enter — except `where{...}`
-            // predicate groups, whose content is DSL and must be paired
-            // (see `is_where_group`).
+            // predicate groups and `impl{...}` shape templates, whose
+            // content is DSL and must be paired (see `is_where_group` /
+            // `is_impl_template_group`).
             TokenTree::Group(g) if g.delimiter() == delimiter![{}] => {
-                if is_where_group(tokens, i) {
+                if is_where_group(tokens, i) || is_impl_template_group(tokens, i) {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     let mut new_g = Group::new(
                         delimiter![{}],
@@ -191,11 +201,13 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
                 new_g.set_span(g.span());
                 out.extend([TokenTree::Group(new_g)]);
             }
-            // `where{...}` predicate groups were entered during pairing and
-            // may contain angle groups → rebuild and recurse (spans restored
-            // like the Paren/Bracket rebuild above).
+            // `where{...}` predicate groups and `impl{...}` shape templates
+            // were entered during pairing and may contain angle groups →
+            // rebuild and recurse (spans restored like the Paren/Bracket
+            // rebuild above).
             TokenTree::Group(g)
-                if g.delimiter() == delimiter![{}] && is_where_group(&tokens, i) =>
+                if g.delimiter() == delimiter![{}]
+                    && (is_where_group(&tokens, i) || is_impl_template_group(&tokens, i)) =>
             {
                 let inner = render_angles(g.stream());
                 let mut new_g = Group::new(delimiter![{}], inner);
@@ -341,5 +353,29 @@ mod tests {
             rendered.to_string(),
             "where { @ all_fresh : Map < A , B > } { fn m () { if x < y { } } }"
         );
+    }
+
+    /// `impl{...}` shape templates are DSL like `where{...}`: their `<...>`
+    /// pairs (so an `impl{@(A<B>)}` switch list splits at depth-0 commas),
+    /// and rendering restores them. Plain code bodies stay passthrough.
+    #[test]
+    fn impl_template_angles_pair() {
+        let ts = "impl{@(A<B>)}".parse::<TS2>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        let collected = angle_collect(&v).unwrap();
+        let rendered = render_angles(collected.into_iter().collect());
+        assert_eq!(rendered.to_string(), "impl { @ (A < B >) }");
+        // A template without angle brackets round-trips untouched.
+        let ts = "impl{(A@..)}".parse::<TS2>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        let collected = angle_collect(&v).unwrap();
+        let rendered = render_angles(collected.into_iter().collect());
+        assert_eq!(rendered.to_string(), "impl { (A @..) }");
+        // An impl followed by a body is still passthrough (code).
+        let ts = "impl { fn m() { if x < y {} } }".parse::<TS2>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        let collected = angle_collect(&v).unwrap();
+        let rendered = render_angles(collected.into_iter().collect());
+        assert_eq!(rendered.to_string(), "impl { fn m () { if x < y { } } }");
     }
 }

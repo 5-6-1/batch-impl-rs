@@ -41,7 +41,7 @@ pub(crate) struct RepeatCtx<'a> {
     /// The value source of `@ident` substitution (the `(prefix, position)`
     /// bindings produced by the shape match).
     pub(crate) map: &'a crate::codegen::Mapping,
-    /// The fresh display names (`@@N` references).
+    /// The fresh display names (`@{N}` references).
     pub(crate) fresh: &'a super::FreshCtx,
     /// The `impl{@0..}` switch driving cursor-only blocks.
     pub(crate) binding: Option<crate::ast::fresh::FreshRef>,

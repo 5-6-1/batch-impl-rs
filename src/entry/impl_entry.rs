@@ -34,7 +34,7 @@ use crate::entry::impl_spec::{
     assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
 };
 use crate::parse::split_at_depth0;
-use crate::preprocess::{angle_collect, render_angles, where_process};
+use crate::preprocess::{angle_collect, impl_process, render_angles, where_process};
 use crate::util::compile_error_str;
 
 /// Entry: expand `#[batch_impl(<dsl>)] impl ...` into N `impl` blocks.
@@ -55,6 +55,7 @@ pub(crate) fn expand_impl_entry(
     // stream terminates the where region (the predicates become a body-less
     // `where{...}` suffix).
     let paired = where_process(&paired)?;
+    let paired = impl_process(&paired)?;
 
     // ---- `;`-separated specs (the single-spec case is the common one) ----
     let mut out = quote![];

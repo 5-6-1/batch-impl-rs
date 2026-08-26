@@ -123,6 +123,15 @@ fn expand_consts_at(
                 i += 1;
             }
             TokenTree::Punct(p) if p.as_char() == '@' => {
+                // A carrier (`@` + Brace group — a fresh reference `@{0}` /
+                // the `@{}` body-slot switch) is codegen's concern, never a
+                // constant: pass both tokens through untouched.
+                if crate::ast::fresh::is_carrier_at(tokens, i) {
+                    result.push(tokens[i].clone());
+                    result.push(tokens[i + 1].clone());
+                    i += 2;
+                    continue;
+                }
                 match crate::preprocess::try_expand_at(&tokens[i..], ctx)? {
                     // Lazy expansion: user constant values store tokens as-is
                     // (may contain nested `@` references and DSL operations);

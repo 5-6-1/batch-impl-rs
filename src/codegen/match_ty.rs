@@ -251,6 +251,17 @@ pub(crate) fn match_ty(
         }
         syn::Type::Array(t) => {
             let syn::Type::Array(l) = leaf else {
+                // A variadic-segment marker (`[A; ()]` — the unit-tuple
+                // length) against a non-tuple target: the user wrote
+                // `ident@..` outside a tuple. The marker shape is invisible
+                // to them, so report in their spelling, not ours.
+                if crate::preprocess::varseg::is_varseg_array(t) {
+                    return Err(ShapeError::ShapeMismatch(
+                        "a variadic segment (`ident@..`) is only legal as a tuple \
+                         element inside `impl{...}`"
+                            .into(),
+                    ));
+                }
                 return Err(ShapeError::ShapeMismatch(
                     "the template is an array but the target is not".into(),
                 ));

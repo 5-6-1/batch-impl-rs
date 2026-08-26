@@ -214,7 +214,7 @@ e.g. an associated-type binding referencing another fresh's associated type
 #[batch_impl(
     Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
-        impl{(A@..)}
+        impl{(A@..)} impl{@{}}
     #Scalar{@{0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]

@@ -125,7 +125,7 @@ fn explicit_start_name_direct_use() {
     Module<(), ()> ().1..=4 where{
         @all_fresh: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
-    } impl{(A@..,)}
+    } impl{(A@..,)} impl{@{}}
     #Scalar{@{0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
@@ -171,4 +171,73 @@ fn cursor_only_blocks() {
     let t = (1u8, 2u16, 3u32);
     assert_eq!(t.elems(), (1u8, 2u16, 3u32));
     assert_eq!(t.elems2(), (1u8, 2u16, 3u32));
+}
+
+// ------------------------------------------------------------
+// 8. Bare `impl` spelling: `impl (A@..) {body}` collects into the legacy
+//    `impl{(A@..)} {body}` (the same collection as bare `where`) — the two
+//    forms are token-equivalent.
+// ------------------------------------------------------------
+#[batch_impl((u8, u16, u32) impl (A@..) { fn tail_bare(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
+trait ShapeTailBare {
+    fn tail_bare(&self) -> (u8, u16, u32);
+}
+
+#[test]
+fn bare_impl_spelling() {
+    let t = (1u8, 2u16, 3u32);
+    assert_eq!(t.tail_bare(), (1u8, 2u16, 3u32));
+}
+
+// ------------------------------------------------------------
+// 9. Adjacent bare `impl` regions split like adjacent `where` regions —
+//    multiple templates merge into one slot mapping.
+// ------------------------------------------------------------
+#[batch_impl(
+    Box<u8> impl W<T> impl {B} { fn bits(&self) -> u32 { T::BITS } }
+)]
+trait ShapeTwoTemplates {
+    fn bits(&self) -> u32;
+}
+
+#[test]
+fn adjacent_bare_impls() {
+    let b = Box::new(0u8);
+    assert_eq!(b.bits(), 8);
+}
+
+// ------------------------------------------------------------
+// 10. Comma-joined attachments: one `impl{...}` may carry a shape template,
+//     a fresh-binding switch and the `@{N}` body-slot switch in the same
+//     braces (`impl{(A@..,), @0.., @{}}`) — each depth-0 segment is
+//     classified independently, equivalent to the split `impl{...}` blocks.
+// ------------------------------------------------------------
+#[batch_impl(
+    Module2<(), ()> ().1..=4 where{
+        @all_fresh: Module2<(), (), Scalar: Copy>,
+        @1..: Module2<(), (), Scalar = @0::Scalar>,
+    } impl{(A@..,), @0.., @{}}
+    #Scalar{@{0}::Scalar}
+    #scale{( @(@A::scale(&self.@0, s),).. )}
+)]
+trait Module2<Add, Mul> {
+    type Scalar;
+    fn scale(&self, s: Self::Scalar) -> Self;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct S2<T>(T);
+
+impl<T: Copy + std::ops::Mul<Output = T>> Module2<(), ()> for S2<T> {
+    type Scalar = T;
+    fn scale(&self, s: T) -> Self {
+        S2(self.0 * s)
+    }
+}
+
+#[test]
+fn comma_joined_attachments() {
+    assert_eq!((S2(2u8),).scale(4u8), (S2(8u8),));
+    assert_eq!((S2(2u8), S2(3u8)).scale(4u8), (S2(8u8), S2(12u8)));
+    assert_eq!((S2(2u8), S2(3u8), S2(4u8)).scale(4u8), (S2(8u8), S2(12u8), S2(16u8)));
 }

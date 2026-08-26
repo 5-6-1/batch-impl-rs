@@ -146,6 +146,16 @@ pub(crate) fn prepare_attr_expansion(
     // `@inner` is paired into the `<>` group and expand_consts never enters it, leaving
     // residue behind (observed compile error). Custom `@name=value;` sections are
     // `batch_trait!`-only (the 0.7.2 attribute-macro support was reverted in 0.8.0).
+    // New bare `impl template {body}` syntax → uniformly rewritten to legacy
+    // `impl{template}` (the same collection as bare `where`): a bare `impl`
+    // not followed by `{...}` collects its template fragment up to the shared
+    // boundary (`impl (A@..) {body}` ≡ `impl{(A@..)} {body}`; a second bare
+    // `impl` starts a new template — `impl A<B> impl @{}` ≡
+    // `impl{A<B>} impl{@{}}`, merged like adjacent `where` regions). Runs
+    // **before** `mark_varseg`: a bare `impl (A@..)` fragment's `ident@..`
+    // must land inside an `impl{...}` template group before the variadic
+    // marker pass scans for it.
+    let rest_tokens = crate::preprocess::impl_process(&rest_tokens)?;
     // Variadic-segment marking runs first: `ident@..` inside `impl{...}` templates
     // would otherwise hit the constant stage as an unknown `@`.
     let rest_tokens = crate::preprocess::mark_varseg(&rest_tokens)?;
@@ -241,6 +251,10 @@ pub(crate) fn expand_batch_trait(
     // the expansion may contain flat `<...>` that angle_collect must pair uniformly —
     // reversed, `Vec<@inner>`'s `@inner` enters the group and is never expanded; observed).
     let (tokens, user_consts) = crate::preprocess::collect_user_consts(&tokens)?;
+    // Bare `impl` collection precedes the variadic/constant stages (a bare
+    // `impl (A@..)` fragment's `ident@..` must land in an `impl{...}`
+    // template before `mark_varseg` scans for it).
+    let tokens = crate::preprocess::impl_process(&tokens)?;
     // Variadic-segment marking precedes the constant stage (an `ident@..`
     // inside an `impl{...}` template is not a constant reference).
     let tokens = crate::preprocess::mark_varseg(&tokens)?;
