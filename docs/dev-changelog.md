@@ -176,6 +176,49 @@
   documented). Regression tests: three len-40 levels (~64k tokens) error
   with the targeted diagnostic; two levels expand; a tiny absolute budget
   rejects even single rounds.
+- **Bare `impl` collects like bare `where`** (user direction — the two
+  spellings are token-equivalent) — `where_process.rs` generalized into a
+  shared `kw_process(tokens, kw, is_boundary)` collector for both
+  `where_process` and `impl_process`: the boundary set switches on the
+  keyword (where: `ident where` / template / code block; impl: bare
+  `ident impl` / code block; `;` and end-of-stream common), predicates and
+  templates flow through the same collector. `impl (A@..) {body}` ≡
+  `impl{(A@..)} {body}`, and adjacent bare regions split like adjacent
+  `where` regions (`impl A<B> impl @{}` ≡ `impl A<B>, @{}`), each
+  collecting into its own `impl{...}` template that merges into one shape
+  mapping. `scan_body_boundary` skips the `@`-Brace carrier (`@{...}` is
+  not a body boundary). Pipeline order: `impl_process` runs **before**
+  `mark_varseg` — a bare template's `ident@..` must land in an `impl{...}`
+  group first or the segment is never marked (both the attr and
+  batch_trait pipelines). Tests: `bare_impl_spelling` /
+  `adjacent_bare_impls`.
+- **`impl{...}` attachments comma-joined** (user direction — one block may
+  carry several switches/templates) — `extract.rs` splits the attachment
+  list at depth-0 commas (`split_impl_attachments`; angle brackets are
+  already paired into opaque groups — `angle_collect` gained
+  `is_impl_template_group` — so the flat cut is safe) and classifies each
+  segment independently: fresh-binding switch (`impl{@0..}`), `@{N}`
+  body-slot switch (`impl{@{}}`), or shape template — `impl{(A@..,),
+  @0.., @{}}` is equivalent to the three split blocks. Test:
+  `comma_joined_attachments`.
+- **The `@{N}` body-slot switch is now required** (user decision:
+  tightened — "declare what you use") — a `@{N}` fresh-position carrier in
+  a body is legal only when `impl{@{}}` or the fresh-binding switch
+  `impl{@0..}` (whose rounds consume `@{N}`) is declared; otherwise the
+  macro errors with guidance. Macro-injected carriers stay exempt by shape
+  (`is_macro_generated_carrier`: a grouped `@{g_i}` — blanket projections
+  — or a range `@{0..}` — substituted trait-arg placeholders — contains
+  `_` or `..`; the flat `@{N}` is the user-written form).
+  `expand_consts_at` passes `@`+Brace carriers through unexpanded (the old
+  "`@` must be followed by a constant name" error would otherwise fire on
+  the switch itself).
+- **`@@N` → `@{N}`** (task: one spelling everywhere) — the fresh-name
+  reference inside repeat blocks drops the doubled `@`:
+  `repeat_drivers.rs::substitute` intercepts the flat `@{N}` carrier and
+  resolves it to the fixed fresh display name (unlike a segment element it
+  does not vary per round); ranged/grouped carriers pass through to
+  `expand_range_refs`. `collect_drivers`' `@@` arm deleted. Tests and docs
+  updated (`@@1` → `@{1}`).
 
 ## 0.9.4 (2026-08-25, continued) — the macro-meta carrier rebuild
 

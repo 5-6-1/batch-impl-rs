@@ -13,6 +13,10 @@
 - **where 继承按位置替换**——改名后的实参也能继承 trait bound 与 where 谓词：`<X, Y> Store<X, Y>` 将 `HashMap<T, K>: Send` 替换为 `HashMap<X, Y>: Send`；具体实参退化为普通谓词（`<K> Store<u32, K>` → `where u32: Clone`）。路径段（`A::B`）永不替换。
 - **固有 impl**——`#[batch_impl(spec)] impl Type { … }` 接受与 impl trait 入口相同的 spec 语法（形状形式 / 直接形式），生成普通 `impl Type` 块；该形态下 `@trait` 不可用。
 - **repeat 块输出预算**——嵌套 repeat 块的轮数相乘（笛卡尔积语义）；展开现在携带输出 token 预算（每 body 65536），嵌套乘积超限时报 `repeat-block expansion produces N tokens (limit 65536)`，而非无界输出。
+- **裸 `impl` 拼写与裸 `where` 同款收集**——`impl (A@..) {body}` ≡ `impl{(A@..)} {body}`；相邻裸 `impl` 区像相邻 `where` 区一样拆分（`impl A<B> impl @{}` ≡ `impl A<B>, @{}`），各自收集成独立 `impl{...}` 模板合并进同一槽映射。
+- **`impl{...}` 附件可逗号并列**——一个 `impl{...}` 块可同时携带多个开关/模板（`impl{(A@..,), @0.., @{}}`），按 depth-0 逗号逐段独立分类——与拆开的多个 `impl{...}` 块等价。
+- **`@{N}` 需要声明的 body 槽**——body 里的 `@{N}` fresh 引用必须声明 `impl{@{}}`（或 fresh 绑定开关 `impl{@0..}`，其轮次消费 `@{N}`）——"用必先声明"规则；未声明时报错并给指导。宏注入的载体（blanket 投影、替换的 fresh 范围占位）按形状豁免。
+- **`@@N` 统一为 `@{N}`**——repeat 块内外的 fresh 名称引用拼写一致：`@@0` → `@{0}`、`@@1` → `@{1}`（单 `@` 消费）。
 
 ## 0.9.4 (2026-08-25)
 

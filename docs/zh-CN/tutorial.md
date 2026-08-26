@@ -1,7 +1,7 @@
 # batch-impl 教程
 
 **v0.9.4**（2026-08-25）——**宏元层载体化重建 + blanket 委托与 `#delegate` 改名**：内部全部保留名替换为结构化载体（`@{g_i}` fresh 载体、`[前缀; ()]` 段标记、`@{A_pos}` 槽引用），fresh 显示名碰撞按字母序后缀逃逸（`P0A`、`P0B`、…）；用户可见特性：`#blanket` 委托 GAT（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`）、裸 `Self` 参数/返回定向报错（`Self::Assoc` 返回放行）、wrapper `@?` 后缀加 `T: ?Sized`（`Box@?`——非 Sized 目标如 `Box<dyn Trait>`）；`#delegate(size = len)` 改名委托目标方法（见 §7.3）；生成的 impl 显示可读 fresh 泛型（`P0, P1, ...`）；`X<>` 在 `+` 连接 bound 内同步；fresh 范围在 impl body 内重开；repeat 块新增轮间分隔符与 fresh 驱动 cursor-only 块（`impl{@0..}` + `@@N` 名称引用，见 §8.4）。`@all_fresh` 已废弃（请写 `@0..`）。
-未发布：body 侧段引用改为**直接拼接**（`@ident` → 绑定元素本身，`$( ... )*` 语义）——`@{A_pos}` 载体拼写删除；要引用特定元素就在模板里显式写普通固定槽（`impl{(A0, @A..,)}`，body 裸写 `A0`）。
+未发布：body 侧段引用改为**直接拼接**（`@ident` → 绑定元素本身，`$( ... )*` 语义）——`@{A_pos}` 载体拼写删除；裸 `impl` 与裸 `where` 同款收集、相邻裸区拆分（`impl A<B> impl @{}` ≡ `impl A<B>, @{}`）；`impl{...}` 附件可逗号并列（`impl{(A@..,), @0.., @{}}`）；body 里的 `@{N}` fresh 引用需声明 `impl{@{}}`（或 fresh 绑定开关 `impl{@0..}`）——"用必先声明"；repeat 块内 fresh 名称引用拼写统一为 `@{N}`（原 `@@N`）。要引用特定元素就在模板里显式写普通固定槽（`impl{(A0, @A..,)}`，body 裸写 `A0`）。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 
@@ -484,7 +484,7 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
 #[batch_impl(
     Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
-        impl{(A@..)}
+        impl{(A@..)} impl{@{}}
     #Scalar{@{0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
@@ -822,7 +822,7 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 - 块重复 L 次，长度有三个来源：块内引用的段（`@ident`，全部等长）、**前置段声明**（`@A(self.@0,)..`——`@` 后直接写段名，适合纯游标块）、或纯游标且无前置声明时用模板的**唯一段**（多段模板的纯游标块因长度歧义报错）；
 - 块体末尾的 `,` 是分隔符，每轮输出——**并列块之间不要再写逗号**（每个块已自带元素分隔）；也可把分隔符写在 `)` 与 `..` 之间（`@(x),..`），这样只在轮**间**输出、最后一轮之后不输出；
 - 嵌套块独立轮次（笛卡尔积语义）——输出是各层轮数的乘积，按 body 封顶 65536 个输出 token（超限报 `repeat-block expansion produces N tokens (limit 65536)`）；
-- 块外 body 中出现 `@` 报错；段元素没有 `@{...}` 拼写——该形式只承载 fresh 位置引用。
+- 块外 body 中出现 `@` 报错；段元素没有 `@{...}` 拼写——该形式只承载 **fresh 位置引用**：`@{0}` 是本 impl 的第一个 fresh 泛型（显示名 `P0`）。body 里的 `@{N}` 需要声明 body 槽——`impl{@{}}`，或 fresh 绑定开关 `impl{@0..}`（其轮次消费 `@{N}`）——"用必先声明"规则。
 
 纯游标块生成元素引用而不用写类型名——元组到元组的整形场景：
 

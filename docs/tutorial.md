@@ -15,9 +15,14 @@ impls show readable fresh generics (`P0, P1, ...`); `X<>` syncs inside
 round separators and fresh-driven cursor-only blocks (`impl{@0..}` +
 `@@N` name refs, see §8.4). `@all_fresh` deprecated (write `@0..`).
 Unreleased: body-side segment references splice **directly** (`@ident` →
-the bound element, `$( ... )*` semantics) — the `@{A_pos}` carrier spelling
-is gone; name a specific element with an explicit fixed slot
-(`impl{(A0, @A..,)}`, body writes plain `A0`).
+the bound element, `$( ... )*` semantics); a bare `impl` collects like bare
+`where` and adjacent bare regions split (`impl A<B> impl @{}` ≡
+`impl A<B>, @{}`); `impl{...}` attachments may be comma-joined
+(`impl{(A@..,), @0.., @{}}`); a `@{N}` fresh reference in a body requires
+the `impl{@{}}` body-slot switch (or the fresh-binding switch
+`impl{@0..}`) — "declare what you use"; the repeat-block fresh-name
+reference is spelled `@{N}` (was `@@N`). Name a specific segment element
+with an explicit fixed slot (`impl{(A0, @A..,)}`, body writes plain `A0`).
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
@@ -502,7 +507,7 @@ constraint):
 #[batch_impl(
     Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
-        impl{(A@..)}
+        impl{(A@..)} impl{@{}}
     #Scalar{@{0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
@@ -922,7 +927,11 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
   output tokens per body (`repeat-block expansion produces N tokens (limit
   65536)` beyond that);
 - outside a block, `@` in a body is an error; the segment elements cannot be
-  spelled `@{...}` — that form holds fresh position references only.
+  spelled `@{...}` — that form holds **fresh position references** only:
+  `@{0}` is the impl's first fresh generic (display name `P0`). A `@{N}`
+  in the body requires a declared body slot — `impl{@{}}`, or the
+  fresh-binding switch `impl{@0..}` whose rounds consume `@{N}` (the
+  "declare what you use" rule).
 
 A cursor-only block generates element references without naming the types —
 the tuple-to-tuple re-shaping case:
