@@ -931,7 +931,10 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
   `@{0}` is the impl's first fresh generic (display name `P0`). A `@{N}`
   in the body requires a declared body slot — `impl{@{}}`, or the
   fresh-binding switch `impl{@0..}` whose rounds consume `@{N}` (the
-  "declare what you use" rule).
+  "declare what you use" rule). `@{@N}` is the **per-round** form: the
+  cursor `@N` becomes `N + round`, so a cursor-only block names each
+  round's own fresh — `(@(@{@N}::foo(),)..)` on three freshs expands to
+  `(P0::foo(), P1::foo(), P2::foo())`.
 
 A cursor-only block generates element references without naming the types —
 the tuple-to-tuple re-shaping case:

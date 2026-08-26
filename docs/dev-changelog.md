@@ -219,6 +219,18 @@
   does not vary per round); ranged/grouped carriers pass through to
   `expand_range_refs`. `collect_drivers`' `@@` arm deleted. Tests and docs
   updated (`@@1` → `@{1}`).
+- **`@{@N}` — per-round fresh-name reference** (user idea) — inside a
+  repeat block the fresh-name carrier accepts a cursor: `@{@N}` resolves
+  `@N` → `N + round` first, then looks up that round's fresh
+  (`(@(@{@N}::foo(),)..)` on three freshs → `(P0::foo(), P1::foo(),
+  P2::foo())`). `repeat_drivers.rs::substitute` expands the inner cursor
+  before the fresh lookup; a non-numeric inner (`@{@x}`) errors with
+  guidance, and an out-of-range round keeps the `@{n}` diagnostic. A
+  cursor-only block driven by `impl{@0..}` names each bound fresh exactly
+  once; the cursor is relative to the binding start (`impl{@1..}` +
+  `@{@1}` → fresh 1, 2). Tests: `fresh_name_cursor_reference` /
+  `_offset_start` / `_out_of_range` / `_bad_inner` (repeat_tests) +
+  `bound_generator_fresh_name_cursor` (dsl_bound_generator).
 
 ## 0.9.4 (2026-08-25, continued) — the macro-meta carrier rebuild
 

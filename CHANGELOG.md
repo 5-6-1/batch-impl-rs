@@ -67,6 +67,11 @@ Changes for the version in development (not yet versioned).
 - **`@@N` renamed to `@{N}`** — the fresh-name reference inside repeat
   blocks now uses the same single-`@` spelling as everywhere else:
   `@@0` → `@{0}`, `@@1` → `@{1}`.
+- **`@{@N}` — per-round fresh-name reference** — inside a repeat block,
+  `@{@N}` names the round's own fresh (`@N` is the cursor): on three
+  freshs, `(@(@{@N}::foo(),)..)` expands to
+  `(P0::foo(), P1::foo(), P2::foo())` — one name per fresh, driven by
+  `impl{@0..}`.
 
 ## 0.9.4 (2026-08-25)
 
