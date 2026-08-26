@@ -7,7 +7,7 @@
 use proc_macro2::{TokenStream, TokenTree};
 
 use crate::preprocess::{builtin_named, split_range_endpoint};
-use crate::util::{compile_err, compile_error_str, is_joint_punct_at, is_punct_at};
+use crate::util::{compile_err, compile_error_str, is_punct_at};
 
 /// Validates `@` reference visibility inside constant values: the constant
 /// name after each `@` must be in (defined user constants ∪ built-in
@@ -38,7 +38,11 @@ fn check_value_refs_at(
             TokenTree::Punct(p) if p.as_char() == '@' => {
                 // Open-left range family (`@..u128`): the endpoint after the
                 // dots must be a legal width; consumes through the endpoint.
-                if is_joint_punct_at(tokens, i + 1, '.') && is_punct_at(tokens, i + 2, '.') {
+                // The operator dictionary reads `..` / `..=` as one unit.
+                if matches!(
+                    crate::util::read_op(tokens, i + 1),
+                    Some((crate::util::Op::DotDot, _) | (crate::util::Op::DotDotEq, _))
+                ) {
                     let mut j = i + 3;
                     if let Some(TokenTree::Punct(eq)) = tokens.get(j)
                         && eq.as_char() == '='

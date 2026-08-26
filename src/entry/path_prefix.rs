@@ -1,4 +1,4 @@
-use proc_macro2::{Ident, Spacing, TokenTree};
+use proc_macro2::{Ident, TokenTree};
 
 use crate::util::is_punct;
 
@@ -35,29 +35,24 @@ pub(crate) fn try_parse_path_prefix(
     let mut saw_double_colon = false;
     let mut last_ident = None;
     loop {
-        match tokens.get(i) {
-            // `::`: must be two consecutive `:`, with the first `:` Spacing::Joint
-            Some(TokenTree::Punct(p)) if p.as_char() == ':' && expect_sep => {
-                match tokens.get(i + 1) {
-                    Some(TokenTree::Punct(p2))
-                        if p2.as_char() == ':' && p.spacing() == Spacing::Joint =>
-                    {
-                        i += 2;
-                        expect_sep = false;
-                        saw_double_colon = true;
-                    }
-                    // Single `:` terminator — accepted only after at least one `::`
-                    _ if saw_double_colon => {
-                        let path = tokens[1..i].to_vec();
-                        let rest = tokens[i + 1..].to_vec();
-                        return (path, last_ident, rest).into();
-                    }
-                    // Otherwise falls through to the `_ => return None` below
-                    _ => return None,
-                }
+        match crate::util::read_op(tokens, i) {
+            // `::` — the path separator, one unit
+            Some((crate::util::Op::ColonColon, _)) if expect_sep => {
+                i += 2;
+                expect_sep = false;
+                saw_double_colon = true;
+            }
+            // Single `:` terminator — accepted only after at least one `::`
+            Some((crate::util::Op::Colon, _)) if saw_double_colon && expect_sep => {
+                let path = tokens[1..i].to_vec();
+                let rest = tokens[i + 1..].to_vec();
+                return (path, last_ident, rest).into();
             }
             // Expected Ident (right after `::`)
-            Some(TokenTree::Ident(id)) if !expect_sep => {
+            _ if !expect_sep => {
+                let Some(TokenTree::Ident(id)) = tokens.get(i) else {
+                    return None;
+                };
                 i += 1;
                 last_ident = id.clone().into();
                 expect_sep = true;

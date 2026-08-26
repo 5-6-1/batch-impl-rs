@@ -2,6 +2,17 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## Unreleased（开发中——0.9.5 之后的下一个版本）
+
+- **运算符字典：`util/punct_ops.rs`**（用户讨论——"让 `..` / `->` 原子化、与 `.` / `-` 区分"）——proc-macro2 造不出多字符 punct（`Ident::new("..")` 直接 panic——不是合法 Ident），也没有多余的 delimiter 可供组载体使用，所以"原子"在**消费层**实现：`read_op(tokens, i) -> (Op, len)` 成为多字符运算符形状（`..` = `.`J `.`、`..=` = `.`J `.`J `=`、`->` = `-`J `>`、`::` = `:`J `:`）与普通 punct 的唯一权威。每个消费方只问"这里的运算符是什么"，不再各自拼 `Spacing::Joint` 组合：
+  - `scan_stop` 的三个守卫（`is_arrow_dash` / `is_range_inclusive` / `is_dot_range`）删除——复合运算符作为一个整体跳过（其成员绝不会单独命中 stop 集合）；
+  - `parse_range` 从字典读 `..` / `..=`，保留历史的"第二点 Joint"规则（空格分隔的 `1.. =4` 仍是 `..` + 单独 `=`）；
+  - `cursor_is_dotdot` / `cursor_is_arrow` 走新的 `Cursor::peek_op`；
+  - `consts/expand.rs` + `value_refs.rs` 的 range 族检测；
+  - `validate_stray_punct` 的 `..=` 成员 / 孤立 `-` 判定；
+  - `::` 识别统一（`path_prefix.rs` / `subst.rs` / `ident_blocks.rs`）。
+  行为保持（空格分隔的 `1 . . 4` 仍是两个独立点），仅一处刻意的边界修正：紧贴的 bound 冒号 `A::B:C` 现在在 `:` 处结束 path 模式（旧的 `expect_second_colon` 记账在空格分隔的 `: ident` 后遇到孤立 `:` 时可能误触发）。测试：`punct_ops::tests`（复合形状 / 空格点 / 紧贴操作数点）+ 既有全量套件不变。
+
 ## 0.9.5 (2026-08-27)
 
 > 直接拼接收尾 + impl 模板家族（裸写/相邻拼写、逗号并列开关、`@{N}` body 槽收紧、`@@N` → `@{N}` 拼写统一与逐轮 `@{@N}` 引用）。0.9.4 时代 Unreleased 清单里的条目（直接拼接、结构收敛、map_children 契约、fuzz OOM 修复、GuardAlloc、AsyncFn、lifetime、where 位置继承、固有 impl、开放范围、MSRV 1.95、repeat 块预算）按开发顺序落地于此。

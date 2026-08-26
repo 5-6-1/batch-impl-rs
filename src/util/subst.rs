@@ -10,6 +10,8 @@
 
 use proc_macro2::{TokenStream, TokenTree};
 
+use crate::util::{Op, read_op};
+
 /// Rewrites every map key in `ts` to its replacement. See the module docs
 /// for the path-segment rule.
 pub(crate) fn replace_map(ts: &TokenStream, map: &[(String, TokenStream)]) -> TokenStream {
@@ -25,7 +27,6 @@ fn worker(
     v: &[TokenTree], map: &[(String, TokenStream)], mut in_path: bool, out: &mut TokenStream,
 ) {
     let mut i = 0;
-    let mut expect_second_colon = false;
     while i < v.len() {
         match &v[i] {
             TokenTree::Punct(p) if p.as_char() == '\'' => {
@@ -48,25 +49,29 @@ fn worker(
                 }
             }
             TokenTree::Punct(p) if p.as_char() == ':' => {
-                if p.spacing() == proc_macro2::Spacing::Joint {
-                    // opens `::`; the Alone half follows
-                    expect_second_colon = true;
-                } else if expect_second_colon {
-                    // closes `::` — what follows is a path segment
-                    in_path = true;
-                    expect_second_colon = false;
-                } else {
-                    // a lone bound colon: back to type-expression mode
-                    in_path = false;
+                // `::` — opens a path (what follows is a path segment);
+                // a lone `:` is a bound colon, back to type-expression mode.
+                // The operator dictionary reads the pair as one unit (and
+                // drops the old expect_second_colon bookkeeping, which could
+                // mis-fire on a later stray `:` after a spaced `: ident`).
+                match read_op(v, i) {
+                    Some((Op::ColonColon, _)) => {
+                        in_path = true;
+                        out.extend(v[i..i + 2].to_vec());
+                        i += 2;
+                    }
+                    _ => {
+                        in_path = false;
+                        out.extend(std::iter::once(v[i].clone()));
+                        i += 1;
+                    }
                 }
-                out.extend(std::iter::once(v[i].clone()));
-                i += 1;
             }
             TokenTree::Ident(id) if in_path => {
                 // path segment: verbatim; another `::` keeps the path going
                 out.extend(std::iter::once(v[i].clone()));
                 i += 1;
-                seg_next(&mut in_path, v.get(i));
+                seg_next(&mut in_path, v, i);
             }
             TokenTree::Ident(id) => {
                 match lookup(map, &id.to_string()) {
@@ -74,7 +79,7 @@ fn worker(
                     None => out.extend(std::iter::once(v[i].clone())),
                 }
                 i += 1;
-                seg_next(&mut in_path, v.get(i));
+                seg_next(&mut in_path, v, i);
             }
             TokenTree::Group(g) => {
                 let inner: Vec<TokenTree> = g.stream().into_iter().collect();
@@ -95,12 +100,11 @@ fn worker(
     }
 }
 
-/// After consuming an ident: the path continues only through another `::`.
-fn seg_next(in_path: &mut bool, next: Option<&TokenTree>) {
-    if *in_path
-        && !matches!(next,
-            Some(TokenTree::Punct(p)) if p.as_char() == ':' && p.spacing() == proc_macro2::Spacing::Joint)
-    {
+/// After consuming an ident: the path continues only through another `::`
+/// (read as one unit by the operator dictionary — a glued bound colon
+/// `B:C` is not a path, so it ends path mode).
+fn seg_next(in_path: &mut bool, v: &[TokenTree], next: usize) {
+    if *in_path && !matches!(read_op(v, next), Some((Op::ColonColon, _))) {
         *in_path = false;
     }
 }

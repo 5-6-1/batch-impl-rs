@@ -5,6 +5,34 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased (in development — the next release after 0.9.5)
+
+- **The operator dictionary: `util/punct_ops.rs`** (user discussion —
+  "make `..` / `->` atomic, distinct from `.` / `-`") — proc-macro2 cannot
+  mint multi-char puncts (`Ident::new("..")` panics — not a valid Ident)
+  and has no free delimiter for a group carrier, so "atomic" is achieved
+  at the **consumption** level: `read_op(tokens, i) -> (Op, len)` is the
+  one authority for multi-char operator shapes (`..` = `.`J `.`, `..=` =
+  `.`J `.`J `=`, `->` = `-`J `>`, `::` = `:`J `:`) and plain puncts. Every
+  consumer asks "what operator is here" instead of re-deriving
+  `Spacing::Joint` combinations:
+  - `scan_stop`'s three guards (`is_arrow_dash` / `is_range_inclusive` /
+    `is_dot_range`) are gone — a compound operator is skipped as one unit
+    (its members never individually match a stop set);
+  - `parse_range` reads `..` / `..=` off the dictionary, keeping the
+    historical second-dot-Joint rule for `..=` (a spaced `1.. =4` stays
+    `..` + plain `=`);
+  - `cursor_is_dotdot` / `cursor_is_arrow` use the new `Cursor::peek_op`;
+  - `consts/expand.rs` + `value_refs.rs` range-family detection;
+  - `validate_stray_punct`'s `..=`-member / lone-`-` checks;
+  - `::` recognition in `path_prefix.rs` / `subst.rs` / `ident_blocks.rs`.
+  Behavior is preserved (spaced `1 . . 4` stays two plain dots), with one
+  deliberate edge correction: a glued bound colon `A::B:C` now ends path
+  mode at the `:` (the old `expect_second_colon` bookkeeping could
+  mis-fire on a later stray `:` after a spaced `: ident`). Tests:
+  `punct_ops::tests` (compound shapes / spaced dots / glued operand dots)
+  + the full existing suite unchanged.
+
 ## 0.9.5 (2026-08-27)
 
 > Direct-splice completion + the impl-template family (bare/adjacent

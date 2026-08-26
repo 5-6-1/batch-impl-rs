@@ -10,7 +10,7 @@ use crate::apply::err_ty_at;
 use crate::ast::*;
 use crate::parse::parse_item;
 use crate::parse::resolve_at_refs;
-use crate::util::{Cursor, compile_error_ty, is_punct, is_single_colon, scan_stop};
+use crate::util::{Cursor, compile_error_ty, is_single_colon, scan_stop};
 
 // ============================================================
 // Angle brackets and generic parameters
@@ -183,41 +183,50 @@ pub(crate) fn primitive(tokens: &[TokenTree]) -> Ty {
 /// cascade a second diagnostic; the `-` of `->` is part of the fn arrow.
 fn validate_stray_punct(tokens: &[TokenTree]) -> Option<Ty> {
     for (i, tt) in tokens.iter().enumerate() {
-        if let TokenTree::Punct(p) = tt {
-            let is_range_inclusive = p.as_char() == '=' && i > 0 && is_punct(&tokens[i - 1], '.');
-            let msg = if is_range_inclusive {
-                None
-            } else {
-                match p.as_char() {
-                    ';' => Some(
-                        "batch-impl: `;` is not valid in a type (it is the `batch_trait!` \
-                         segment boundary; in `#[batch_impl]` specs are separated by `,`)",
-                    ),
-                    '=' => Some(
-                        "batch-impl: `=` is not valid in a type position (associated-type \
-                         bindings like `Item = u32` belong inside a trait path's `<...>`)",
-                    ),
-                    '@' => Some(
-                        "batch-impl: `@` inside a type (position references like `@0` must \
-                         start an operand, e.g. `T.@0`)",
-                    ),
-                    '#' => Some(
-                        "batch-impl: `#` inside a type (attributes belong at the spec start \
-                         as `#[...].T`; directives are expanded before parsing)",
-                    ),
-                    // a Joint `-` heads `->` (the fn arrow, parsed by
-                    // parse_function); a lone `-` is the retired operator
-                    '-' if p.spacing() != proc_macro2::Spacing::Joint => Some(
-                        "batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; \
-                         the `-` exclusion only works in directive argument lists \
-                         like `#fill(@all, -foo)`)",
-                    ),
-                    _ => None,
-                }
-            };
-            if let Some(msg) = msg {
-                return Some(err_ty_at(msg, p.span()));
+        // The `=` of `..=` is part of the range operator, not a binding, so a
+        // leftover after an earlier error must not cascade a second
+        // diagnostic; the `-` of `->` is part of the fn arrow. Both read off
+        // the shared operator dictionary (a compound operator's members are
+        // one unit).
+        let is_range_inclusive = matches!(
+            i.checked_sub(2).and_then(|j| crate::util::read_op(tokens, j)),
+            Some((crate::util::Op::DotDotEq, _))
+        );
+        let msg = if is_range_inclusive {
+            None
+        } else if let TokenTree::Punct(p) = tt {
+            match crate::util::read_op(tokens, i) {
+                Some((crate::util::Op::Semicolon, _)) => Some(
+                    "batch-impl: `;` is not valid in a type (it is the `batch_trait!` \
+                     segment boundary; in `#[batch_impl]` specs are separated by `,`)",
+                ),
+                Some((crate::util::Op::Eq, _)) => Some(
+                    "batch-impl: `=` is not valid in a type position (associated-type \
+                     bindings like `Item = u32` belong inside a trait path's `<...>`)",
+                ),
+                Some((crate::util::Op::At, _)) => Some(
+                    "batch-impl: `@` inside a type (position references like `@0` must \
+                     start an operand, e.g. `T.@0`)",
+                ),
+                // a lone `-` is the retired operator; `->` (the fn arrow) is
+                // parsed by parse_function
+                Some((crate::util::Op::Minus, _)) => Some(
+                    "batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; \
+                     the `-` exclusion only works in directive argument lists \
+                     like `#fill(@all, -foo)`)",
+                ),
+                // `#` is outside the operator alphabet but still stray
+                _ if p.as_char() == '#' => Some(
+                    "batch-impl: `#` inside a type (attributes belong at the spec start \
+                     as `#[...].T`; directives are expanded before parsing)",
+                ),
+                _ => None,
             }
+        } else {
+            None
+        };
+        if let Some(msg) = msg {
+            return Some(err_ty_at(msg, tt.span()));
         }
     }
     None

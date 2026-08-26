@@ -11,7 +11,7 @@ use crate::parse::generic::{empty, parse_angle_bracket_contents};
 use crate::parse::parse_item;
 use crate::parse::space::{parse_block, parse_return_expr, parse_return_expr_tokens, starts_block};
 use crate::util::Cursor;
-use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 use quote::ToTokens;
 
 /// Ident block: `::` paths (`std::vec::Vec`), macro calls (`m!(...)`), the
@@ -254,18 +254,17 @@ pub(crate) fn plain_ident_block(cursor: &mut Cursor, id: Ident, trait_name: Opti
     cursor.bump();
     loop {
         match cursor.peek() {
-            // `::` path segment stays in the block
-            Some(TokenTree::Punct(p))
-                if p.as_char() == ':'
-                    && p.spacing() == Spacing::Joint
-                    && matches!(cursor.peek_at(1), Some(TokenTree::Punct(q)) if q.as_char() == ':')
+            // `::` path segment stays in the block (read as one unit by the
+            // operator dictionary)
+            Some(TokenTree::Punct(_))
+                if matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _)))
                     && matches!(cursor.peek_at(2), Some(TokenTree::Ident(_))) =>
             {
                 let seg = match cursor.peek_at(2) {
                     Some(TokenTree::Ident(s)) => s.clone(),
                     _ => unreachable!(),
                 };
-                tokens.push(TokenTree::Punct(p.clone()));
+                tokens.push(cursor.peek().unwrap().clone());
                 tokens.push(cursor.peek_at(1).unwrap().clone());
                 tokens.push(TokenTree::Ident(seg));
                 cursor.advance(3);

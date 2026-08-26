@@ -36,9 +36,7 @@ pub(crate) fn starts_block(t: &TokenTree) -> bool {
 /// Whether the cursor sits on the first `.` of a `..` range (a Joint `.`
 /// whose next token is another `.`).
 pub(crate) fn cursor_is_dotdot(cursor: &Cursor) -> bool {
-    matches!(cursor.peek(), Some(TokenTree::Punct(p))
-        if p.as_char() == '.' && p.spacing() == Spacing::Joint
-            && matches!(cursor.peek_at(1), Some(TokenTree::Punct(q)) if q.as_char() == '.'))
+    matches!(cursor.peek_op(), Some((crate::util::Op::DotDot, _)))
 }
 
 /// Whether the next tokens open an **attachment** block (`{...}` /

@@ -7,6 +7,8 @@
 
 use proc_macro2::{Spacing, TokenTree};
 
+use crate::util::read_op;
+
 // ============================================================
 // Cursor and unified scanning primitives
 // ============================================================
@@ -59,6 +61,13 @@ impl<'a> Cursor<'a> {
         is_punct_at(self.tokens, self.pos, ch)
     }
 
+    /// The operator at the current position (`..` / `..=` / `->` / `::` or a
+    /// plain punct), via the shared operator dictionary
+    /// ([`read_op`](crate::util::punct_ops::read_op)).
+    pub(crate) fn peek_op(&self) -> Option<(crate::util::Op, usize)> {
+        read_op(self.tokens, self.pos)
+    }
+
     /// Whether the `:` at the current position is a standalone single colon (not part of `::`)
     pub(crate) fn is_single_colon(&self) -> bool {
         is_single_colon(self.tokens, self.pos)
@@ -99,27 +108,24 @@ impl<'a> Cursor<'a> {
 /// Unified stop-token scan: return the index of the first depth-0 token in the stop set.
 ///
 /// Angle brackets were paired into opaque groups by `angle_collect`, so `<>` depth is not
-/// tracked here; the only guard kept is the `->` arrow: `-` is not a Space stop token when
-/// followed by `>`.
+/// tracked here; the only guard kept is the compound-operator dictionary
+/// ([`read_op`](crate::util::punct_ops::read_op)): a compound operator
+/// (`..` / `..=` / `->` / `::`) is consumed as one unit — none of its
+/// members can be a stop (`-` of `->` is not a Space stop, the second `.` of
+/// `..` is not an apply, the `=` of `..=` is not a binding separator).
 pub(crate) fn scan_stop(tokens: &[TokenTree], stop: &[char]) -> Option<usize> {
-    for (index, token) in tokens.iter().enumerate() {
-        if matches!(token, TokenTree::Punct(p) if stop.contains(&p.as_char())) {
-            let is_arrow_dash = is_joint_punct_at(tokens, index, '-')
-                && matches!(tokens.get(index + 1), Some(next) if is_punct(next, '>'));
-            // `..=` inclusive range: the second `=` is part of the range
-            // operator, not a binding separator (`Item = u32`).
-            let is_range_inclusive = is_punct(token, '=')
-                && index > 0
-                && matches!(tokens.get(index - 1), Some(prev) if is_punct(prev, '.'));
-            // `.` as an apply operator must not cut a `..` range (`1..=4` /
-            // `@1..` — the two dots stay one unit, parsed by `parse_range`).
-            let is_dot_range = is_punct(token, '.')
-                && (index > 0
-                    && matches!(tokens.get(index - 1), Some(prev) if is_punct(prev, '.'))
-                    || matches!(tokens.get(index + 1), Some(next) if is_punct(next, '.')));
-            if !is_arrow_dash && !is_range_inclusive && !is_dot_range {
-                return index.into();
+    let mut i = 0;
+    while i < tokens.len() {
+        if let Some((op, len)) = read_op(tokens, i) {
+            // A compound operator never stops the scan; its members are
+            // skipped as one unit (otherwise the trailing `.`/`>`/`:` of
+            // `..`/`->`/`::` would individually match the stop set).
+            if !op.is_compound() && stop.contains(&op.first_char()) {
+                return Some(i);
             }
+            i += len;
+        } else {
+            i += 1;
         }
     }
     None

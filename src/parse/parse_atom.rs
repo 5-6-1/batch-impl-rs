@@ -3,25 +3,19 @@ use crate::ast::*;
 use crate::parse::generic::empty;
 use crate::parse::parse_item;
 use crate::util::{Cursor, contains_punct};
-use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 
 /// `N..M` / `N..=M` range parsing
 pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
-    let [
-        TokenTree::Literal(start),
-        TokenTree::Punct(first_dot),
-        TokenTree::Punct(second_dot),
-        rest @ ..,
-    ] = tokens
-    else {
-        return None;
+    let TokenTree::Literal(start) = tokens.first()? else { return None };
+    // The operator dictionary reads `..` / `..=` as one unit (a spaced
+    // `1 . . 4` or `1.. =4` stays `..` + plain tokens and fails below,
+    // exactly like the historical Spacing checks).
+    let (inclusive, rest) = match crate::util::read_op(tokens, 1) {
+        Some((crate::util::Op::DotDot, _)) => (false, &tokens[3..]),
+        Some((crate::util::Op::DotDotEq, _)) => (true, &tokens[4..]),
+        _ => return None,
     };
-    if first_dot.as_char() != '.'
-        || second_dot.as_char() != '.'
-        || first_dot.spacing() != Spacing::Joint
-    {
-        return None;
-    }
     let span = tokens[0].span();
     let start = match start.to_string().parse::<usize>() {
         Ok(n) => n,
@@ -30,12 +24,7 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
         }
     };
     let (inclusive, end_lit) = match rest {
-        [TokenTree::Literal(end)] => (false, end),
-        [TokenTree::Punct(eq), TokenTree::Literal(end)]
-            if eq.as_char() == '=' && second_dot.spacing() == Spacing::Joint =>
-        {
-            (true, end)
-        }
+        [TokenTree::Literal(end)] => (inclusive, end),
         _ => return None,
     };
     let end = match end_lit.to_string().parse::<usize>() {

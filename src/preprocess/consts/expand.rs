@@ -30,8 +30,11 @@ pub(crate) fn try_expand_at(
 ) -> Result<Option<(Vec<TokenTree>, usize)>, TokenStream> {
     // Open-left range family: `@..u128` / `@..=i64` — the family minimum
     // fills the omitted start. Recognized before the Ident requirement
-    // (there is no leading name in this form).
-    if is_joint_punct_at(tokens, 1, '.') && is_punct_at(tokens, 2, '.') {
+    // (there is no leading name in this form). The operator dictionary reads
+    // `..` / `..=` as one unit.
+    if let Some((crate::util::Op::DotDot, _) | (crate::util::Op::DotDotEq, _)) =
+        crate::util::read_op(tokens, 1)
+    {
         let end_idx = if let Some(TokenTree::Punct(eq)) = tokens.get(3)
             && eq.as_char() == '='
         {

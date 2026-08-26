@@ -22,9 +22,7 @@ use quote::{ToTokens, quote};
 
 /// Whether the cursor sits on a `->` fn arrow (Joint `-` followed by `>`).
 pub(crate) fn cursor_is_arrow(cursor: &Cursor) -> bool {
-    matches!(cursor.peek(), Some(TokenTree::Punct(p))
-        if p.as_char() == '-' && p.spacing() == Spacing::Joint
-            && matches!(cursor.peek_at(1), Some(TokenTree::Punct(q)) if q.as_char() == '>'))
+    matches!(cursor.peek_op(), Some((crate::util::Op::Arrow, _)))
 }
 
 /// `'a` lifetime tokens (`'` punct + ident).

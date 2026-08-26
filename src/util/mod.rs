@@ -5,10 +5,12 @@
 //! aggregates the re-exports, so callers write `crate::util::X` (not submodule paths).
 
 pub(crate) mod diagnostic;
+pub(crate) mod punct_ops;
 pub(crate) mod scan;
 pub(crate) mod subst;
 
 pub(crate) use diagnostic::*;
+pub(crate) use punct_ops::*;
 pub(crate) use scan::*;
 
 use proc_macro2::{Span, TokenStream, TokenTree};
