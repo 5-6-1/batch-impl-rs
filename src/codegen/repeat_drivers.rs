@@ -188,11 +188,8 @@ pub(crate) fn substitute(
                     }
                 }
             } else {
-                let inner: String = inner_tokens
-                    .iter()
-                    .map(|t| t.to_string())
-                    .collect::<Vec<_>>()
-                    .join("");
+                let inner: String =
+                    inner_tokens.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
                 match inner.parse::<usize>() {
                     Ok(n) => n,
                     // A range or grouped carrier: pass through for range

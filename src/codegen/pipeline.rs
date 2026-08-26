@@ -204,10 +204,8 @@ pub(crate) fn generate_parts(
         // switch `impl{@N..}` whose rounds consume `@{N}` references — the
         // "declare what you use" rule. Without either, a carrier in the body
         // errors with guidance.
-        if !parts.body_at && parts.fresh_binding.is_none()
-            && crate::ast::fresh::body_has_carrier(b)
+        if !parts.body_at && parts.fresh_binding.is_none() && crate::ast::fresh::body_has_carrier(b)
         {
-
             return compile_error_str(
                 "batch-impl: a `@{N}` fresh reference in the body requires the \
                  `impl{@{}}` body-slot switch (declare it on the spec, e.g. \

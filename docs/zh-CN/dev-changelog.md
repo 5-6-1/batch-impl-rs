@@ -2,9 +2,9 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## Unreleased（开发中——0.9.4 之后的下一个版本）
+## 0.9.5 (2026-08-27)
 
-> 开发中版本的待办事项。事项先落在这里（按开发顺序），发布时移入带版本号的章节。
+> 直接拼接收尾 + impl 模板家族（裸写/相邻拼写、逗号并列开关、`@{N}` body 槽收紧、`@@N` → `@{N}` 拼写统一与逐轮 `@{@N}` 引用）。0.9.4 时代 Unreleased 清单里的条目（直接拼接、结构收敛、map_children 契约、fuzz OOM 修复、GuardAlloc、AsyncFn、lifetime、where 位置继承、固有 impl、开放范围、MSRV 1.95、repeat 块预算）按开发顺序落地于此。
 
 - **已完成：body 侧段引用改为直接拼接**——0.9.4 载体重建遗留的 TODO 收尾：`repeat_drivers.rs::substitute` 现在对照 `Mapping::seg_value` 解析 `@ident`，把绑定的叶子子树直接拼进该轮输出（`$( ... )*` 语义）——不再发射 `SegRef`/`seg_ref_tokens` 载体，二者从 `ast/fresh.rs` 退役；`shape.rs::apply_mapping` 只处理用户槽 ident（`generate_parts` / `render_impl` 的映射应用条件收窄到 slots 通道——segs 不再经过它）；`range_refs.rs` 对非 fresh 的 `@{...}` 直接报错并给指导，不再透传段载体；映射贯穿 `expand_repeat_blocks` / `expand_stream` / `expand_block` / `expand_nested` / `substitute`。段旁显式写的固定元素（`impl{(A0, @A..,)}`）走普通 slots 通道绑定；`@A..` 不衍生任何名字。测试：`repeat_tests.rs` 围绕可读的替身绑定表（`TA0`、`TB1`、…）重写，并新增复合值整体拼接测试；集成测试 5 改为显式槽位形式，测试 6 的 `#Scalar` 用位置引用第一个 fresh（`@{0}`）；`tutorial.md` §8 / `directive_consts.md` 的 doctest 示例更新为直接拼接产物。
 - **同一变更的结构收敛**——载体形状判定（`@` Punct + Brace 组）归入协议本体 `ast/fresh.rs::is_carrier_at`（`fold_flat_refs` / `range_refs` / `repeat` / `repeat_drivers` 共用；形状由定义处拥有，永不漂移）；五个展开函数的平行参数穿线收拢为一个 `repeat.rs::RepeatCtx { segs, map, fresh, binding }`（新关注点加字段即可，`expand_block` 的 `too_many_arguments` allow 删除）；`render_impl` 的映射条件收窄到 slots 通道，删除已无调用方的 `Mapping::seg_entries` 访问器。

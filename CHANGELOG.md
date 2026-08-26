@@ -5,9 +5,17 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased (in development — the next release after 0.9.4)
+## 0.9.5 (2026-08-27)
 
-Changes for the version in development (not yet versioned).
+> The direct-splice completion + DSL ergonomics release: the 0.9.4 carrier
+> rebuild's segment-splice TODO lands (repeat blocks emit the bound leaf
+> directly, `$( ... )*` semantics), the impl template family gains the
+> bare/adjacent spellings and comma-joined switches, the `@{N}` body-slot
+> rule is tightened ("declare what you use" — a breaking tightening), and
+> the fresh-name reference inside repeat blocks is spelled `@{N}` (was
+> `@@N`), with a per-round cursor form `@{@N}`. One behavioral change of
+> note: `@@N` → `@{N}` and the `@{N}` body-slot requirement are **breaking**
+> for specs written against 0.9.4.
 
 - **Body-side segment references splice directly** — inside a repeat
   block, `@A` now splices the segment's i-th **bound element** straight

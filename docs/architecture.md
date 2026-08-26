@@ -1,7 +1,8 @@
 # batch-impl Internal Architecture
 
-**Unreleased** (in development) — body-side segment references now splice
-**directly**: `repeat_drivers.rs::substitute` resolves `@ident` against
+**v0.9.5** (2026-08-27) — **direct-splice completion + the impl-template
+family**: body-side segment references now splice **directly** —
+`repeat_drivers.rs::substitute` resolves `@ident` against
 `Mapping::seg_value` and splices the bound leaf subtree into each round
 (the `$( ... )*` semantics); the `SegRef`/`seg_ref_tokens` carrier is
 retired from `ast/fresh.rs`, `apply_mapping` handles only user-slot idents
@@ -9,7 +10,25 @@ retired from `ast/fresh.rs`, `apply_mapping` handles only user-slot idents
 non-fresh `@{...}` in a body errors with guidance instead of passing
 through as a segment carrier. Explicit fixed elements next to a segment
 (`impl{(A0, @A..,)}`) bind through the ordinary slots channel; `@A..`
-derives no names.
+derives no names. The repeat machinery runs on one
+`RepeatCtx { segs, map, fresh, binding, budget }` threaded through
+`expand_repeat_blocks` / `expand_stream` / `expand_block` /
+`expand_nested` / `substitute`, and `@{@N}` (cursor-inside-carrier)
+resolves the per-round fresh name. The impl-template family: a bare `impl`
+collects like a bare `where` (`where_process.rs::kw_process` shared
+collector; `impl_process` runs before `mark_varseg`), adjacent bare
+regions split, and `impl{...}` attachments are comma-joined at depth-0
+(`extract.rs::split_impl_attachments`) with each segment classified as
+fresh-binding switch / `@{N}` body-slot switch / shape template; the
+body-slot rule is tightened (a `@{N}` in a body requires `impl{@{}}` or
+the fresh-binding switch; macro-injected grouped/ranged carriers exempt by
+shape). `angle_collect` enters `impl{...}` groups and `render_angles`
+restores flat `<>` before syn parse. Also: `pipeline.rs` owns the codegen
+stage order; `util/subst.rs` is the single path-aware substitutor (where
+inheritance + directive bodies); `testing::GuardAlloc` (256 MiB) turns
+oversized test allocations into panics proptest can catch; MSRV 1.95
+(if-let guards, `Cell::update`); proc-macro2 `span-locations` enabled for
+open-range endpoint adjacency.
 
 **v0.9.4** (2026-08-25) — the blanket-delegation and `#delegate`-rename work (from the user's manual side-by-side comparison with `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen`): `#blanket` GAT projection (`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a` — the GAT's own params pass through the projection, `blanket.rs`), bare-`Self` parameter/return detection (`blanket_helpers.rs::sig_refs_bare_self`; `Self::Assoc` returns pass), the `@?` unsized suffix (`Box@?` → `where{T: ?Sized}`, `blanket_wrappers.rs` — the field is `is_unsized`, `unsized` is an edition-2024 reserved word); `#delegate` rename `foo = call_foo` (`dispatch.rs::expand_delegate` — `=` splits off a rename map, the name-list parser deduplicates keep-first so rename/`@all` overlap merges, a double rename errors); readable fresh names `P0, P1, ...` (`codegen/fresh.rs::display_name` — `FreshCtx` assigns them once, collisions escape by spreadsheet-style letter suffixes (`P0A`, `P0B`, ...), numbering never skips or drifts); hygienic `::core::compile_error!` in generated diagnostics; `X<>` sync inside `+`-joined bound lists (`sync.rs::sync_bound_ty` — structured `TyBoundList` syncs per element); fresh-range placeholders re-open in impl bodies; repeat-block inter-round separators + fresh-count-driven cursor-only blocks + the fresh-binding switch `impl{@0..}` with `@@N` name references (`repeat.rs` / `repeat_drivers.rs` / `extract.rs::parse_fresh_switch`); precise empty-tuple fold (`range_refs.rs::fold_empty_tuple` — top-level range placeholder only);
 

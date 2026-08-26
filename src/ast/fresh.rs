@@ -174,9 +174,7 @@ fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> bool {
     }
     let mut i = 0;
     while i < tokens.len() {
-        if is_carrier_at(tokens, i)
-            && !is_macro_generated_carrier(tokens, i)
-        {
+        if is_carrier_at(tokens, i) && !is_macro_generated_carrier(tokens, i) {
             return true;
         }
         if let TokenTree::Group(g) = &tokens[i] {
@@ -197,8 +195,7 @@ fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> bool {
 /// `@{0}` references are user-written.
 fn is_macro_generated_carrier(tokens: &[TokenTree], i: usize) -> bool {
     let Some(TokenTree::Group(g)) = tokens.get(i + 1) else { return false };
-    let inner: String =
-        g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+    let inner: String = g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
     // A grouped head (`0_0`) contains an underscore; a range contains `..`.
     // A flat single reference (`0`) has neither.
     inner.contains('_') || inner.contains("..")

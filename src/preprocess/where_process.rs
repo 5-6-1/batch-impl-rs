@@ -44,8 +44,7 @@ pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Toke
 /// `impl` (a second bare region starts a new one), a depth-0 `;`, or the
 /// stream end.
 pub(crate) fn impl_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
-    let is_boundary =
-        |tokens: &[TokenTree], j: usize| matches!(tokens.get(j), Some(TokenTree::Ident(id)) if id == "impl");
+    let is_boundary = |tokens: &[TokenTree], j: usize| matches!(tokens.get(j), Some(TokenTree::Ident(id)) if id == "impl");
     kw_process(tokens, "impl", &is_boundary)
 }
 
@@ -56,8 +55,7 @@ pub(crate) fn impl_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Token
 /// (the two callers differ: where stops at `impl{...}` attachments, impl
 /// stops at any bare `impl`).
 fn kw_process(
-    tokens: &[TokenTree], kw: &str,
-    is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
+    tokens: &[TokenTree], kw: &str, is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
@@ -69,9 +67,7 @@ fn kw_process(
             && !matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
                 if g.delimiter() == delimiter![{}])
         {
-            let Some((body, rest_index)) =
-                scan_body_boundary(&tokens[i + 1..], is_boundary)
-            else {
+            let Some((body, rest_index)) = scan_body_boundary(&tokens[i + 1..], is_boundary) else {
                 return Err(compile_error_str(
                     if kw == "where" {
                         "batch-impl: `where` predicates are missing a code block {...}"
@@ -170,10 +166,7 @@ mod tests {
     fn bare_impl_collects_template() {
         // `impl (A@..) {body}` → `impl{(A@..)} {body}` — the paren group is
         // the template, the brace is the body boundary.
-        assert_eq!(
-            run_impl("impl (A@..) { fn m() {} }"),
-            "impl { (A @..) } { fn m () { } }"
-        );
+        assert_eq!(run_impl("impl (A@..) { fn m() {} }"), "impl { (A @..) } { fn m () { } }");
     }
 
     #[test]

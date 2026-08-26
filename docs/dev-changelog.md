@@ -5,10 +5,15 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased (in development — the next release after 0.9.4)
+## 0.9.5 (2026-08-27)
 
-> Open items for the version in development. Items land here first (in
-> development order), then move into a versioned section at release.
+> Direct-splice completion + the impl-template family (bare/adjacent
+> spelling, comma-joined switches, the tightened `@{N}` body-slot rule, the
+> `@@N` → `@{N}` spelling unification and the per-round `@{@N}` reference).
+> Items from the 0.9.4-era Unreleased list (direct splice, structure pass,
+> map_children contract, fuzz OOM fixes, GuardAlloc, AsyncFn, lifetimes,
+> where positional inheritance, inherent impls, open ranges, MSRV 1.95,
+> repeat-block budget) land here in development order.
 
 - **Done: body-side segment references splice directly** — the TODO from
   the 0.9.4 carrier rebuild is complete: `repeat_drivers.rs::substitute`

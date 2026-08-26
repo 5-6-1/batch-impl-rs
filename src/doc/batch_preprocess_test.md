@@ -9,8 +9,8 @@ test consumer): a function-like macro that parses the open-extension input
 ## The protocol shape it consumes
 
 The open extension expands `#name(args){body}` into a call of your
-same-named macro with this input (see [`directive_open`](directive_open) for
-the full protocol):
+same-named macro with this input (see the `directive_open` doc block in
+`lib.rs` for the full protocol):
 
 ```text
 {spec}(args){body} trait

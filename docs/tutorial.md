@@ -1,28 +1,25 @@
 # batch-impl Tutorial
 
-**v0.9.4** (2026-08-25) — **macro-meta carrier rebuild + blanket-delegation
-and `#delegate`-rename**: internally every reserved name was replaced by
-structured carriers (`@{g_i}` fresh carriers, `[Prefix; ()]` segment
-markers, `@{A_pos}` slot references) and fresh display names escape
-collisions by letter suffixes (`P0A`, `P0B`, ...); user-facing:
-`#blanket` delegates GATs (`type Iter<'a> =
-<T as Trait>::Iter<'a> where Self: 'a`), reports bare-`Self`
-parameters/returns (`Self::Assoc` returns pass), and the `@?` suffix adds
-`T: ?Sized` (`Box@?` — unsized targets like `Box<dyn Trait>`);
-`#delegate(size = len)` renames the delegated target (see §7.3); generated
-impls show readable fresh generics (`P0, P1, ...`); `X<>` syncs inside
-`+`-joined bounds; fresh ranges re-open in impl bodies; repeat blocks gain
-round separators and fresh-driven cursor-only blocks (`impl{@0..}` +
-`@@N` name refs, see §8.4). `@all_fresh` deprecated (write `@0..`).
-Unreleased: body-side segment references splice **directly** (`@ident` →
-the bound element, `$( ... )*` semantics); a bare `impl` collects like bare
-`where` and adjacent bare regions split (`impl A<B> impl @{}` ≡
-`impl A<B>, @{}`); `impl{...}` attachments may be comma-joined
-(`impl{(A@..,), @0.., @{}}`); a `@{N}` fresh reference in a body requires
-the `impl{@{}}` body-slot switch (or the fresh-binding switch
-`impl{@0..}`) — "declare what you use"; the repeat-block fresh-name
-reference is spelled `@{N}` (was `@@N`). Name a specific segment element
-with an explicit fixed slot (`impl{(A0, @A..,)}`, body writes plain `A0`).
+**v0.9.5** (2026-08-27) — **direct-splice completion + impl-template
+ergonomics**: repeat blocks splice the segment's **bound element** directly
+into each round (the `$( ... )*` semantics — `(@(@A::from(self.@0),)..)`
+expands straight to `(u8::from(self.0), u16::from(self.1),
+u32::from(self.2))`, the intermediate carrier spelling is gone); a bare
+`impl` collects like a bare `where` and adjacent bare regions split
+(`impl A<B> impl @{}` ≡ `impl A<B>, @{}`); `impl{...}` attachments may be
+comma-joined (`impl{(A@..,), @0.., @{}}`); a `@{N}` fresh reference in a
+body now requires a declared body slot — `impl{@{}}` or the fresh-binding
+switch `impl{@0..}` ("declare what you use"); the fresh-name reference
+inside repeat blocks is spelled `@{N}` (was `@@N`), with the per-round
+cursor form `@{@N}` (`(@(@{@N}::foo(),)..)` → `(P0::foo(), P1::foo(),
+P2::foo())`, see §8.4). Name a specific segment element with an explicit
+fixed slot (`impl{(A0, @A..,)}`, body writes plain `A0`). New in this
+version too: AsyncFn/AsyncFnMut/AsyncFnOnce bounds, lifetimes first-class
+(`<'a>` / `'a` args / `+ 'a`), where inheritance by positional
+substitution (renamed args inherit, path-aware), inherent impls
+(`#[batch_impl(spec)] impl Type { … }`), open-ended range families
+(`@..u128` ≡ `@u8..u128`), expansion chains capped + repeat-block output
+budgeted (no OOM on composed specs).
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
@@ -886,7 +883,7 @@ template still parses as a tuple). The segment's elements are addressed by
 their absolute leaf position, but they carry **no derived names** — writing
 `@A..` does not occupy or declare `A1`, `A2`, ... anywhere. To name a
 specific element, write it as an ordinary fixed element next to the segment
-(`impl{(A0, @A..,)}` binds `A0 := ` leaf[0] through the normal slot channel,
+(`impl{(A0, @A..,)}` binds `A0 := ` leaf\[0\] through the normal slot channel,
 and the body references the plain ident `A0`). Same-level segments split the
 leaf evenly (`(A@.., B@..,)` on an arity-4 leaf → A len 2, B len 2); an
 uneven split errors. Segments recurse into nested tuples
