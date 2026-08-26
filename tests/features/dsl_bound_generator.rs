@@ -220,3 +220,24 @@ fn bound_generator_fresh_name_reference() {
     // the generated body must type-check `size_of::<P1>()` (P1 = u16)
     assert_eq!(TypeName::size(&f), 0);
 }
+
+// `@{@N}` — the **per-round** fresh-name reference: `@N` is the cursor, so
+// `@{@N}` inside a repeat block names the round's own fresh
+// (`(@(@{@N}::foo(),)..)` → `(P0::foo(), P1::foo(), P2::foo())` on three
+// freshs). The fresh-binding switch `impl{@0..}` drives the cursor-only
+// block; the `@{@0}` bodies must type-check `size_of::<P0/P1/P2>()`.
+#[batch_impl(
+    <R, F: Fn()3 R> TypeNameC<(@0..), Output=R> F
+    impl{@0.., @{}}
+    #size{ @(let _ = std::mem::size_of::<@{@0}>();).. 0 }
+)]
+trait TypeNameC<Args> {
+    type Output;
+    fn size(&self) -> usize;
+}
+
+#[test]
+fn bound_generator_fresh_name_cursor() {
+    let f = |a: u8, b: u16, c: u32| a as u64 + b as u64 + c as u64;
+    assert_eq!(TypeNameC::size(&f), 0);
+}

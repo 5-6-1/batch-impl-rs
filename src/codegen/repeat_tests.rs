@@ -55,6 +55,11 @@ fn expand_budget(s: &str, segs: &[VarSeg], budget: usize) -> Result<String, Stri
 /// A cursor-only block with **no** template segment: the fresh count drives
 /// the rounds (`@N` → `N + i` per round).
 fn expand_fresh(s: &str, n: usize) -> Result<String, String> {
+    expand_fresh_from(s, 0, n)
+}
+
+/// [`expand_fresh`] with a chosen binding start (`impl{@start..}`).
+fn expand_fresh_from(s: &str, start: usize, n: usize) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
     let cx = RepeatCtx {
         segs: &[],
@@ -62,7 +67,7 @@ fn expand_fresh(s: &str, n: usize) -> Result<String, String> {
         fresh: &crate::codegen::FreshCtx::new(&fresh_names(n), &Default::default()),
         binding: Some(crate::ast::fresh::FreshRef {
             group: None,
-            start: 0,
+            start,
             end: crate::ast::fresh::FreshEnd::Open,
         }),
         budget: Cell::new(MAX_REPEAT_TOKENS),
@@ -96,6 +101,36 @@ fn fresh_name_reference() {
     // `@{N}` → the N-th fresh generic's name, **fixed** (not per-round):
     // `@{1}` names the second fresh in every round
     assert_eq!(expand_fresh("@(@{1},)..", 3).unwrap(), "P1 , P1 , P1 ,");
+}
+
+#[test]
+fn fresh_name_cursor_reference() {
+    // `@{@N}` → the (N + round)-th fresh's name, **per-round**: each round
+    // names its own fresh — the user's `(@(@{@N}::foo(),)..)` spelling
+    // emits `(P0::foo(), P1::foo(), P2::foo())` on three freshs
+    assert_eq!(
+        expand_fresh("@(@{@0}::foo(),)..", 3).unwrap(),
+        "P0 :: foo () , P1 :: foo () , P2 :: foo () ,"
+    );
+}
+
+#[test]
+fn fresh_name_cursor_offset_start() {
+    // the cursor is relative to the binding: with `impl{@1..}` (2 bound
+    // freshs), `@{@1}` names fresh 1 then 2 — never crossing the end
+    assert_eq!(expand_fresh_from("@(@{@1},)..", 1, 3).unwrap(), "P1 , P2 ,");
+}
+
+#[test]
+fn fresh_name_cursor_out_of_range() {
+    // round 1's `@{@2}` → `@{3}` past the end (3 freshs)
+    assert!(expand_fresh("@(@{@2},)..", 3).is_err());
+}
+
+#[test]
+fn fresh_name_cursor_bad_inner() {
+    // `@{@x}` — the cursor must be a number
+    assert!(expand_fresh("@(@{@x},)..", 3).is_err());
 }
 
 #[test]

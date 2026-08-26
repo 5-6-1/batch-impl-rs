@@ -138,9 +138,10 @@ pub(crate) fn collect_drivers(
 /// Substitutes the markers of one round: `@ident` → the segment's i-th
 /// **bound element** (spliced directly from the shape mapping — the
 /// `$(...)*` semantics; no intermediate name or carrier exists between the
-/// expansion and the output), `@N` → `N + i`, and `@{N}` → the N-th fresh
+/// expansion and the output), `@N` → `N + i`, `@{N}` → the N-th fresh
 /// generic's name (the fresh-binding switch's name reference — fixed, not
-/// per-round).
+/// per-round), and `@{@N}` → the `(N + i)`-th fresh's name (the per-round
+/// form — each round names its own fresh).
 pub(crate) fn substitute(
     tokens: &[TokenTree], cx: &super::RepeatCtx, round: usize, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
@@ -153,34 +154,69 @@ pub(crate) fn substitute(
         // A fresh-ref carrier (`@{g_i}`) inside a repeat block: `@{N}` is a
         // **fixed fresh-name reference** (the successor of the retired `@@N`
         // spelling — the same `@{...}` shape the body uses, one `@` consumed),
-        // resolved here against the fresh context. A **range** carrier
+        // resolved here against the fresh context. `@{@N}` is its **cursor**
+        // form — the index is `N + round`, so each round names its own fresh
+        // (`(@(@{@N}::foo(),)..)` on three freshs →
+        // `(P0::foo(), P1::foo(), P2::foo())`). A **range** carrier
         // (`@{0..}`) passes through untouched for the later range re-opening
         // pass (`expand_range_refs`).
         if crate::ast::fresh::is_carrier_at(tokens, i) {
             let Some(TokenTree::Group(g)) = tokens.get(i + 1) else {
                 unreachable!("matched above");
             };
-            let inner: String =
-                g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
-            if let Ok(n) = inner.parse::<usize>() {
-                let Some((_, _, name)) = cx.fresh.names.get(n) else {
-                    return Err(compile_error_str(
-                        &format!(
-                            "batch-impl: `@{{{}}}` is out of range — this impl has {} \
-                             fresh generics (numbered from 0 in document order)",
-                            n,
-                            cx.fresh.names.len(),
-                        ),
-                        tokens[i].span(),
-                    ));
-                };
-                out.extend(name.clone());
-                i += 2;
-                continue;
-            }
-            // A range or grouped carrier: pass through for range re-opening.
-            out.push(tokens[i].clone());
-            out.push(tokens[i + 1].clone());
+            let inner_tokens = g.stream().into_iter().collect::<Vec<_>>();
+            let index = if is_punct_at(&inner_tokens, 0, '@') {
+                match inner_tokens.as_slice() {
+                    [TokenTree::Punct(_), TokenTree::Literal(lit)] => {
+                        match lit.to_string().parse::<usize>() {
+                            Ok(n) => n + round,
+                            Err(_) => {
+                                return Err(compile_error_str(
+                                    "batch-impl: `@{@...}` must be followed by an index \
+                                     (`@{@0}`) — the per-round fresh reference",
+                                    tokens[i].span(),
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(compile_error_str(
+                            "batch-impl: `@{@...}` must be followed by an index \
+                             (`@{@0}`) — the per-round fresh reference",
+                            tokens[i].span(),
+                        ));
+                    }
+                }
+            } else {
+                let inner: String = inner_tokens
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join("");
+                match inner.parse::<usize>() {
+                    Ok(n) => n,
+                    // A range or grouped carrier: pass through for range
+                    // re-opening.
+                    Err(_) => {
+                        out.push(tokens[i].clone());
+                        out.push(tokens[i + 1].clone());
+                        i += 2;
+                        continue;
+                    }
+                }
+            };
+            let Some((_, _, name)) = cx.fresh.names.get(index) else {
+                return Err(compile_error_str(
+                    &format!(
+                        "batch-impl: `@{{{}}}` is out of range — this impl has {} \
+                         fresh generics (numbered from 0 in document order)",
+                        index,
+                        cx.fresh.names.len(),
+                    ),
+                    tokens[i].span(),
+                ));
+            };
+            out.extend(name.clone());
             i += 2;
             continue;
         }
