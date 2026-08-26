@@ -2,6 +2,18 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## Unreleased（开发中——0.9.4 之后的下一个版本）
+
+开发中版本的变更（尚未版本化）。
+
+- **body 侧段引用改为直接拼接**——repeat 块内 `@A` 现在把段的第 i 个**绑定元素**直接拼进该轮输出（与 Rust 声明宏 `$( ... )*` 同一语义）：`impl{(A@..)}` 匹配 `(u8, u16, u32)`、body 写 `(@(@A::from(self.@0),)..)`，一步展开为 `(u8::from(self.0), u16::from(self.1), u32::from(self.2))`。中间的 `@{A_pos}` 载体拼写删除——展开与最终 impl 之间不存在任何可见的 token 机制；手写 `@{...}` 若承载的不是 fresh 位置引用则报错并给出指导。要按名字引用某个特定元素，就在段旁写一个普通固定槽——`impl{(A0, @A..,)}` 绑定 `A0 := ` 叶子[0]，body 裸写 `A0`；`@A..` 本身不衍生任何名字（不会声明 `A1`/`A2`）。repeat 块驱动段、`@N` 游标、轮间分隔符、嵌套轮次、纯游标块均不变。
+- **组合展开链封顶**——数组×range 组合（`([T,T].0..3).0..3...`）此前每层嵌套无检查地倍增展开规模，可能耗尽内存（表现为编译器挂起/OOM 而非诊断）。现在每个增长点都执行既定的展开上限（1024），超限的 spec 报出惯用的 "expands to N impls (limit 1024)" 错误。
+- **AsyncFn / AsyncFnMut / AsyncFnOnce bound**——async 闭包 trait 可作为可调用类型在 bound 中解析（`F: AsyncFn(u8)`）；结构与既有 `Fn` 家族一致。
+- **lifetime 在 spec 中一等公民**——`<'a>` 声明、`'a` trait 实参、`+ 'a` bound 元素端到端可用；作为操作数误用报错并给指导。
+- **where 继承按位置替换**——改名后的实参也能继承 trait bound 与 where 谓词：`<X, Y> Store<X, Y>` 将 `HashMap<T, K>: Send` 替换为 `HashMap<X, Y>: Send`；具体实参退化为普通谓词（`<K> Store<u32, K>` → `where u32: Clone`）。路径段（`A::B`）永不替换。
+- **固有 impl**——`#[batch_impl(spec)] impl Type { … }` 接受与 impl trait 入口相同的 spec 语法（形状形式 / 直接形式），生成普通 `impl Type` 块；该形态下 `@trait` 不可用。
+- **repeat 块输出预算**——嵌套 repeat 块的轮数相乘（笛卡尔积语义）；展开现在携带输出 token 预算（每 body 65536），嵌套乘积超限时报 `repeat-block expansion produces N tokens (limit 65536)`，而非无界输出。
+
 ## 0.9.4 (2026-08-25)
 
 > blanket 委托与 `#delegate` 改名工作——由用户对 batch-impl 与 `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen` 的手动并排实测驱动（逐行核对双方 cargo expand 完整展开）：auto_impl 的 GAT + 关联类型转发、delegate 的 `#[call(...)]` 改名是缺失的两个能力，现已补齐。在此基础上宏元层内部重建：结构化载体替换全部保留名，fresh 显示名撞名按电子表格式字母后缀逃逸（`P0A`、`P0B`、……）——编号从不跳过，`@N` 对应关系保持稳定。

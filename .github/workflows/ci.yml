@@ -41,11 +41,11 @@ jobs:
       - run: cargo test
 
   test-msrv:
-    name: test (MSRV 1.93, functional)
+    name: test (MSRV 1.95, functional)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: dtolnay/rust-toolchain@1.95.0
       - uses: Swatinem/rust-cache@v2
       # MSRV 只跑功能/回归 + doctest，跳过 trybuild 快照（.stderr 措辞随 rustc 漂移）
       # tests/dsl.rs 是拆分后的测试 crate 入口（mod features; 挂载 tests/features/ 全部模块）

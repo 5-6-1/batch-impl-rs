@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.4**（2026-08-25）——**宏元层载体重建 + blanket 委托与 `#delegate` 改名增强**：`#blanket` 委托泛型关联类型（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`）、裸 `Self` 参数/返回定向报错并给指导（`Self::Assoc` 返回放行）、wrapper `@?` 后缀加 `T: ?Sized`（`Box@?` → 非 Sized 目标如 `Box<dyn Trait>`）；`#delegate(size = len)` 改名委托目标方法（delegate crate 的 `#[call(...)]` 机制）——rename/`@all` 重叠合并、二次改名报错；宏元层内部重建——全部保留名替换为结构化载体（fresh 声明/引用为 `@{g_i}`、变长段模板标记为 `[Prefix; ()]` 数组形状——可编译代码中不可能存在、段槽按 `(prefix, position)` 对键控）；生成的 impl 显示可读 fresh 泛型（`P0, P1, ...`，撞名逃逸为 `P0A`、`P0B`、……——编号从不跳过；body 里的槽引用用可写的 `@{A_pos}` 拼写）；`X<>` 在 `+` 连接 bound 内同步；fresh 范围在 impl body 内重开；repeat 块新增轮间分隔符与 fresh 驱动 cursor-only 块（`impl{@0..}` + `@@N` 名称引用）。`@all_fresh` 已废弃（请写 `@0..`）。
+**v0.9.4**（2026-08-25）——**宏元层载体重建 + blanket 委托与 `#delegate` 改名增强**：`#blanket` 委托泛型关联类型（`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a`）、裸 `Self` 参数/返回定向报错并给指导（`Self::Assoc` 返回放行）、wrapper `@?` 后缀加 `T: ?Sized`（`Box@?` → 非 Sized 目标如 `Box<dyn Trait>`）；`#delegate(size = len)` 改名委托目标方法（delegate crate 的 `#[call(...)]` 机制）——rename/`@all` 重叠合并、二次改名报错；宏元层内部重建——全部保留名替换为结构化载体（fresh 声明/引用为 `@{g_i}`、变长段模板标记为 `[Prefix; ()]` 数组形状——可编译代码中不可能存在、段槽按 `(prefix, position)` 对键控）；生成的 impl 显示可读 fresh 泛型（`P0, P1, ...`，撞名逃逸为 `P0A`、`P0B`、……——编号从不跳过；本版的 `@{A_pos}` body 槽拼写在下一个开发周期已移除——repeat 块直接拼接绑定元素）；`X<>` 在 `+` 连接 bound 内同步；fresh 范围在 impl body 内重开；repeat 块新增轮间分隔符与 fresh 驱动 cursor-only 块（`impl{@0..}` + `@@N` 名称引用）。`@all_fresh` 已废弃（请写 `@0..`）。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
@@ -128,7 +128,7 @@ trait Describe2 { fn describe(&self) -> String; }
 | 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`/`@g_i`/`@all_fresh`/`@N..=M`）归宏元层 | §6 |
 | `where{...}`                         | 约束容器统一（`<>` 只留名字），blanket 约束并列合并 | §8 |
 | 元组生成                             | `().3`、`(T,).N`、笛卡尔积、范围            | §9 |
-| 变长段 + 重复块                      | `impl{...}` 模板内 `ident@..`（覆盖所有剩余元组位置）+ body 内 `@(...)..` 重复（`@ident` 名字、`@N` 索引游标）——一条 spec 覆盖所有元组 arity | §8.4 |
+| 变长段 + 重复块                      | `impl{...}` 模板内 `ident@..`（覆盖所有剩余元组位置）+ body 内 `@(...)..` 重复（`@ident` 直接拼接绑定元素——`$(...)*` 语义；`@N` 索引游标）——一条 spec 覆盖所有元组 arity | §8.4 |
 | fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持（`unsafe fn` 是 fn 类型；`unsafe.fn` 才是 unsafe impl 标记） | §10 |
 
 > **简写提示**：单方法 `#fill([foo]){body}` 等价于 `#foo{body}`；谓词 + 代码块 `where{谓词} {代码块}` 可裸写成 `where 谓词 {代码块}`（详见 §7.2 / §8.2）。

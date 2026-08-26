@@ -5,6 +5,178 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased (in development — the next release after 0.9.4)
+
+> Open items for the version in development. Items land here first (in
+> development order), then move into a versioned section at release.
+
+- **Done: body-side segment references splice directly** — the TODO from
+  the 0.9.4 carrier rebuild is complete: `repeat_drivers.rs::substitute`
+  now resolves `@ident` against `Mapping::seg_value` and splices the
+  bound leaf subtree straight into the round's output (the `$( ... )*`
+  semantics) — no `SegRef`/`seg_ref_tokens` carrier is emitted, both are
+  retired from `ast/fresh.rs`; `shape.rs::apply_mapping` handles only
+  user-slot idents now (the mapping-application conditions in
+  `generate_parts` / `render_impl` narrowed to the slots channel — segs
+  never reach it); `range_refs.rs` rejects a non-fresh `@{...}` with
+  guidance instead of passing segment carriers through; the mapping is
+  threaded into `expand_repeat_blocks` / `expand_stream` / `expand_block`
+  / `expand_nested` / `substitute`. Explicit fixed elements next to a
+  segment (`impl{(A0, @A..,)}`) bind through the ordinary slots channel;
+  `@A..` derives no names. Tests: `repeat_tests.rs` rewritten around a
+  readable stand-in binding table (`TA0`, `TB1`, ...) plus a composite-
+  value splice test; integration test 5 switched to the explicit-slot
+  form, test 6's `#Scalar` references the first fresh by position
+  (`@{0}`); doctest examples in `tutorial.md` §8 / `directive_consts.md`
+  updated to the direct-splice output.
+- **Structure pass on the same change** — the carrier-shape test
+  (`@` punct + Brace group) moved into the protocol as
+  `ast/fresh.rs::is_carrier_at` (used by `fold_flat_refs` / `range_refs` /
+  `repeat` / `repeat_drivers`; shape owned where it is defined); the
+  parallel parameter threading through the five expansion functions
+  collapsed into one `repeat.rs::RepeatCtx { segs, map, fresh, binding }`
+  (a new concern joins as a field, `expand_block`'s
+  `too_many_arguments` allow is gone); `render_impl`'s mapping condition
+  narrowed to the slots channel and the now-unused `Mapping::seg_entries`
+  accessor removed.
+- **`map_children` contract made real** — the single traversal authority
+  now descends into **parameter positions** too: generic argument lists
+  (`T<...>` params + bounds + associated-type bindings), generic
+  declarations (`WithType`'s `<...>`), and trait argument lists
+  (`WithTrait`) are children (`types_visit.rs::map_type_param`). The old
+  type-positions-only behavior contradicted its own doc ("exhaustive") and
+  forced workarounds: `hoist_type_params` carried a hand-written `Generic`
+  branch (now deleted — the uniform fallback covers it, and associated-type
+  binding generators hoist correctly for the first time), and
+  `driver.rs::collect_errors` claimed errors inside `Box<@0..=2>`'s type
+  params were found while the traversal never entered them (aggregation now
+  actually descends; the comment states the guarantee it gets).
+- **Root-caused and fixed the historical fuzz OOM** — the intermittent
+  multi-GB allocation (documented as a known hazard in `fuzz_config` since
+  the cases reduction to 64) was composed **array×range chains**:
+  `([T,T].0..3).0..3...` multiplies leaves ×range-len per nesting level,
+  and the accumulated-size check (`check_expand_limit("list chain
+  expansion")`) lives only in the default apply's right-operand-Array arm —
+  array-as-left × range-as-right walked straight past it. Confirmed by a
+  timing probe (6 levels = 1458 leaves; extrapolated ~20 levels ≈ tens of
+  GB, matching the observed 26 GB abort). Fix: the Range arm now runs the
+  same post-hoc leaf-count check as the Array arm (`"range chain
+  expansion"`), plus a global per-spec backstop in
+  `driver.rs::collect_spec_leaves` (a spec producing more than MAX_EXPAND
+  impls is rejected at the cap — defense in depth against any future
+  growth point bypassing the per-step checks). The fuzz corpus returns to
+  the default 256 cases (4× coverage); regression test
+  `parse::tests::composed_range_chain_hits_limit` locks the diagnostic.
+  Why it hid for so long: an alloc abort is not a panic — proptest's
+  failure capture never saw it, the whole test binary died without saving
+  a regression, and at ~5% per run it read as an environment flake.
+- **Same-family hole found in the limits inventory: `map_range` allocated
+  before checking** — `T.0..4_000_000_000` collected the range into a Vec
+  first (reserving ~32 GB of usize) and only then ran the length limit.
+  The count is now computed arithmetically (saturating on the inclusive
+  tail) before anything allocates; regression test
+  `parse::tests::huge_range_endpoint_rejects_without_allocating`. The fresh
+  counterpart (`range_refs.rs::range_count`) was audited and is safe — its
+  count is bounded by the scope length, itself capped per spec.
+- **The allocation guard caught the REAL root cause: an infinite fold
+  loop** — `testing::GuardAlloc` (a test-build global allocator panicking
+  above 256 MiB instead of letting an alloc abort kill the binary) revealed
+  that **most** fuzz inputs tripped a ~416 MiB growing realloc, invisible
+  before because memory succeeded silently. Backtrace: `parse_bound_expr` →
+  `push_arg`. Root cause: a **non-consuming block start** — `starts_block`
+  accepted a lone `'` while `parse_block`'s lifetime arm required a
+  following ident and fell through to `None` without advancing; the
+  bound/space fold loops (`unwrap_or_else(empty)`) spun forever appending
+  one empty arg per iteration. Identical abort sizes across random inputs
+  were the giveaway (growth-to-threshold, not content-shaped mass). Fixes
+  at two levels: `parse_block` now consumes a lone `'` with a targeted
+  diagnostic (restoring the `starts_block ⇒ progress` contract), and both
+  fold loops detect a zero-progress iteration and end the chain with a
+  diagnostic — systematic coverage for any future starter mismatch.
+  Regression: `parse::tests::lone_quote_terminates_with_diagnostic`
+  (raw token trees — the lexer rejects a bare `'` before our parser sees
+  it, exactly how fuzz reaches it).
+- **Associated-type binding values reject splats** — `Tr<Item=*(A,B)>`
+  leaked the DSL operator verbatim into `type Item = *(A,B)` (invalid
+  Rust). A binding takes exactly one type; a splat is a parameter-position
+  list with no flattening target there (same ruling as a bare splat as a
+  where-predicate subject). Rejected at parse time with guidance toward
+  the idiomatic distribution form (`[Tr<Item=A>, Tr<Item=B>]`); ui fixture
+  `at_binding_splat`. Behavior audit alongside: generators work in binding
+  values (`Item=(A,).2` → `(A,A)`), arrays are array types (`Item=[A,B]`
+  stays), bindings-only specs auto-fill trait generics from the definition,
+  and spec-list distribution remains the multi-impl idiom.
+- Policy: `#![forbid(unsafe_code)]` → `#![deny]` with one audited
+  exception — `testing::GuardAlloc` (`unsafe impl GlobalAlloc`). Production
+  logic remains unsafe-free.
+- **AsyncFn / AsyncFnMut / AsyncFnOnce join the fn-family** — the async
+  closure traits of Rust 2024 parse as `TyFn` blocks (ident recognition +
+  three new `FnKind` variants + rendering), so bounds (`F: AsyncFn(u8)`)
+  round-trip end-to-end. Reality notes from testing: the async traits are
+  NOT dyn-compatible on stable Rust (no `dyn AsyncFn…` tests), and
+  `AsyncFn(u8)` desugars to `Output = ()`. Tests: `dsl_dyn_for.rs` async
+  section.
+- **Lifetimes are a structured leaf** — `TyLifetime` + `TyKind::Lifetime`
+  replace the primitive passthrough for `'a`. Declarations (`<'a>`), trait
+  args (`Ref<'a,T>`) and `+ 'a` bound elements ride the node; apply rejects
+  operand misuse with guidance (`lifetime_as_operand` ui fixture). Feature
+  tests: `dsl_lifetime.rs`.
+- **Delegate edge tests** — generic methods with their own where clauses
+  delegate correctly; the methods-only boundary is locked by
+  `delegate_const.rs`.
+- **Where inheritance upgraded to positional substitution** (user
+  direction: renamed args must inherit too) — `inherit_trait_bounds` pairs
+  trait params with the spec's rendered args **by position** (lifetimes
+  included, `'a` → `'b`) and rewrites every constraint through a
+  path-aware substitutor (`subst_path_aware`): `::`-reached idents are path
+  segments (`A::B`'s `B` is an associated type), never parameters. Inline
+  bounds land on the impl generic the positional arg names, or degrade to
+  plain predicates for concrete/composite args (`<K> Store<u32, K>` →
+  `where u32: Clone`); compound predicates rewrite wholesale
+  (`<T> Store<u32, Vec<T>>` → `where HashMap<u32, Vec<T>>: Send`). The old
+  name-equality errors are gone — the five rename-rejection ui fixtures
+  became positive tests (`dsl_where_rename.rs`).
+- **Inherent impls on the impl entry** (user direction: same grammar as the
+  trait-impl entry, minus `@trait`) — `#[batch_impl(spec)] impl Type { … }`
+  now accepts `item.trait_ == None`: shape form (`Wrap<T> : [Wrap<u8>,
+  Wrap<u16>]`), direct form (`<T> Wrap<T>`) and where/new-generic-decl all
+  compose; `assemble_impl` omits the `for` section and `X<>` sync degrades
+  to a no-op; `@trait` on this form errors. Tests:
+  `impl_entry_inherent.rs`.
+- **Open-ended range families** (user idea) — either endpoint of a range
+  constant may be omitted: `@..u128` ≡ `@u8..u128`, `@u16..` ≡
+  `@u16..u128`, `@f32..` ≡ `@f32..f64` (`builtin_range_open` resolves the
+  omitted side to the family min/max, then the full validation runs).
+  Endpoint resolution is **adjacency-aware**: proc-macro2 lexes the second
+  dot of `..` as `Alone` even when glued, so spacing cannot tell
+  `@u8..u128` from `@u8.. u128` — byte positions (`Span::start/end`, via
+  the newly enabled proc-macro2 `span-locations` feature) decide. A
+  whitespace-separated ident fails width validation → it is the next DSL
+  item (`@i16.. Neg`) and the open family is emitted with the ident left
+  unconsumed; a legal-width ident is the endpoint regardless of adjacency
+  (`@u8.. u128`, whitespace-insensitive like every pre-existing form). A
+  trailing `..=` without an endpoint stays an error. Tests:
+  `table.rs::range_open_tests` + `dsl_consts.rs` integration.
+- **MSRV raised to 1.95** (was 1.88 for five days) — two adoptions from the
+  user's Rust-changes survey: match-arm **if-let guards** flatten the
+  repeat-block `@` dispatch (`expand_stream`: declared-driver / plain block /
+  fresh-carrier / error arms, no nested `if let`s), and **`Cell::update`**
+  replaces the budget get/sub/set dance. Deps unaffected (syn/quote/PM2 all
+  ≤1.71); trybuild/proptest declare 1.85.
+
+
+
+- **Repeat-block output budget closes the last multiplicative gap** —
+  nested `@(...)..` blocks multiply their round counts (Cartesian semantics:
+  the output is ∏len over nesting levels), a growth channel outside
+  MAX_EXPAND's reach (it bounds impl counts, not body emission). The
+  expansion now spends an output-token budget (`MAX_REPEAT_TOKENS = 65536`,
+  carried on `RepeatCtx` as a `Cell`, deducted per block after assembling
+  its rounds — per-level charging is conservative by up to a depth factor,
+  documented). Regression tests: three len-40 levels (~64k tokens) error
+  with the targeted diagnostic; two levels expand; a tiny absolute budget
+  rejects even single rounds.
+
 ## 0.9.4 (2026-08-25, continued) — the macro-meta carrier rebuild
 
 - **Phase 6 — variadic-segment template markers de-magicked**:
@@ -1678,3 +1850,16 @@
 
 
 
+- **Structure pass (whole-tree review)** — the naive ident replacer
+  (`extract.rs::replace_idents`) and the path-aware substitutor
+  (`generics.rs::subst_path_aware`) were two implementations of one concern;
+  the path-aware one moved to `util::subst` as the single authority and now
+  also serves directive-copied bodies — which fixes a documented limitation
+  (a `T::Item` segment shadowing a trait param named `Item` no longer
+  substitutes). Debug leftover `probe_marker_final` (a println experiment
+  from the varseg marker selection, sitting un-gated at `fresh.rs` file
+  scope) deleted. Known drift, deliberately NOT changed: per-file ~350-line
+  budget has ten files over (largest `range_refs.rs` 470) — splitting is
+  mechanical but large-diff; near-miss names (`where_process` vs
+  `where_at`, dual `splat.rs`) documented instead of renamed; `wip/`
+  scratch stays ignored.

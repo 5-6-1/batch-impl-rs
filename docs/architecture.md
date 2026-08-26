@@ -1,5 +1,16 @@
 # batch-impl Internal Architecture
 
+**Unreleased** (in development) — body-side segment references now splice
+**directly**: `repeat_drivers.rs::substitute` resolves `@ident` against
+`Mapping::seg_value` and splices the bound leaf subtree into each round
+(the `$( ... )*` semantics); the `SegRef`/`seg_ref_tokens` carrier is
+retired from `ast/fresh.rs`, `apply_mapping` handles only user-slot idents
+(the mapping-application conditions narrowed to the slots channel), and a
+non-fresh `@{...}` in a body errors with guidance instead of passing
+through as a segment carrier. Explicit fixed elements next to a segment
+(`impl{(A0, @A..,)}`) bind through the ordinary slots channel; `@A..`
+derives no names.
+
 **v0.9.4** (2026-08-25) — the blanket-delegation and `#delegate`-rename work (from the user's manual side-by-side comparison with `auto_impl` / `delegate` / `impl-trait-for-tuples` / `fortuples` / `trait-gen`): `#blanket` GAT projection (`type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a` — the GAT's own params pass through the projection, `blanket.rs`), bare-`Self` parameter/return detection (`blanket_helpers.rs::sig_refs_bare_self`; `Self::Assoc` returns pass), the `@?` unsized suffix (`Box@?` → `where{T: ?Sized}`, `blanket_wrappers.rs` — the field is `is_unsized`, `unsized` is an edition-2024 reserved word); `#delegate` rename `foo = call_foo` (`dispatch.rs::expand_delegate` — `=` splits off a rename map, the name-list parser deduplicates keep-first so rename/`@all` overlap merges, a double rename errors); readable fresh names `P0, P1, ...` (`codegen/fresh.rs::display_name` — `FreshCtx` assigns them once, collisions escape by spreadsheet-style letter suffixes (`P0A`, `P0B`, ...), numbering never skips or drifts); hygienic `::core::compile_error!` in generated diagnostics; `X<>` sync inside `+`-joined bound lists (`sync.rs::sync_bound_ty` — structured `TyBoundList` syncs per element); fresh-range placeholders re-open in impl bodies; repeat-block inter-round separators + fresh-count-driven cursor-only blocks + the fresh-binding switch `impl{@0..}` with `@@N` name references (`repeat.rs` / `repeat_drivers.rs` / `extract.rs::parse_fresh_switch`); precise empty-tuple fold (`range_refs.rs::fold_empty_tuple` — top-level range placeholder only);
 
 **v0.9.3** (2026-08-22) — **generative Fn types**: `Fn` / `FnMut` / `FnOnce` (and bare `fn`) parse structurally with a real parameter list (`ast/types.rs::TyFn` + `FnKind`, `parse_atom.rs` / `parse/blocks.rs`), so a generator runs inside (`Fn()2` → `Fn(P0,P1)`; the space form `Fn()N` ≡ `Fn.().N`); `dyn` / `for<'a>` wrappers structured (`TyWithDyn` / `TyWithFor` keep the inner type structural) — generators penetrate trait objects and HRTBs; **bound generators** distribute over arity ranges (`codegen/bound_gen.rs` — one impl per arity, the bound pinned, the target's `@0..` re-opened against that impl's fresh list); `(@0..)` comma-less range tuple; fresh hoisting from target generic args (`extract.rs::hoist_type_params` recurses into `TyGeneric` params); bare `where A: Clone` needs no `{}`; space-form generator spellings; `@all_fresh` deprecated (write `@0..`); `@Cow` documented as a `#blanket`-only wrapper constant;

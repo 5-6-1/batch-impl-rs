@@ -14,6 +14,10 @@ impls show readable fresh generics (`P0, P1, ...`); `X<>` syncs inside
 `+`-joined bounds; fresh ranges re-open in impl bodies; repeat blocks gain
 round separators and fresh-driven cursor-only blocks (`impl{@0..}` +
 `@@N` name refs, see §8.4). `@all_fresh` deprecated (write `@0..`).
+Unreleased: body-side segment references splice **directly** (`@ident` →
+the bound element, `$( ... )*` semantics) — the `@{A_pos}` carrier spelling
+is gone; name a specific element with an explicit fixed slot
+(`impl{(A0, @A..,)}`, body writes plain `A0`).
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
@@ -363,6 +367,9 @@ trait BoxRc {}
 
 **Range families**: `@u8..u128`, `@i8..i128`, `@f32..f64` (inclusive) — the
 contiguous run of one family (`@u8..u128` → `u8, u16, u32, u64, u128`).
+Either endpoint may be **omitted**: `@..u128` ≡ `@u8..u128`, `@u16..` ≡
+`@u16..u128`, `@f32..` ≡ `@f32..f64` (the omitted side resolves to the
+family's minimum/maximum; at least one endpoint anchors the family).
 `usize`/`isize` only enter name families, not range families.
 
 ### 6.2 Lazy expansion and references
@@ -496,7 +503,7 @@ constraint):
     Module<(), ()> ()1..=4 where @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>
         impl{(A@..)}
-    #Scalar{@{A_0}::Scalar}
+    #Scalar{@{0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
 trait Module<Add, Mul> {
@@ -870,29 +877,33 @@ it covers every remaining tuple position from its own position onward (a
 segment written after fixed elements starts at their count). A trailing
 segment needs **no comma** — `impl{(A@..)}` and `impl{(A@..,)}` are
 equivalent (0.9.2; the trailing comma is supplied automatically so the
-template still parses as a tuple). The segment's
-names are **aligned with the leaf position** — `(u8, A@..,)` on
-`(u8, u16, u32)` yields `@{A_1}`, `@{A_2}` (none at 0; the index cursor
-starts at `@1`), while `(A@..,)` on `(u8, u16, u32)` yields `@{A_0}`, `@{A_1}`,
-`A2`. Same-level segments split the leaf evenly (`(A@.., B@..,)` on an
-arity-4 leaf → A len 2, B len 2); an uneven split errors. Segments recurse
-into nested tuples (`((A@..,),(B@..,))`), and duplicate segment prefixes in
-one template error.
+template still parses as a tuple). The segment's elements are addressed by
+their absolute leaf position, but they carry **no derived names** — writing
+`@A..` does not occupy or declare `A1`, `A2`, ... anywhere. To name a
+specific element, write it as an ordinary fixed element next to the segment
+(`impl{(A0, @A..,)}` binds `A0 := ` leaf[0] through the normal slot channel,
+and the body references the plain ident `A0`). Same-level segments split the
+leaf evenly (`(A@.., B@..,)` on an arity-4 leaf → A len 2, B len 2); an
+uneven split errors. Segments recurse into nested tuples
+(`((A@..,),(B@..,))`), and duplicate segment prefixes in one template error.
 
 The body repeats with `@(...)..` — a repeat block emitted once per element
-of the segment(s) it references:
+of the segment(s) it references (the `$( ... )*` semantics of Rust's
+declaration macros: each round splices the actual bound element):
 
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl((u8, u16, u32) impl{(A@..)} { fn tail(&self) -> (u8, u16, u32) { (@(@A::from(self.@0),)..) } })]
 trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
-// body → (@{A_0}::from(self.0), @{A_1}::from(self.1), @{A_2}::from(self.2))
-//        → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
+// body → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
 ```
 
-- `@ident` inside a block is a **name reference** — the i-th element's slot
-  slot carrier `@{A_pos}` (`A_0`, `A_1`, ... — prefix + `_` + the absolute leaf position), which the slot mapping then rewrites to the bound
-  leaf element;
+- `@ident` inside a block is an **element reference** — round `i` splices
+  the segment's i-th bound leaf element **directly** into the output (no
+  intermediate spelling exists between the expansion and the rendered impl);
+- a fixed template element written next to the segment (`A0` in
+  `impl{(A0, @A..,)}`) is an ordinary slot: the body writes the plain ident
+  `A0` wherever the named element is needed;
 - `@N` is an **index cursor** — the numeric literal `N + i`; write the path
   prefix yourself (`self.@1` for a segment starting at leaf index 1);
 - the block repeats `L` times, and the length comes from one of three
@@ -903,9 +914,15 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
   several segments rejects the ambiguous cursor-only form);
 - the block body's trailing `,` is the separator, emitted after every round —
   write no comma *between* side-by-side blocks (each block already
-  terminates its own elements);
-- nested blocks run independent rounds (Cartesian semantics);
-- outside a block, `@` in a body is an error.
+  terminates its own elements); alternatively write the separator between
+  `)` and `..` (`@(x),..`) so it is emitted only *between* rounds, never
+  after the last one;
+- nested blocks run independent rounds (Cartesian semantics) — the output
+  is the product of the nesting levels' round counts, capped at 65536
+  output tokens per body (`repeat-block expansion produces N tokens (limit
+  65536)` beyond that);
+- outside a block, `@` in a body is an error; the segment elements cannot be
+  spelled `@{...}` — that form holds fresh position references only.
 
 A cursor-only block generates element references without naming the types —
 the tuple-to-tuple re-shaping case:

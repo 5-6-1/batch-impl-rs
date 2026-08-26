@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e7156b9a5a1f00eb031c0db55136fc32725afc54ac6c2e5dbd37dfe40207c086 # shrinks to toks = [Group(None, [Punct(':', Alone), Punct('\'', Alone)])]
+cc 94ccbb3f9b1b7769aab649c28e763f62ba8dfe5c2dbdb4f83d2fd9ae847eeb6b # shrinks to toks = [Group(None, [Group(Parenthesis, [Group(None, [Punct(':', Alone), Punct('#', Alone)]), Group(Parenthesis, [Ident("self"), Punct('<', Alone), Punct('&', Alone)])])])]

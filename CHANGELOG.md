@@ -5,6 +5,51 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased (in development — the next release after 0.9.4)
+
+Changes for the version in development (not yet versioned).
+
+- **Body-side segment references splice directly** — inside a repeat
+  block, `@A` now splices the segment's i-th **bound element** straight
+  into the round's output (the `$( ... )*` semantics of Rust's declaration
+  macros): `impl{(A@..)}` on `(u8, u16, u32)` with body
+  `(@(@A::from(self.@0),)..)` expands to
+  `(u8::from(self.0), u16::from(self.1), u32::from(self.2))` in one step.
+  The intermediate `@{A_pos}` carrier spelling is gone — no token
+  machinery is ever visible between the expansion and the rendered impl;
+  hand-written `@{...}` holding anything but a fresh position reference
+  now errors with guidance. To reference one specific element by name,
+  write it as an ordinary fixed slot next to the segment —
+  `impl{(A0, @A..,)}` binds `A0 := ` leaf[0] and the body writes plain
+  `A0`; `@A..` itself derives no names (it declares nothing called
+  `A1`/`A2`). Repeat-block drivers, `@N` cursors, inter-round separators,
+  nested rounds and cursor-only blocks are unchanged.
+- **Composed expansion chains are capped** — an array×range composition
+  (`([T,T].0..3).0..3...`) used to multiply the expansion per nesting level
+  with no limit check on that path, potentially consuming unbounded memory
+  (a compiler hang/OOM instead of a diagnostic). Every growth point now
+  enforces the documented expansion limit (1024), and a spec exceeding it
+  reports the usual "expands to N impls (limit 1024)" error.
+- **AsyncFn / AsyncFnMut / AsyncFnOnce bounds** — the async closure traits
+  parse as callable types in bounds (`F: AsyncFn(u8)`); structured like the
+  existing `Fn` family.
+- **Lifetimes are first-class in specs** — `<'a>` declarations, `'a` trait
+  args and `+ 'a` bound elements work end-to-end; misuse as an operand
+  errors with guidance.
+- **Where inheritance by positional substitution** — renamed spec args now
+  inherit trait bounds and where predicates: `<X, Y> Store<X, Y>`
+  substitutes `HashMap<T, K>: Send` → `HashMap<X, Y>: Send`; concrete args
+  degrade to plain predicates (`<K> Store<u32, K>` → `where u32: Clone`).
+  Path segments (`A::B`) are never substituted.
+- **Inherent impls** — `#[batch_impl(spec)] impl Type { … }` accepts the
+  same spec grammar as the trait-impl entry (shape form / direct form),
+  rendering plain `impl Type` blocks; `@trait` is unavailable there.
+- **Repeat-block output is budgeted** — nested repeat blocks multiply their
+  round counts (Cartesian semantics); the expansion now carries an
+  output-token budget (65536 per body) and reports
+  `repeat-block expansion produces N tokens (limit 65536)` when the nesting
+  product exceeds it, instead of emitting unboundedly.
+
 ## 0.9.4 (2026-08-25)
 
 > The blanket-delegation and #delegate-rename work — driven by the user's
