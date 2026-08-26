@@ -49,6 +49,24 @@ Changes for the version in development (not yet versioned).
   output-token budget (65536 per body) and reports
   `repeat-block expansion produces N tokens (limit 65536)` when the nesting
   product exceeds it, instead of emitting unboundedly.
+- **Bare `impl` spelling collects like bare `where`** — `impl (A@..) {…}`
+  is token-equivalent to `impl{(A@..)} {…}`, and adjacent bare `impl`
+  regions split like adjacent `where` regions (`impl A<B> impl @{}` ≡
+  `impl A<B>, @{}`), each collecting into its own `impl{...}` template
+  that merges into one slot mapping.
+- **`impl{...}` attachments may be comma-joined** — one `impl{...}` block
+  can carry several switches/templates together (`impl{(A@..,), @0..,
+  @{}}`), each depth-0 segment classified independently — equivalent to
+  writing the split blocks.
+- **`@{N}` references need a declared body slot** — a `@{N}` fresh
+  reference in a body requires the `impl{@{}}` body-slot switch (or the
+  fresh-binding switch `impl{@0..}`, whose rounds consume `@{N}`) — the
+  "declare what you use" rule; without it the macro reports the switch
+  with guidance. Macro-injected carriers (blanket projections, substituted
+  range placeholders) are exempt by shape.
+- **`@@N` renamed to `@{N}`** — the fresh-name reference inside repeat
+  blocks now uses the same single-`@` spelling as everywhere else:
+  `@@0` → `@{0}`, `@@1` → `@{1}`.
 
 ## 0.9.4 (2026-08-25)
 
