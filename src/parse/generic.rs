@@ -72,8 +72,24 @@ pub(crate) fn parse_angle_bracket_contents(
                         chunk[eq].span(),
                     ))
                     .to_ty(),
-                    Ok(v) => parse_item(&mut Cursor::new(&v), Op::Space, trait_name)
-                        .unwrap_or_else(empty),
+                    Ok(v) => {
+                        let parsed = parse_item(&mut Cursor::new(&v), Op::Space, trait_name)
+                            .unwrap_or_else(empty);
+                        // A binding takes exactly **one** type — a splat is a
+                        // parameter-position list with no flattening target in
+                        // a binding (same ruling as a bare splat as a
+                        // where-predicate subject: constraints/values are not
+                        // lists). Distribute via a spec list instead.
+                        match parsed.kind {
+                            TyKind::Splat(_) => err_ty_at(
+                                "batch-impl: a splat cannot be an associated-type binding \
+                                 value (`Item = *(A,B)` — bindings take exactly one type; \
+                                 distribute via a spec list like `[Tr<Item=A>, Tr<Item=B>]`)",
+                                parsed.span,
+                            ),
+                            _ => parsed,
+                        }
+                    }
                     Err(e) => TyPrimitive(e).to_ty(),
                 };
                 bindings.push((Box::new(name_ty), Box::new(value)));
@@ -96,7 +112,7 @@ pub(crate) fn parse_angle_bracket_contents(
                         TyPrimitive(chunk[..colon].iter().cloned().collect::<TokenStream>())
                             .to_ty(),
                     ),
-                    Some(if chunk[colon + 1..].is_empty() {
+                    Some(Box::new(if chunk[colon + 1..].is_empty() {
                         TyPrimitive(compile_error_ty(
                             "batch-impl: bound `T:` missing a bound (write `T: Clone`)",
                             chunk[colon].span(),
@@ -109,7 +125,7 @@ pub(crate) fn parse_angle_bracket_contents(
                             &mut Cursor::new(&chunk[colon + 1..]),
                             trait_name,
                         )
-                    }),
+                    })),
                 ));
             } else {
                 params.push((

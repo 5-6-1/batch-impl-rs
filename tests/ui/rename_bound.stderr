@@ -1,7 +1,0 @@
-error: batch-impl: trait argument `X` maps to parameter `T` (bound `Clone`); automatic inheritance requires the same name; rename to `T` or write the bound manually
- --> tests/ui/rename_bound.rs:4:1
-  |
-4 | #[batch_impl(<X> A<X> ())]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

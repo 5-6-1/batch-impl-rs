@@ -71,6 +71,7 @@ impl_from_for_ty! {
     TyNum => Num,
     TyRange => Range,
     TyFresh => Fresh,
+    TyLifetime => Lifetime,
     TyBoundList => BoundList,
     TyError => Error,
 }

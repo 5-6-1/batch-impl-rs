@@ -88,8 +88,10 @@ pub(crate) fn render_impl(
     // target type — shape template slot mapping applied here (the resolved
     // leaf tokens are in hand; slot names in the target are replaced with
     // the bound subtrees, e.g. `A<B>` → `Box<usize>`). References were
-    // already resolved in `generate_parts`.
-    let target = if shape_map.slots().is_empty() && shape_map.seg_entries().is_empty() {
+    // already resolved in `generate_parts`. Only the slots channel applies
+    // — segment values splice into bodies during the repeat expansion and
+    // never pass through the mapping.
+    let target = if shape_map.slots().is_empty() {
         target_tokens
     } else {
         crate::codegen::shape::apply_mapping(target_tokens, shape_map)

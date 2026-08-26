@@ -6,17 +6,15 @@ use crate::util::cartesian;
 use proc_macro2::Span;
 
 /// `N..M` / `N..=M`: calls f for every length n in the range, packing results into a list.
-/// Empty range (`start >= end`) or over-limit (len > [`MAX_EXPAND`]): a typo diagnostic
+/// Empty range (`start >= end`) or over-limit (len > [`MAX_EXPAND`]): a typo diagnostic.
+/// The length is computed arithmetically **before** anything allocates — a
+/// huge endpoint (`T.0..4_000_000_000`) must reject, never reserve.
 pub(crate) fn map_range(
     start: usize, end: usize, inclusive: bool, span: Span, f: impl Fn(usize) -> Ty,
 ) -> Ty {
     let end_mark = if inclusive { "=" } else { "" };
-    let ns = if inclusive {
-        (start..=end).collect::<Vec<_>>()
-    } else {
-        (start..end).collect::<Vec<_>>()
-    };
-    if ns.is_empty() {
+    let empty = if inclusive { start > end } else { start >= end };
+    if empty {
         return err_ty_at(
             &format!(
                 "batch-impl: range `{}..{}{}` is empty (start not below end); no impls will be generated",
@@ -25,11 +23,18 @@ pub(crate) fn map_range(
             span,
         );
     }
-    if let Some(e) =
-        check_expand_limit(&format!("range `{}..{}{}`", start, end, end_mark), ns.len())
-    {
+    // `end - start` cannot overflow (both are usize and end >= start); the
+    // inclusive tail `+ 1` can — saturate first, the limit check rejects it.
+    let len = if inclusive { end.saturating_sub(start).saturating_add(1) } else { end - start };
+    if let Some(e) = check_expand_limit(&format!("range `{}..{}{}`", start, end, end_mark), len) {
         return e;
     }
+    let ns = if inclusive {
+        (start..=end).collect::<Vec<_>>()
+    } else {
+        (start..end).collect::<Vec<_>>()
+    };
+    debug_assert_eq!(ns.len(), len);
     TyArray(ns.into_iter().map(f).collect()).into()
 }
 
@@ -79,7 +84,7 @@ fn pow_single(template: Ty, n: usize) -> Ty {
             params: params
                 .clone()
                 .into_iter()
-                .map(|p| (Box::new(p.clone()), Some(bound_ty.clone())))
+                .map(|p| (Box::new(p.clone()), Some(Box::new(bound_ty.clone()))))
                 .collect(),
             bindings: vec![],
         }

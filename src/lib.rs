@@ -1,8 +1,10 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/tutorial.md"))]
-// The library uses no unsafe; missing docs are rejected as errors (only for pub items;
-// internal pub(crate) is exempt).
-#![forbid(unsafe_code)]
+// The library uses no unsafe **in its own logic** — enforced as deny rather
+// than forbid for exactly one audited exception: the test-build allocation
+// guard (`testing::GuardAlloc`), which turns runaway fuzz allocations into
+// catchable panics instead of process aborts.
+#![deny(unsafe_code)]
 #![deny(missing_docs)]
 // The MSVC linker prints "creating library ... and object ..." to stdout, which rustc
 // treats as linker_messages warnings; these are harmless Windows link-product notices,
@@ -15,6 +17,9 @@
 pub(crate) mod preprocess;
 #[cfg(test)]
 mod testing;
+#[cfg(test)]
+#[global_allocator]
+static FUZZ_GUARD: testing::GuardAlloc = testing::GuardAlloc;
 use syn::{ItemTrait, parse_macro_input};
 
 mod analyze;

@@ -1,7 +1,0 @@
-error: batch-impl: inherited where predicate `[T; N] : Sized` references parameter `N`, but the impl declares no such name; declare `N` or hand-write the where clause
- --> tests/ui/where_const_ref.rs:4:1
-  |
-4 | #[batch_impl(<T> ArrBad<T, 5> ())]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

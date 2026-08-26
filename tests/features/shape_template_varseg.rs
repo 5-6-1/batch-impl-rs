@@ -99,16 +99,17 @@ fn multi_segment_parallel_rounds() {
 }
 
 // ------------------------------------------------------------
-// 5. A single-element segment (`(A@..,)` on an arity-1 leaf) referenced
-//    directly by its slot carrier `@{A_pos}` (pos = the leaf position).
+// 5. Explicit start name + plain body reference: a fixed template element
+//    (`A0`) binds through the ordinary slot channel, and the body writes
+//    the plain ident — no segment spelling exists.
 // ------------------------------------------------------------
-#[batch_impl((u8,) impl{(A@..,)} { fn get(&self) -> @{A_0} { self.0 } })]
+#[batch_impl((u8,) impl{(A0,)} { fn get(&self) -> A0 { self.0 } })]
 trait ShapeOne {
     fn get(&self) -> u8;
 }
 
 #[test]
-fn single_element_segment_direct_name() {
+fn explicit_start_name_direct_use() {
     assert_eq!((7u8,).get(), 7);
 }
 
@@ -116,14 +117,16 @@ fn single_element_segment_direct_name() {
 // 6. alga2 tuple Module: the scalar of every component from the second one
 //    on must equal the first component's scalar — `@1..` open-range where
 //    predicates with a `Scalar = @0::Scalar` value reference inside the
-//    angle group (arity 1 contributes no such predicate).
+//    angle group (arity 1 contributes no such predicate). The filled
+//    `#Scalar` body references the first fresh generic by its position
+//    carrier `@{0}` (resolved to the display name).
 // ------------------------------------------------------------
 #[batch_impl(
     Module<(), ()> ().1..=4 where{
         @all_fresh: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)}
-    #Scalar{@{A_0}::Scalar}
+    #Scalar{@{0}::Scalar}
     #scale{( @(@A::scale(&self.@0, s),).. )}
 )]
 trait Module<Add, Mul> {

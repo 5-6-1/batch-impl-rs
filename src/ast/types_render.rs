@@ -29,7 +29,7 @@ pub(crate) fn render_param(name: &impl ToTokens, bound: Option<&Ty>) -> TokenStr
 pub(crate) fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
     let mut all = vec![];
     for (name, bound) in &tp.params {
-        all.push(render_param(name, bound.as_ref()));
+        all.push(render_param(name, bound.as_deref()));
     }
     for (name, value) in &tp.bindings {
         all.push(quote!(#name = #value));
@@ -126,6 +126,9 @@ impl ToTokens for Ty {
                     crate::ast::FnKind::Trait => quote!(Fn),
                     crate::ast::FnKind::TraitMut => quote!(FnMut),
                     crate::ast::FnKind::TraitOnce => quote!(FnOnce),
+                    crate::ast::FnKind::TraitAsync => quote!(AsyncFn),
+                    crate::ast::FnKind::TraitAsyncMut => quote!(AsyncFnMut),
+                    crate::ast::FnKind::TraitAsyncOnce => quote!(AsyncFnOnce),
                 };
                 match &f.0 {
                     Some(params) => {
@@ -183,6 +186,7 @@ impl ToTokens for Ty {
                 Some(inner) => inner.to_token_stream(),
                 None => quote!(),
             },
+            TyKind::Lifetime(l) => l.0.clone(),
             TyKind::Error(e) => e.0.clone(),
         })
     }

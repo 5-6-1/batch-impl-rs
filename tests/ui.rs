@@ -50,13 +50,13 @@ fn ui() {
     t.compile_fail("tests/ui/minus_bad_target.rs");
     t.compile_fail("tests/ui/minus_empty.rs");
 
-    // generic auto-inheritance only accepts identical names: renaming / bound referencing undeclared params
-    t.compile_fail("tests/ui/rename_bound.rs");
-    t.compile_fail("tests/ui/rename_ref.rs");
+    // generic auto-inheritance is positional-substitution based now — the
+    // old rename-rejection fixtures (rename_bound / rename_ref) became
+    // positive tests (`dsl_where_rename.rs`)
 
-    // where predicate inheritance: renaming / composite predicates referencing undeclared params
-    t.compile_fail("tests/ui/rename_where.rs");
-    t.compile_fail("tests/ui/where_const_ref.rs");
+    // where-predicate inheritance is substitution based now — the old
+    // rename/reference-rejection fixtures (rename_where / where_const_ref /
+    // rename_where_projection) became positive tests (`dsl_where_rename.rs`)
 
     // combined expansion count exceeds the limit
     t.compile_fail("tests/ui/expand_limit.rs");
@@ -129,10 +129,6 @@ fn ui() {
     // (forwarding yields the inner type, not the wrapper's `Self`)
     t.compile_fail("tests/ui/blanket_self_return.rs");
 
-    // where-predicate inheritance: a projection subject (`T::Item: Clone`)
-    // references `T` — renaming the impl generic errors with guidance
-    t.compile_fail("tests/ui/rename_where_projection.rs");
-
     // remaining silent-drop / raw-passthrough guards (see dev-changelog)
     t.compile_fail("tests/ui/binding_bound_empty.rs");
     t.compile_fail("tests/ui/literal_and_range.rs");
@@ -170,6 +166,18 @@ fn ui() {
     // `X<>` (empty brackets) fills with the spec's trait args on any ident;
     // body sync needs a template carrying `Tr<>`
     t.compile_fail("tests/ui/impl_trait_sync_body_negative.rs");
+    // the segment-slot carrier spelling is gone: a body-side non-fresh
+    // `@{...}` errors with guidance (the repeat expansion splices elements
+    // directly)
+    t.compile_fail("tests/ui/at_segment_carrier_in_body.rs");
+    // a splat cannot be an associated-type binding value — bindings take one
+    // type; distribute via a spec list
+    t.compile_fail("tests/ui/at_binding_splat.rs");
+    // #delegate is methods-only: a trait const is not delegable
+    t.compile_fail("tests/ui/delegate_const.rs");
+    // a lifetime is not an apply operand (`'a T` — it belongs in bounds,
+    // declarations or references)
+    t.compile_fail("tests/ui/lifetime_as_operand.rs");
 
     // the impl entry (ItemImpl): for-Type shape mismatch / banned `@` and `#` /
     // non-type direct form

@@ -1,0 +1,7 @@
+error: batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`)
+ --> tests/ui/lifetime_as_operand.rs:5:1
+  |
+5 | #[batch_impl(<T> Bad<'a T> Holder<T>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

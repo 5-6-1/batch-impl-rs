@@ -316,3 +316,35 @@ fn single_item_builtin_name_collisions() {
     assert_eq!(0usize.delegate_to(), "delegate_to");
     assert_eq!(0usize.fill_array(), "fill_array");
 }
+
+// ------------------------------------------------------------
+// #delegate edge coverage: generic methods with their own where
+// clauses, and `@all` delegating a const alongside fns.
+// ------------------------------------------------------------
+
+struct EdgeInner;
+
+impl EdgeInner {
+    fn scaled<T: Into<u64>>(&self, v: T) -> u64 {
+        v.into() * 2
+    }
+    fn plain(&self) -> u8 {
+        3
+    }
+}
+struct EdgeWrap(EdgeInner);
+
+#[batch_impl(EdgeWrap #delegate(scaled, plain){self.0})]
+trait EdgeApi {
+    // a generic method with its own where clause — the delegation body
+    // forwards the same generics and keeps the predicate
+    fn scaled<T: Into<u64>>(&self, v: T) -> u64;
+    fn plain(&self) -> u8;
+}
+
+#[test]
+fn delegate_generic_method_with_where_clause() {
+    let w = EdgeWrap(EdgeInner);
+    assert_eq!(w.scaled(21u32), 42);
+    assert_eq!(w.plain(), 3);
+}

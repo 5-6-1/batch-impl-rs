@@ -111,7 +111,7 @@ fn const_param_where_predicate_no_error() {
                 (Box::new(TyPrimitive(quote!(T)).to_ty()), None),
                 (
                     Box::new(TyPrimitive(quote!(const N)).to_ty()),
-                    Some(TyPrimitive(quote!(usize)).to_ty()),
+                    Some(TyPrimitive(quote!(usize)).to_ty().into()),
                 ),
             ],
             bindings: vec![],

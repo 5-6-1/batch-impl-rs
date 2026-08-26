@@ -9,7 +9,7 @@
 use proc_macro2::{TokenStream, TokenTree};
 
 use crate::preprocess::consts::ctx::ConstCtx;
-use crate::preprocess::{builtin_named, builtin_range, render_list, split_range_endpoint};
+use crate::preprocess::{builtin_named, builtin_range_open, render_list, split_range_endpoint};
 use crate::util::{compile_err, compile_err_at, compile_error_str, is_joint_punct_at, is_punct_at};
 
 /// Recognizes and expands an `@` constant reference at `tokens[0]`; returns
@@ -20,13 +20,35 @@ use crate::util::{compile_err, compile_err_at, compile_error_str, is_joint_punct
 /// - `@` Ident `=` … → user definition segment (appears only during
 ///   `collect_user_consts`'s leading collection; treated as an error here —
 ///   attribute macro entries do not support custom constants)
-/// - `@` Ident `..` Ident → range family
+/// - `..` [`=`] Ident → open-left range family (`@..u128`)
+/// - `@` Ident `..` [`=`] Ident? → range family (`@u8..u128`, `@u16..`)
 /// - `@trait` → full trait path (attribute macro entries; batch_trait!
 ///   returns `None` to keep)
 /// - `@` Ident → name family / user table
 pub(crate) fn try_expand_at(
     tokens: &[TokenTree], ctx: ConstCtx,
 ) -> Result<Option<(Vec<TokenTree>, usize)>, TokenStream> {
+    // Open-left range family: `@..u128` / `@..=i64` — the family minimum
+    // fills the omitted start. Recognized before the Ident requirement
+    // (there is no leading name in this form).
+    if is_joint_punct_at(tokens, 1, '.') && is_punct_at(tokens, 2, '.') {
+        let end_idx = if let Some(TokenTree::Punct(eq)) = tokens.get(3)
+            && eq.as_char() == '='
+        {
+            4
+        } else {
+            3
+        };
+        let Some(TokenTree::Ident(end)) = tokens.get(end_idx) else {
+            return Err(compile_err!(
+                "batch-impl: range constant `@..` must name the family's \
+                 maximum endpoint (e.g. `@..u128`, `@..f64`)"
+            ));
+        };
+        let types = builtin_range_open(None, Some(&end.to_string()))
+            .map_err(|msg| compile_err!("batch-impl: {}", msg))?;
+        return Ok((vec![render_list(types.iter().map(|s| s.as_str()))], end_idx + 1).into());
+    }
     let Some(TokenTree::Ident(name)) = tokens.get(1) else {
         // `@N` position references (Literal after `@`) are codegen-resolved
         // (impl generic list known only there) — keep as-is, no error here.
@@ -65,26 +87,64 @@ pub(crate) fn try_expand_at(
         return Err(compile_error_str(msg, tokens[0].span()));
     }
     // Range family: `@` Ident `..` Ident (`..` is Joint '.' + any '.';
-    // optional `=`)
+    // optional `=`). Endpoint resolution: an ident right after the dots
+    // whose width is legal is the endpoint (whitespace-insensitive, like
+    // every pre-existing form); an ident that fails width validation is NOT
+    // an endpoint — it is the next DSL item (`@i16.. Neg`) — and the open
+    // family (`@i16..` ≡ `@i16..i128`) is emitted instead, ident left
+    // unconsumed. Byte-position adjacency distinguishes glued from
+    // separated for the `=` half (the second dot of `..` lexes `Alone`
+    // either way).
     if is_joint_punct_at(tokens, 2, '.') && is_punct_at(tokens, 3, '.') {
-        let end_idx = if let Some(TokenTree::Punct(eq)) = tokens.get(4)
-            && eq.as_char() == '='
-        {
-            5
+        let dots_end = tokens[3].span();
+        let eq_adj = matches!(tokens.get(4), Some(TokenTree::Punct(eq)) if eq.as_char() == '=')
+            && crate::util::spans_adjacent(dots_end, tokens[4].span());
+        let endpoint: Option<(usize, String)> = if eq_adj {
+            tokens.get(5).and_then(|t| match t {
+                TokenTree::Ident(end) => Some((5, end.to_string())),
+                _ => None,
+            })
         } else {
-            4
+            tokens.get(4).and_then(|t| match t {
+                TokenTree::Ident(end) => Some((4, end.to_string())),
+                _ => None,
+            })
         };
-        let Some(TokenTree::Ident(end)) = tokens.get(end_idx) else {
-            return Err(compile_err!(
-                "batch-impl: range constant `@{}{}..` is missing an end point \
-                 (e.g. `@u8..u128`)",
-                name_str,
-                ".."
-            ));
+        let (types, consumed) = match endpoint {
+            // a legal-width endpoint wins regardless of adjacency
+            // (`@u8.. u128` — whitespace-insensitive like every
+            // pre-existing form)
+            Some((idx, end)) if split_range_endpoint(&end).is_some() => (
+                builtin_range_open(Some(&name_str), Some(&end))
+                    .map_err(|msg| compile_err!("batch-impl: {}", msg))?,
+                idx + 1,
+            ),
+            // `..=X` where X exists but fails width validation: a typo
+            Some((5, bad)) if eq_adj => {
+                return Err(compile_err!(
+                    "batch-impl: range constant `@{}..=` has an invalid end \
+                     point `{}`",
+                    name_str,
+                    bad
+                ));
+            }
+            // `..=` with nothing after: missing, not a shorthand
+            None if eq_adj => {
+                return Err(compile_err!(
+                    "batch-impl: range constant `@{}..=` is missing an end \
+                     point (e.g. `@u16..=u64`)",
+                    name_str
+                ));
+            }
+            // no usable endpoint: the open family, ident left unconsumed
+            // (`@i16.. Neg` — Neg is the next DSL item)
+            _ => (
+                builtin_range_open(Some(&name_str), None)
+                    .map_err(|msg| compile_err!("batch-impl: {}", msg))?,
+                4,
+            ),
         };
-        let types = builtin_range(&name_str, &end.to_string())
-            .map_err(|msg| compile_err!("batch-impl: {}", msg))?;
-        return Ok((vec![render_list(types.iter().map(|s| s.as_str()))], end_idx + 1).into());
+        return Ok((vec![render_list(types.iter().map(|s| s.as_str()))], consumed).into());
     }
     // `@trait`: Attribute (batch_impl/only) = full trait path (local name or
     // `#ext::Trait:` external path); Trait (batch_trait!) = return None, keep
@@ -170,100 +230,17 @@ pub(crate) fn try_expand_at(
             Err(compile_err_at!(
                 tokens[0].span(),
                 "batch-impl: unknown @ constant `@{}`; built-ins: `@u*` `@i*` `@f*` \
-             `@num` `@scalar` and ranges `@u8..u128` `@i8..i128` `@f32..f64`{}",
+             `@num` `@scalar` and ranges `@u8..u128` `@..u128` `@u16..`{}",
                 lookup,
                 // batch_trait! can define user constants (defined before the
                 // reference); attribute macros cannot — no suffix there.
                 match ctx {
                     ConstCtx::Trait { .. } =>
                         "; user constants must be defined \
-                     before the reference (defining them later has no effect)",
+                      before the reference (defining them later has no effect)",
                     ConstCtx::Attribute { .. } => "",
                 }
             ))
         }
     }
-}
-
-/// Validates `@` reference visibility inside constant values: the constant
-/// name after each `@` must be in (defined user constants ∪ built-in
-/// constants). Circular references (`@a=@a`) and forward references
-/// (`@a=@b` with `@b` defined later) are intercepted here — under lazy
-/// expansion a circular ref would recurse forever, and erroring at the
-/// definition beats erroring at the use site. Recurses into all groups (the
-/// `@u*` of `[Vec<@u*>]` is inside an angle group).
-pub(crate) fn check_value_refs(
-    tokens: &[TokenTree], table: &std::collections::HashMap<String, Vec<TokenTree>>, def_name: &str,
-) -> Result<(), TokenStream> {
-    check_value_refs_at(tokens, table, def_name, 0)
-}
-
-/// Recursive core of [`check_value_refs`] with a nesting guard (mirrors
-/// `expand_consts`'s `MAX_NEST_DEPTH` — a deeply nested constant value must
-/// error out instead of overflowing the stack).
-fn check_value_refs_at(
-    tokens: &[TokenTree], table: &std::collections::HashMap<String, Vec<TokenTree>>,
-    def_name: &str, depth: usize,
-) -> Result<(), TokenStream> {
-    if depth > crate::util::MAX_NEST_DEPTH {
-        return Err(crate::util::depth_err(tokens, " in a constant value"));
-    }
-    let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
-            TokenTree::Punct(p) if p.as_char() == '@' => {
-                let Some(TokenTree::Ident(name)) = tokens.get(i + 1) else {
-                    return Err(compile_error_str(
-                        "batch-impl: inside a constant value, `@` must be followed \
-                     by a constant name (e.g. `@u*`, `@u8..u128`)",
-                        tokens[i].span(),
-                    ));
-                };
-                let name_str = name.to_string();
-                // `@u*` / `@i*` / `@f*` wildcard: Ident + `*` consumes 3 tokens
-                let star = is_punct_at(tokens, i + 2, '*');
-                let lookup = if star { format!("{}*", name_str) } else { name_str.clone() };
-                // A range-family endpoint (`u8`) is only a valid reference when
-                // followed by `..` (the full `@u8..u128` form); a bare `@u8`
-                // is not a constant and must fail here (at the definition),
-                // not at the use site.
-                let is_range = is_punct_at(tokens, i + 2, '.');
-                // `@trait` is a segment-level special marker (replaced with
-                // the current segment's trait path after batch_trait!
-                // segmentation), not a constant reference — skip the
-                // visibility check
-                let known = name_str == "trait"
-                    || builtin_named(&lookup).is_some()
-                    || (is_range && split_range_endpoint(&name_str).is_some())
-                    || table.contains_key(&name_str);
-                if !known {
-                    return Err(compile_err!(
-                        "batch-impl: constant `@{}` references unknown `@{}` \
-                         (undefined or defined later; inside a constant \
-                         definition, only built-in constants or previously \
-                         defined constants can be referenced)",
-                        def_name,
-                        name_str
-                    ));
-                }
-                i += if star { 3 } else { 2 };
-            }
-            TokenTree::Group(g) => {
-                // Guard before materializing the group's stream (same
-                // rationale as expand_consts_at).
-                if depth + 1 > crate::util::MAX_NEST_DEPTH {
-                    return Err(crate::util::depth_err(&tokens[i..i + 1], " in a constant value"));
-                }
-                check_value_refs_at(
-                    &g.stream().into_iter().collect::<Vec<_>>(),
-                    table,
-                    def_name,
-                    depth + 1,
-                )?;
-                i += 1;
-            }
-            _ => i += 1,
-        }
-    }
-    Ok(())
 }

@@ -14,6 +14,11 @@ use crate::util::compile_error_str;
 /// `batch_preprocess_test!` implementation — the lib.rs entry point hands the
 /// raw macro input here (see its doc for the protocol).
 pub(crate) fn preprocess_test(input: TokenStream) -> Result<TokenStream, TokenStream> {
+    const EXPECT: &str =
+        "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`";
+    let err_at = |sp| compile_error_str(EXPECT, sp);
+    let call_site = proc_macro2::Span::call_site;
+
     let tokens = input.into_iter().collect::<Vec<_>>();
     let tokens = angle_collect(&tokens)?;
     // Shape: `{spec}(method name list){body} trait ...` (top-level form —
@@ -34,38 +39,22 @@ pub(crate) fn preprocess_test(input: TokenStream) -> Result<TokenStream, TokenSt
     };
     let idx = if spec.is_some() { 1 } else { 0 };
     let Some(TokenTree::Group(names_group)) = tokens.get(idx) else {
-        return Err(compile_error_str(
-            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
-        ));
+        return Err(err_at(tokens.first().map(|t| t.span()).unwrap_or_else(call_site)));
     };
     if names_group.delimiter() != delimiter![()] {
-        return Err(compile_error_str(
-            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens.first().map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
-        ));
+        return Err(err_at(tokens.first().map(|t| t.span()).unwrap_or_else(call_site)));
     }
     let Some(TokenTree::Group(body_group)) = tokens.get(idx + 1) else {
-        return Err(compile_error_str(
-            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens.get(1).map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
-        ));
+        return Err(err_at(tokens.get(1).map(|t| t.span()).unwrap_or_else(call_site)));
     };
     if body_group.delimiter() != delimiter![{}] {
-        return Err(compile_error_str(
-            "batch-impl: batch_preprocess_test expects `(method name list){body} trait ...`",
-            tokens.get(1).map(|t| t.span()).unwrap_or_else(proc_macro2::Span::call_site),
-        ));
+        return Err(err_at(tokens.get(1).map(|t| t.span()).unwrap_or_else(call_site)));
     }
-    let trait_ts = tokens[idx + 2..].iter().cloned().collect();
-    let trait_item = match syn::parse2(trait_ts) {
-        Ok(t) => t,
-        Err(_) => {
-            return Err(compile_error_str(
-                "batch-impl: batch_preprocess_test cannot parse the trait definition",
-                proc_macro2::Span::call_site(),
-            ));
-        }
+    let Ok(trait_item) = syn::parse2(tokens[idx + 2..].iter().cloned().collect()) else {
+        return Err(compile_error_str(
+            "batch-impl: batch_preprocess_test cannot parse the trait definition",
+            call_site(),
+        ));
     };
     let names = parse_names_from_tokens(
         &names_group.stream().into_iter().collect::<Vec<_>>(),

@@ -12,8 +12,12 @@
 
 mod ctx;
 mod expand;
+mod range;
 mod table;
+mod value_refs;
 
 pub(crate) use ctx::*;
 pub(crate) use expand::*;
+pub(crate) use range::*;
 pub(crate) use table::*;
+pub(crate) use value_refs::*;

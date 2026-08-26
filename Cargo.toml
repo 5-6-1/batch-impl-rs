@@ -11,7 +11,7 @@ documentation = "https://docs.rs/batch-impl"
 readme = "README.md"
 keywords = ["macro", "trait", "impl", "batch", "codegen"]
 categories = ["development-tools::procedural-macro-helpers"]
-rust-version = "1.93.0"
+rust-version = "1.95.0"
 exclude = ["rustfmt.toml", ".github/", "proptest-regressions/"]
 
 [lib]
@@ -23,8 +23,8 @@ proc-macro = true
 
 [dependencies]
 syn = { version = "3", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
-proc-macro2 = "1"
 
 [dev-dependencies]
 trybuild = "1.0.118"

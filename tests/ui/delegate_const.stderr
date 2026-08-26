@@ -1,0 +1,7 @@
+error: batch-impl: #delegate only works on methods; `ConstApi` in trait `LIMIT` is not a method
+ --> tests/ui/delegate_const.rs:6:1
+  |
+6 | #[batch_impl(ConstWrap #delegate(@all){self.0})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

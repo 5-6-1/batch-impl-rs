@@ -18,6 +18,58 @@ fn dyn_generator_in_target() {
     check::<dyn Fn(u8, u16) + Send>();
 }
 
+// The async closure family (Rust 2024) rides the same `TyFn` structure in
+// **bounds**: `AsyncFn` / `AsyncFnMut` / `AsyncFnOnce` parse as callable
+// blocks. (`dyn AsyncFn…` is intentionally NOT tested: the async traits are
+// not dyn-compatible on stable Rust.)
+//
+// → impl<F> AsyncProbe<F> for WrapP<F> where F: AsyncFn(u8)
+struct WrapP<F>(F);
+
+#[batch_impl(
+    <F> AsyncProbe<F> WrapP<F> where F: AsyncFn(u8)
+    { fn probe(&self) -> bool { true } }
+)]
+trait AsyncProbe<F> {
+    fn probe(&self) -> bool;
+}
+
+#[test]
+fn async_fn_bound() {
+    // `AsyncFn(u8)` desugars to `Output = ()`; the closure's body reflects that
+    let c = async |x: u8| {
+        let _ = x;
+    };
+    assert!(WrapP(&c).probe());
+}
+
+// The mut/once kinds parse identically (bound position only); the compile
+// check exercises the generated where predicate end-to-end.
+#[batch_impl(<F> AsyncProbeM<F> WrapPM<F> where F: AsyncFnMut(u8))]
+trait AsyncProbeM<F> {}
+
+struct WrapPM<F>(F);
+
+#[batch_impl(<F> AsyncProbeO<F> WrapPO<F> where F: AsyncFnOnce(u8))]
+trait AsyncProbeO<F> {}
+
+struct WrapPO<F>(F);
+
+#[test]
+fn async_fn_mut_and_once_bounds() {
+    fn is_m<F: AsyncFnMut(u8), W: AsyncProbeM<F>>(_w: &W) -> bool {
+        true
+    }
+    fn is_o<F: AsyncFnOnce(u8), W: AsyncProbeO<F>>(_w: &W) -> bool {
+        true
+    }
+    let c = async |x: u8| {
+        let _ = x;
+    };
+    assert!(is_m(&WrapPM(&c)));
+    assert!(is_o(&WrapPO(c)));
+}
+
 // `dyn FnMut.().1` — the kind name renders through the dyn
 #[batch_impl(dyn FnMut.().1)]
 trait DynFnMutGen {}

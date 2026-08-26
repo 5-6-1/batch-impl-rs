@@ -2,11 +2,47 @@
 //! of the repeat-block expansion (`expand_repeat_blocks` in `repeat.rs`).
 //! `collect_drivers` finds the `@ident` segment references of a block body
 //! and their common length; `substitute` rewrites the markers of one round
-//! (`@ident` → the segment's i-th name, `@N` → `N + i`).
+//! (`@ident` → the segment's i-th bound element, spliced directly — the
+//! `$(...)*` semantics; `@N` → `N + i`).
 
-use proc_macro2::{Group, Literal, TokenStream, TokenTree};
+use proc_macro2::{Group, Literal, Punct, Spacing, TokenStream, TokenTree};
 
 use crate::codegen::VarSeg;
+/// Repairs the float-literal tokenization of `数字.@`: the tokenizer reads
+/// `self.0.@0` as `self . 0. @ 0` (the `0.` becomes a float literal), which
+/// would render `self.0.0` as two adjacent literals. Splitting the trailing
+/// `.` off keeps the natural `self.0.@0` spelling working (the cursor then
+/// expands into `self.0.0`, `self.0.1`, ...).
+pub(super) fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
+    let mut out = vec![];
+    let mut i = 0;
+    while i < tokens.len() {
+        if let TokenTree::Literal(lit) = &tokens[i] {
+            let s = lit.to_string();
+            if s.ends_with('.')
+                && is_punct_at(&tokens, i + 1, '@')
+                && let Ok(n) = s[..s.len() - 1].parse::<u64>()
+            {
+                out.push(TokenTree::Literal(Literal::u64_unsuffixed(n)));
+                out.push(TokenTree::Punct(Punct::new('.', Spacing::Alone)));
+                i += 1;
+                continue;
+            }
+        }
+        if let TokenTree::Group(g) = &tokens[i] {
+            let inner = fix_literal_at(g.stream().into_iter().collect::<Vec<_>>());
+            let mut ng = Group::new(g.delimiter(), inner.into_iter().collect());
+            ng.set_span(g.span());
+            out.push(TokenTree::Group(ng));
+            i += 1;
+            continue;
+        }
+        out.push(tokens[i].clone());
+        i += 1;
+    }
+    out
+}
+
 use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at};
 
 /// The inner segment references of a block body: the deduplicated `@ident`
@@ -30,8 +66,9 @@ pub(crate) fn collect_drivers(
                 i += 2;
                 continue;
             }
-            // A slot carrier from an already-expanded nested round: not a
-            // driver — pass through.
+            // A fresh-ref carrier from an already-expanded nested round
+            // (`@{g_i}`, emitted by the directive signature substitution):
+            // not a driver — pass through.
             if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
                 if g.delimiter() == proc_macro2::Delimiter::Brace)
             {
@@ -103,11 +140,14 @@ pub(crate) fn collect_drivers(
     Ok((prefixes, len))
 }
 
-/// Substitutes the markers of one round: `@ident` → the segment's i-th name,
-/// `@N` → `N + i`, and `@@N` → the N-th fresh generic's name (the
-/// fresh-binding switch's name reference — fixed, not per-round).
+/// Substitutes the markers of one round: `@ident` → the segment's i-th
+/// **bound element** (spliced directly from the shape mapping — the
+/// `$(...)*` semantics; no intermediate name or carrier exists between the
+/// expansion and the output), `@N` → `N + i`, and `@@N` → the N-th fresh
+/// generic's name (the fresh-binding switch's name reference — fixed, not
+/// per-round).
 pub(crate) fn substitute(
-    tokens: &[TokenTree], segs: &[VarSeg], ctx: &super::FreshCtx, round: usize, depth: usize,
+    tokens: &[TokenTree], cx: &super::RepeatCtx, round: usize, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
@@ -115,12 +155,10 @@ pub(crate) fn substitute(
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        // A slot carrier emitted by an inner round (`@{B#2}` from the nested
-        // block that already expanded): pass through untouched.
-        if is_punct_at(tokens, i, '@')
-            && matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-                if g.delimiter() == proc_macro2::Delimiter::Brace)
-        {
+        // A fresh-ref carrier (`@{g_i}` — landed in the body by the
+        // directive signature substitution): pass through untouched for the
+        // later range re-opening pass (`expand_range_refs`).
+        if crate::ast::fresh::is_carrier_at(tokens, i) {
             out.push(tokens[i].clone());
             out.push(tokens[i + 1].clone());
             i += 2;
@@ -143,13 +181,13 @@ pub(crate) fn substitute(
                         lit.span(),
                     ));
                 };
-                let Some((_, _, name)) = ctx.names.get(n) else {
+                let Some((_, _, name)) = cx.fresh.names.get(n) else {
                     return Err(compile_error_str(
                         &format!(
                             "batch-impl: `@@{}` is out of range — this impl has {} \
                              fresh generics (numbered from 0 in document order)",
                             n,
-                            ctx.names.len(),
+                            cx.fresh.names.len(),
                         ),
                         lit.span(),
                     ));
@@ -161,19 +199,28 @@ pub(crate) fn substitute(
             match tokens.get(i + 1) {
                 Some(TokenTree::Ident(id)) => {
                     let prefix = id.to_string();
-                    let Some(seg) = segs.iter().find(|s| s.prefix == prefix) else {
+                    let Some(seg) = cx.segs.iter().find(|s| s.prefix == prefix) else {
                         // Verified by collect_drivers; defensive (no-panic).
                         return Err(compile_error_str(
                             &format!("batch-impl: unknown variadic segment `@{}`", prefix),
                             id.span(),
                         ));
                     };
-                    // Emit the slot's **carrier** (`@{prefix#pos}`) — the
-                    // structured `(prefix, leaf position)` identity,
-                    // resolved by the later slot-mapping rewrite. No minted
-                    // name exists between expansion and rewrite.
-                    let r = crate::ast::fresh::SegRef { prefix, pos: seg.start + round };
-                    out.extend(crate::ast::fresh::seg_ref_tokens(&r, id.span()));
+                    // Splice the slot's **bound element** directly — the
+                    // `$(...)*` semantics: the round's output shows the
+                    // actual leaf subtree, no intermediate spelling exists.
+                    let pos = seg.start + round;
+                    let Some(value) = cx.map.seg_value(&prefix, pos) else {
+                        return Err(compile_error_str(
+                            &format!(
+                                "batch-impl: internal error — variadic segment `{}@..` \
+                                 has no binding for element position {}",
+                                prefix, pos,
+                            ),
+                            id.span(),
+                        ));
+                    };
+                    out.extend(value.clone());
                     i += 2;
                     continue;
                 }
@@ -204,7 +251,7 @@ pub(crate) fn substitute(
                 return Err(depth_err(&tokens[i..i + 1], ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let substituted = substitute(&inner, segs, ctx, round, depth + 1)?;
+            let substituted = substitute(&inner, cx, round, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), substituted.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));

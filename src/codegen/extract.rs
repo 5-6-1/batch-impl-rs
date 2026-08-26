@@ -67,7 +67,10 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             let mut parts = extract_impl_parts(*wt.1);
             let (impl_generics, associated_types) = (parts.impl_generics, parts.associated_types);
             parts.impl_generics =
-                wt.0.params.into_iter().map(|(n, b)| (n.to_token_stream(), b)).collect();
+                wt.0.params
+                    .into_iter()
+                    .map(|(n, b)| (n.to_token_stream(), b.map(|b| *b)))
+                    .collect();
             parts.associated_types =
                 wt.0.bindings
                     .into_iter()
@@ -88,9 +91,9 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             let (flat, decl) = flat_splat_params(wt.0.1.params);
             parts.trait_generic_names.extend(flat.into_iter().map(|(n, _)| n.to_token_stream()));
             if let Some(d) = decl {
-                parts
-                    .impl_generics
-                    .extend(d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b)));
+                parts.impl_generics.extend(
+                    d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b.map(|b| *b))),
+                );
             }
             parts.associated_types.extend(
                 wt.0.1
@@ -196,9 +199,8 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
 /// fresh-generic tuple of `().N`).
 ///
 /// Collects the params of `WithType(<A>, T)` into `out` (for the impl generics) and
-/// replaces that node with its inner `T`. Must recurse into every container (Array /
-/// Tuple / Group / PrimitiveArray / Generic / WithPrefix / WithTrait / WithCode /
-/// WithWhere / WithAttr / Fn).
+/// replaces that node with its inner `T`. Every other variant recurses through
+/// [`Ty::map_children`] — the single traversal authority, parameter lists included.
 pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
     match ty.kind {
         // Generic-declaration wrapper: hoist the declaration outward (params
@@ -223,36 +225,21 @@ pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>
                         crate::ast::fresh::decl_fresh_pos(n).is_some_and(|k| k == (g, i))
                     }) {
                         // Prefer a declaration with a bound over the bare one.
-                        Some(existing) if existing.1.is_none() => existing.1 = bound,
+                        Some(existing) if existing.1.is_none() => {
+                            existing.1 = bound.map(|b| *b);
+                        }
                         Some(_) => {}
-                        None => out.push((carrier, bound)),
+                        None => out.push((carrier, bound.map(|b| *b))),
                     }
                 } else {
-                    out.push((name.to_token_stream(), bound));
+                    out.push((name.to_token_stream(), bound.map(|b| *b)));
                 }
             }
             hoist_type_params(*wt.1, out)
         }
-        // Generic-arg generators (`Box<dyn Fn.().2>`, `Box<().2>`): the
-        // params are a `Ty` tree `map_children` does not descend into, so
-        // recurse them here explicitly — the fresh declarations ride out of
-        // the args like any other nested `WithType`.
-        TyKind::Generic(g) => {
-            let params =
-                g.1.params
-                    .into_iter()
-                    .map(|(name, bound)| {
-                        (
-                            Box::new(hoist_type_params(*name, out)),
-                            bound.map(|b| hoist_type_params(b, out)),
-                        )
-                    })
-                    .collect();
-            TyGeneric(g.0, TyTypeParam { params, bindings: g.1.bindings })
-                .to_ty()
-                .with_span(ty.span)
-        }
-        // All other variants: recurse into children uniformly.
+        // All other variants — including `Generic` (the params are children
+        // of the node since `map_children` descends into parameter lists) —
+        // recurse into children uniformly.
         other => Ty { span: ty.span, kind: other }.map_children(&mut |c| hoist_type_params(c, out)),
     }
 }
@@ -277,7 +264,10 @@ pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names
     // Pair type/const param names with their concrete args, skipping lifetime
     // args (`'static` — a TokenStream starting with a `'` punct): bodies
     // reference their own impl lifetimes, never substituted trait args.
-    let map = trait_param_names
+    // Substitution is path-aware (shared with where-predicate inheritance,
+    // `util::subst`): `T::Item`'s root substitutes, the associated-type
+    // segment stays literal.
+    let map: Vec<(String, TokenStream)> = trait_param_names
         .iter()
         .zip(parts.trait_generic_names.iter().filter(|ts| {
             !matches!(
@@ -285,29 +275,9 @@ pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names
                 Some(TokenTree::Punct(p)) if p.as_char() == '\''
             )
         }))
-        .map(|(name, arg)| (name.clone(), arg.clone()))
-        .collect::<Vec<_>>();
-    parts.body = Some(replace_idents(body, &map));
-}
-
-/// Recursively replace every ident equal to a mapped trait param name.
-fn replace_idents(ts: TokenStream, map: &[(Ident, TokenStream)]) -> TokenStream {
-    ts.into_iter()
-        .flat_map(|tt| match &tt {
-            TokenTree::Ident(id) => map
-                .iter()
-                .find(|(name, _)| name == id)
-                .map(|(_, repl)| repl.clone())
-                .unwrap_or_else(|| TokenStream::from(tt.clone())),
-            TokenTree::Group(g) => {
-                let inner = replace_idents(g.stream(), map);
-                let mut ng = proc_macro2::Group::new(g.delimiter(), inner);
-                ng.set_span(g.span());
-                TokenStream::from(TokenTree::Group(ng))
-            }
-            other => TokenStream::from(other.clone()),
-        })
-        .collect()
+        .map(|(name, arg)| (name.to_string(), arg.clone()))
+        .collect();
+    parts.body = Some(crate::util::subst::replace_map(&body, &map));
 }
 
 /// Recognizes a **fresh-binding switch** template: an `impl{...}` whose whole

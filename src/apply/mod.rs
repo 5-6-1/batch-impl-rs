@@ -168,9 +168,23 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
                 TyWithType(tp, Ty { span, kind: self.into() }.into()).to_ty().with_span(span)
             }
             TyKind::Range(TyRange { start, end, inclusive }) => {
-                map_range(start, end, inclusive, span, |n| {
+                let mapped = map_range(start, end, inclusive, span, |n| {
                     Ty { span, kind: self.clone().into() }.apply(TyNum(n).to_ty().with_span(span))
-                })
+                });
+                // Accumulated-growth guard, same as the Array arm above: a
+                // range multiplies the left operand's mass (`ns × leaves`),
+                // so a composed chain (`([T,T].0..3).0..3...`) would grow
+                // ×range-len per level with no cap ever firing — the one
+                // multiplication point the list-chain check cannot see.
+                if let Ty { kind: TyKind::Array(arr), .. } = &mapped
+                    && let Some(e) = check_expand_limit(
+                        "range chain expansion",
+                        arr.0.iter().map(count_leaves).sum(),
+                    )
+                {
+                    return e;
+                }
+                mapped
             }
             other => self.apply_help(Ty { span: o.span, kind: other }, span),
         }
@@ -233,6 +247,16 @@ impl Apply for TyKind {
             TyKind::Num(n) => n.apply_help(o, span),
             TyKind::Range(r) => r.apply_help(o, span),
             TyKind::Fresh(f) => f.apply_help(o, span),
+            // A lifetime is not an apply operand: it belongs in bounds
+            // (`T: 'a`), generic declarations (`<'a>`) or references
+            // (`&'a T`) — all of which parse it as a leaf, never as an
+            // operand of `apply`.
+            TyKind::Lifetime(_) => err_ty_at(
+                "batch-impl: a lifetime cannot be an apply operand (`'a` belongs \
+                 in bounds like `T: 'a`, declarations like `<'a>` or references \
+                 like `&'a T`)",
+                span,
+            ),
             // A `+`-joined bound list is a predicate form — it has no apply
             // meaning on the left (`(A + B) C` is not a type expression).
             TyKind::BoundList(_) => err_ty_at(

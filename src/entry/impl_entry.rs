@@ -30,26 +30,27 @@ use quote::{ToTokens, quote};
 use syn::ItemImpl;
 
 use crate::codegen::{Mapping, apply_mapping, match_shape};
+use crate::entry::impl_spec::{
+    assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
+};
 use crate::parse::split_at_depth0;
 use crate::preprocess::{angle_collect, render_angles, where_process};
 use crate::util::compile_error_str;
 
 /// Entry: expand `#[batch_impl(<dsl>)] impl ...` into N `impl` blocks.
+/// Accepts both trait impls (`impl Trait for Type`) and **inherent impls**
+/// (`impl Type` — same spec grammar, no `for` section rendered, `@trait`
+/// banned).
 pub(crate) fn expand_impl_entry(
     attr: TokenStream, item: ItemImpl,
 ) -> Result<TokenStream, TokenStream> {
-    let trait_path = item.trait_.as_ref().map(|(path, _)| path.clone()).ok_or_else(|| {
-        compile_error_str(
-            "batch-impl: the annotated item must be a trait impl (`impl Trait for Type`)",
-            Span::call_site(),
-        )
-    })?;
+    let trait_path = item.trait_.as_ref().map(|(path, _)| path.clone());
 
     // ---- preprocessing subset: angle pairing → `@trait` replacement →
     // bare-`where` rewrite (see the entry module docs) ----
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
     let paired = angle_collect(&attr_vec)?;
-    let paired = replace_trait_at(&paired, &trait_path)?;
+    let paired = replace_trait_at(&paired, trait_path.as_ref())?;
     // The ItemImpl attr has no body after the predicates, so the end of the
     // stream terminates the where region (the predicates become a body-less
     // `where{...}` suffix).
@@ -61,18 +62,18 @@ pub(crate) fn expand_impl_entry(
         if spec.is_empty() {
             continue;
         }
-        out.extend(expand_one_spec(spec, &item, &trait_path)?);
+        out.extend(expand_one_spec(spec, &item, trait_path.as_ref())?);
     }
     Ok(render_angles(out))
 }
 
 /// Expands one spec (shape form or direct form) into its impl(s).
 fn expand_one_spec(
-    spec: &[TokenTree], item: &ItemImpl, trait_path: &syn::Path,
+    spec: &[TokenTree], item: &ItemImpl, trait_path: Option<&syn::Path>,
 ) -> Result<TokenStream, TokenStream> {
     // `where{...}` (where_process output) is the tail.
-    let (spec, where_preds) = crate::entry::impl_spec::peel_where(spec);
-    match crate::entry::impl_spec::find_shape_colon(spec) {
+    let (spec, where_preds) = peel_where(spec);
+    match find_shape_colon(spec) {
         Some(colon) => {
             // ---- shape form: `shape-template : new-generic-decl? matrix-source?` ----
             // The angle groups must be restored to flat `<...>` before syn
@@ -110,11 +111,11 @@ fn expand_one_spec(
                     Span::call_site(),
                 ));
             }
-            let (new_gen, matrix) = crate::entry::impl_spec::split_new_gen(&spec[colon + 1..]);
+            let (new_gen, matrix) = split_new_gen(&spec[colon + 1..]);
             if matrix.is_empty() {
                 // Empty matrix source → N = 1, the shape itself (no slot
                 // mapping; the for-Type is emitted verbatim).
-                return crate::entry::impl_spec::assemble_impl(
+                return assemble_impl(
                     item,
                     trait_path,
                     new_gen.as_ref(),
@@ -123,11 +124,10 @@ fn expand_one_spec(
                     item.self_ty.to_token_stream(),
                 );
             }
-            let leaves = crate::entry::impl_spec::parse_matrix_leaves(&matrix)?;
+            let leaves = parse_matrix_leaves(&matrix)?;
             let mut out = quote![];
             for leaf in leaves {
-                let leaf_tokens = leaf.to_token_stream();
-                let leaf_ty: syn::Type = syn::parse2(leaf_tokens.clone()).map_err(|_| {
+                let leaf_ty: syn::Type = syn::parse2(leaf.to_token_stream()).map_err(|_| {
                     compile_error_str(
                         "batch-impl: the matrix leaf is not a standard Rust type \
                          (generators cannot be destructured by a shape template)",
@@ -139,7 +139,7 @@ fn expand_one_spec(
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                 // for-Type: slot names rewritten to the bound leaf subtrees.
                 let for_ty = apply_mapping(item.self_ty.to_token_stream(), &m);
-                out.extend(crate::entry::impl_spec::assemble_impl(
+                out.extend(assemble_impl(
                     item,
                     trait_path,
                     new_gen.as_ref(),
@@ -152,16 +152,17 @@ fn expand_one_spec(
         }
         None => {
             // ---- direct form: `new-generic-decl? for-type` (no matrix, N = 1) ----
-            let (new_gen, for_tokens) = crate::entry::impl_spec::split_new_gen(spec);
+            let (new_gen, for_tokens) = split_new_gen(spec);
             let for_tokens = render_angles(for_tokens.iter().cloned().collect::<TokenStream>());
-            let _for_ty: syn::Type = syn::parse2(for_tokens.clone()).map_err(|_| {
+            // validity gate: the self type must be a standard Rust type
+            syn::parse2::<syn::Type>(for_tokens.clone()).map_err(|_| {
                 compile_error_str(
                     "batch-impl: the direct form needs a standard Rust type after \
                      the generic declaration (e.g. `<T> Box<T>`)",
                     Span::call_site(),
                 )
             })?;
-            crate::entry::impl_spec::assemble_impl(
+            assemble_impl(
                 item,
                 trait_path,
                 new_gen.as_ref(),
@@ -173,10 +174,12 @@ fn expand_one_spec(
     }
 }
 
-/// directive is rejected (custom constants / selectors / position refs are
-/// all banned on this entry). `#[...]` attributes pass through.
+/// Replaces `@trait` with the impl's trait path; every other `@` construct
+/// and every `#` directive is rejected (custom constants / selectors /
+/// position refs are all banned on this entry). `#[...]` attributes pass
+/// through.
 fn replace_trait_at(
-    tokens: &[TokenTree], trait_path: &syn::Path,
+    tokens: &[TokenTree], trait_path: Option<&syn::Path>,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
@@ -184,6 +187,13 @@ fn replace_trait_at(
         match &tokens[i] {
             TokenTree::Punct(p) if p.as_char() == '@' => match tokens.get(i + 1) {
                 Some(TokenTree::Ident(id)) if id == "trait" => {
+                    let Some(path) = trait_path else {
+                        return Err(compile_error_str(
+                            "batch-impl: `@trait` is not available on an inherent impl \
+                             (there is no trait to refer to)",
+                            tokens[i].span(),
+                        ));
+                    };
                     if matches!(tokens.get(i + 2), Some(TokenTree::Punct(p2)) if p2.as_char() == '<')
                     {
                         return Err(compile_error_str(
@@ -192,7 +202,7 @@ fn replace_trait_at(
                             tokens[i].span(),
                         ));
                     }
-                    out.extend(quote!(#trait_path));
+                    out.extend(quote!(#path));
                     i += 2;
                 }
                 Some(TokenTree::Ident(_)) => {

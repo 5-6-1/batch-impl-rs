@@ -3,7 +3,10 @@
 //!
 //! Syntax (at the token-stream level):
 //! - **Name families**: `@u*` / `@i*` / `@f*` / `@num` / `@scalar`
-//! - **Range families**: `@u8..u128` / `@i8..i128` / `@f32..f64` (inclusive; width validated)
+//! - **Range families**: `@u8..u128` / `@i8..i128` / `@f32..f64` (inclusive;
+//!   width validated), with either endpoint omittable — the family's minimum
+//!   / maximum fills in (`@..u128` ≡ `@u8..u128`, `@u16..` ≡ `@u16..u128`;
+//!   at least one concrete endpoint must anchor the family)
 //! - **User-defined** (only `batch_trait!`): a leading `@name=value;` segment
 //!   whose value is any DSL expression (may reference built-in constants;
 //!   references to already-defined user constants work naturally in
@@ -43,54 +46,6 @@ pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
         .into(),
         _ => None,
     }
-}
-
-/// Parses a range-family endpoint (`u8` / `i32` / `f64`) into (family, width).
-/// An illegal width (e.g. `u9`, `f8`) returns `None` (family matched but
-/// width not in the legal set).
-pub(crate) fn split_range_endpoint(s: &str) -> Option<(char, u32)> {
-    // `split_at_checked` instead of `split_at`: the no-panic promise also
-    // covers the (unreachable in practice) empty-name path.
-    let (fam, width_str) = s.split_at_checked(1)?;
-    let fam = fam.chars().next()?;
-    let width = width_str.parse().ok()?;
-    let legal: &[_] = match fam {
-        'u' | 'i' => &[8, 16, 32, 64, 128],
-        'f' => &[32, 64],
-        _ => return None,
-    };
-    legal.contains(&width).then_some((fam, width))
-}
-
-/// Built-in range families: `@u8..u128` (inclusive) → type list in ascending
-/// width. Mismatched endpoint families or start > end return `Err` (the
-/// caller builds the diagnostic).
-pub(crate) fn builtin_range(start: &str, end: &str) -> Result<Vec<String>, String> {
-    let Some((fam1, w1)) = split_range_endpoint(start) else {
-        return Err(format!(
-            "`@{}` has an invalid width (legal: u/i are 8/16/32/64/128, \
-             f is 32/64)",
-            start
-        ));
-    };
-    let Some((fam2, w2)) = split_range_endpoint(end) else {
-        return Err(format!(
-            "`@{}` has an invalid width (legal: u/i are 8/16/32/64/128, \
-             f is 32/64)",
-            end
-        ));
-    };
-    if fam1 != fam2 {
-        return Err(format!("range endpoint families mismatch: `{}` and `{}`", start, end));
-    }
-    if w1 > w2 {
-        return Err(format!("range start is greater than end: `{}..{}`", start, end));
-    }
-    let widths: &[_] = match fam1 {
-        'u' | 'i' => &[8, 16, 32, 64, 128],
-        _ => &[32, 64],
-    };
-    Ok(widths.iter().filter(|&&w| w >= w1 && w <= w2).map(|w| format!("{}{}", fam1, w)).collect())
 }
 
 /// Renders a list of type names as a Bracket list group (`[u8, u16, ...]`).

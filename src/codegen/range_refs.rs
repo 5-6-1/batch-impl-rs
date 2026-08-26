@@ -130,13 +130,13 @@ pub(crate) fn expand_range_decls(
 }
 
 /// The display spelling of a resolved name stream (a single ident).
-fn bare_display(n: &TokenStream) -> String {
+pub(super) fn bare_display(n: &TokenStream) -> String {
     crate::codegen::generics::bare_param_name(n).to_string()
 }
 
 /// Recognizes a declaration entry that is a bare fresh-ref carrier:
 /// `@` followed by a Brace group (and nothing else).
-fn decl_fresh_ref(name: &TokenStream) -> Option<FreshRef> {
+pub(super) fn decl_fresh_ref(name: &TokenStream) -> Option<FreshRef> {
     let v: Vec<_> = name.clone().into_iter().collect();
     match v.as_slice() {
         [TokenTree::Punct(p), TokenTree::Group(g)]
@@ -155,7 +155,7 @@ fn decl_fresh_ref(name: &TokenStream) -> Option<FreshRef> {
 /// chunk is a legal trailing comma (`(P0,)` / `(expr,)`) and stays untouched;
 /// an ordinary tuple is returned verbatim (the split is only a scan — flat
 /// `<...>` in an element must never be re-joined).
-fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
+pub(super) fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
     let chunks: Vec<&[TokenTree]> = split_at_depth0(tokens, ',').into_iter().collect();
     // The trailing chunk may be empty (a legal trailing comma) — exclude it
     // from the orphan check, not from the output.
@@ -203,11 +203,8 @@ fn expand_at(
     while i < tokens.len() {
         // A fresh-reference carrier: `@` + Brace group. A single position
         // splices one name; a range splices the covered names comma-separated.
-        if let TokenTree::Punct(p) = &tokens[i]
-            && p.as_char() == '@'
-            && matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-                if g.delimiter() == proc_macro2::Delimiter::Brace)
-        {
+        if crate::ast::fresh::is_carrier_at(tokens, i) {
+            let at_span = tokens[i].span();
             let inner: String = match tokens.get(i + 1) {
                 Some(TokenTree::Group(g)) => {
                     g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("")
@@ -216,20 +213,13 @@ fn expand_at(
             };
             let r = match FreshRef::parse(&inner) {
                 Some(r) => r,
-                // A segment-slot carrier (`@{prefix#pos}` from the repeat
-                // expansion) shares this token shape — not ours, pass it
-                // through for the slot-mapping rewrite.
-                None if crate::ast::fresh::SegRef::parse(&inner).is_some() => {
-                    out.push(tokens[i].clone());
-                    out.push(tokens[i + 1].clone());
-                    i += 2;
-                    continue;
-                }
                 None => {
                     return Err(compile_error_str(
                         "batch-impl: `@{...}` must hold a position reference \
-                         (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`)",
-                        p.span(),
+                         (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are \
+                         referenced through repeat blocks (`@A`) or an explicit \
+                         template name (`impl{(A0, @A..)}`), never as `@{...}`",
+                        at_span,
                     ));
                 }
             };
@@ -293,188 +283,4 @@ fn expand_at(
 fn is_fresh_carrier_pair(at: &TokenTree, g: &TokenTree) -> bool {
     matches!(at, TokenTree::Punct(p) if p.as_char() == '@')
         && matches!(g, TokenTree::Group(g) if g.delimiter() == proc_macro2::Delimiter::Brace)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fresh_ctx() -> FreshCtx {
-        // Display names are assigned against an empty collision set: P0, P1, P2.
-        FreshCtx::new(&names(), &Default::default())
-    }
-    fn names() -> Vec<TokenStream> {
-        // Declaration carriers `@{g_i}` — the identity form the ctx parses;
-        // `@N` indexes them by (group, position) document order.
-        vec![decl(0, 0), decl(1, 0), decl(1, 1)]
-    }
-    fn decl(g: usize, i: usize) -> TokenStream {
-        crate::ast::fresh::fresh_decl_tokens(g, i)
-    }
-    /// The resolved display name of fresh `(g, i)` — P-numbered in document
-    /// order against an empty collision set.
-    fn d(g: usize, i: usize) -> String {
-        match (g, i) {
-            (0, 0) => "P0",
-            (1, 0) => "P1",
-            (1, 1) => "P2",
-            _ => unreachable!(),
-        }
-        .to_string()
-    }
-    fn carrier(spell: &str) -> TokenStream {
-        let r = FreshRef::parse(spell).unwrap();
-        crate::ast::fresh::fresh_ref_tokens(r, proc_macro2::Span::call_site())
-    }
-    /// Builds `prefix @carrier suffix` — a rendered type holding one reference.
-    fn wrap(prefix: &str, spell: &str, suffix: &str) -> TokenStream {
-        let mut ts: TokenStream = prefix.parse().unwrap();
-        ts.extend(carrier(spell));
-        ts.extend(suffix.parse::<TokenStream>().unwrap());
-        ts
-    }
-
-    #[test]
-    fn open_range_in_generic_args() {
-        let out = expand_range_refs(wrap("Wrapper <", "0..", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} , {} , {} >", d(0, 0), d(1, 0), d(1, 1)));
-    }
-
-    #[test]
-    fn closed_range() {
-        let out = expand_range_refs(wrap("Wrapper <", "1..=2", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} , {} >", d(1, 0), d(1, 1)));
-    }
-
-    #[test]
-    fn open_range_with_offset() {
-        let out = expand_range_refs(wrap("Wrapper <", "1..", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} , {} >", d(1, 0), d(1, 1)));
-    }
-
-    #[test]
-    fn tuple_range() {
-        // `@{...}` is literally writable Rust punctuation + brace group.
-        let ts: TokenStream = "(@{0..} , u8)".parse().unwrap();
-        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("({} , {} , {} , u8)", d(0, 0), d(1, 0), d(1, 1)));
-    }
-
-    #[test]
-    fn closed_range_out_of_bounds_errors() {
-        assert!(expand_range_refs(wrap("Wrapper <", "1..=5", ">"), &fresh_ctx()).is_err());
-    }
-
-    #[test]
-    fn plain_idents_untouched() {
-        let ts: TokenStream = "Wrapper < T >".parse().unwrap();
-        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), "Wrapper < T >");
-    }
-
-    #[test]
-    fn single_position_resolves_one_name() {
-        let out = expand_range_refs(wrap("Wrapper <", "2", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} >", d(1, 1)));
-    }
-
-    #[test]
-    fn decl_position_open_range() {
-        // `<@{0..}>` — a range reference as an impl-generic declaration
-        // expands into one bare declaration per fresh.
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![(carrier("0.."), None)];
-        expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
-        let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
-        assert_eq!(got, [d(0, 0), d(1, 0), d(1, 1)]);
-    }
-
-    #[test]
-    fn decl_position_closed_range() {
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![(carrier("1..=2"), None)];
-        expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
-        let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
-        assert_eq!(got, [d(1, 0), d(1, 1)]);
-    }
-
-    #[test]
-    fn decl_position_mixed_with_plain() {
-        // A user param and a range declaration coexist; the plain one stays.
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
-            vec![("X".parse().unwrap(), None), (carrier("0.."), None)];
-        expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
-        let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
-        assert_eq!(got, ["X".to_string(), d(0, 0), d(1, 0), d(1, 1)]);
-    }
-
-    #[test]
-    fn decl_position_overlap_skipped_not_duplicated() {
-        // An entry the list already declares (same identity) is not re-inserted
-        // by an overlapping range declaration. The pipeline renames declaration
-        // carriers to display names before this pass — mirrored here.
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
-            vec![(decl(1, 0), None), (carrier("1.."), None)];
-        let ctx = fresh_ctx();
-        crate::codegen::rename_fresh_decls(&mut gens, &ctx);
-        expand_range_decls(&mut gens, &ctx).unwrap();
-        let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
-        assert_eq!(got, [d(1, 0), d(1, 1)]);
-    }
-
-    #[test]
-    fn decl_position_closed_out_of_bounds_errors() {
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![(carrier("0..=5"), None)];
-        assert!(expand_range_decls(&mut gens, &fresh_ctx()).is_err());
-    }
-
-    #[test]
-    fn grouped_range_open_in_generic_args() {
-        // `@{0_0..}` — group 0 from position 0: its only entry.
-        let out = expand_range_refs(wrap("Wrapper <", "0_0..", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} >", d(0, 0)));
-    }
-
-    #[test]
-    fn grouped_range_open_group1() {
-        // `@{1_0..}` — group 1 from position 0: both entries of group 1.
-        let out = expand_range_refs(wrap("Wrapper <", "1_0..", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} , {} >", d(1, 0), d(1, 1)));
-    }
-
-    #[test]
-    fn grouped_range_closed_in_generic_args() {
-        // `@{1_0..=0}` — group 1, positions 0..=0 → just the first.
-        let out = expand_range_refs(wrap("Wrapper <", "1_0..=0", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} >", d(1, 0)));
-    }
-
-    #[test]
-    fn grouped_range_second_group_tail() {
-        // `@{1_1..}` — group 1 from position 1: only the group's tail.
-        let out = expand_range_refs(wrap("Wrapper <", "1_1..", ">"), &fresh_ctx()).unwrap();
-        assert_eq!(out.to_string(), format!("Wrapper < {} >", d(1, 1)));
-    }
-
-    #[test]
-    fn grouped_range_unknown_group_errors() {
-        assert!(expand_range_refs(wrap("Wrapper <", "3_0..", ">"), &fresh_ctx()).is_err());
-    }
-
-    #[test]
-    fn grouped_range_out_of_group_errors() {
-        // Group 0 has 1 entry; `@{0_2..=3}` is out of range.
-        assert!(expand_range_refs(wrap("Wrapper <", "0_2..=3", ">"), &fresh_ctx()).is_err());
-    }
-
-    #[test]
-    fn ordinary_tuple_trailing_comma_preserved() {
-        // a plain tuple element containing flat `<...>` (its commas must not
-        // be re-joined) keeps its trailing comma — `(expr,)` stays a 1-tuple
-        let ts: TokenStream = quote::quote!(
-            fn f() -> (f64,) {
-                (<f64 as Module<f64, f64>>::scale(&r, self.0),)
-            }
-        );
-        let out = expand_range_refs(ts, &fresh_ctx()).unwrap();
-        assert!(out.to_string().contains("self . 0) ,) }"), "{out}");
-    }
 }

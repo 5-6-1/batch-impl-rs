@@ -1,0 +1,7 @@
+error: batch-impl: `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are referenced through repeat blocks (`@A`) or an explicit template name (`impl{(A0, @A..)}`), never as `@{...}`
+ --> tests/ui/at_segment_carrier_in_body.rs:5:1
+  |
+5 | #[batch_impl((u8, u16) impl{(A@..,)} { fn f(&self) -> u8 { let x: @{A_0} = 0; x } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

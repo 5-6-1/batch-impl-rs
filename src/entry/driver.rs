@@ -4,7 +4,7 @@ use syn::ItemTrait;
 
 use crate::TraitBounds;
 use crate::apply::err_ty;
-use crate::ast::{Expand, Op, Ty, TyKind, reset_fresh_counter};
+use crate::ast::{Expand, MAX_EXPAND, Op, Ty, TyKind, reset_fresh_counter};
 use crate::codegen::generate_impl;
 use crate::parse::parse_item;
 use crate::util::Cursor;
@@ -81,6 +81,7 @@ pub(crate) fn collect_spec_leaves(
         // (future) and the codegen sweep never depend on spec position.
         reset_fresh_counter();
         let mut queue = vec![ty];
+        let start = tys.len();
         while let Some(item) = queue.pop() {
             match item.expand() {
                 Expand::Many(expanded) => {
@@ -90,6 +91,18 @@ pub(crate) fn collect_spec_leaves(
                 }
                 Expand::Leaf(leaf) => tys.push(leaf),
             }
+        }
+        // Global backstop behind the per-step expansion checks (Array
+        // dispatch / range chains / tuple powers / Cartesian products): if a
+        // future growth point ever bypasses them, the spec is rejected at
+        // the documented cap instead of consuming unbounded memory.
+        let produced = tys.len() - start;
+        if produced > MAX_EXPAND {
+            tys.truncate(start);
+            tys.push(err_ty(&format!(
+                "batch-impl: the spec expands to {produced} impls (limit {MAX_EXPAND}); \
+                 likely exponential/range/Cartesian typo"
+            )));
         }
     }
     let mut errors = vec![];
@@ -103,8 +116,10 @@ fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
     if let Ty { kind: TyKind::Error(e), .. } = ty {
         out.push(e.0.clone());
     }
-    // Reuse map_children's exhaustive child list for the recursion
-    // (rebuild-style pass; children visited in the same order).
+    // map_children is the single traversal authority and descends into
+    // every child position — parameter lists included (`Box<@0..=2>`'s
+    // range carrier, a generator inside `T<...>`), so aggregation cannot
+    // miss an error nested in a generic argument.
     ty.clone().map_children(&mut |child| {
         collect_errors(&child, out);
         child

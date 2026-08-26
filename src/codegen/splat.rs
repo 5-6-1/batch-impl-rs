@@ -114,7 +114,7 @@ fn expand_tp(tp: TyTypeParam) -> (TyTypeParam, Option<TyTypeParam>) {
         .into_iter()
         .map(|(name, bound)| {
             let name = expand_splat_elems(*name);
-            let bound = bound.map(expand_splat_elems);
+            let bound = bound.map(|b| expand_splat_elems(*b).into());
             (Box::new(name), bound)
         })
         .collect();

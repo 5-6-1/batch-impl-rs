@@ -63,7 +63,10 @@ pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
 /// (`params_to_tokens` vs `params_to_tokens_no_base`).
 /// The positional-param list type shared by `TyTypeParam` and the splat
 /// flattener (`flat_splat_params`) — named so signatures stay readable.
-pub(crate) type TyParams = Vec<(Box<Ty>, Option<Ty>)>;
+/// The bound rides in `Option<Box<Ty>>`: bounds are rare, so the element
+/// stays pointer-sized (16 B) instead of inlining a full `Ty` (~4× wider) —
+/// wide generic lists are the hot path for render / traversal / hoisting.
+pub(crate) type TyParams = Vec<(Box<Ty>, Option<Box<Ty>>)>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TyTypeParam {
@@ -125,8 +128,8 @@ pub(crate) enum TyPrefix {
 pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 /// The callable kind of a [`TyFn`]: a bare `fn` pointer or one of the `Fn`
-/// trait families (`Fn` / `FnMut` / `FnOnce` — rendered without the `fn`
-/// keyword, e.g. `Fn(A) -> B`).
+/// trait families (`Fn` / `FnMut` / `FnOnce` and their async counterparts —
+/// rendered without the `fn` keyword, e.g. `Fn(A) -> B`).
 pub(crate) enum FnKind {
     /// `fn(A) -> B` — a bare fn pointer type
     Bare,
@@ -136,6 +139,12 @@ pub(crate) enum FnKind {
     TraitMut,
     /// `FnOnce(A) -> B`
     TraitOnce,
+    /// `AsyncFn(A) -> B` — the async closure trait family (Rust 2024)
+    TraitAsync,
+    /// `AsyncFnMut(A) -> B`
+    TraitAsyncMut,
+    /// `AsyncFnOnce(A) -> B`
+    TraitAsyncOnce,
 }
 
 #[derive(Clone, Debug)]
@@ -151,6 +160,13 @@ pub(crate) struct TyFn(
     pub(crate) bool,
     pub(crate) FnKind,
 );
+#[derive(Clone, Debug)]
+/// `'a` — a lifetime reference, a **structured leaf** (not a primitive
+/// passthrough): bounds (`T: Clone + 'a`), generic declarations (`<'a>`) and
+/// trait args ride it as a first-class node, so traversal/counting treat it
+/// uniformly and misuse gets targeted diagnostics instead of invalid output.
+pub(crate) struct TyLifetime(pub(crate) TokenStream);
+
 #[derive(Clone, Debug)]
 /// `#[...]` — the attribute itself
 pub(crate) struct TyAttr(pub(crate) TokenStream);
@@ -280,68 +296,10 @@ pub(crate) enum TyKind {
     Num(TyNum),
     Range(TyRange),
     Fresh(TyFresh),
+    Lifetime(TyLifetime),
     BoundList(TyBoundList),
     Error(TyError),
 }
-
-/// Operator precedence levels (low→high: `;` < `,` < space < `.`; `Prim` = atomic, no operator).
-///
-/// Each level defines "stop characters": when scanning at that level, `parse_operand`
-/// truncates at them, then hands the truncated slice to higher-precedence recursion.
-/// The Space level is the space-application chain (left-assoc, the successor of
-/// the retired `-` — the space is not a token, so it cuts units by adjacency instead
-/// of by stop chars; its `stop_chars` are unused). `.` is the apply operator
-/// (right-assoc, the Dot level); the `.` stop skips `..` ranges (`1..=4` / `@1..`
-/// stay one unit).
-#[derive(Copy, Clone)]
-pub(crate) enum Op {
-    Semi,
-    Comma,
-    Space,
-    Dot,
-    Prim,
-}
-
-impl Op {
-    /// The next-higher precedence level
-    pub(crate) fn next(self) -> Option<Op> {
-        match self {
-            Op::Semi => Some(Op::Comma),
-            Op::Comma => Some(Op::Space),
-            Op::Space => Some(Op::Dot),
-            Op::Dot => Some(Op::Prim),
-            Op::Prim => None,
-        }
-    }
-
-    /// Characters at which the operand is truncated at this level
-    pub(crate) fn stop_chars(self) -> &'static [char] {
-        match self {
-            // Semi also stops at `,`: it cuts item/paragraph boundaries; the caller distinguishes them
-            Op::Semi => &[',', ';'],
-            Op::Comma => &[','],
-            // the space chain cuts units itself (scan_space_unit); no stop chars
-            Op::Space => &[],
-            Op::Dot => &['.', ','],
-            Op::Prim => &[],
-        }
-    }
-}
-
-/// Upper bound on the products of a single expansion (`.N` / cartesian / range batch).
-/// Prevents exponential blowups like `(T1,..,Tk).N`, `[A,B].[C,D].[E,F]` from hanging
-/// compilation (aligned with the v0.1 cap of 1024).
-pub(crate) const MAX_EXPAND: usize = 1024;
-
-/// Counts leaves in a `Ty` tree (`Array` sums per element, everything else counts 1).
-/// Used to validate the product cap of chained array dispatch.
-pub(crate) fn count_leaves(ty: &Ty) -> usize {
-    match &ty.kind {
-        TyKind::Array(a) => a.0.iter().map(count_leaves).sum(),
-        _ => 1,
-    }
-}
-
 thread_local! {
     static GROUP_COUNTER: Cell<usize> = 0.into();
 }

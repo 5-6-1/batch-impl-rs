@@ -111,11 +111,14 @@ fn to_token(tok: &Tok) -> TokenTree {
 }
 
 /// A fixed proptest config for the fuzz suite: `cases` caps the per-test
-/// random corpus, so a run is reproducible in time/memory on any machine
-/// (the default 256 cases can occasionally balloon into a multi-GB
-/// allocation on adversarial inputs, hanging CI instead of failing).
+/// random corpus, so a run is reproducible in time/memory on any machine.
+/// The historical reduction to 64 worked around a multi-GB allocation whose
+/// root cause (composed array×range chains multiplying leaves per nesting
+/// level, invisible to the list-chain check) is fixed — every growth point
+/// now enforces the expansion limit and the driver carries a global
+/// per-spec backstop, so the default 256 is safe again.
 fn fuzz_config() -> proptest::test_runner::Config {
-    proptest::test_runner::Config { cases: 64, ..Default::default() }
+    proptest::test_runner::Config { cases: 256, ..Default::default() }
 }
 
 proptest! {

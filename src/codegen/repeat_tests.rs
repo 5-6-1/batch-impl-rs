@@ -1,10 +1,13 @@
 //! Repeat-block expansion tests (kept under the 350-line cap by living in
 //! their own file): the `@(...)..` blocks drive rounds from the
-//! variadic-segment lengths, with `@ident` name / `@N` cursor substitution.
+//! variadic-segment lengths, with `@ident` element splicing (the `$(...)*`
+//! semantics — the bound leaf subtree lands in the round's output) and
+//! `@N` cursor substitution.
 
 use super::VarSeg;
-use super::repeat::expand_repeat_blocks;
+use super::repeat::{MAX_REPEAT_TOKENS, RepeatCtx, expand_repeat_blocks};
 use proc_macro2::TokenStream;
+use std::cell::Cell;
 
 fn segs() -> Vec<VarSeg> {
     vec![
@@ -13,35 +16,58 @@ fn segs() -> Vec<VarSeg> {
     ]
 }
 
+/// A mapping binding each segment element `(prefix, pos)` to a readable
+/// stand-in token stream (`TA0`, `TB1`, ...) — the value `substitute`
+/// splices into each round.
+fn mapping(segs: &[VarSeg]) -> super::Mapping {
+    let mut m = super::Mapping::default();
+    for s in segs {
+        for k in 0..s.len {
+            let pos = s.start + k;
+            let name = format!("{}{}", s.prefix, pos);
+            m.bind_seg(&s.prefix, pos, format!("T{name}").parse::<TokenStream>().unwrap()).unwrap();
+        }
+    }
+    m
+}
+
 fn expand(s: &str) -> Result<String, String> {
+    let ss = segs();
+    expand_with(s, &ss)
+}
+
+fn expand_with(s: &str, segs: &[VarSeg]) -> Result<String, String> {
+    expand_budget(s, segs, MAX_REPEAT_TOKENS)
+}
+
+fn expand_budget(s: &str, segs: &[VarSeg], budget: usize) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
-    expand_repeat_blocks(
-        ts,
-        &segs(),
-        None,
-        &crate::codegen::FreshCtx::new(&[], &Default::default()),
-    )
-    .map(|o| o.to_string())
-    .map_err(|e| e.to_string())
+    let cx = RepeatCtx {
+        segs,
+        map: &mapping(segs),
+        fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
+        binding: None,
+        budget: Cell::new(budget),
+    };
+    expand_repeat_blocks(ts, &cx).map(|o| o.to_string()).map_err(|e| e.to_string())
 }
 
 /// A cursor-only block with **no** template segment: the fresh count drives
 /// the rounds (`@N` → `N + i` per round).
 fn expand_fresh(s: &str, n: usize) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
-    let binding = crate::ast::fresh::FreshRef {
-        group: None,
-        start: 0,
-        end: crate::ast::fresh::FreshEnd::Open,
+    let cx = RepeatCtx {
+        segs: &[],
+        map: &Default::default(),
+        fresh: &crate::codegen::FreshCtx::new(&fresh_names(n), &Default::default()),
+        binding: Some(crate::ast::fresh::FreshRef {
+            group: None,
+            start: 0,
+            end: crate::ast::fresh::FreshEnd::Open,
+        }),
+        budget: Cell::new(MAX_REPEAT_TOKENS),
     };
-    expand_repeat_blocks(
-        ts,
-        &[],
-        Some(binding),
-        &crate::codegen::FreshCtx::new(&fresh_names(n), &Default::default()),
-    )
-    .map(|o| o.to_string())
-    .map_err(|e| e.to_string())
+    expand_repeat_blocks(ts, &cx).map(|o| o.to_string()).map_err(|e| e.to_string())
 }
 
 fn fresh_names(n: usize) -> Vec<TokenStream> {
@@ -82,31 +108,33 @@ fn no_switch_no_segment_errors() {
     // without the fresh-binding switch (`impl{@0..}`), a cursor-only block
     // with no template segment errors — fresh-driven body modification is off
     let ts = "@(args.@0,)..".parse::<TokenStream>().unwrap();
-    assert!(
-        expand_repeat_blocks(
-            ts,
-            &[],
-            None,
-            &crate::codegen::FreshCtx::new(&[], &Default::default())
-        )
-        .is_err()
-    );
+    let cx = RepeatCtx {
+        segs: &[],
+        map: &Default::default(),
+        fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
+        binding: None,
+        budget: Cell::new(MAX_REPEAT_TOKENS),
+    };
+    assert!(expand_repeat_blocks(ts, &cx).is_err());
 }
 
 #[test]
 fn single_segment_rounds() {
+    // `@A` splices the segment's i-th **bound element** directly — the
+    // round's output shows the actual value, no intermediate spelling
     assert_eq!(
         expand("@(@A::f(&self.@0),)..").unwrap(),
-        "@ { A_0 } :: f (& self .0) , @ { A_1 } :: f (& self .1) , @ { A_2 } :: f (& self .2) ,"
+        "TA0 :: f (& self .0) , TA1 :: f (& self .1) , TA2 :: f (& self .2) ,"
     );
 }
 
 #[test]
 fn offset_start_name_numbering() {
-    // B starts at leaf index 1: names B1, B2; `@1` cursor → 1, 2.
+    // B starts at leaf index 1: elements B1, B2; `@1` cursor → 1, 2.
+    let segs = vec![VarSeg { prefix: "B".into(), start: 1, len: 2 }];
     assert_eq!(
-        expand("@(@B::f(&self.@1),)..").unwrap(),
-        "@ { B_1 } :: f (& self .1) , @ { B_2 } :: f (& self .2) ,"
+        expand_with("@(@B::f(&self.@1),)..", &segs).unwrap(),
+        "TB1 :: f (& self .1) , TB2 :: f (& self .2) ,"
     );
 }
 
@@ -118,16 +146,7 @@ fn multi_segment_parallel_rounds() {
         VarSeg { prefix: "A".into(), start: 0, len: 2 },
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
-    let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(
-        ts,
-        &segs,
-        None,
-        &crate::codegen::FreshCtx::new(&[], &Default::default()),
-    )
-    .unwrap()
-    .to_string();
-    assert_eq!(out, "@ { A_0 } + @ { B_2 } , @ { A_1 } + @ { B_3 } ,");
+    assert_eq!(expand_with("@(@A + @B,)..", &segs).unwrap(), "TA0 + TB2 , TA1 + TB3 ,");
 }
 
 #[test]
@@ -137,64 +156,76 @@ fn unequal_segment_lengths_error() {
         VarSeg { prefix: "B".into(), start: 1, len: 2 },
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
-    assert!(
-        expand_repeat_blocks(
-            ts,
-            &segs,
-            None,
-            &crate::codegen::FreshCtx::new(&[], &Default::default())
-        )
-        .is_err()
-    );
+    let cx = RepeatCtx {
+        segs: &segs,
+        map: &mapping(&segs),
+        fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
+        binding: None,
+        budget: Cell::new(MAX_REPEAT_TOKENS),
+    };
+    assert!(expand_repeat_blocks(ts, &cx).is_err());
 }
 
 #[test]
 fn nested_cartesian() {
-    // Outer rounds A0/A1/A2; each inner runs B over 1,2. The outer
+    // Outer rounds A0/A1/A2; each inner runs B over B1,B2. The outer
     // block body has no trailing comma (the inner block's own trailing
-    // commas separate the B elements), so no double comma appears.
+    // commas separate the B elements), so no double comma appears. The
+    // inner expansion splices its values directly — no carrier passes
+    // through the outer substitution.
     let out = expand("@(@A::f(&self.@0) @(@B::g(&self.@1),)..)..").unwrap();
     assert_eq!(
         out,
-        "@ { A_0 } :: f (& self .0) @ { B_1 } :: g (& self .1) , @ { B_2 } :: g (& self .2) , \
-         @ { A_1 } :: f (& self .1) @ { B_1 } :: g (& self .1) , @ { B_2 } :: g (& self .2) , \
-         @ { A_2 } :: f (& self .2) @ { B_1 } :: g (& self .1) , @ { B_2 } :: g (& self .2) ,"
+        "TA0 :: f (& self .0) TB1 :: g (& self .1) , TB2 :: g (& self .2) , \
+         TA1 :: f (& self .1) TB1 :: g (& self .1) , TB2 :: g (& self .2) , \
+         TA2 :: f (& self .2) TB1 :: g (& self .1) , TB2 :: g (& self .2) ,"
     );
 }
 
 #[test]
 fn no_trailing_separator_concatenates() {
-    assert_eq!(expand("@(@A)..").unwrap(), "@ { A_0 } @ { A_1 } @ { A_2 }");
+    assert_eq!(expand("@(@A)..").unwrap(), "TA0 TA1 TA2");
 }
 
 #[test]
 fn inter_round_separator() {
     // `@(@A),..` — the comma sits between rounds, never after the last one
     // (the `$($A),*` form; `@(@A,)..` is the `$($A,)*` form)
-    assert_eq!(expand("@(@A),..").unwrap(), "@ { A_0 } ,@ { A_1 } ,@ { A_2 }");
+    assert_eq!(expand("@(@A),..").unwrap(), "TA0 ,TA1 ,TA2");
 }
 
 #[test]
 fn inter_round_separator_arbitrary() {
     // any literal tokens work as the inter-round separator
-    assert_eq!(expand("@(@A)+..").unwrap(), "@ { A_0 } +@ { A_1 } +@ { A_2 }");
-    assert_eq!(expand("@(@A)::f()..").unwrap(), "@ { A_0 } :: f () @ { A_1 } :: f () @ { A_2 }");
+    assert_eq!(expand("@(@A)+..").unwrap(), "TA0 +TA1 +TA2");
+    assert_eq!(expand("@(@A)::f()..").unwrap(), "TA0 :: f () TA1 :: f () TA2");
 }
 
 #[test]
 fn inter_round_separator_single_round() {
     // one round: no separator is emitted at all
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 1 }];
-    let ts = "@(@A),..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(
-        ts,
-        &segs,
-        None,
-        &crate::codegen::FreshCtx::new(&[], &Default::default()),
-    )
-    .unwrap()
-    .to_string();
-    assert_eq!(out, "@ { A_0 }");
+    assert_eq!(expand_with("@(@A),..", &segs).unwrap(), "TA0");
+}
+
+#[test]
+fn multi_element_value_splices_whole() {
+    // a bound element may be a composite type (`Vec<TA0>`); the splice
+    // emits the whole subtree verbatim
+    let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
+    let mut m = super::Mapping::default();
+    m.bind_seg("A", 0, "Vec < u8 >".parse().unwrap()).unwrap();
+    m.bind_seg("A", 1, "Vec < u16 >".parse().unwrap()).unwrap();
+    let ts = "@(push::< @A > (),)..".parse::<TokenStream>().unwrap();
+    let cx = RepeatCtx {
+        segs: &segs,
+        map: &m,
+        fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
+        binding: None,
+        budget: Cell::new(MAX_REPEAT_TOKENS),
+    };
+    let out = expand_repeat_blocks(ts, &cx).unwrap().to_string();
+    assert_eq!(out, "push ::< Vec < u8 > > () , push ::< Vec < u16 > > () ,");
 }
 
 #[test]
@@ -203,15 +234,15 @@ fn float_literal_at_path_fixed() {
     // so the cursor expands into `self.0.0`, `self.0.1`, ...
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(@A::from(self.0.@0),)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(
-        ts,
-        &segs,
-        None,
-        &crate::codegen::FreshCtx::new(&[], &Default::default()),
-    )
-    .unwrap()
-    .to_string();
-    assert_eq!(out, "@ { A_0 } :: from (self . 0 . 0) , @ { A_1 } :: from (self . 0 . 1) ,");
+    let cx = RepeatCtx {
+        segs: &segs,
+        map: &mapping(&segs),
+        fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
+        binding: None,
+        budget: Cell::new(MAX_REPEAT_TOKENS),
+    };
+    let out = expand_repeat_blocks(ts, &cx).unwrap().to_string();
+    assert_eq!(out, "TA0 :: from (self . 0 . 0) , TA1 :: from (self . 0 . 1) ,");
 }
 
 #[test]
@@ -225,16 +256,7 @@ fn declared_driver_cursor_only() {
     // `@A(self.@0,)..` — the driving segment declared up front, the
     // body uses only `@N` cursors
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 3 }];
-    let ts = "@A(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(
-        ts,
-        &segs,
-        None,
-        &crate::codegen::FreshCtx::new(&[], &Default::default()),
-    )
-    .unwrap()
-    .to_string();
-    assert_eq!(out, "self .0 , self .1 , self .2 ,");
+    assert_eq!(expand_with("@A(self.@0,)..", &segs).unwrap(), "self .0 , self .1 , self .2 ,");
 }
 
 #[test]
@@ -242,16 +264,7 @@ fn cursor_only_single_segment() {
     // no declared driver and no inner `@ident`: the template's unique
     // segment provides the length
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
-    let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    let out = expand_repeat_blocks(
-        ts,
-        &segs,
-        None,
-        &crate::codegen::FreshCtx::new(&[], &Default::default()),
-    )
-    .unwrap()
-    .to_string();
-    assert_eq!(out, "self .0 , self .1 ,");
+    assert_eq!(expand_with("@(self.@0,)..", &segs).unwrap(), "self .0 , self .1 ,");
 }
 
 #[test]
@@ -263,15 +276,14 @@ fn cursor_only_multi_segment_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
-    assert!(
-        expand_repeat_blocks(
-            ts,
-            &segs,
-            None,
-            &crate::codegen::FreshCtx::new(&[], &Default::default())
-        )
-        .is_err()
-    );
+    let cx = RepeatCtx {
+        segs: &segs,
+        map: &mapping(&segs),
+        fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
+        binding: None,
+        budget: Cell::new(MAX_REPEAT_TOKENS),
+    };
+    assert!(expand_repeat_blocks(ts, &cx).is_err());
 }
 
 #[test]
@@ -281,15 +293,40 @@ fn declared_driver_conflict_errors() {
         VarSeg { prefix: "B".into(), start: 2, len: 2 },
     ];
     let ts = "@A(@B::f(),)..".parse::<TokenStream>().unwrap();
-    assert!(
-        expand_repeat_blocks(
-            ts,
-            &segs,
-            None,
-            &crate::codegen::FreshCtx::new(&[], &Default::default())
-        )
-        .is_err()
-    );
+    let cx = RepeatCtx {
+        segs: &segs,
+        map: &mapping(&segs),
+        fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
+        binding: None,
+        budget: Cell::new(MAX_REPEAT_TOKENS),
+    };
+    assert!(expand_repeat_blocks(ts, &cx).is_err());
+}
+
+#[test]
+fn nested_output_exceeds_budget_errors() {
+    // Cartesian semantics multiply the output (∏len over nesting levels);
+    // three len-40 levels emit ~64k tokens — over the budget, a targeted
+    // diagnostic instead of unbounded emission.
+    let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 40 }];
+    let ts = "@(@(@(@A,)..)..)..".parse::<TokenStream>().unwrap();
+    let out = expand_budget(&ts.to_string(), &segs, MAX_REPEAT_TOKENS);
+    assert!(out.unwrap_err().contains("limit 65536"));
+}
+
+#[test]
+fn nested_output_under_budget_expands() {
+    // the same shape, one level fewer (1600 rounds): well under budget
+    let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 40 }];
+    let out = expand_budget("@(@(@A,)..)..", &segs, MAX_REPEAT_TOKENS).unwrap();
+    assert_eq!(out.matches("TA").count(), 40 * 40);
+}
+
+#[test]
+fn tiny_budget_rejects_even_single_rounds() {
+    // the budget is absolute output tokens, not round count
+    let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 3 }];
+    assert!(expand_budget("@(@A),..", &segs, 2).is_err());
 }
 
 #[test]

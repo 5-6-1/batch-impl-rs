@@ -10,71 +10,72 @@ use quote::{ToTokens, quote};
 use crate::TraitBounds;
 use crate::ast::{Ty, TyPrimitive};
 use crate::codegen::extract::ImplParts;
-use crate::util::compile_err;
 
-/// Inherits trait generic bounds onto impl generic params **without a written
-/// bound** (same-name inheritance, positional match) and appends the trait's
-/// unmerged where predicates to the impl (after a reference check). Returns
-/// the collected errors; on any error the caller emits only the errors — no
-/// partial impl. Rules: see the `TraitBounds` docs.
+/// Inherits trait-level constraints onto the generated impl — by
+/// **positional substitution**, not by name equality:
+///
+/// - the trait's generic params (lifetimes included) pair positionally with
+///   the spec's rendered trait args (`trait Store<T, K>` +
+///   `Store<u32, Vec<T>>` → `T := u32`, `K := Vec<T>`);
+/// - a type param's inline bound lands on the impl generic its arg names —
+///   or, when the arg is anything else (a renamed generic covered by the
+///   same-name arm; a *concrete* type like `u32` that cannot carry an
+///   inline declaration), becomes a where predicate `{arg}: {bound}`;
+/// - the trait's compound where predicates substitute every param with its
+///   positional arg (`HashMap<T, K>: Send` → `HashMap<u32, Vec<T>>: Send`)
+///   and join the impl where clause — no name-equality requirement.
+///
+/// Substitution is **path-aware**: an ident reached through `::` is a path
+/// segment (`A::B`'s `B` is an associated type), never a parameter.
 pub(crate) fn inherit_trait_bounds(
-    parts: &mut ImplParts, trait_bounds: &TraitBounds, trait_args: &[String],
-    impl_names: &HashSet<String>,
-) -> Vec<TokenStream> {
-    let mut errs = vec![];
-    for (name, bound) in &mut parts.impl_generics {
-        if bound.is_some() {
+    parts: &mut ImplParts, trait_bounds: &TraitBounds, trait_args: &[TokenStream],
+) {
+    // The positional map: trait param name → the spec's rendered arg. Full
+    // positional zip — lifetimes participate (`'a` → `'b` when the spec
+    // renames them); Rust orders lifetimes first, so alignment holds.
+    let map: Vec<(String, TokenStream)> = trait_bounds
+        .params
+        .iter()
+        .zip(trait_args.iter())
+        .map(|(tp, arg)| (tp.name.clone(), arg.clone()))
+        .collect();
+    let substitute = |ts: &TokenStream| crate::util::subst::replace_map(ts, &map);
+
+    // Inline bounds: each type param's bound lands on the impl generic its
+    // positional arg names; a non-generic arg degrades to a where predicate.
+    for (tp, arg) in trait_bounds.params.iter().zip(trait_args.iter()) {
+        let Some(b) = &tp.bound else { continue };
+        if tp.name.starts_with('\'') {
+            // a lifetime parameter itself takes no inline bound here
+            // (`'a: 'b` outlives declarations are out of scope)
             continue;
         }
-        let key = name.to_string();
-        // where this param appears as a trait argument (absent = trait-unrelated, no inherit)
-        let Some(pos) = trait_args.iter().position(|a| a == &key) else {
-            continue;
-        };
-        let Some(tp) = trait_bounds.params.get(pos) else {
-            continue;
-        };
-        let Some(b) = &tp.bound else {
-            continue;
-        };
-        if tp.name != key {
-            errs.push(compile_err!(
-                "batch-impl: trait argument `{}` maps to parameter `{}` (bound `{}`); automatic \
-                 inheritance requires the same name; rename to `{}` or write the bound manually",
-                key,
-                tp.name,
-                b,
-                tp.name
-            ));
-            continue;
+        let arg_ident = bare_param_name(arg).to_string();
+        let arg_is_bare = arg.to_string() == arg_ident;
+        let slot = parts
+            .impl_generics
+            .iter_mut()
+            .find(|(n, _)| arg_is_bare && bare_param_name(n).to_string() == arg_ident);
+        let substituted = substitute(b);
+        match slot {
+            Some((_, slot_bound)) if slot_bound.is_none() => {
+                *slot_bound = Some(TyPrimitive(substituted).to_ty());
+            }
+            _ => {
+                // Concrete / composite arg: the constraint cannot ride an
+                // inline declaration — emit it as a plain predicate.
+                parts.where_clauses.push(quote!(#arg : #substituted));
+            }
         }
-        if let Some(r) = tp.refs.iter().find(|r| !impl_names.contains(*r)) {
-            errs.push(compile_err!(
-                "batch-impl: inherited bound `{}` references parameter `{}`, but the impl declares \
-                 no such name; declare `{}` or write the bound manually",
-                b,
-                r,
-                r
-            ));
-            continue;
-        }
-        *bound = Some(TyPrimitive(b.clone()).to_ty());
     }
-    // unmerged where predicates (compound / lifetime): after ref-check, append to the impl where
-    for (pred, refs) in &trait_bounds.extra_predicates {
-        if let Some(r) = refs.iter().find(|r| !impl_names.contains(*r)) {
-            errs.push(compile_err!(
-                "batch-impl: inherited where predicate `{}` references parameter `{}`, \
-                 but the impl declares no such name; declare `{}` or hand-write the where clause",
-                pred,
-                r,
-                r
-            ));
-            continue;
-        }
-        parts.where_clauses.push(pred.clone());
+
+    // Compound where predicates: substitute every trait param positionally
+    // and append. (The old name-equality ref-check is gone — substitution
+    // removes every trait param name, and any *other* undeclared ident is
+    // rustc's E0412 to report.)
+    for (pred, _refs) in &trait_bounds.extra_predicates {
+        parts.where_clauses.push(substitute(pred));
     }
-    errs
 }
 
 /// Renders an impl generic name with the `const` keyword stripped (the parse
@@ -170,7 +171,7 @@ fn strip_bound_fresh(ty: &Ty) -> (Ty, Vec<(TokenStream, Option<Ty>)>) {
             let params =
                 wt.0.params
                     .iter()
-                    .map(|(n, b)| (n.to_token_stream(), b.clone()))
+                    .map(|(n, b)| (n.to_token_stream(), b.clone().map(|b| *b)))
                     .collect::<Vec<_>>();
             let (inner, more) = strip_bound_fresh(&wt.1);
             let mut fresh = params;

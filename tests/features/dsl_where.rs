@@ -137,3 +137,86 @@ fn where_two_arg_bound_not_split() {
     let t = (1u8, 2u16);
     assert_eq!(t.n(), 2);
 }
+
+// ------------------------------------------------------------
+// Positional-substitution where inheritance: renamed generics,
+// concrete-mixed args, and a concrete single param.
+// ------------------------------------------------------------
+
+#[batch_impl(
+    <X, Y> SubstStore<X, Y> usize
+)]
+trait SubstStore<T, K>
+where
+    T: Clone,
+    std::collections::HashMap<T, K>: Send,
+{
+    #[allow(dead_code)]
+    fn get(&self) -> u8 {
+        0
+    }
+}
+
+#[test]
+fn subst_renamed_generics() {
+    // the generated impl: impl<X: Clone, Y> SubstStore<X, Y> for usize
+    // where std::collections::HashMap<X, Y>: Send
+    fn assert_impl<X: Clone + Send, Y: Send>(_: &usize)
+    where
+        usize: SubstStore<X, Y>,
+    {
+    }
+    assert_impl::<u8, i16>(&usize::default());
+}
+
+#[batch_impl(
+    <T> SubstMix<u32, Vec<T>> usize
+)]
+trait SubstMix<T, K>
+where
+    std::collections::HashMap<T, K>: Send,
+{
+    #[allow(dead_code)]
+    fn tag(&self) -> u8 {
+        1
+    }
+}
+
+#[test]
+fn subst_concrete_mix() {
+    // the predicate substitutes to `HashMap<u32, Vec<T>>: Send`
+    // the generated impl: impl<T> SubstMix<u32, Vec<T>> for usize
+    // where std::collections::HashMap<u32, Vec<T>>: Send
+    fn assert_impl<T: Send>(_: &usize)
+    where
+        usize: SubstMix<u32, Vec<T>>,
+    {
+    }
+    assert_impl::<i16>(&usize::default());
+}
+
+#[batch_impl(
+    <K> SubstConcrete<u32, K> usize
+)]
+trait SubstConcrete<T, K>
+where
+    T: Clone,
+{
+    #[allow(dead_code)]
+    fn tag(&self) -> u8 {
+        2
+    }
+}
+
+#[test]
+fn subst_concrete_single_param() {
+    // T := u32 is not a declared generic — its Clone bound degrades to a
+    // plain predicate `u32: Clone` on the impl
+    // the generated impl: impl<K> SubstConcrete<u32, K> for usize where u32: Clone
+    fn assert_impl<K>(_: &usize)
+    where
+        usize: SubstConcrete<u32, K>,
+    {
+    }
+    assert_impl::<u8>(&usize::default());
+}

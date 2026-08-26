@@ -185,6 +185,81 @@ mod tests {
         parse_ok("dyn FnMut(u8) -> u8");
     }
 
+    /// Regression (the second fuzz-OOM root cause): a lone `'` accepted by
+    /// `starts_block` but rejected unconsumed by `parse_block` used to spin
+    /// the space/bound fold loops forever, appending one empty arg per
+    /// iteration until memory died. It must terminate with the targeted
+    /// diagnostic — in a bound, and anywhere else the fold loops run.
+    /// Built from raw token trees: proc-macro2's lexer rejects a lone `'`
+    /// before our parser ever sees it (exactly how fuzz reaches it).
+    #[test]
+    fn lone_quote_terminates_with_diagnostic() {
+        use proc_macro2::{Group, Ident, TokenTree};
+        fn p(c: char) -> TokenTree {
+            TokenTree::Punct(proc_macro2::Punct::new(c, proc_macro2::Spacing::Alone))
+        }
+        fn id(s: &str) -> TokenTree {
+            TokenTree::Ident(Ident::new(s, proc_macro2::Span::call_site()))
+        }
+        // bound context: a None group parsed as generic args (`T: ' &`)
+        let bound = vec![
+            TokenTree::Group(Group::new(
+                delimiter![none],
+                [id("T"), p(':'), p('\''), p('&')].into_iter().collect(),
+            )),
+            id("usize"),
+        ];
+        // plain space chain: `usize ' &`
+        let chain = vec![id("usize"), p('\''), p('&')];
+        // bound tail: `T: Clone '`
+        let tail = vec![id("T"), p(':'), id("Clone"), p('\'')];
+        // (expected diagnostic fragment, tokens) — a top-level bare `T:`
+        // hits the generic boundary diagnostic; what matters is that every
+        // fold terminates
+        for (expect, toks) in [("lone `'`", bound), ("lone `'`", chain), ("unexpected `:`", tail)] {
+            let mut c = crate::util::Cursor::new(&toks);
+            let mut out = String::new();
+            use quote::ToTokens as _;
+            while !c.at_end() {
+                let Some(ty) = crate::parse::parse_item(&mut c, crate::ast::Op::Comma, None) else {
+                    break;
+                };
+                // The fold loops must make progress: an unbounded run here
+                // hangs the test (which is the regression being locked).
+                out.push_str(&crate::preprocess::render_angles(ty.to_token_stream()).to_string());
+            }
+            assert!(out.contains(expect), "expected `{expect}`, got: {out}");
+        }
+    }
+
+    /// Regression (same family as the fuzz OOM): a huge literal endpoint
+    /// must reject arithmetically, never reserve a range-sized Vec first.
+    #[test]
+    fn huge_range_endpoint_rejects_without_allocating() {
+        let ts: proc_macro2::TokenStream = "T.0..4000000000".parse().unwrap();
+        let v = crate::preprocess::angle_collect(&ts.into_iter().collect::<Vec<_>>()).unwrap();
+        let mut c = crate::util::Cursor::new(&v);
+        let ty = crate::parse::parse_item(&mut c, crate::ast::Op::Comma, None).unwrap();
+        use quote::ToTokens as _;
+        let out = crate::preprocess::render_angles(ty.to_token_stream()).to_string();
+        assert!(out.contains("limit 1024"), "expected the range limit, got: {out}");
+    }
+
+    /// Regression (the fuzz OOM root cause): a composed array×range chain
+    /// multiplies leaves per nesting level with no intermediate check — it
+    /// must hit the expansion limit as a diagnostic, never balloon memory.
+    #[test]
+    fn composed_range_chain_hits_limit() {
+        let spec = "((((([T,T].0..3).0..3).0..3).0..3).0..3).0..3";
+        let ts: proc_macro2::TokenStream = spec.parse().unwrap();
+        let v = crate::preprocess::angle_collect(&ts.into_iter().collect::<Vec<_>>()).unwrap();
+        let mut c = crate::util::Cursor::new(&v);
+        let ty = crate::parse::parse_item(&mut c, crate::ast::Op::Comma, None).unwrap();
+        use quote::ToTokens as _;
+        let out = crate::preprocess::render_angles(ty.to_token_stream()).to_string();
+        assert!(out.contains("limit 1024"), "expected the range-chain expansion limit, got: {out}");
+    }
+
     #[test]
     fn fn_once_parses() {
         parse_ok("dyn FnOnce(u8) -> u8");

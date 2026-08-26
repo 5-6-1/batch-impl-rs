@@ -12,6 +12,7 @@
 //! The block-family implementations live in `blocks.rs`; this file holds the
 //! dispatch skeleton and the shared helpers / return-bound expressions.
 
+use crate::apply::err_ty_at;
 use crate::ast::*;
 use crate::parse::blocks::{at_ref_block, literal_block, reference_block, star_block};
 use crate::parse::chain::parse_dot_chain;
@@ -104,15 +105,24 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
         // `@N` position reference
         TokenTree::Punct(p) if p.as_char() == '@' => at_ref_block(cursor),
         // `'a` lifetime
-        TokenTree::Punct(p)
-            if p.as_char() == '\'' && matches!(cursor.peek_at(1), Some(TokenTree::Ident(_))) =>
-        {
-            let lt = match cursor.peek_at(1) {
-                Some(TokenTree::Ident(id)) => Ident::new(&id.to_string(), id.span()),
-                _ => unreachable!(),
-            };
-            cursor.advance(2);
-            TyPrimitive(crate::parse::blocks::lifetime_tokens(&lt)).to_ty()
+        TokenTree::Punct(p) if p.as_char() == '\'' => {
+            // A lifetime reference needs an identifier (`'a`). A lone quote
+            // must still be **consumed** — `starts_block` accepts it, and a
+            // `None` return here would leave the cursor unmoved, turning
+            // every space/bound fold loop that trusts that contract into an
+            // infinite append (the second fuzz-OOM root cause).
+            if let Some(TokenTree::Ident(id)) = cursor.peek_at(1) {
+                let lt = Ident::new(&id.to_string(), id.span());
+                cursor.advance(2);
+                TyLifetime(crate::parse::blocks::lifetime_tokens(&lt)).to_ty()
+            } else {
+                cursor.bump();
+                crate::apply::err_ty_at(
+                    "batch-impl: a lone `'` cannot start a type (a lifetime needs \
+                     an identifier, e.g. `'a`)",
+                    p.span(),
+                )
+            }
         }
         // `?` / `!` prefix puncts — swallow the qualified type (passthrough);
         // an attachment block (`{...}` / `where{...}` / `impl{...}`) belongs
@@ -142,7 +152,18 @@ pub(crate) fn parse_return_expr(cursor: &mut Cursor, trait_name: Option<&Ident>)
         if !starts_block(t) || cursor_at_attachment(cursor) {
             break;
         }
+        let pos = cursor.pos();
         let right = parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+        // Progress invariant: `starts_block` promises a foldable block, but a
+        // malformed follower can leave `parse_block` empty-handed and the
+        // cursor unmoved — folding again would spin forever appending empties
+        // (a fuzz-OOM root cause). Report the stalled token instead.
+        if cursor.pos() == pos {
+            return err_ty_at(
+                &format!("batch-impl: unexpected `{t}` in a type position"),
+                t.span(),
+            );
+        }
         left = left.apply(right);
     }
     left
@@ -156,7 +177,16 @@ pub(crate) fn parse_bound_expr(cursor: &mut Cursor, trait_name: Option<&Ident>) 
     loop {
         match cursor.peek() {
             Some(t) if starts_block(t) && !cursor_at_attachment(cursor) => {
+                let pos = cursor.pos();
                 let right = parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+                // Progress invariant, as in [`parse_return_expr`]: a stalled
+                // block-start must end the chain with a diagnostic, never spin.
+                if cursor.pos() == pos {
+                    return crate::apply::err_ty_at(
+                        &format!("batch-impl: unexpected `{t}` in a bound expression"),
+                        t.span(),
+                    );
+                }
                 left = left.apply(right);
             }
             _ => break,

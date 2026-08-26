@@ -221,8 +221,8 @@ pub(crate) fn match_ty(
                         segs.push(VarSeg { prefix: prefix.clone(), start: leaf_idx, len: seg_len });
                         for k in 0..seg_len {
                             // Structured binding: (prefix, leaf position) —
-                            // no minted name; the body's repeat blocks
-                            // reference the slot via its carrier.
+                            // the repeat-block substitution splices the
+                            // bound element directly (no minted name).
                             map.bind_seg(
                                 &prefix,
                                 leaf_idx + k,

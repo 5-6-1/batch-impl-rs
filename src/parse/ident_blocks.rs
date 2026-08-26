@@ -43,12 +43,13 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
         }
         "dyn" => dyn_block(cursor, trait_name),
         "for" => for_block(cursor, trait_name),
-        "Fn" | "FnMut" | "FnOnce" => {
-            // The Fn-family trait types — structured like `fn`, so a bare
-            // `Fn` (params filled by `.` later) and `Fn(A, B) -> R` both work.
-            // A path segment (`Fn::assoc` — rare, but a qualified path starts
-            // with `::`) must not be hijacked; `Fn` followed by `::` falls
-            // through to the plain-ident path.
+        "Fn" | "FnMut" | "FnOnce" | "AsyncFn" | "AsyncFnMut" | "AsyncFnOnce" => {
+            // The Fn-family trait types (incl. the async closures of Rust
+            // 2024) — structured like `fn`, so a bare `Fn` (params filled by
+            // `.` later) and `Fn(A, B) -> R` both work. A path segment
+            // (`Fn::assoc` — rare, but a qualified path starts with `::`)
+            // must not be hijacked; `Fn` followed by `::` falls through to
+            // the plain-ident path.
             if matches!(cursor.peek_at(1), Some(TokenTree::Punct(p))
                 if p.as_char() == ':' && matches!(cursor.peek_at(2), Some(TokenTree::Punct(q)) if q.as_char() == ':'))
             {
@@ -57,6 +58,9 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
                 let kind = match id.to_string().as_str() {
                     "FnMut" => crate::ast::FnKind::TraitMut,
                     "FnOnce" => crate::ast::FnKind::TraitOnce,
+                    "AsyncFn" => crate::ast::FnKind::TraitAsync,
+                    "AsyncFnMut" => crate::ast::FnKind::TraitAsyncMut,
+                    "AsyncFnOnce" => crate::ast::FnKind::TraitAsyncOnce,
                     _ => crate::ast::FnKind::Trait,
                 };
                 fn_trait_block(cursor, &id, kind)

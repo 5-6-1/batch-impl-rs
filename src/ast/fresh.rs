@@ -33,8 +33,8 @@ pub(crate) fn fresh_decl_tokens(g: usize, i: usize) -> TokenStream {
 }
 
 /// Emits the self-delimiting carrier for an arbitrary spelled reference —
-/// a `@` punct followed by a Brace group holding `inner`. Shared emitter of
-/// every carrier protocol (fresh references, declarations, segment slots).
+/// a `@` punct followed by a Brace group holding `inner`. The shared emitter
+/// of the fresh-reference carrier protocol (declarations + references).
 fn carrier_tokens(inner: String, span: proc_macro2::Span) -> TokenStream {
     let mut ts = TokenStream::new();
     let mut at = proc_macro2::Punct::new('@', proc_macro2::Spacing::Alone);
@@ -47,45 +47,6 @@ fn carrier_tokens(inner: String, span: proc_macro2::Span) -> TokenStream {
     g.set_span(span);
     ts.extend(std::iter::once(TokenTree::Group(g)));
     ts
-}
-
-/// A **variadic-segment slot reference** — the structured identity of one
-/// element of an `impl{...}` shape template's `ident@..` segment: the
-/// user-written segment name plus the absolute leaf position it feeds.
-/// Carries in token domains as `@{prefix_pos}` — the same self-delimiting
-/// carrier shape as a fresh reference, so no minted identifier exists
-/// between the repeat-block expansion and the slot-mapping rewrite.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SegRef {
-    /// The user-written segment name (`A` in `impl{(A@..)}`).
-    pub(crate) prefix: String,
-    /// The absolute leaf tuple position this slot feeds (`start + round`).
-    pub(crate) pos: usize,
-}
-
-impl SegRef {
-    /// The carrier's inner spelling (`A_3`). The separator cannot occur in
-    /// an identifier, so the split is unambiguous.
-    #[allow(dead_code)]
-    pub(crate) fn spell(&self) -> String {
-        format!("{}_{}", self.prefix, self.pos)
-    }
-
-    /// Parses the inner spelling; `None` for anything else. The single
-    /// authority for both directions of the encoding.
-    pub(crate) fn parse(s: &str) -> Option<Self> {
-        let (prefix, pos) = s.rsplit_once('_')?;
-        (!prefix.is_empty()).then_some(Self { prefix: prefix.to_string(), pos: pos.parse().ok()? })
-    }
-}
-
-/// Emits the `@{prefix_pos}` carrier of a segment-slot reference. Kept
-/// alongside the parser: the two directions of the segment-slot encoding
-/// (currently exercised by [`SegRef`] tests; the body-side emitter rides on
-/// the documented positional names — see `repeat_drivers`).
-#[allow(dead_code)]
-pub(crate) fn seg_ref_tokens(r: &SegRef, span: proc_macro2::Span) -> TokenStream {
-    carrier_tokens(r.spell(), span)
 }
 
 /// Parses a **declaration carrier**: a lone `@{g_i}` pair (single position,
@@ -185,6 +146,17 @@ pub(crate) fn fresh_ref_tokens(r: FreshRef, span: proc_macro2::Span) -> TokenStr
     carrier_tokens(r.spell(), span)
 }
 
+/// Whether `tokens[i]` opens a **carrier** (`@` punct + Brace group) — the
+/// atomic token shape shared by declarations and references. Every walker
+/// that must not touch carriers passes them through behind this single
+/// test; the shape is owned here so the protocol and its recognition can
+/// never drift apart.
+pub(crate) fn is_carrier_at(tokens: &[TokenTree], i: usize) -> bool {
+    matches!(tokens.get(i), Some(TokenTree::Punct(p)) if p.as_char() == '@')
+        && matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
+            if g.delimiter() == proc_macro2::Delimiter::Brace)
+}
+
 /// Folds every **flat** position reference in `tokens` into the carrier form:
 /// `@0` / `@g_i` / `@N..` / `@N..M` / `@N..=M` (and the deprecated
 /// `@all_fresh`, normalized to `@{0..}`) become `@` + Brace groups. Existing
@@ -206,9 +178,7 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
             }
         };
         // Already a carrier (`@{...}`): keep both tokens verbatim.
-        if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-            if g.delimiter() == proc_macro2::Delimiter::Brace)
-        {
+        if is_carrier_at(tokens, i) {
             out.push(tokens[i].clone());
             out.push(tokens[i + 1].clone());
             i += 2;
@@ -242,7 +212,7 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
             // Optional range tail: `..` (open) / `..=M` / `..M`.
             let mut consumed = 2usize;
             let end = if matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                && matches!(tokens.get(i + 3), Some(TokenTree::Punct(q)) if q.as_char() == '.')
             {
                 consumed = 4;
                 let inclusive =
@@ -326,27 +296,5 @@ mod tests {
         );
         assert_eq!(decl_fresh_pos(&range), None);
         assert_eq!(decl_fresh_pos(&"T".parse::<TokenStream>().unwrap()), None);
-    }
-}
-#[test]
-fn probe_marker_final() {
-    use quote::ToTokens;
-    use syn::parse2;
-    // The chosen marker and its near-miss shapes
-    for s in ["[A;()]", "[A; ()]", "[(); A]", "[(); N]", "[A; 3]", "[A; N]", "[A; []]"] {
-        let ts: proc_macro2::TokenStream = s.parse().unwrap();
-        match parse2::<syn::Type>(ts) {
-            Ok(t) => println!("{s:12} => OK: {}", t.to_token_stream()),
-            Err(e) => println!("{s:12} => FAIL: {}", e),
-        }
-    }
-    // Structure of the () length
-    let ts: proc_macro2::TokenStream = "[A;()]".parse().unwrap();
-    if let Ok(syn::Type::Array(a)) = parse2::<syn::Type>(ts) {
-        println!("len tokens: {}", a.len.to_token_stream());
-        match &a.len {
-            syn::Expr::Tuple(tp) => println!("len = Expr::Tuple with {} elems", tp.elems.len()),
-            o => println!("len kind: {:?}", std::mem::discriminant(o)),
-        }
     }
 }

@@ -27,11 +27,14 @@ pub(crate) struct VarSeg {
 /// The slot mapping produced by a shape match. Two channels, split by who
 /// wrote the name:
 /// - `slots` — **user-written** fixed placeholder names (`W`, `T` in
-///   `impl{W<T>}`); replaced wherever the ident appears (the documented
-///   substitution semantics — the name is the user's own).
+///   `impl{W<T>}`, the explicit segment start `A0` in `impl{(A0, @A..)}`);
+///   replaced wherever the ident appears in where/body/target via
+///   [`apply_mapping`] (the documented substitution semantics — the name is
+///   the user's own).
 /// - `segs` — **variadic-segment elements** (`A@..`), keyed by the
-///   structured `(prefix, leaf position)` pair and carried in token domains
-///   as `@{prefix#pos}`; matched structurally, never as a bare name.
+///   structured `(prefix, leaf position)` pair; consumed directly by the
+///   repeat-block substitution (`repeat_drivers.rs::substitute`, which
+///   splices each round's element into the body), never as a bare name.
 ///
 /// Both order-preserving (rendering walks them in match order).
 #[derive(Default)]
@@ -80,10 +83,11 @@ impl Mapping {
         &self.slots
     }
 
-    /// The segment-slot entries (`(prefix, position)`, bound value), in
-    /// match order.
-    pub(crate) fn seg_entries(&self) -> &[((String, usize), TokenStream)] {
-        &self.segs
+    /// The bound leaf subtree of one segment element `(prefix, pos)` — the
+    /// repeat-block substitution reads these directly and splices the value
+    /// into the round's output (`@ident` → the i-th element's tokens).
+    pub(crate) fn seg_value(&self, prefix: &str, pos: usize) -> Option<&TokenStream> {
+        self.segs.iter().find(|((p, k), _)| p == prefix && *k == pos).map(|(_, v)| v)
     }
 
     /// Merges another mapping into this one; a conflicting re-binding of
@@ -137,50 +141,24 @@ pub(crate) fn match_shape(
     Ok((map, segs))
 }
 
-/// Rewrites a token stream through the mapping. Two matchers, one per
-/// channel:
-/// - a bare ident equal to a **user slot** name is replaced (the user wrote
-///   that name to be substituted);
-/// - an `@{prefix#pos}` **segment-slot carrier** (parsed as a SegRef,
-///   matched by the structured `(prefix, position)` pair) is replaced by
-///   the bound leaf subtree — the repeat-block expansion emits these
-///   carriers, so no minted identifier ever needs a textual search.
-///
-/// Recursive (groups descended).
+/// Rewrites a token stream through the mapping: a bare ident equal to a
+/// **user slot** name is replaced by the bound subtree (the user wrote that
+/// name to be substituted — an explicit fixed element like `A0` in
+/// `impl{(A0, @A..)}`, or any other template ident). Segment elements are
+/// NOT resolved here — the repeat-block expansion splices their values
+/// directly (`repeat_drivers.rs::substitute` against [`Mapping::seg_value`]),
+/// so no segment spelling ever reaches the body. Recursive (groups descended).
 pub(crate) fn apply_mapping(tokens: TokenStream, map: &Mapping) -> TokenStream {
     let v: Vec<_> = tokens.into_iter().collect();
     let mut out: Vec<TokenTree> = Vec::with_capacity(v.len());
-    let mut i = 0;
-    while i < v.len() {
-        // Segment-slot carrier: `@` + Brace group holding `prefix#pos`.
-        if let (TokenTree::Punct(p), Some(TokenTree::Group(g))) = (&v[i], v.get(i + 1))
-            && p.as_char() == '@'
-            && g.delimiter() == proc_macro2::Delimiter::Brace
-        {
-            let inner: String =
-                g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
-            if let Some(r) = crate::ast::fresh::SegRef::parse(&inner)
-                && let Some(((_, _), repl)) =
-                    map.segs.iter().find(|((p2, k2), _)| *p2 == r.prefix && *k2 == r.pos)
-            {
-                out.extend(repl.clone());
-                i += 2;
-                continue;
-            }
-            // Not a known segment slot: keep verbatim (validation reports
-            // dangling references elsewhere).
-            out.push(v[i].clone());
-            out.push(v[i + 1].clone());
-            i += 2;
-            continue;
-        }
-        match &v[i] {
+    for t in v {
+        match t {
             TokenTree::Ident(id) => {
                 let s = id.to_string();
-                // User-written fixed slots (`W`, `T`).
+                // User-written fixed slots (`W`, `T`, `A0`).
                 match map.slots.iter().find(|(name, _)| name.as_str() == s) {
                     Some((_, repl)) => out.extend(repl.clone()),
-                    None => out.push(TokenTree::Ident(id.clone())),
+                    None => out.push(TokenTree::Ident(id)),
                 }
             }
             TokenTree::Group(g) => {
@@ -189,9 +167,8 @@ pub(crate) fn apply_mapping(tokens: TokenStream, map: &Mapping) -> TokenStream {
                 ng.set_span(g.span());
                 out.push(TokenTree::Group(ng));
             }
-            other => out.push(other.clone()),
+            other => out.push(other),
         }
-        i += 1;
     }
     out.into_iter().collect()
 }

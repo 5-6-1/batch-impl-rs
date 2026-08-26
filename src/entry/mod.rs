@@ -265,12 +265,10 @@ pub(crate) fn expand_batch_trait(
         }
 
         // `unsafe` prefix: mark all impls in this segment as unsafe impls
-        let is_unsafe = if matches!(cursor.peek(), Some(TokenTree::Ident(id)) if *id == "unsafe") {
+        let is_unsafe = matches!(cursor.peek(), Some(TokenTree::Ident(id)) if *id == "unsafe");
+        if is_unsafe {
             cursor.bump();
-            true
-        } else {
-            false
-        };
+        }
 
         // Collect the trait path (stop at `:`; collect `::` path separators too).
         // Angle brackets were paired into opaque groups by angle_collect, so no `<>` depth tracking.
@@ -295,18 +293,15 @@ pub(crate) fn expand_batch_trait(
         // Full trait path: just collect the token stream of trait_path as-is
         let trait_full_path = trait_path.iter().cloned().collect();
         // Take the last ident in the path as the `trait_name` used for matching
-        let trait_last_ident = match trait_path
+        let Some(trait_last_ident) = trait_path
             .iter()
             .filter_map(|tt| if let TokenTree::Ident(id) = tt { id.into() } else { None })
             .next_back()
-        {
-            Some(ident) => ident,
-            None => {
-                return Err(compile_error_str(
-                    "batch_trait! expects an ident as the trait name",
-                    trait_path.first().map_or_else(proc_macro2::Span::call_site, |t| t.span()),
-                ));
-            }
+        else {
+            return Err(compile_error_str(
+                "batch_trait! expects an ident as the trait name",
+                trait_path.first().map_or_else(proc_macro2::Span::call_site, |t| t.span()),
+            ));
         };
         if !cursor.is_punct(':') {
             return Err(compile_error_str(

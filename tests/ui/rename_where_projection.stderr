@@ -1,7 +1,0 @@
-error: batch-impl: inherited where predicate `T :: Item : Clone` references parameter `T`, but the impl declares no such name; declare `T` or hand-write the where clause
-  --> tests/ui/rename_where_projection.rs:12:1
-   |
-12 | #[batch_impl(<U: IntoIter> A<U> ())]
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

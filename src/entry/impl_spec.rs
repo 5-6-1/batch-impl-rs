@@ -13,12 +13,13 @@ use crate::entry::driver::collect_spec_leaves;
 use crate::util::{Cursor, is_single_colon};
 
 /// Assembles one generated impl: generics (attr new-generic-decl first, then
-/// the impl's own params), trait path, rewritten for-Type, merged where
-/// clause, rewritten body. `m` is the slot mapping (empty for the direct
-/// form / empty matrix).
+/// the impl's own params), trait path (**`None` for an inherent impl** — the
+/// `for` section is omitted and the rewritten self type stands alone),
+/// merged where clause, rewritten body. `m` is the slot mapping (empty for
+/// the direct form / empty matrix).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble_impl(
-    item: &ItemImpl, trait_path: &syn::Path, new_gen: Option<&TokenStream>,
+    item: &ItemImpl, trait_path: Option<&syn::Path>, new_gen: Option<&TokenStream>,
     where_preds: &[TokenTree], m: &Mapping, for_ty: TokenStream,
 ) -> Result<TokenStream, TokenStream> {
     let item_params = item.generics.params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
@@ -45,10 +46,10 @@ pub(crate) fn assemble_impl(
     // trait args (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
     // `Marker<Additive, Multiplicative>`). The body is not synced: it is
     // ordinary Rust (the impl block parses verbatim), so an empty bracket
-    // there is a real Rust type, not a DSL trait reference.
+    // there is a real Rust type, not a DSL trait reference. An inherent impl
+    // has no trait args — sync degrades to a no-op.
     let trait_args = trait_path
-        .segments
-        .last()
+        .and_then(|p| p.segments.last())
         .map(|seg| match &seg.arguments {
             syn::PathArguments::AngleBracketed(ab) => {
                 ab.args.iter().map(|a| a.to_token_stream()).collect::<Vec<_>>()
@@ -69,8 +70,12 @@ pub(crate) fn assemble_impl(
     let items =
         item.items.iter().map(|it| apply_mapping(it.to_token_stream(), m)).collect::<Vec<_>>();
     let unsafe_kw = if item.unsafety.is_some() { quote!(unsafe) } else { quote!() };
+    let head = match trait_path {
+        Some(p) => quote!(impl #gen_tokens #p for #for_ty),
+        None => quote!(impl #gen_tokens #for_ty),
+    };
     Ok(quote! {
-        #unsafe_kw impl #gen_tokens #trait_path for #for_ty #where_clause {
+        #unsafe_kw #head #where_clause {
             #(#items)*
         }
     })

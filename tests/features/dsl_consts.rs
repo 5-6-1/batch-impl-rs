@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_cast)]
 //! dsl.rs `@` constant-system tests: built-in name/range families,
 //! `batch_trait!` custom constants (lazy expansion, chained refs, values
 //! containing `<...>`), and bare-list value forms.
@@ -116,4 +117,40 @@ fn trait_const_value_with_angles() {
     fn _check_nest<T: FooNest>() {}
     _check_map::<HashMap<u32, String>>();
     _check_nest::<Vec<Vec<u8>>>();
+}
+
+// ------------------------------------------------------------
+// Open-ended range families: `@..u32` (family minimum) and
+// `@i16..` (family maximum) — either endpoint omittable. The spec
+// body is shared by every generated impl.
+// ------------------------------------------------------------
+
+#[batch_impl(@..u32 { fn total(&self) -> u128 { *self as u128 } })]
+trait Sum {
+    fn total(&self) -> u128;
+}
+
+#[test]
+fn open_left_range_family() {
+    fn check<T: Sum>(t: &T) {
+        let _ = t.total();
+    }
+    check(&8u8);
+    check(&16u16);
+    check(&32u32);
+}
+
+#[batch_impl(@i16.. { fn lo(&self) -> i128 { *self as i128 } })]
+trait Neg {
+    fn lo(&self) -> i128;
+}
+
+#[test]
+fn open_right_range_family() {
+    fn check<T: Neg>(t: &T) {
+        let _ = t.lo();
+    }
+    check(&16i16);
+    check(&64i64);
+    check(&128i128);
 }
