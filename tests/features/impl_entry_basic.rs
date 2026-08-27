@@ -89,3 +89,76 @@ fn impl_entry_unsafe_impl() {
     assert_eq!(<u8 as Mk7>::TAG, 8);
     assert_eq!(<u16 as Mk7>::TAG, 16);
 }
+
+// ------------------------------------------------------------
+// 8. Partial-placeholder substitution: the shape template keeps its fixed
+//    elements (`Box` matched verbatim) and only the placeholder (`T`) is
+//    rewritten to the matrix leaf — `impl Tr for Box<T>` with template
+//    `Box<T>` and leaf `Box<u8>` emits `impl Tr for Box<u8>`, and the
+//    placeholder also rewrites inside the body (`T::BITS` → `u8::BITS`).
+//    A placeholder is a substitution target, NOT a generic parameter: it
+//    must not appear in the impl's own `<>` declaration (that would declare
+//    a second identity for the rewritten name).
+// ------------------------------------------------------------
+#[batch_impl(Box<T> : [Box<u8>, Box<u16>])]
+impl Mk8 for Box<T> {
+    fn bits(&self) -> u32 {
+        T::BITS
+    }
+}
+
+trait Mk8 {
+    fn bits(&self) -> u32;
+}
+
+#[test]
+fn impl_entry_partial_placeholder_substitution() {
+    assert_eq!(<Box<u8> as Mk8>::bits(&Box::new(0u8)), 8);
+    assert_eq!(<Box<u16> as Mk8>::bits(&Box::new(0u16)), 16);
+}
+
+// ------------------------------------------------------------
+// 9. The placeholder name is arbitrary (`A` here — any ident works, as long
+//    as the impl's for-Type writes the same names as the template).
+// ------------------------------------------------------------
+#[batch_impl(Box<A> : [Box<u32>, Box<u64>])]
+impl Mk9 for Box<A> {
+    fn bits(&self) -> u32 {
+        A::BITS
+    }
+}
+
+trait Mk9 {
+    fn bits(&self) -> u32;
+}
+
+#[test]
+fn impl_entry_arbitrary_placeholder_name() {
+    assert_eq!(<Box<u32> as Mk9>::bits(&Box::new(0u32)), 32);
+    assert_eq!(<Box<u64> as Mk9>::bits(&Box::new(0u64)), 64);
+}
+
+// ------------------------------------------------------------
+// 10. Placeholders in the impl's own where clause rewrite too (the where
+//     predicates are rewritten by the slot mapping like the body): `A: Clone`
+//     → `u8: Clone` per leaf.
+// ------------------------------------------------------------
+#[batch_impl(Box<A> : [Box<u8>, Box<u16>] where A: Clone)]
+impl Mk10 for Box<A>
+where
+    A: Clone,
+{
+    fn bits(&self) -> u32 {
+        A::BITS
+    }
+}
+
+trait Mk10 {
+    fn bits(&self) -> u32;
+}
+
+#[test]
+fn impl_entry_placeholder_in_where_rewrites() {
+    assert_eq!(<Box<u8> as Mk10>::bits(&Box::new(0u8)), 8);
+    assert_eq!(<Box<u16> as Mk10>::bits(&Box::new(0u16)), 16);
+}
