@@ -65,11 +65,11 @@ What you write is **a description of a "type matrix"**, and batch-impl generates
 | `[A, B]`   | list                                              | horizontal expansion (Cartesian product) |
 | `(A, B)`   | tuple                                             | permutations (ordered pairs)     |
 | `*[...]` / `*(...)` | splat: flatten into the enclosing list | `[a, *[b,c]]` = `[a,b,c]`; left `*[...]` distributes / `*(...)` appends |
-| `#name`    | directive: auto-copy the item signature from the trait definition | the body doesn't hand-write signatures |
+| `#name`    | directive: auto-copy the item signature from the trait definition | the body doesn't hand-write signatures; `-` exclusion in directive args (`#fill(@all, -foo)`) is the only surviving use of the retired `-` operator |
 
 **The space (adjacency) is the natural way to apply**: the left side is the modifier/container/trait, the right side the target type, and chaining accumulates arguments left-associatively — `HashMap u32 String` = `HashMap<u32, String>`, `fn(A, B) C` = `fn(A, B) -> C`, `Tr u8` = `impl Tr for u8` (a bare trait name applies as the impl trait; the trait name is identified by the annotated trait). Write `Tr<u8>` for the type `Tr<u8>`.
 
-`. ` is the same operation with **right-associative** grouping, for **nesting** only: `Box.Box u8` = `Box<Box<u8>>`, `HashMap<K> String` = `HashMap<K, String>` (space works here too).
+`. ` is the same operation with **right-associative** grouping, for **nesting** only: `Box.Box.u8` = `Box<Box<u8>>`, `HashMap<K> String` = `HashMap<K, String>` (space works here too). In a mixed expression the dot binds **before** the space: `Box Vec . u8` = `Box<Vec<u8>>` (the dot nests `Vec . u8` first), whereas `Box Vec u8` = `Box<Vec, u8>` — the space lists both as separate arguments.
 
 Pick by the grouping shape you want: use the space to list arguments side by side, use `.` to nest.
 

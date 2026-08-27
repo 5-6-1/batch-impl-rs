@@ -68,11 +68,11 @@ trait TupleTrait {}
 | `[A, B]`  | 列表                                  | 横向展开（笛卡尔积）         |
 | `(A, B)`  | 元组                                  | 排列（有序对）           |           
 | `*[...]` / `*(...)` | splat：摊平进外层列表 | `[a, *[b,c]]` = `[a,b,c]`；左操作数 `*[...]` 分配 / `*(...)` 追加 |
-| `#name`   | 指令：从 trait 定义自动抄 item 签名   | body 不用手写签名            |
+| `#name`   | 指令：从 trait 定义自动抄 item 签名   | body 不用手写签名；指令实参里的 `-` 排除（`#fill(@all, -foo)`）是已退役 `-` 运算符的唯一幸存用途 |
 
 **空格是主推的写法**（左侧是修饰符/容器/trait，右侧是目标类型，链式累加参数，左结合）：`HashMap u32 String` = `HashMap<u32, String>`，`fn(A, B) C` = `fn(A, B) -> C`，`Tr u8` = `impl Tr for u8`（裸 trait 名按 impl trait 应用；要类型 `Tr<u8>` 直接写 `Tr<u8>`）。
 
-`. ` 是同一运算的**右结合**形态，只在需要**嵌套**时用：`Box.Box u8` = `Box<Box<u8>>`，`HashMap<K> String` = `HashMap<K, String>`（空格同样可以）。
+`. ` 是同一运算的**右结合**形态，只在需要**嵌套**时用：`Box.Box.u8` = `Box<Box<u8>>`，`HashMap<K> String` = `HashMap<K, String>`（空格同样可以）。混合表达式中 `.` **先于空格**结合：`Box Vec . u8` = `Box<Vec<u8>>`（点先嵌套 `Vec . u8`），而 `Box Vec u8` = `Box<Vec, u8>`——空格把两者并列为参数。
 
 `[A, B] [X, Y]` = 2×2 矩阵（4 个 impl）；`(T1, T2).2` = 排列（4 个有序对）。
 

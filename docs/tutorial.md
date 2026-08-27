@@ -907,11 +907,13 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
   `@`, useful for cursor-only bodies), or — for a cursor-only block with no
   declared driver — the template's **unique segment** (an arity-shape with
   several segments rejects the ambiguous cursor-only form);
-- the block body's trailing `,` is the separator, emitted after every round —
-  write no comma *between* side-by-side blocks (each block already
-  terminates its own elements); alternatively write the separator between
-  `)` and `..` (`@(x),..`) so it is emitted only *between* rounds, never
-  after the last one;
+- each repeat block's trailing `,` is the separator, emitted after every
+  round — write no comma *between* side-by-side blocks (every block already
+  emits its own element separators); alternatively write the separator
+  between `)` and `..` (`@(x),..`) so it is emitted only *between* rounds,
+  never after the last one; commas inside the `{...}` code block follow
+  ordinary Rust rules — the DSL separator above applies only to repeat
+  blocks, not to code bodies;
 - nested blocks run independent rounds (Cartesian semantics) — the output
   is the product of the nesting levels' round counts, capped at 65536
   output tokens per body (`repeat-block expansion produces N tokens (limit
@@ -1073,7 +1075,7 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Missing operand**: `A.` / `.A` / `,A` — `compile_error!` with a clear message
 - **Unknown `@` constant**: lists the built-in names (`@u*`/`@i*`/`@f*`/`@scalar`/`@num` + range families)
 - **Constant cycle/forward reference**: rejected at definition (prevents infinite recursion)
-- **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count / `@2_0` group missing — targeted errors in user language, no reserved `_Param_*_BatchGen_` names leaked (and no raw rustc E0412 either)
+- **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count / `@2_0` group missing — targeted errors in user language (the fresh generics are numbered from 0 in document order); the generated names are the user-visible display names (`P0`, `P1`, ...) and the reference is intercepted in the macro — never a raw rustc E0412
 - **Splat as a where-predicate subject**: explicitly rejected (`A, B: Trait` has no defined semantics)
 - **Generic rename breaks inheritance**: renaming a trait generic param = explicit error, never silent
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
