@@ -179,10 +179,9 @@ fn ui() {
     // declarations or references)
     t.compile_fail("tests/ui/lifetime_as_operand.rs");
 
-    // the impl entry (ItemImpl): for-Type shape mismatch / banned `@` and `#` /
+    // the impl entry (ItemImpl): for-Type shape mismatch / banned `#` and `@N` /
     // non-type direct form
     t.compile_fail("tests/ui/implentry_shape_mismatch.rs");
-    t.compile_fail("tests/ui/implentry_at_const_banned.rs");
     t.compile_fail("tests/ui/implentry_hash_banned.rs");
     t.compile_fail("tests/ui/implentry_at_num_banned.rs");
     t.compile_fail("tests/ui/implentry_direct_not_type.rs");

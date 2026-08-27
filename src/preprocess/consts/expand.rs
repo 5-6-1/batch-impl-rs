@@ -54,8 +54,17 @@ pub(crate) fn try_expand_at(
     }
     let Some(TokenTree::Ident(name)) = tokens.get(1) else {
         // `@N` position references (Literal after `@`) are codegen-resolved
-        // (impl generic list known only there) — keep as-is, no error here.
+        // (impl generic list known only there) — keep as-is on the attribute
+        // entry, no error here; the ItemImpl entry has no fresh system, so
+        // they are rejected.
         if matches!(tokens.get(1), Some(TokenTree::Literal(_))) {
+            if ctx.is_item_impl() {
+                return Err(compile_error_str(
+                    "batch-impl: `@N` / `@g_i` position references are not \
+                     supported on the ItemImpl entry",
+                    tokens[0].span(),
+                ));
+            }
             return Ok(None);
         }
         return Err(compile_error_str(
@@ -76,7 +85,7 @@ pub(crate) fn try_expand_at(
         && eq.as_char() == '='
     {
         let msg = match ctx {
-            ConstCtx::Attribute { .. } => {
+            ConstCtx::Attribute { .. } | ConstCtx::ItemImpl { .. } => {
                 "batch-impl: custom constants are not supported by \
                  `#[batch_impl]` / `#[batch_impl_only]` — write the type \
                  matrix directly with `.` / space / `*` instead"
@@ -150,15 +159,21 @@ pub(crate) fn try_expand_at(
         return Ok((vec![render_list(types.iter().map(|s| s.as_str()))], consumed).into());
     }
     // `@trait`: Attribute (batch_impl/only) = full trait path (local name or
-    // `#ext::Trait:` external path); Trait (batch_trait!) = return None, keep
-    // as-is — batch_trait! has multiple segments with different trait names,
-    // and `@trait` is expanded by entry's post-segmentation segment-level
-    // substitution into the current segment's path (the `@type_t=<T>@trait<T>`
-    // cross-segment reuse scenario). None also avoids lazy expansion
-    // recursing on `@trait` itself (expand to as-is → hit again → recurse).
+    // `#ext::Trait:` external path); ItemImpl = the impl's own trait path
+    // (`None` on an inherent impl — an error); Trait (batch_trait!) = return
+    // None, keep as-is — batch_trait! has multiple segments with different
+    // trait names, and `@trait` is expanded by entry's post-segmentation
+    // segment-level substitution into the current segment's path (the
+    // `@type_t=<T>@trait<T>` cross-segment reuse scenario). None also avoids
+    // lazy expansion recursing on `@trait` itself (expand to as-is → hit
+    // again → recurse).
     if name_str == "trait" {
         return match ctx.trait_full_path() {
             Some(path) => Ok((path.clone().into_iter().collect(), 2).into()),
+            None if ctx.is_item_impl() => Err(compile_err!(
+                "batch-impl: `@trait` is not available on an inherent impl \
+                 (there is no trait to refer to)"
+            )),
             None => Ok(None),
         };
     }
@@ -173,6 +188,11 @@ pub(crate) fn try_expand_at(
                 );
                 Ok((vec![render_list(ids.iter())], 2).into())
             }
+            None if ctx.is_item_impl() => Err(compile_err!(
+                "batch-impl: `@{}` is not available on the ItemImpl entry \
+                 (no trait definition to select items from)",
+                name_str
+            )),
             None => Err(compile_err!(
                 "batch-impl: `@{}` is supported only by `#[batch_impl]` / \
                  `#[batch_impl_only]` (needs a trait definition to select \
@@ -204,6 +224,11 @@ pub(crate) fn try_expand_at(
                     }
                 )),
             },
+            None if ctx.is_item_impl() => Err(compile_err!(
+                "batch-impl: `@{}` is not available on the ItemImpl entry \
+                 (no trait definition to read generic parameters from)",
+                name_str
+            )),
             None => Err(compile_err!(
                 "batch-impl: `@{}` is supported only by `#[batch_impl]` / \
                  `#[batch_impl_only]` (needs a trait definition to read its \
@@ -241,7 +266,7 @@ pub(crate) fn try_expand_at(
                     ConstCtx::Trait { .. } =>
                         "; user constants must be defined \
                       before the reference (defining them later has no effect)",
-                    ConstCtx::Attribute { .. } => "",
+                    ConstCtx::Attribute { .. } | ConstCtx::ItemImpl { .. } => "",
                 }
             ))
         }

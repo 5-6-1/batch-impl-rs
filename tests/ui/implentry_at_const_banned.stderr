@@ -1,7 +1,0 @@
-error: batch-impl: only `@trait` is allowed on the ItemImpl entry (`@` constants are not supported)
- --> tests/ui/implentry_at_const_banned.rs:4:1
-  |
-4 | #[batch_impl(W : @u*)]
-  | ^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -162,3 +162,59 @@ fn impl_entry_placeholder_in_where_rewrites() {
     assert_eq!(<Box<u8> as Mk10>::bits(&Box::new(0u8)), 8);
     assert_eq!(<Box<u16> as Mk10>::bits(&Box::new(0u16)), 16);
 }
+
+// ------------------------------------------------------------
+// 12. `@` built-in constants work on the ItemImpl entry (the matrix source
+//     expands like the attribute entry): `@u*` → u8..u128, `@f*` → f32/f64,
+//     `@num` → the numeric family, open/closed range families.
+// ------------------------------------------------------------
+#[batch_impl(W : @u*)]
+impl Mk12 for W {
+    fn mk() -> W {
+        W::default()
+    }
+}
+
+trait Mk12 {
+    fn mk() -> Self;
+}
+
+#[test]
+fn impl_entry_at_constants() {
+    assert_eq!(<u8 as Mk12>::mk(), 0);
+    assert_eq!(<u128 as Mk12>::mk(), 0);
+}
+
+#[batch_impl(W : @f*)]
+impl Mk12b for W {
+    fn bits(&self) -> u32 {
+        32
+    }
+}
+
+trait Mk12b {
+    fn bits(&self) -> u32;
+}
+
+#[test]
+fn impl_entry_at_f_constants() {
+    assert_eq!(<f32 as Mk12b>::bits(&0.0f32), 32);
+    assert_eq!(<f64 as Mk12b>::bits(&0.0f64), 32);
+}
+
+#[batch_impl(W : @num)]
+impl Mk12c for W {
+    fn mk() -> W {
+        W::default()
+    }
+}
+
+trait Mk12c {
+    fn mk() -> Self;
+}
+
+#[test]
+fn impl_entry_at_num_constant() {
+    assert_eq!(<i8 as Mk12c>::mk(), 0);
+    assert_eq!(<u32 as Mk12c>::mk(), 0);
+}

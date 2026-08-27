@@ -7,6 +7,19 @@
 
 ## Unreleased (in development — the next release after 0.9.5)
 
+- **`@` built-in constants on the ItemImpl entry** (user report: the ban
+  was a defect — the attribute entry supports them) — `ConstCtx` gains an
+  `ItemImpl { trait_path: Option<&TokenStream> }` variant; the impl entry's
+  pipeline now runs `expand_consts` (built-in families `@u*` / `@f*` /
+  `@num` / range families work; `@trait` expands to the impl's own trait
+  path — an error on an inherent impl) instead of the old `replace_trait_at`
+  whitelist. `@N` / `@g_i` refs and the `@all` selectors stay rejected (no
+  fresh system / trait definition on this entry), with targeted messages;
+  `#` directives are rejected by the renamed `reject_directives` pass.
+  `@trait<...>` now works like the attribute entry (expands to
+  `path<...>`). Tests: `impl_entry_at_constants` / `_at_f_constants` /
+  `_at_num_constant`; the `implentry_at_const_banned` ui fixture became a
+  positive feature.
 - **The operator dictionary: `util/punct_ops.rs`** (user discussion —
   "make `..` / `->` atomic, distinct from `.` / `-`") — proc-macro2 cannot
   mint multi-char puncts (`Ident::new("..")` panics — not a valid Ident)

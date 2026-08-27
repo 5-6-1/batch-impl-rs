@@ -46,11 +46,20 @@ pub(crate) fn expand_impl_entry(
 ) -> Result<TokenStream, TokenStream> {
     let trait_path = item.trait_.as_ref().map(|(path, _)| path.clone());
 
-    // ---- preprocessing subset: angle pairing → `@trait` replacement →
-    // bare-`where` rewrite (see the entry module docs) ----
+    // ---- preprocessing subset: `@` constant expansion (built-in families +
+    // `@trait` → the impl's own trait path; `@N` refs and the `@all` selectors
+    // are rejected — this entry has no fresh system / trait definition) →
+    // angle pairing → directive rejection → bare-`where` rewrite (see the
+    // entry module docs) ----
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
-    let paired = angle_collect(&attr_vec)?;
-    let paired = replace_trait_at(&paired, trait_path.as_ref())?;
+    let trait_path_ts = trait_path.as_ref().map(|p| p.to_token_stream());
+    let expanded = crate::preprocess::expand_consts(
+        &attr_vec,
+        crate::preprocess::ConstCtx::ItemImpl { trait_path: trait_path_ts.as_ref() },
+    )?;
+    // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)
+    let paired = angle_collect(&expanded)?;
+    let paired = reject_directives(&paired)?;
     // The ItemImpl attr has no body after the predicates, so the end of the
     // stream terminates the where region (the predicates become a body-less
     // `where{...}` suffix).
@@ -174,58 +183,14 @@ fn expand_one_spec(
     }
 }
 
-/// Replaces `@trait` with the impl's trait path; every other `@` construct
-/// and every `#` directive is rejected (custom constants / selectors /
-/// position refs are all banned on this entry). `#[...]` attributes pass
-/// through.
-fn replace_trait_at(
-    tokens: &[TokenTree], trait_path: Option<&syn::Path>,
-) -> Result<Vec<TokenTree>, TokenStream> {
+/// Rejects `#name(...)` directives (only `#[...]` attributes pass through) —
+/// the ItemImpl entry has no directive system. `@` was handled earlier by
+/// `expand_consts` (built-in constants + `@trait`).
+fn reject_directives(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
-            TokenTree::Punct(p) if p.as_char() == '@' => match tokens.get(i + 1) {
-                Some(TokenTree::Ident(id)) if id == "trait" => {
-                    let Some(path) = trait_path else {
-                        return Err(compile_error_str(
-                            "batch-impl: `@trait` is not available on an inherent impl \
-                             (there is no trait to refer to)",
-                            tokens[i].span(),
-                        ));
-                    };
-                    if matches!(tokens.get(i + 2), Some(TokenTree::Punct(p2)) if p2.as_char() == '<')
-                    {
-                        return Err(compile_error_str(
-                            "batch-impl: `@trait<...>` is not supported on the ItemImpl entry \
-                             (write the trait args directly)",
-                            tokens[i].span(),
-                        ));
-                    }
-                    out.extend(quote!(#path));
-                    i += 2;
-                }
-                Some(TokenTree::Ident(_)) => {
-                    return Err(compile_error_str(
-                        "batch-impl: only `@trait` is allowed on the ItemImpl entry \
-                         (`@` constants are not supported)",
-                        tokens[i].span(),
-                    ));
-                }
-                Some(TokenTree::Literal(_)) => {
-                    return Err(compile_error_str(
-                        "batch-impl: `@N` / `@g_i` position references are not supported \
-                         on the ItemImpl entry",
-                        tokens[i].span(),
-                    ));
-                }
-                _ => {
-                    return Err(compile_error_str(
-                        "batch-impl: `@` must be followed by `trait` on the ItemImpl entry",
-                        tokens[i].span(),
-                    ));
-                }
-            },
             // `#` directives are banned; `#[...]` attributes pass through.
             TokenTree::Punct(p) if p.as_char() == '#' => {
                 if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
@@ -243,8 +208,7 @@ fn replace_trait_at(
                 }
             }
             TokenTree::Group(g) => {
-                let inner =
-                    replace_trait_at(&g.stream().into_iter().collect::<Vec<_>>(), trait_path)?;
+                let inner = reject_directives(&g.stream().into_iter().collect::<Vec<_>>())?;
                 let mut ng = Group::new(g.delimiter(), inner.into_iter().collect());
                 ng.set_span(g.span());
                 out.push(TokenTree::Group(ng));

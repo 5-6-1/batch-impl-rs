@@ -20,11 +20,18 @@ use proc_macro2::{TokenStream, TokenTree};
 /// definitions are **not** supported here (the 0.7.2 feature was reverted in
 /// 0.8.0 — a definition segment errors in [`try_expand_at`]).
 ///
+/// [`ConstCtx::ItemImpl`] (`#[batch_impl(spec)] impl ...`): the built-in
+/// families (`@u*` / `@num` / ranges) work; `@trait` expands to the impl's
+/// own trait path (`None` on an inherent impl — an error); the trait-aware
+/// selectors (`@all` family) and position refs (`@N`) are rejected (no trait
+/// definition, no fresh-generic system on this entry).
+///
 /// [`ConstCtx::Trait`] (`batch_trait!`): built-in + user table (leading
 /// `@name=value;`).
 #[derive(Clone, Copy)]
 pub(crate) enum ConstCtx<'a> {
     Attribute { trait_def: &'a syn::ItemTrait, trait_full_path: &'a TokenStream },
+    ItemImpl { trait_path: Option<&'a TokenStream> },
     Trait { user_table: &'a UserConsts },
 }
 
@@ -36,7 +43,7 @@ impl<'a> ConstCtx<'a> {
     pub(crate) fn user_table(&self) -> Option<&'a UserConsts> {
         match self {
             &ConstCtx::Trait { user_table } => user_table.into(),
-            ConstCtx::Attribute { .. } => None,
+            ConstCtx::Attribute { .. } | ConstCtx::ItemImpl { .. } => None,
         }
     }
 
@@ -45,16 +52,23 @@ impl<'a> ConstCtx<'a> {
     pub(crate) fn trait_def(&self) -> Option<&'a syn::ItemTrait> {
         match self {
             &ConstCtx::Attribute { trait_def, .. } => trait_def.into(),
-            ConstCtx::Trait { .. } => None,
+            ConstCtx::ItemImpl { .. } | ConstCtx::Trait { .. } => None,
         }
     }
 
     /// Full trait path (`batch_impl` = local name; `batch_impl_only` =
-    /// external path).
+    /// external path; `ItemImpl` = the impl's own trait path).
     pub(crate) fn trait_full_path(&self) -> Option<&'a TokenStream> {
         match self {
             &ConstCtx::Attribute { trait_full_path, .. } => trait_full_path.into(),
+            &ConstCtx::ItemImpl { trait_path } => trait_path,
             ConstCtx::Trait { .. } => None,
         }
+    }
+
+    /// Whether this is the ItemImpl entry (its `@N` refs and `@all` selectors
+    /// are rejected — no fresh-generic system / trait definition there).
+    pub(crate) fn is_item_impl(&self) -> bool {
+        matches!(self, ConstCtx::ItemImpl { .. })
     }
 }
