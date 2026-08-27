@@ -54,17 +54,10 @@ pub(crate) fn try_expand_at(
     }
     let Some(TokenTree::Ident(name)) = tokens.get(1) else {
         // `@N` position references (Literal after `@`) are codegen-resolved
-        // (impl generic list known only there) — keep as-is on the attribute
-        // entry, no error here; the ItemImpl entry has no fresh system, so
-        // they are rejected.
+        // (impl generic list known only there) — keep as-is on every entry
+        // (the ItemImpl entry resolves them too, against the fresh generics
+        // a generator hoisted; a dangling ref errors at codegen).
         if matches!(tokens.get(1), Some(TokenTree::Literal(_))) {
-            if ctx.is_item_impl() {
-                return Err(compile_error_str(
-                    "batch-impl: `@N` / `@g_i` position references are not \
-                     supported on the ItemImpl entry",
-                    tokens[0].span(),
-                ));
-            }
             return Ok(None);
         }
         return Err(compile_error_str(

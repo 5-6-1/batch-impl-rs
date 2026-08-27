@@ -4,6 +4,8 @@
 
 ## Unreleased（开发中——0.9.5 之后的下一个版本）
 
+- **ItemImpl 入口支持生成器 + `@N` 选择器**（用户方向——spec 层必须与 attr 入口一致）——形状形式的矩阵与直接形式的 for-type 现在按完整 DSL 解析：生成器（`GenA<()0..=12>` / `GenA<().3>`）铸造 fresh 泛型，从 leaf 中 hoist 出来（`extract::hoist_type_params`）、由 `FreshCtx` 命名（`P0, P1, ...`，对模板槽 / item 标识符碰撞感知）、在形状内核 syn 解析前解析为载体显示名（`range_refs::expand_range_refs`）。where 谓词对照这些名字解析 `@N..` / `@N..=M` / `@all_fresh` 选择器（`where_at::resolve_where_predicates` 原样复用）；hoist 的 fresh 加入 impl 泛型（`assemble_impl` 新增 `fresh_names` 参数，排在 new-generic-decl 之后）。`@N` 引用不再被拒（对照 hoist 的 fresh 解析；悬空引用报标准 out-of-range 诊断）。body 保持普通 Rust。测试：`impl_entry_generator_with_where_selectors`（范围生成 arity 家族）、`impl_entry_direct_form_generator`；`implentry_direct_not_type` ui fixture 更新（直接 for-type 现在允许 DSL——错误场景改为空 for-type）。
+
 - **ItemImpl 入口支持 `@` 内置常量**（用户报告：拒绝是缺陷——attr 入口支持）——`ConstCtx` 新增 `ItemImpl { trait_path: Option<&TokenStream> }` 变体；impl entry 管线改用 `expand_consts`（内置族 `@u*` / `@f*` / `@num` / range 族可用；`@trait` 展开为 impl 自己的 trait 路径——固有 impl 报错），取代旧的 `replace_trait_at` 白名单。`@N` / `@g_i` 引用与 `@all` 选择器仍拒绝（该入口没有 fresh 系统 / trait 定义），带定向消息；`#` 指令由改名后的 `reject_directives` pass 拒绝。`@trait<...>` 现在与 attr 入口一致（展开为 `path<...>`）。测试：`impl_entry_at_constants` / `_at_f_constants` / `_at_num_constant`；`implentry_at_const_banned` ui fixture 转为正功能。
 
 - **运算符字典：`util/punct_ops.rs`**（用户讨论——"让 `..` / `->` 原子化、与 `.` / `-` 区分"）——proc-macro2 造不出多字符 punct（`Ident::new("..")` 直接 panic——不是合法 Ident），也没有多余的 delimiter 可供组载体使用，所以"原子"在**消费层**实现：`read_op(tokens, i) -> (Op, len)` 成为多字符运算符形状（`..` = `.`J `.`、`..=` = `.`J `.`J `=`、`->` = `-`J `>`、`::` = `:`J `:`）与普通 punct 的唯一权威。每个消费方只问"这里的运算符是什么"，不再各自拼 `Spacing::Joint` 组合：

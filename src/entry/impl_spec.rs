@@ -13,35 +13,32 @@ use crate::entry::driver::collect_spec_leaves;
 use crate::util::{Cursor, is_single_colon};
 
 /// Assembles one generated impl: generics (attr new-generic-decl first, then
-/// the impl's own params), trait path (**`None` for an inherent impl** — the
-/// `for` section is omitted and the rewritten self type stands alone),
-/// merged where clause, rewritten body. `m` is the slot mapping (empty for
-/// the direct form / empty matrix).
+/// the hoisted fresh names, then the impl's own params), trait path
+/// (**`None` for an inherent impl** — the `for` section is omitted and the
+/// rewritten self type stands alone), merged where clause, rewritten body.
+/// `m` is the slot mapping (empty for the direct form / empty matrix).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble_impl(
     item: &ItemImpl, trait_path: Option<&syn::Path>, new_gen: Option<&TokenStream>,
-    where_preds: &[TokenTree], m: &Mapping, for_ty: TokenStream,
+    fresh_names: &[TokenStream], where_preds: &[TokenStream], m: &Mapping, for_ty: TokenStream,
 ) -> Result<TokenStream, TokenStream> {
     let item_params = item.generics.params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
-    // Generics: the attr new-generic-decl first, then the impl's own params.
-    let gen_tokens = match new_gen {
-        Some(ng) => {
-            let ng_empty = ng.clone().into_iter().next().is_none();
-            match (ng_empty, item_params.is_empty()) {
-                (true, true) => quote!(),
-                (true, false) => quote!(<#(#item_params),*>),
-                (false, true) => quote!(<#ng>),
-                (false, false) => quote!(<#ng, #(#item_params),*>),
-            }
-        }
-        None => {
-            if item_params.is_empty() {
-                quote!()
-            } else {
-                quote!(<#(#item_params),*>)
-            }
-        }
-    };
+    // Generics: the attr new-generic-decl first, then the hoisted fresh names
+    // (`P0, P1, ...` from a generator in the target), then the impl's own
+    // params.
+    let mut all_params = Vec::with_capacity(
+        new_gen.map_or(0, |n| n.clone().into_iter().count())
+            + fresh_names.len()
+            + item_params.len(),
+    );
+    if let Some(ng) = new_gen
+        && !ng.clone().into_iter().next().is_none()
+    {
+        all_params.push(ng.clone());
+    }
+    all_params.extend(fresh_names.iter().cloned());
+    all_params.extend(item_params);
+    let gen_tokens = if all_params.is_empty() { quote!() } else { quote!(<#(#all_params),*>) };
     // `X<>` sync: every `X<>` in the where predicates fills with the impl's
     // trait args (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
     // `Marker<Additive, Multiplicative>`). The body is not synced: it is
@@ -58,8 +55,8 @@ pub(crate) fn assemble_impl(
         })
         .unwrap_or_default();
     let mut preds = vec![];
-    if !where_preds.is_empty() {
-        let p = sync_trait_application(where_preds.iter().cloned().collect(), &trait_args)?;
+    for p in where_preds {
+        let p = sync_trait_application(p.clone(), &trait_args)?;
         preds.push(apply_mapping(p, m));
     }
     if let Some(wc) = &item.generics.where_clause {

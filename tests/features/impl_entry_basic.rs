@@ -218,3 +218,49 @@ fn impl_entry_at_num_constant() {
     assert_eq!(<i8 as Mk12c>::mk(), 0);
     assert_eq!(<u32 as Mk12c>::mk(), 0);
 }
+
+// ------------------------------------------------------------
+// 13. Generators + `@N..` where selectors on the ItemImpl entry: the spec
+//     layer shares the attribute entry's DSL — `A<()0..=12>` mints 13 fresh
+//     generics hoisted onto the impl (`impl<P0..P12> A<(P0, ..., P12)>`),
+//     `where @0..: SomeTrait` constrains all of them. The body stays
+//     ordinary Rust (no `@` carriers).
+// ------------------------------------------------------------
+struct GenA<T>(T);
+
+trait SomeTrait {}
+
+impl SomeTrait for u8 {}
+impl SomeTrait for u16 {}
+
+#[batch_impl(GenA<B> : GenA<()0..=3> where @0..: SomeTrait)]
+impl GenA<B> {
+    fn arity(&self) -> usize {
+        4
+    }
+}
+
+#[test]
+fn impl_entry_generator_with_where_selectors() {
+    // `GenA<()0..=3>` generates one impl per arity 0..=3, each with the
+    // hoisted freshs constrained by `@0..: SomeTrait`.
+    assert_eq!(GenA::<()>(()).arity(), 4);
+    assert_eq!(GenA::<(u8,)>((0,)).arity(), 4);
+    assert_eq!(GenA::<(u8, u16)>((0, 1)).arity(), 4);
+    assert_eq!(GenA::<(u8, u16, u8)>((0, 1, 2)).arity(), 4);
+}
+
+// 13b. Direct form with a generator: `GenA<().3>` → hoisted freshs, no
+//      matrix.
+#[batch_impl(GenA<().3> where @0..: SomeTrait)]
+impl GenA<B> {
+    fn tag(&self) -> u32 {
+        1
+    }
+}
+
+#[test]
+fn impl_entry_direct_form_generator() {
+    let a = GenA::<(u8, u16, u8)>((0, 1, 2));
+    assert_eq!(a.tag(), 1);
+}

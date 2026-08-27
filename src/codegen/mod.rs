@@ -61,6 +61,7 @@ pub(crate) use extract::*;
 pub(crate) use fresh::*;
 pub(crate) use generics::*;
 pub(crate) use pipeline::generate_parts;
+pub(crate) use range_refs::*;
 pub(crate) use repeat::*;
 pub(crate) use shape::*;
 pub(crate) use splat::*;

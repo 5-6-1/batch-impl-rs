@@ -7,6 +7,24 @@
 
 ## Unreleased (in development — the next release after 0.9.5)
 
+- **Generators + `@N` selectors on the ItemImpl entry** (user direction —
+  the spec layer must match the attribute entry) — the shape form's matrix
+  and the direct form's for-type now parse as full DSL: a generator
+  (`GenA<()0..=12>` / `GenA<().3>`) mints fresh generics that are hoisted
+  out of the leaf (`extract::hoist_type_params`), named by `FreshCtx`
+  (`P0, P1, ...`, collision-aware against the template slots / item idents),
+  and resolved to display names (`range_refs::expand_range_refs`) before
+  the shape kernel syn-parses the leaf. Where predicates resolve
+  `@N..` / `@N..=M` / `@all_fresh` selectors against those names
+  (`where_at::resolve_where_predicates`, reused verbatim); the hoisted
+  freshs join the impl generics (`assemble_impl` gains a `fresh_names`
+  parameter, ordered after the new-generic-decl). `@N` refs are no longer
+  banned on this entry (they resolve against the hoisted freshs; a dangling
+  ref reports the standard out-of-range diagnostic). The body stays
+  ordinary Rust. Tests: `impl_entry_generator_with_where_selectors`
+  (range-generated arity family), `impl_entry_direct_form_generator`;
+  `implentry_direct_not_type` ui fixture updated (DSL is now legal in the
+  direct for-type — the error is an empty for-type).
 - **`@` built-in constants on the ItemImpl entry** (user report: the ban
   was a defect — the attribute entry supports them) — `ConstCtx` gains an
   `ItemImpl { trait_path: Option<&TokenStream> }` variant; the impl entry's

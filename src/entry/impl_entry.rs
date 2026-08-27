@@ -21,15 +21,22 @@
 //! - shape form: `shape-template : new-generic-decl? matrix-source? (where ...)?`
 //! - direct form: `new-generic-decl? for-type (where ...)?`
 //!
-//! `@trait` (→ the impl's trait path) is allowed in new-generic-decl bounds
-//! and where predicates; every other `@` construct and every `#` directive
-//! is rejected on this entry.
+//! `@trait` (→ the impl's trait path) and the built-in `@` constants work on
+//! this entry; generators in the target (`A<()0..=12>`) hoist their fresh
+//! generics onto the impl and `@N..` where selectors resolve against them —
+//! the spec layer shares the attribute entry's DSL. The impl block's
+//! **body** stays ordinary Rust (no `@` carriers); `#` directives and `@N`
+//! refs without a generator are rejected.
 
 use proc_macro2::{Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
+use std::collections::HashSet;
 use syn::ItemImpl;
 
-use crate::codegen::{Mapping, apply_mapping, match_shape};
+use crate::codegen::{
+    FreshCtx, Mapping, apply_mapping, collect_used_idents, expand_range_refs, hoist_type_params,
+    match_shape, resolve_where_predicates,
+};
 use crate::entry::impl_spec::{
     assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
 };
@@ -121,14 +128,32 @@ fn expand_one_spec(
                 ));
             }
             let (new_gen, matrix) = split_new_gen(&spec[colon + 1..]);
+            // `used`: fresh display names must not collide with anything the
+            // impl writes (template slots, the new generic decl, the item).
+            let mut used = HashSet::new();
+            collect_used_idents(&item.to_token_stream(), &mut used);
+            collect_used_idents(&template.to_token_stream(), &mut used);
+            if let Some(ng) = &new_gen {
+                collect_used_idents(&ng.to_token_stream(), &mut used);
+            }
+            // where predicates, split at depth-0 commas (each resolves
+            // independently against the leaf's fresh names)
+            let where_chunks = split_at_depth0(&where_preds, ',')
+                .iter()
+                .map(|c| c.iter().cloned().collect::<TokenStream>())
+                .collect::<Vec<_>>();
             if matrix.is_empty() {
                 // Empty matrix source → N = 1, the shape itself (no slot
                 // mapping; the for-Type is emitted verbatim).
+                let fresh_ctx = FreshCtx::new(&[], &used);
+                let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
+                    .map_err(|es| es.into_iter().collect::<TokenStream>())?;
                 return assemble_impl(
                     item,
                     trait_path,
                     new_gen.as_ref(),
-                    &where_preds,
+                    &[],
+                    &where_resolved,
                     &Mapping::default(),
                     item.self_ty.to_token_stream(),
                 );
@@ -136,10 +161,22 @@ fn expand_one_spec(
             let leaves = parse_matrix_leaves(&matrix)?;
             let mut out = quote![];
             for leaf in leaves {
-                let leaf_ty = syn::parse2(leaf.to_token_stream()).map_err(|_| {
+                // Generators in a leaf (`A<()0..=12>`) mint fresh
+                // declarations: hoist them out of the leaf (they join the
+                // impl generics), name them (`P0, P1, ...`) and resolve the
+                // carriers to display names before the shape kernel
+                // syn-parses the leaf.
+                let mut fresh_decls = vec![];
+                let leaf = hoist_type_params(leaf, &mut fresh_decls);
+                let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+                let fresh_ctx = FreshCtx::new(&decl_names, &used);
+                let fresh_names =
+                    fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
+                let leaf_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
+                let leaf_ty = syn::parse2(leaf_tokens).map_err(|_| {
                     compile_error_str(
                         "batch-impl: the matrix leaf is not a standard Rust type \
-                         (generators cannot be destructured by a shape template)",
+                         (a generator's fresh generics could not be resolved)",
                         Span::call_site(),
                     )
                 })?;
@@ -148,11 +185,14 @@ fn expand_one_spec(
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                 // for-Type: slot names rewritten to the bound leaf subtrees.
                 let for_ty = apply_mapping(item.self_ty.to_token_stream(), &m);
+                let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
+                    .map_err(|es| es.into_iter().collect::<TokenStream>())?;
                 out.extend(assemble_impl(
                     item,
                     trait_path,
                     new_gen.as_ref(),
-                    &where_preds,
+                    &fresh_names,
+                    &where_resolved,
                     &m,
                     for_ty,
                 )?);
@@ -162,20 +202,40 @@ fn expand_one_spec(
         None => {
             // ---- direct form: `new-generic-decl? for-type` (no matrix, N = 1) ----
             let (new_gen, for_tokens) = split_new_gen(spec);
-            let for_tokens = render_angles(for_tokens.iter().cloned().collect::<TokenStream>());
-            // validity gate: the self type must be a standard Rust type
-            syn::parse2::<syn::Type>(for_tokens.clone()).map_err(|_| {
-                compile_error_str(
-                    "batch-impl: the direct form needs a standard Rust type after \
+            // The for-type is full DSL — a generator may appear; parse it
+            // (the angle groups stay paired for the DSL parser), hoist the
+            // freshs, name and resolve them to display names.
+            let mut used = HashSet::new();
+            collect_used_idents(&item.to_token_stream(), &mut used);
+            if let Some(ng) = &new_gen {
+                collect_used_idents(&ng.to_token_stream(), &mut used);
+            }
+            let where_chunks = split_at_depth0(&where_preds, ',')
+                .iter()
+                .map(|c| c.iter().cloned().collect::<TokenStream>())
+                .collect::<Vec<_>>();
+            let leaves = parse_matrix_leaves(&for_tokens.to_vec())?;
+            if leaves.len() != 1 {
+                return Err(compile_error_str(
+                    "batch-impl: the direct form takes exactly one type after \
                      the generic declaration (e.g. `<T> Box<T>`)",
                     Span::call_site(),
-                )
-            })?;
+                ));
+            }
+            let mut fresh_decls = vec![];
+            let leaf = hoist_type_params(leaves.into_iter().next().unwrap(), &mut fresh_decls);
+            let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+            let fresh_ctx = FreshCtx::new(&decl_names, &used);
+            let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
+            let for_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
+            let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
+                .map_err(|es| es.into_iter().collect::<TokenStream>())?;
             assemble_impl(
                 item,
                 trait_path,
                 new_gen.as_ref(),
-                &where_preds,
+                &fresh_names,
+                &where_resolved,
                 &Mapping::default(),
                 for_tokens,
             )

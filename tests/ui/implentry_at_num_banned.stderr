@@ -1,4 +1,4 @@
-error: batch-impl: `@N` / `@g_i` position references are not supported on the ItemImpl entry
+error: batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name)
  --> tests/ui/implentry_at_num_banned.rs:4:1
   |
 4 | #[batch_impl(W : Box<@0>)]
