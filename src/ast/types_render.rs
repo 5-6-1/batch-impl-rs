@@ -119,31 +119,7 @@ impl ToTokens for Ty {
                 let binder = &wf.0;
                 quote!(for < #binder > #inner)
             }
-            TyKind::Fn(f) => {
-                let u = f.2.then_some(quote!(unsafe));
-                let head = match f.3 {
-                    FnKind::Bare => quote!(fn),
-                    FnKind::Trait => quote!(Fn),
-                    FnKind::TraitMut => quote!(FnMut),
-                    FnKind::TraitOnce => quote!(FnOnce),
-                    FnKind::TraitAsync => quote!(AsyncFn),
-                    FnKind::TraitAsyncMut => quote!(AsyncFnMut),
-                    FnKind::TraitAsyncOnce => quote!(AsyncFnOnce),
-                };
-                match &f.0 {
-                    Some(params) => {
-                        let params = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
-                        match &f.1 {
-                            Some(ret) => {
-                                let ret_tokens = ret.to_token_stream();
-                                quote!(#u #head(#(#params),*) -> #ret_tokens)
-                            }
-                            None => quote!(#u #head(#(#params),*)),
-                        }
-                    }
-                    None => quote!(#u #head),
-                }
-            }
+            TyKind::Fn(f) => render_fn(f),
             TyKind::TypeParam(tp) => params_to_tokens_no_base(tp),
             TyKind::WithAttr(w) => {
                 let stream = &w.0.0;
@@ -189,6 +165,35 @@ impl ToTokens for Ty {
             TyKind::Lifetime(l) => l.0.clone(),
             TyKind::Error(e) => e.0.clone(),
         })
+    }
+}
+
+/// Renders the fn family: `unsafe` flag, the head keyword (`fn` / `Fn` /
+/// `FnMut` / `FnOnce` and the async closure traits), params and the optional
+/// `-> ret` — the largest single render, split out of `to_tokens`.
+fn render_fn(f: &TyFn) -> TokenStream {
+    let u = f.2.then_some(quote!(unsafe));
+    let head = match f.3 {
+        FnKind::Bare => quote!(fn),
+        FnKind::Trait => quote!(Fn),
+        FnKind::TraitMut => quote!(FnMut),
+        FnKind::TraitOnce => quote!(FnOnce),
+        FnKind::TraitAsync => quote!(AsyncFn),
+        FnKind::TraitAsyncMut => quote!(AsyncFnMut),
+        FnKind::TraitAsyncOnce => quote!(AsyncFnOnce),
+    };
+    match &f.0 {
+        Some(params) => {
+            let params = params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
+            match &f.1 {
+                Some(ret) => {
+                    let ret_tokens = ret.to_token_stream();
+                    quote!(#u #head(#(#params),*) -> #ret_tokens)
+                }
+                None => quote!(#u #head(#(#params),*)),
+            }
+        }
+        None => quote!(#u #head),
     }
 }
 

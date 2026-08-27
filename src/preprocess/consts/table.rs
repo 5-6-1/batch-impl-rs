@@ -82,91 +82,25 @@ fn expand_consts_at(
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
-            // `delimiter![<>]` and `delimiter![none]` are the same value
-            // (Delimiter::None). Under the new order (`@` before `<>`
-            // pairing), no angle groups exist in the stream when
-            // expand_consts runs (angle_collect has not run), so any None
-            // group must be a real transparent group (macro-variable output
-            // from `$(...)*`/`$x:ty` expansion) — recurse into it to expand
-            // the inner `@` (in 0.6.0's `<> @` order angle_collect flattened
-            // first and this was not entered; after the order fix, not
-            // recursing would leave inner `@` behind).
             TokenTree::Group(g)
                 if g.delimiter() == delimiter![()]
                     || g.delimiter() == delimiter![[]]
                     || g.delimiter() == delimiter![none] =>
             {
-                // Macro calls (`foo!(...)` / `foo![...]`) and attributes
-                // (`#[...]`) pass through untouched — their contents are
-                // user Rust, not DSL. `#name(...)` directive arguments and
-                // plain `(A, B)` tuples / `<...>` angle groups still recurse
-                // (the group's previous token is an Ident, not `!`/`#`).
-                if bracket_is_passthrough(tokens, i) {
-                    result.push(tokens[i].clone());
-                } else {
-                    // Guard before materializing the group's stream: the
-                    // recursion-entry check runs after `stream()`/collect, so
-                    // check the next level here to fail before touching the
-                    // subtree.
-                    if depth + 1 > crate::util::MAX_NEST_DEPTH {
-                        return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
-                    }
-                    let inner = g.stream().into_iter().collect::<Vec<_>>();
-                    result.push(
-                        Group::new(
-                            g.delimiter(),
-                            expand_consts_at(&inner, ctx, depth + 1)?.into_iter().collect(),
-                        )
-                        .into(),
-                    );
-                }
+                expand_group(g, tokens, i, ctx, depth, &mut result)?;
                 i += 1;
             }
             TokenTree::Punct(p) if p.as_char() == '@' => {
-                // A carrier (`@` + Brace group — a fresh reference `@{0}` /
-                // the `@{}` body-slot switch) is codegen's concern, never a
-                // constant: pass both tokens through untouched.
-                if crate::ast::fresh::is_carrier_at(tokens, i) {
-                    result.push(tokens[i].clone());
-                    result.push(tokens[i + 1].clone());
-                    i += 2;
-                    continue;
-                }
-                match crate::preprocess::try_expand_at(&tokens[i..], ctx)? {
-                    // Lazy expansion: user constant values store tokens as-is
-                    // (may contain nested `@` references and DSL operations);
-                    // after splicing, expand recursively (circular refs are
-                    // already intercepted at definition, so recursion
-                    // terminates).
-                    Some((expanded, consumed)) => {
-                        let expanded = expand_consts_at(&expanded, ctx, depth + 1)?;
-                        result.extend(expanded);
-                        i += consumed;
-                    }
-                    // `None` (batch_trait!'s `@trait`, or `@N` position refs —
-                    // Literal after `@`): keep as-is and do not recurse
-                    // (otherwise `@trait` expands to itself → hit again →
-                    // infinite recursion; `@N` is resolved by codegen where
-                    // the impl generic list is known)
-                    None => {
-                        result.push(tokens[i].clone());
-                        i += 1;
-                    }
-                }
+                i += expand_at(tokens, i, ctx, depth, &mut result)?;
             }
-            // `where{...}` predicate suffix: a Brace group right after the
-            // `where` ident is a DSL structure (not a body), so enter it to
-            // expand `@trait` (batch_impl knows the trait path) — `@N` stays
-            // untouched for codegen. Bare `where pred {body}` has its
-            // predicate at the top level and is already covered by the loop.
-            // `impl{...}` shape template: a Brace group
-            // right after the `impl` ident is the shape template, entered to
-            // expand `@trait` / `@` constants — the remaining tokens form a
-            // standard Rust type parsed by syn in codegen. Bodies are never
-            // entered (an `impl` inside `{body}` is inside a Brace group this
-            // walker skips). The `impl{...}` discrimination is centralized in
-            // `util::is_impl_template` (shared with `where_process`); the
-            // guard below re-checks instead of unwrapping — no-panic promise.
+            // `where{...}` predicate suffix / `impl{...}` shape template: a
+            // Brace group right after the ident is a DSL structure (not a
+            // body), so enter it to expand `@trait` / `@` constants — bodies
+            // are never entered (an `impl` inside `{body}` is inside a Brace
+            // group this walker skips). The `impl{...}` discrimination is
+            // centralized in `util::is_impl_template` (shared with
+            // `where_process`); the guard below re-checks instead of
+            // unwrapping — no-panic promise.
             TokenTree::Ident(id) if id == "where" || is_impl_template(tokens, i) => {
                 if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
                     && g.delimiter() == delimiter![{}]
@@ -188,6 +122,64 @@ fn expand_consts_at(
         }
     }
     Ok(result)
+}
+
+/// Recurse into a transparent/`()`/`[]` group to expand the inner `@` — the
+/// recursion-entry depth check runs before materializing the group's stream.
+/// Macro calls (`foo!(...)` / `foo![...]`) and attributes (`#[...]`) pass
+/// through untouched (their contents are user Rust); `#name(...)` directive
+/// arguments and plain tuples / angle groups still recurse (their previous
+/// token is an Ident, not `!`/`#`).
+fn expand_group(
+    g: &proc_macro2::Group, tokens: &[TokenTree], i: usize, ctx: ConstCtx, depth: usize,
+    result: &mut Vec<TokenTree>,
+) -> Result<(), TokenStream> {
+    if bracket_is_passthrough(tokens, i) {
+        result.push(tokens[i].clone());
+        return Ok(());
+    }
+    if depth + 1 > crate::util::MAX_NEST_DEPTH {
+        return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
+    }
+    let inner = g.stream().into_iter().collect::<Vec<_>>();
+    result.push(
+        Group::new(g.delimiter(), expand_consts_at(&inner, ctx, depth + 1)?.into_iter().collect())
+            .into(),
+    );
+    Ok(())
+}
+
+/// Expand one `@` constant / carrier: a carrier (`@` + Brace group — a fresh
+/// reference `@{0}` / the `@{}` body-slot switch) is codegen's concern and
+/// passes through untouched; anything else goes to [`try_expand_at`]. Returns
+/// how many tokens were consumed at `i`.
+fn expand_at(
+    tokens: &[TokenTree], i: usize, ctx: ConstCtx, depth: usize, result: &mut Vec<TokenTree>,
+) -> Result<usize, TokenStream> {
+    if crate::ast::fresh::is_carrier_at(tokens, i) {
+        result.push(tokens[i].clone());
+        result.push(tokens[i + 1].clone());
+        return Ok(2);
+    }
+    match crate::preprocess::try_expand_at(&tokens[i..], ctx)? {
+        // Lazy expansion: user constant values store tokens as-is (may
+        // contain nested `@` references and DSL operations); after splicing,
+        // expand recursively (circular refs are already intercepted at
+        // definition, so recursion terminates).
+        Some((expanded, consumed)) => {
+            let expanded = expand_consts_at(&expanded, ctx, depth + 1)?;
+            result.extend(expanded);
+            Ok(consumed)
+        }
+        // `None` (batch_trait!'s `@trait`, or `@N` position refs — Literal
+        // after `@`): keep as-is and do not recurse (otherwise `@trait`
+        // expands to itself → hit again → infinite recursion; `@N` is
+        // resolved by codegen where the impl generic list is known).
+        None => {
+            result.push(tokens[i].clone());
+            Ok(1)
+        }
+    }
 }
 
 /// Collects `batch_trait!`'s leading user constant definition segments:
