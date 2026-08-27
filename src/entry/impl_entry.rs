@@ -91,13 +91,15 @@ pub(crate) fn expand_impl_entry(
 fn expand_one_spec(
     spec: &[TokenTree], item: &ItemImpl, trait_path: Option<&syn::Path>,
 ) -> Result<TokenStream, TokenStream> {
-    // `where{...}` (where_process output) is the tail.
+    // `where{...}` attachments are extracted at any position (the block
+    // model — `where` composes like every other attachment); the joined
+    // predicates are the spec's where clause.
     let (spec, where_preds) = peel_where(spec);
     // The matrix source inherits the attribute entry's block model: an
     // `impl{...}` attachment (`[Box,Rc] impl{A<(T@..)>}` — or a trailing
     // `... impl{A<(T@..)>}`) pairs with its container at any position; the
     // parsed leaves carry the attachment as `WithImpl`, split off per leaf.
-    match find_shape_colon(spec) {
+    match find_shape_colon(&spec) {
         Some(colon) => {
             // ---- shape form: `shape-template : new-generic-decl? matrix-source?` ----
             // The angle groups must be restored to flat `<...>` before syn
@@ -137,15 +139,13 @@ fn expand_one_spec(
             if let Some(ng) = &new_gen {
                 collect_used_idents(&ng.to_token_stream(), &mut used);
             }
-            // where predicates, split at depth-0 commas (each resolves
-            // independently against the leaf's fresh names)
-            let where_chunks = split_at_depth0(&where_preds, ',')
-                .iter()
-                .map(|c| c.iter().cloned().collect::<TokenStream>())
-                .collect::<Vec<_>>();
             if matrix.is_empty() {
                 // Empty matrix source → N = 1, the shape itself (no slot
                 // mapping; the for-Type is emitted verbatim).
+                let where_chunks = split_at_depth0(&where_preds, ',')
+                    .iter()
+                    .map(|c| c.iter().cloned().collect::<TokenStream>())
+                    .collect::<Vec<_>>();
                 let fresh_ctx = FreshCtx::new(&[], &used);
                 let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
                     .map_err(|es| es.into_iter().collect::<TokenStream>())?;
@@ -163,19 +163,41 @@ fn expand_one_spec(
             let leaves = parse_matrix_leaves(&matrix)?;
             let mut out = quote![];
             for leaf in leaves {
-                // A leaf may carry its own shape template as a block
-                // attachment (`[[Box,Rc]impl{A<(T@..)>}, & impl{&(T@..)}]
-                // .().2..=3` — the attr block model: each container pairs
-                // with its template, `&` gets a reference template). Split
-                // the attachment off; the inner type is the matched target.
-                let (leaf, leaf_template) = match leaf.kind {
-                    TyKind::WithImpl(wi) => (wi.0.map(|b| *b), Some(wi.1.0)),
-                    _ => (Some(leaf), None),
-                };
+                // Attachment extraction (borrowed from the parse layer's
+                // block model — `TyWithImpl` / `TyWithWhere`): recursively
+                // strip the leaf's attachments, collecting its own shape
+                // template (`[Box,Rc]impl{A<(T@..)>}` — each container pairs
+                // with its template) and its where predicates.
+                let mut leaf_template = None;
+                let mut leaf_preds: Vec<TokenTree> = vec![];
+                let mut leaf = Some(leaf);
+                while let Some(t) = leaf {
+                    match t.kind {
+                        TyKind::WithImpl(wi) => {
+                            leaf_template = Some(wi.1.0);
+                            leaf = wi.0.map(|b| *b);
+                        }
+                        TyKind::WithWhere(ww) => {
+                            if !leaf_preds.is_empty() {
+                                leaf_preds.push(TokenTree::Punct(proc_macro2::Punct::new(
+                                    ',',
+                                    proc_macro2::Spacing::Alone,
+                                )));
+                            }
+                            leaf_preds.extend(ww.1.0.clone().into_iter().collect::<Vec<_>>());
+                            leaf = ww.0.map(|b| *b);
+                        }
+                        _ => {
+                            leaf = Some(t);
+                            break;
+                        }
+                    }
+                }
                 let Some(leaf) = leaf else {
                     return Err(compile_error_str(
-                        "batch-impl: an `impl{...}` template in the matrix source \
-                         needs a container to pair with (e.g. `[Box,Rc] impl{A<(T@..)>}`)",
+                        "batch-impl: an attachment (`impl{...}` / `where{...}`) in the \
+                         matrix source needs a container to pair with (e.g. \
+                         `[Box,Rc] impl{A<(T@..)>}`)",
                         Span::call_site(),
                     ));
                 };
@@ -222,7 +244,21 @@ fn expand_one_spec(
                 }
                 // for-Type: slot names rewritten to the bound leaf subtrees.
                 let for_ty = apply_mapping(item.self_ty.to_token_stream(), &m);
-                let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
+                // where predicates: the template region's (peel_where) plus
+                // this leaf's `where{...}` attachments — each resolves
+                // independently against the leaf's fresh names.
+                let mut chunks = split_at_depth0(&where_preds, ',')
+                    .iter()
+                    .map(|c| c.iter().cloned().collect::<TokenStream>())
+                    .collect::<Vec<_>>();
+                if !leaf_preds.is_empty() {
+                    chunks.extend(
+                        split_at_depth0(&leaf_preds, ',')
+                            .iter()
+                            .map(|c| c.iter().cloned().collect::<TokenStream>()),
+                    );
+                }
+                let where_resolved = resolve_where_predicates(&chunks, &fresh_ctx)
                     .map_err(|es| es.into_iter().collect::<TokenStream>())?;
                 out.extend(assemble_impl(
                     item,
@@ -239,7 +275,7 @@ fn expand_one_spec(
         }
         None => {
             // ---- direct form: `new-generic-decl? for-type` (no matrix, N = 1) ----
-            let (new_gen, for_tokens) = split_new_gen(spec);
+            let (new_gen, for_tokens) = split_new_gen(&spec);
             // The for-type is full DSL — a generator may appear; parse it
             // (the angle groups stay paired for the DSL parser), hoist the
             // freshs, name and resolve them to display names.

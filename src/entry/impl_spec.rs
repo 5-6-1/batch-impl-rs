@@ -225,19 +225,42 @@ pub(crate) fn parse_matrix_leaves(matrix: &[TokenTree]) -> Result<Vec<Ty>, Token
     Ok(leaves)
 }
 
-/// `where{...}` tail (the where_process output shape) → (spec without the
-/// where, predicate tokens).
-pub(crate) fn peel_where(spec: &[TokenTree]) -> (&[TokenTree], Vec<TokenTree>) {
-    if spec.len() >= 2
-        && let Some(TokenTree::Group(g)) = spec.last()
-        && g.delimiter() == delimiter![{}]
-        && let Some(TokenTree::Ident(w)) = spec.get(spec.len() - 2)
-        && *w == "where"
-    {
-        (&spec[..spec.len() - 2], g.stream().into_iter().collect())
-    } else {
-        (spec, vec![])
+/// Extracts the `where{...}` attachments of the **template region** (the
+/// part before the shape colon — the template must stay a standard syn type,
+/// so attachments are stripped here at the token level). The matrix region
+/// keeps its `where{...}` attachments: the parse layer turns them into
+/// `TyWithWhere` and the leaf extraction borrows the attribute entry's
+/// predicate splitting ([`split_at_depth0`]). Multiple attachments are
+/// comma-joined.
+pub(crate) fn peel_where(spec: &[TokenTree]) -> (Vec<TokenTree>, Vec<TokenTree>) {
+    // The template region ends at the depth-0 shape colon (or the stream end
+    // for the direct form).
+    let colon = find_shape_colon(spec).unwrap_or(spec.len());
+    let mut out = vec![];
+    let mut preds = vec![];
+    let mut i = 0;
+    while i < colon {
+        if let TokenTree::Ident(id) = &spec[i]
+            && *id == "where"
+            && matches!(spec.get(i + 1), Some(TokenTree::Group(g))
+                if g.delimiter() == delimiter![{}])
+        {
+            let TokenTree::Group(g) = &spec[i + 1] else { unreachable!("matched above") };
+            if !preds.is_empty() {
+                preds.push(TokenTree::Punct(proc_macro2::Punct::new(
+                    ',',
+                    proc_macro2::Spacing::Alone,
+                )));
+            }
+            preds.extend(g.stream().into_iter().collect::<Vec<_>>());
+            i += 2;
+            continue;
+        }
+        out.push(spec[i].clone());
+        i += 1;
     }
+    out.extend(spec[colon..].iter().cloned());
+    (out, preds)
 }
 
 /// The depth-0 single `:` that separates the shape template from the rest.

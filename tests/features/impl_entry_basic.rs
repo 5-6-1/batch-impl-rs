@@ -373,3 +373,48 @@ fn impl_entry_block_model_per_container_templates() {
     type M2 = <Vec<(u8, u16, u8)> as TupleTr3>::MyTuple;
     let _: M2 = (0u8, 1u16, 2u8);
 }
+
+// ------------------------------------------------------------
+// 18. `where{...}` composes at **any position** (the block model — a
+//     `WithWhere` attachment like every other block): predicates extracted
+//     from the middle / before the colon apply with the slot substitution
+//     (`B: MyTrait` → `u8: MyTrait` per leaf).
+// ------------------------------------------------------------
+trait WhTr {
+    fn tag(&self) -> u32;
+}
+
+trait MyTrait {}
+impl MyTrait for u8 {}
+
+// where between the template and the matrix (not trailing)
+#[batch_impl(A<B> where{B: MyTrait} : [Box,Rc].u8)]
+impl WhTr for A<B> {
+    fn tag(&self) -> u32 {
+        1
+    }
+}
+
+#[test]
+fn impl_entry_where_any_position() {
+    assert_eq!(<Box<u8> as WhTr>::tag(&Box::new(0u8)), 1);
+    assert_eq!(<Rc<u8> as WhTr>::tag(&Rc::new(0u8)), 1);
+}
+
+// multiple where attachments in one spec, comma-joined
+trait WhTr2 {
+    fn tag(&self) -> u32;
+}
+
+#[batch_impl(A<B> where{B: Clone} : [Box,Rc].u8 where{B: Default})]
+impl WhTr2 for A<B> {
+    fn tag(&self) -> u32 {
+        2
+    }
+}
+
+#[test]
+fn impl_entry_where_multiple_attachments() {
+    assert_eq!(<Box<u8> as WhTr2>::tag(&Box::new(0u8)), 2);
+    assert_eq!(<Rc<u8> as WhTr2>::tag(&Rc::new(0u8)), 2);
+}

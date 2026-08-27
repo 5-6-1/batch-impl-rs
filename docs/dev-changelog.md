@@ -7,6 +7,19 @@
 
 ## Unreleased (in development — the next release after 0.9.5)
 
+- **`where` composes at any position on the ItemImpl entry** (user
+  architecture direction: parse first — the where attachments of the
+  matrix region go through the attribute entry's parse layer into
+  `TyWithWhere` and are extracted per leaf, borrowing the shared predicate
+  splitting; only the **template region** (before the shape colon) strips
+  its `where{...}` at the token level, since the template must stay a
+  standard syn type. Impl-entry-specific codegen stays limited to template
+  matching, slot substitution, fresh hoisting and assembly). The old
+  hand-written whole-spec where peel is gone. Tests:
+  `impl_entry_where_any_position` (middle where) /
+  `impl_entry_where_multiple_attachments` (template-region + matrix-source
+  attachments comma-joined); isolated `u8: NotClone` probes confirm the
+  predicates really land.
 - **Matrix leaves inherit the block model** (user correction: the impl
   entry's templates were fixed to a trailing position — the attribute
   entry's block model already supports an `impl{...}` attachment pairing
