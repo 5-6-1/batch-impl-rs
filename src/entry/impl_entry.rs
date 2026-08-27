@@ -53,25 +53,27 @@ pub(crate) fn expand_impl_entry(
 ) -> Result<TokenStream, TokenStream> {
     let trait_path = item.trait_.as_ref().map(|(path, _)| path.clone());
 
-    // ---- preprocessing subset: `@` constant expansion (built-in families +
-    // `@trait` → the impl's own trait path; `@N` refs and the `@all` selectors
-    // are rejected — this entry has no fresh system / trait definition) →
-    // angle pairing → directive rejection → bare-`where` rewrite (see the
+    // ---- preprocessing subset: bare `impl` (the second shape template
+    // `impl A<(T@..)>` → `impl{...}`) → variadic-segment marking (inside
+    // `impl{...}`) → `@` constant expansion (built-in families + `@trait` →
+    // the impl's own trait path; `@N` refs resolve against hoisted freshs)
+    // → angle pairing → directive rejection → bare-`where` rewrite (see the
     // entry module docs) ----
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
+    let paired = impl_process(&attr_vec)?;
+    let paired = crate::preprocess::mark_varseg(&paired)?;
     let trait_path_ts = trait_path.as_ref().map(|p| p.to_token_stream());
-    let expanded = crate::preprocess::expand_consts(
-        &attr_vec,
+    let paired = crate::preprocess::expand_consts(
+        &paired,
         crate::preprocess::ConstCtx::ItemImpl { trait_path: trait_path_ts.as_ref() },
     )?;
     // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)
-    let paired = angle_collect(&expanded)?;
+    let paired = angle_collect(&paired)?;
     let paired = reject_directives(&paired)?;
     // The ItemImpl attr has no body after the predicates, so the end of the
     // stream terminates the where region (the predicates become a body-less
     // `where{...}` suffix).
     let paired = where_process(&paired)?;
-    let paired = impl_process(&paired)?;
 
     // ---- `;`-separated specs (the single-spec case is the common one) ----
     let mut out = quote![];
@@ -90,6 +92,13 @@ fn expand_one_spec(
 ) -> Result<TokenStream, TokenStream> {
     // `where{...}` (where_process output) is the tail.
     let (spec, where_preds) = peel_where(spec);
+    // A trailing `impl{...}` is a **second shape template** (the attr
+    // entry's spelling — `impl_process` turned the bare `impl A<(T@..)>`
+    // into `impl{A<(T@..)>}`): it matches the same matrix leaves, and its
+    // slots/segments merge with the first template's (`A<B> : [Box,Rc,&]
+    // ().2..=12 impl A<(T@..)>` — the `T@..` segment drives the body's
+    // `fresh!` references). One matrix source, no Cartesian combination.
+    let (template2, spec) = split_impl_template(spec);
     match find_shape_colon(spec) {
         Some(colon) => {
             // ---- shape form: `shape-template : new-generic-decl? matrix-source?` ----
@@ -175,8 +184,25 @@ fn expand_one_spec(
                         Span::call_site(),
                     )
                 })?;
-                let (m, template_segs) = match_shape(&template, &leaf_ty)
+                let (mut m, mut template_segs) = match_shape(&template, &leaf_ty)
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
+                // The second template (`impl{...}`) matches the same leaf and
+                // merges: its slots must agree (A := Box on both sides), its
+                // segments (the `T@..` driving the body's `fresh!`) join.
+                if let Some(t2_raw) = &template2 {
+                    let t2_marked = crate::preprocess::varseg::mark_template(t2_raw, 0)?;
+                    let t2_tokens = render_angles(t2_marked.into_iter().collect::<TokenStream>());
+                    let t2: syn::Type = syn::parse2(t2_tokens).map_err(|_| {
+                        compile_error_str(
+                            "batch-impl: the `impl{...}` template is not a valid type",
+                            Span::call_site(),
+                        )
+                    })?;
+                    let (m2, segs2) = match_shape(&t2, &leaf_ty)
+                        .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
+                    m.merge(m2).map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
+                    template_segs.extend(segs2);
+                }
                 // for-Type: slot names rewritten to the bound leaf subtrees.
                 let for_ty = apply_mapping(item.self_ty.to_token_stream(), &m);
                 let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
@@ -237,6 +263,20 @@ fn expand_one_spec(
             )
         }
     }
+}
+
+/// Splits a trailing `impl{...}` (the second shape template — the attr
+/// entry's spelling) off the spec: returns (its inner tokens, the spec
+/// without it). Recognized by [`is_impl_template`](crate::util::is_impl_template)
+/// (the `impl` ident + Brace group); nothing else splits.
+fn split_impl_template(spec: &[TokenTree]) -> (Option<Vec<TokenTree>>, &[TokenTree]) {
+    for i in 0..spec.len() {
+        if crate::util::is_impl_template(spec, i) {
+            let TokenTree::Group(g) = &spec[i + 1] else { unreachable!("matched above") };
+            return (Some(g.stream().into_iter().collect()), &spec[..i]);
+        }
+    }
+    (None, spec)
 }
 
 /// Rejects `#name(...)` directives (only `#[...]` attributes pass through) —

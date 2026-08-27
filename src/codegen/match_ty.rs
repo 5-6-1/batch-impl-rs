@@ -250,6 +250,31 @@ pub(crate) fn match_ty(
             Ok(())
         }
         syn::Type::Array(t) => {
+            // A variadic-segment marker (`[A; ()]`) in a **generic-argument
+            // position** (`A<(T@..)>` against `Box<(P0, P1)>`): the leaf arg
+            // must be a tuple whose elements the segment binds (`T0 := P0`,
+            // `T1 := P1`). The tuple-element case is handled by the tuple
+            // arm below; here the marker sits inside a path's `<...>`.
+            if crate::preprocess::varseg::is_varseg_array(t) {
+                let syn::Type::Tuple(tup) = leaf else {
+                    return Err(ShapeError::ShapeMismatch(
+                        "a variadic segment (`ident@..`) in a generic argument \
+                         needs a tuple target (`A<(T@..)>` against `A<(P0, P1)>`)"
+                            .into(),
+                    ));
+                };
+                let Some(prefix) =
+                    crate::preprocess::varseg::varseg_prefix(&syn::Type::Array(t.clone()))
+                else {
+                    return Err(ShapeError::ShapeMismatch(
+                        "malformed variadic segment marker".into(),
+                    ));
+                };
+                for (k, elem) in tup.elems.iter().enumerate() {
+                    map.bind_seg(&prefix, k, elem.to_token_stream())?;
+                }
+                return Ok(());
+            }
             let syn::Type::Array(l) = leaf else {
                 // A variadic-segment marker (`[A; ()]` — the unit-tuple
                 // length) against a non-tuple target: the user wrote

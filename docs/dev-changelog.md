@@ -7,6 +7,19 @@
 
 ## Unreleased (in development — the next release after 0.9.5)
 
+- **Second shape template on the ItemImpl entry** (user design: `A<B> :
+  [Box,Rc,&].().2..=12 impl A<(T@..)>` — borrow the attr entry's `impl{...}`
+  template to declare segments, one matrix source, no Cartesian
+  combination) — a trailing `impl{...}` (the bare `impl A<(T@..)>` is
+  rewritten by `impl_process`, the pipeline now runs `impl_process` →
+  `mark_varseg` → `expand_consts` like the attribute entry so `T@..`
+  inside it never reaches the constant stage) is a **second template**
+  matching the same matrix leaves: its slots must agree with the first
+  template's (merge via `Mapping::merge`), its segments join (drive the
+  body's `fresh!` references — `type MyTuple = (fresh!(@(@T,)..))` →
+  `(P0, P1, ...)`). `match_ty` gained the generic-argument segment case
+  (`A<(T@..)>` against `Box<(P0, P1)>` → `T0 := P0, T1 := P1`). Test:
+  `impl_entry_second_template_segment`.
 - **`fresh!(...)` — the body-level DSL marker on the ItemImpl entry**
   (user design: borrow the attribute entry's repeat protocol, wrapped in a
   legal macro-call spelling — the body stays ordinary Rust) —

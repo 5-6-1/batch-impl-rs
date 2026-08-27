@@ -324,3 +324,29 @@ fn impl_entry_textual_substitution() {
     assert_eq!(<Vec<u8> as TextTr>::tag(&vec![0u8]), 1);
     assert_eq!(<Vec<u16> as TextTr>::tag(&vec![0u16]), 1);
 }
+
+// ------------------------------------------------------------
+// 16. The second shape template (`impl{...}` — the attr entry's spelling):
+//     `A<B> : [Box,Rc].().2..=3 impl A<(T@..)>` — one matrix source
+//     (2 containers × 2 arities, no Cartesian combination); template 1
+//     (`A<B>`) drives the for-Type, template 2 (`A<(T@..)>`) declares the
+//     `T@..` segment the body's `fresh!` references.
+// ------------------------------------------------------------
+trait TupleTr2 {
+    type MyTuple;
+}
+
+#[batch_impl(A<B> : [Box,Rc].().2..=3 impl A<(T@..)>)]
+impl TupleTr2 for A<B> {
+    type MyTuple = (fresh!(@(@T,)..));
+}
+
+#[test]
+fn impl_entry_second_template_segment() {
+    type M2 = <Box<(u8, u16)> as TupleTr2>::MyTuple;
+    let _: M2 = (0u8, 1u16);
+    type M3 = <Rc<(u8, u16, u8)> as TupleTr2>::MyTuple;
+    let _: M3 = (0u8, 1u16, 2u8);
+    type M4 = <Rc<(u8, u16)> as TupleTr2>::MyTuple;
+    let _: M4 = (0u8, 1u16);
+}

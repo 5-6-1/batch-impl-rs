@@ -1,4 +1,4 @@
-error: batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`ident@..`) is only legal as a tuple element inside `impl{...}`)
+error: batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`ident@..`) in a generic argument needs a tuple target (`A<(T@..)>` against `A<(P0, P1)>`))
  --> tests/ui/impl_shape_varseg_outside_tuple.rs:4:1
   |
 4 | #[batch_impl(u8 impl{A@..} { fn n(&self) -> usize { 0 } })]
