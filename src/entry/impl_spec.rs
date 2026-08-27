@@ -96,7 +96,7 @@ pub(crate) fn parse_matrix_leaves(matrix: &[TokenTree]) -> Result<Vec<Ty>, Token
 pub(crate) fn peel_where(spec: &[TokenTree]) -> (&[TokenTree], Vec<TokenTree>) {
     if spec.len() >= 2
         && let Some(TokenTree::Group(g)) = spec.last()
-        && g.delimiter() == proc_macro2::Delimiter::Brace
+        && g.delimiter() == delimiter![{}]
         && let Some(TokenTree::Ident(w)) = spec.get(spec.len() - 2)
         && *w == "where"
     {

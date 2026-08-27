@@ -82,7 +82,7 @@ fn expand_one_spec(
             // `delimiter![<>]` carrier groups).
             let template_tokens =
                 render_angles(spec[..colon].iter().cloned().collect::<TokenStream>());
-            let template: syn::Type =
+            let template =
                 syn::parse2(template_tokens).map_err(|e| {
                     compile_error_str(
                         &format!(
@@ -94,13 +94,12 @@ fn expand_one_spec(
             // Shape-validity check: the impl's for-Type must
             // match the template ident-for-ident (zero bindings) — a binding
             // means the for-Type doesn't carry the placeholder slot names.
-            let for_type: syn::Type =
-                syn::parse2(item.self_ty.to_token_stream()).map_err(|_| {
-                    compile_error_str(
-                        "batch-impl: the impl's for-Type is not a valid type",
-                        Span::call_site(),
-                    )
-                })?;
+            let for_type = syn::parse2(item.self_ty.to_token_stream()).map_err(|_| {
+                compile_error_str(
+                    "batch-impl: the impl's for-Type is not a valid type",
+                    Span::call_site(),
+                )
+            })?;
             let check = match_shape(&template, &for_type)
                 .map(|(m, _)| m)
                 .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
@@ -128,7 +127,7 @@ fn expand_one_spec(
             let leaves = parse_matrix_leaves(&matrix)?;
             let mut out = quote![];
             for leaf in leaves {
-                let leaf_ty: syn::Type = syn::parse2(leaf.to_token_stream()).map_err(|_| {
+                let leaf_ty = syn::parse2(leaf.to_token_stream()).map_err(|_| {
                     compile_error_str(
                         "batch-impl: the matrix leaf is not a standard Rust type \
                          (generators cannot be destructured by a shape template)",
@@ -230,7 +229,7 @@ fn replace_trait_at(
             // `#` directives are banned; `#[...]` attributes pass through.
             TokenTree::Punct(p) if p.as_char() == '#' => {
                 if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-                    if g.delimiter() == proc_macro2::Delimiter::Bracket)
+                    if g.delimiter() == delimiter![[]])
                 {
                     out.push(tokens[i].clone());
                     out.push(tokens[i + 1].clone());

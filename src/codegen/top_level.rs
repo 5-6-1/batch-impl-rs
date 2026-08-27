@@ -19,7 +19,7 @@ use crate::util::compile_error_str;
 /// be at most one.
 pub(crate) fn top_level_macro(ty: &Ty) -> Option<Result<(TokenStream, TokenStream), TokenStream>> {
     let mut body = vec![];
-    let mut top: Option<TokenStream> = None;
+    let mut top = None;
     match walk_top_level(ty, &mut body, &mut top) {
         Ok(()) => top.map(|mac| Ok((body.into_iter().collect(), mac))),
         Err(e) => Some(Err(e)),
@@ -81,7 +81,7 @@ pub(crate) fn render_ty_tokens(ty: &Ty) -> Vec<TokenTree> {
 /// macro input group, right after the opening delimiter).
 pub(crate) fn rewrite_macro_input(mac: TokenStream, spec: TokenStream) -> TokenStream {
     let tokens = mac.into_iter().collect::<Vec<TokenTree>>();
-    let mut out: Vec<TokenTree> = Vec::with_capacity(tokens.len() + 1);
+    let mut out = Vec::with_capacity(tokens.len() + 1);
     let mut inserted = false;
     let mut i = 0;
     while i < tokens.len() {
@@ -92,7 +92,7 @@ pub(crate) fn rewrite_macro_input(mac: TokenStream, spec: TokenStream) -> TokenS
             out.push(tokens[i].clone()); // `!`
             // The spec body becomes the first *group* of the macro input
             // (`{spec}`) — the 4-segment protocol expects a Brace group.
-            let spec_group = Group::new(proc_macro2::Delimiter::Brace, spec.clone());
+            let spec_group = Group::new(delimiter![{}], spec.clone());
             let mut inner = TokenStream::new();
             inner.extend(std::iter::once(TokenTree::Group(spec_group)));
             inner.extend(g.stream());
@@ -110,7 +110,7 @@ pub(crate) fn rewrite_macro_input(mac: TokenStream, spec: TokenStream) -> TokenS
 }
 
 pub(crate) fn finalize_fresh_names(tokens: TokenStream) -> TokenStream {
-    let v: Vec<_> = tokens.into_iter().collect();
+    let v = tokens.into_iter().collect::<Vec<_>>();
     let mut groups: Vec<(usize, usize)> = vec![];
     collect_carriers(&v, &mut groups);
     if groups.is_empty() {
@@ -131,11 +131,9 @@ fn collect_carriers(v: &[TokenTree], groups: &mut Vec<(usize, usize)>) {
     let mut i = 0;
     while i < v.len() {
         match (&v[i], v.get(i + 1)) {
-            (TokenTree::Punct(p), Some(TokenTree::Group(g)))
-                if p.as_char() == '@' && g.delimiter() == proc_macro2::Delimiter::Brace =>
-            {
-                let inner: String =
-                    g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+            _ if is_carrier_at(v, i) => {
+                let TokenTree::Group(g) = &v[i + 1] else { unreachable!("matched above") };
+                let inner = carrier_inner(g);
                 if let Some(FreshRef { group: Some(gp), start, end: FreshEnd::Single }) =
                     FreshRef::parse(&inner)
                 {
@@ -144,7 +142,7 @@ fn collect_carriers(v: &[TokenTree], groups: &mut Vec<(usize, usize)>) {
                 i += 2;
             }
             (TokenTree::Group(g), _) => {
-                let inner: Vec<_> = g.stream().into_iter().collect();
+                let inner = g.stream().into_iter().collect::<Vec<_>>();
                 collect_carriers(&inner, groups);
                 i += 1;
             }
@@ -158,11 +156,9 @@ fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) ->
     let mut i = 0;
     while i < v.len() {
         match (&v[i], v.get(i + 1)) {
-            (TokenTree::Punct(p), Some(TokenTree::Group(g)))
-                if p.as_char() == '@' && g.delimiter() == proc_macro2::Delimiter::Brace =>
-            {
-                let inner: String =
-                    g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+            _ if is_carrier_at(&v, i) => {
+                let TokenTree::Group(g) = &v[i + 1] else { unreachable!("matched above") };
+                let inner = carrier_inner(g);
                 let name = FreshRef::parse(&inner)
                     .and_then(|r| match r {
                         FreshRef { group: Some(gp), start, end: FreshEnd::Single } => {
@@ -171,7 +167,7 @@ fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) ->
                         _ => None,
                     })
                     .map(|n| {
-                        let id = Ident::new(&n, p.span());
+                        let id = Ident::new(&n, v[i].span());
                         TokenTree::Ident(id)
                     });
                 match name {
@@ -184,7 +180,7 @@ fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) ->
                 i += 2;
             }
             (TokenTree::Group(g), _) => {
-                let inner: Vec<_> = g.stream().into_iter().collect();
+                let inner = g.stream().into_iter().collect();
                 let mut ng =
                     Group::new(g.delimiter(), rewrite_carriers(inner, map).into_iter().collect());
                 ng.set_span(g.span());
@@ -256,35 +252,6 @@ mod tests {
         assert_eq!(
             finalize_fresh_names(ts).to_string(),
             "impl < P0 , P1 > Tr for (P0 , P1) where P0 : Clone"
-        );
-    }
-}
-
-#[cfg(test)]
-mod finalize_tests {
-    use super::*;
-
-    fn decl(g: usize, i: usize) -> TokenStream {
-        fresh_decl_tokens(g, i)
-    }
-
-    #[test]
-    fn finalize_rewrites_carriers_everywhere() {
-        let t = decl(0, 0);
-        let u = decl(0, 1);
-        let ts = quote! { impl<#t, #u> Tr for (#t, #u) where #t: Clone };
-        assert_eq!(
-            crate::codegen::top_level::finalize_fresh_names(ts).to_string(),
-            "impl < P0 , P1 > Tr for (P0 , P1) where P0 : Clone"
-        );
-    }
-
-    #[test]
-    fn finalize_leaves_plain_streams() {
-        let ts: TokenStream = quote! { impl<T> Tr for Box<T> };
-        assert_eq!(
-            crate::codegen::top_level::finalize_fresh_names(ts).to_string(),
-            "impl < T > Tr for Box < T >"
         );
     }
 }

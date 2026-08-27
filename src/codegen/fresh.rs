@@ -34,11 +34,14 @@ impl FreshCtx {
     /// numbering itself never skips), so the `@N` correspondence holds and
     /// every name stays lint-clean and readable.
     pub(crate) fn new(decl_names: &[TokenStream], used: &HashSet<String>) -> Self {
-        let mut fresh: Vec<(usize, usize)> = decl_names.iter().filter_map(decl_fresh_pos).collect();
+        let mut fresh = decl_names.iter().filter_map(decl_fresh_pos).collect::<Vec<_>>();
         fresh.sort_unstable();
         fresh.dedup();
-        let display: HashMap<(usize, usize), String> =
-            fresh.iter().enumerate().map(|(k, &gi)| (gi, display_name(k, used))).collect();
+        let display = fresh
+            .iter()
+            .enumerate()
+            .map(|(k, &gi)| (gi, display_name(k, used)))
+            .collect::<HashMap<_, _>>();
         let names = fresh
             .into_iter()
             .map(|gi| {

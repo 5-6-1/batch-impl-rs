@@ -15,7 +15,7 @@
 use proc_macro2::{Group, Span, TokenStream, TokenTree};
 
 use crate::ast::MAX_EXPAND;
-use crate::ast::fresh::{FreshEnd, FreshRef};
+use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner, is_carrier_at};
 use crate::codegen::FreshCtx;
 use crate::parse::split_at_depth0;
 use crate::util::compile_error_str;
@@ -59,7 +59,7 @@ pub(crate) fn range_count(
 /// range out of bounds or an unknown group. A single-position ref yields its
 /// own name.
 fn range_entries<'a>(r: &FreshRef, ctx: &'a FreshCtx) -> Result<Vec<&'a TokenStream>, TokenStream> {
-    let slice: &[(usize, usize, TokenStream)] = match r.group {
+    let slice = match r.group {
         Some(l) => ctx.group(l, Span::call_site())?,
         None => &ctx.names,
     };
@@ -107,11 +107,11 @@ pub(crate) fn expand_range_refs(
 pub(crate) fn expand_range_decls(
     impl_generics: &mut Vec<(TokenStream, Option<crate::ast::Ty>)>, ctx: &FreshCtx,
 ) -> Result<(), TokenStream> {
-    let declared: std::collections::HashSet<String> = impl_generics
+    let declared = impl_generics
         .iter()
         .map(|(n, _)| crate::codegen::generics::bare_param_name(n).to_string())
-        .collect();
-    let mut out: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![];
+        .collect::<std::collections::HashSet<_>>();
+    let mut out = vec![];
     for (name, bound) in impl_generics.iter() {
         match decl_fresh_ref(name) {
             Some(r) => {
@@ -137,16 +137,12 @@ pub(super) fn bare_display(n: &TokenStream) -> String {
 /// Recognizes a declaration entry that is a bare fresh-ref carrier:
 /// `@` followed by a Brace group (and nothing else).
 pub(super) fn decl_fresh_ref(name: &TokenStream) -> Option<FreshRef> {
-    let v: Vec<_> = name.clone().into_iter().collect();
-    match v.as_slice() {
-        [TokenTree::Punct(p), TokenTree::Group(g)]
-            if p.as_char() == '@' && g.delimiter() == proc_macro2::Delimiter::Brace =>
-        {
-            let inner: String =
-                g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
-            FreshRef::parse(&inner)
-        }
-        _ => None,
+    let v = name.clone().into_iter().collect::<Vec<_>>();
+    if is_carrier_at(&v, 0) {
+        let TokenTree::Group(g) = &v[1] else { unreachable!("matched above") };
+        FreshRef::parse(&carrier_inner(g))
+    } else {
+        None
     }
 }
 /// Drops **orphaned empty elements** from an expanded tuple and rejoins: a
@@ -156,10 +152,10 @@ pub(super) fn decl_fresh_ref(name: &TokenStream) -> Option<FreshRef> {
 /// an ordinary tuple is returned verbatim (the split is only a scan — flat
 /// `<...>` in an element must never be re-joined).
 pub(super) fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
-    let chunks: Vec<&[TokenTree]> = split_at_depth0(tokens, ',').into_iter().collect();
+    let chunks = split_at_depth0(tokens, ',').into_iter().collect::<Vec<_>>();
     // The trailing chunk may be empty (a legal trailing comma) — exclude it
     // from the orphan check, not from the output.
-    let trimmed: Vec<&[TokenTree]> = if chunks.last().is_some_and(|c| c.is_empty()) {
+    let trimmed = if chunks.last().is_some_and(|c| c.is_empty()) {
         chunks[..chunks.len() - 1].to_vec()
     } else {
         chunks
@@ -172,7 +168,7 @@ pub(super) fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
     }
     // Orphaned empties: drop them and rejoin; a single surviving element
     // keeps its trailing comma (`(A)` is a group, not a 1-tuple).
-    let elems: Vec<&[TokenTree]> = trimmed.into_iter().filter(|c| !c.is_empty()).collect();
+    let elems = trimmed.into_iter().filter(|c| !c.is_empty()).collect::<Vec<_>>();
     let mut out = TokenStream::new();
     for (i, e) in elems.iter().enumerate() {
         if i > 0 {
@@ -205,12 +201,10 @@ fn expand_at(
         // splices one name; a range splices the covered names comma-separated.
         if crate::ast::fresh::is_carrier_at(tokens, i) {
             let at_span = tokens[i].span();
-            let inner: String = match tokens.get(i + 1) {
-                Some(TokenTree::Group(g)) => {
-                    g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("")
-                }
+            let inner = carrier_inner(match tokens.get(i + 1) {
+                Some(TokenTree::Group(g)) => g,
                 _ => unreachable!("matched above"),
-            };
+            });
             let r = match FreshRef::parse(&inner) {
                 Some(r) => r,
                 None => {
@@ -250,10 +244,8 @@ fn expand_at(
                 // so its commas — including flat `<...>` inside an element —
                 // are never re-joined.
                 let has_range_ref = inner.windows(2).any(|w| is_fresh_carrier_pair(&w[0], &w[1]));
-                let foldable =
-                    g.delimiter() == proc_macro2::Delimiter::Parenthesis && has_range_ref;
-                let expanded: Vec<TokenTree> =
-                    expand_at(&inner, ctx, depth + 1)?.into_iter().collect();
+                let foldable = g.delimiter() == delimiter![()] && has_range_ref;
+                let expanded = expand_at(&inner, ctx, depth + 1)?.into_iter().collect::<Vec<_>>();
                 // Empty-tuple folding: a range that re-opened to zero entries
                 // leaves orphaned empties (`(,)` / `(, P1,)` / `(P0, ,)`) —
                 // drop them and rejoin, restoring a valid tuple (`()` /
@@ -282,5 +274,5 @@ fn expand_at(
 /// followed by a Brace group.
 fn is_fresh_carrier_pair(at: &TokenTree, g: &TokenTree) -> bool {
     matches!(at, TokenTree::Punct(p) if p.as_char() == '@')
-        && matches!(g, TokenTree::Group(g) if g.delimiter() == proc_macro2::Delimiter::Brace)
+        && matches!(g, TokenTree::Group(g) if g.delimiter() == delimiter![{}])
 }

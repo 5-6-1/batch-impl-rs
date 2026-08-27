@@ -37,7 +37,7 @@ pub(crate) fn sig_refs_bare_self(sig: &syn::Signature) -> bool {
 
 /// A type's token stream references bare `Self` (not `Self::`).
 fn ty_refs_bare_self(ty: &syn::Type) -> bool {
-    let tokens: Vec<_> = ty.to_token_stream().into_iter().collect();
+    let tokens = ty.to_token_stream().into_iter().collect::<Vec<_>>();
     tokens.iter().enumerate().any(|(i, tt)| {
         matches!(tt, TokenTree::Ident(id) if id == "Self")
             // `Self::` — an associated projection, allowed (see above)
@@ -50,7 +50,7 @@ fn ty_refs_bare_self(ty: &syn::Type) -> bool {
 /// literal `0`, possibly nested inside groups) — the position decision only;
 /// the marker itself is resolved by the parse layer into the fresh name.
 pub(crate) fn has_at0(tokens: &[TokenTree]) -> bool {
-    let v: Vec<_> = tokens.to_vec();
+    let v = tokens.to_vec();
     v.iter().enumerate().any(|(i, tt)| match tt {
         TokenTree::Punct(p) if p.as_char() == '@' => {
             matches!(v.get(i + 1), Some(TokenTree::Literal(l)) if l.to_string() == "0")

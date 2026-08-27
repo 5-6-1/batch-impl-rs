@@ -41,8 +41,8 @@ pub(crate) fn spans_adjacent(a: Span, b: Span) -> bool {
 /// structure (e.g. `" in a constant value"`) — one construction site so the
 /// three recursive walkers cannot drift apart.
 pub(crate) fn depth_err(tokens: &[TokenTree], what: &str) -> TokenStream {
-    let sp = tokens.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
-    diagnostic::compile_error_str(
+    let sp = tokens.first().map_or_else(Span::call_site, |t| t.span());
+    compile_error_str(
         &format!(
             "batch-impl: nesting depth exceeds {} levels{} (perhaps an accidental extra bracket)",
             MAX_NEST_DEPTH, what
@@ -65,7 +65,7 @@ pub(crate) fn depth_err(tokens: &[TokenTree], what: &str) -> TokenStream {
 /// carries the would-be size so callers can render the same over-limit
 /// diagnostic they already use.
 pub(crate) fn cartesian<T: Clone>(dims: &[Vec<T>], limit: usize) -> Result<Vec<Vec<T>>, usize> {
-    let mut combos: Vec<Vec<T>> = vec![vec![]];
+    let mut combos = vec![vec![]];
     for candidates in dims {
         let next_len = combos.len().saturating_mul(candidates.len());
         if next_len > limit {

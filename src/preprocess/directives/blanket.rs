@@ -88,7 +88,7 @@ pub(crate) fn expand_blanket(
     // a bare name `N` is E0747) + fresh T; all bounds (trait param inline
     // bounds + `T: Trait` + trait where) go into where. Note this is NOT the
     // same as `generic_param_names` (which yields bare names for matching).
-    let impl_names: Vec<TokenStream> = generics
+    let impl_names = generics
         .params
         .iter()
         .map(|p| match p {
@@ -99,7 +99,7 @@ pub(crate) fn expand_blanket(
             syn::GenericParam::Const(cp) => quote!(#cp),
             syn::GenericParam::Lifetime(ld) => quote!(#ld),
         })
-        .collect();
+        .collect::<Vec<_>>();
     let impl_generics = if impl_names.is_empty() {
         Group::new(delimiter![<>], quote!(#t))
     } else {
@@ -109,7 +109,7 @@ pub(crate) fn expand_blanket(
     // by codegen's bound-inheritance logic — the blanket spec generic X has no
     // bound, inheritance adds `X: Clone`; moving them here too would duplicate
     // the inheritance)
-    let base_preds: Vec<TokenStream> = vec![quote!(#t : #t_bound)];
+    let base_preds = vec![quote!(#t : #t_bound)];
     // The trait-name part of the spec: only needed for generic traits (pass
     // args `Trait<X>`); omitted for non-generic traits (batch_impl output
     // auto-appends the trait name — and a prefix wrapper `&.T` as target
@@ -145,7 +145,7 @@ pub(crate) fn expand_blanket(
                         Some(syn::ReceiverKind::Value | syn::ReceiverKind::Typed(..))
                     ) =>
                 {
-                    (name.to_string()).into()
+                    name.to_string().into()
                 }
                 _ => None,
             })
@@ -188,7 +188,7 @@ pub(crate) fn expand_blanket(
             where_streams.push(quote!(#preds));
         }
         if !wrapper_preds.is_empty() {
-            let wrapper_stream: TokenStream = wrapper_preds.into_iter().collect();
+            let wrapper_stream = wrapper_preds.into_iter().collect();
             where_streams.push(wrapper_stream);
         }
         let where_part =
@@ -250,15 +250,15 @@ pub(crate) fn expand_blanket(
                         // Build the deref chain structurally (no string
                         // parsing — the no-panic promise): N `*` puncts
                         // followed by `self`, always a valid expression.
-                        let stars: TokenStream = std::iter::repeat_n(
+                        let stars = std::iter::repeat_n(
                             TokenTree::Punct(proc_macro2::Punct::new(
                                 '*',
                                 proc_macro2::Spacing::Alone,
                             )),
                             derefs,
                         )
-                        .collect();
-                        let self_ty: TokenStream = quote!(#stars self);
+                        .collect::<TokenStream>();
+                        let self_ty = quote!(#stars self);
                         quote! { (#self_ty) . #name ( #(#call_args),* ) }
                     };
                     methods.extend(build_from_item(item, &body));
@@ -305,13 +305,12 @@ pub(crate) fn expand_blanket(
         // generic name (so `T` can sit anywhere, e.g. `(u32, @0, u8)`).
         // Without `@0` the wrapper is applied as `wrapper.T` (target appended
         // last) — the existing behavior.
-        let wrapper_vec: Vec<_> = wrapper_ty.clone().into_iter().collect();
-        let target: TokenStream =
-            if crate::preprocess::directives::blanket_helpers::has_at0(&wrapper_vec) {
-                quote!(#wrapper_ty)
-            } else {
-                quote!(#wrapper_ty . #t)
-            };
+        let wrapper_vec = wrapper_ty.clone().into_iter().collect::<Vec<_>>();
+        let target = if crate::preprocess::directives::blanket_helpers::has_at0(&wrapper_vec) {
+            quote!(#wrapper_ty)
+        } else {
+            quote!(#wrapper_ty . #t)
+        };
         spec_streams.push(quote! {
             #doc_note #impl_generics #trait_part #target #where_part { #methods }
         });

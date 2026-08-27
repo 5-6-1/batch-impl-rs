@@ -8,7 +8,7 @@ use quote::ToTokens;
 use std::collections::HashSet;
 
 use super::fresh::FreshCtx;
-use crate::ast::{FreshEnd, FreshRef, Ty};
+use crate::ast::{FreshEnd, FreshRef, Ty, carrier_inner};
 use crate::util::compile_error_str;
 pub(crate) fn at_num_out_of_range(n: usize, fresh_count: usize, span: Span) -> TokenStream {
     compile_error_str(
@@ -46,7 +46,7 @@ pub(crate) fn at_group_out_of_range(g: usize, pos: usize, span: Span) -> TokenSt
 pub(crate) fn validate_at_refs(
     target: &Ty, trait_args: &[TokenStream], ctx: &FreshCtx,
 ) -> Vec<TokenStream> {
-    let declared: HashSet<(usize, usize)> = ctx.names.iter().map(|&(g, i, _)| (g, i)).collect();
+    let declared = ctx.names.iter().map(|&(g, i, _)| (g, i)).collect();
     let tokens = std::iter::once(target.to_token_stream())
         .chain(trait_args.iter().cloned())
         .collect::<TokenStream>();
@@ -59,7 +59,7 @@ pub(crate) fn validate_at_refs(
 fn collect_dangling(
     tokens: TokenStream, declared: &HashSet<(usize, usize)>, fresh_count: usize,
 ) -> Vec<TokenStream> {
-    let v: Vec<_> = tokens.into_iter().collect();
+    let v = tokens.into_iter().collect::<Vec<_>>();
     let mut errs = vec![];
     let mut i = 0;
     while i < v.len() {
@@ -69,8 +69,7 @@ fn collect_dangling(
                 _ => Span::call_site(),
             };
             if let Some(TokenTree::Group(g)) = v.get(i + 1) {
-                let inner: String =
-                    g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+                let inner = carrier_inner(g);
                 if let Some(r) = FreshRef::parse(&inner) {
                     errs.extend(validate_ref(&r, declared, fresh_count, span));
                 }
@@ -91,7 +90,7 @@ fn collect_dangling(
 /// followed by a Brace group.
 fn is_fresh_carrier(at: &TokenTree, g: Option<&TokenTree>) -> bool {
     matches!(at, TokenTree::Punct(p) if p.as_char() == '@')
-        && matches!(g, Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace)
+        && matches!(g, Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}])
 }
 
 /// The range/single checks shared by every validator — one authority so the
@@ -157,57 +156,6 @@ mod tests {
 
     fn decl(g: usize, i: usize) -> TokenStream {
         fresh_decl_tokens(g, i)
-    }
-
-    #[test]
-    fn readable_basic() {
-        let used: HashSet<String> = ["Tr", "Box"].iter().map(|s| s.to_string()).collect();
-        let ctx = FreshCtx::new(&[decl(0, 0)], &used);
-        assert_eq!(
-            ctx.names.iter().map(|n| n.2.to_string()).collect::<Vec<_>>(),
-            vec!["P0".to_string()]
-        );
-    }
-
-    #[test]
-    fn readable_multiple_indexed_by_doc_order() {
-        let ctx = FreshCtx::new(&[decl(1, 0), decl(0, 0), decl(1, 1)], &HashSet::new());
-        let got: Vec<String> = ctx.names.iter().map(|n| n.2.to_string()).collect();
-        assert_eq!(got, ["P0", "P1", "P2"]);
-        // Document order is (group, position), not minting order.
-        assert_eq!(
-            ctx.names.iter().map(|n| (n.0, n.1)).collect::<Vec<_>>(),
-            vec![(0, 0), (1, 0), (1, 1)]
-        );
-    }
-
-    #[test]
-    fn readable_skips_collisions() {
-        // a user ident `P0` escapes that fresh to `P0A`; the numbering stays
-        let used: HashSet<String> = ["P0"].iter().map(|s| s.to_string()).collect();
-        let ctx = FreshCtx::new(&[decl(0, 0)], &used);
-        assert_eq!(ctx.names[0].2.to_string(), "P0A");
-    }
-
-    #[test]
-    fn readable_escapes_repeatedly() {
-        // `P1` and `P1A` both taken → the second fresh escapes to `P1B`
-        // while the first keeps its untouched base (`P0`).
-        let used: HashSet<String> = ["P1", "P1A"].iter().map(|s| s.to_string()).collect();
-        let ctx = FreshCtx::new(&[decl(0, 0), decl(1, 0)], &used);
-        assert_eq!(ctx.names[0].2.to_string(), "P0");
-        assert_eq!(ctx.names[1].2.to_string(), "P1B");
-    }
-
-    #[test]
-    fn finalize_rewrites_carriers_everywhere() {
-        let t = decl(0, 0);
-        let u = decl(0, 1);
-        let ts = quote! { impl<#t, #u> Tr for (#t, #u) where #t: Clone };
-        assert_eq!(
-            crate::codegen::top_level::finalize_fresh_names(ts).to_string(),
-            "impl < P0 , P1 > Tr for (P0 , P1) where P0 : Clone"
-        );
     }
 
     #[test]

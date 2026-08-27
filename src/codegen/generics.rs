@@ -33,13 +33,13 @@ pub(crate) fn inherit_trait_bounds(
     // The positional map: trait param name → the spec's rendered arg. Full
     // positional zip — lifetimes participate (`'a` → `'b` when the spec
     // renames them); Rust orders lifetimes first, so alignment holds.
-    let map: Vec<(String, TokenStream)> = trait_bounds
+    let map = trait_bounds
         .params
         .iter()
         .zip(trait_args.iter())
         .map(|(tp, arg)| (tp.name.clone(), arg.clone()))
-        .collect();
-    let substitute = |ts: &TokenStream| crate::util::subst::replace_map(ts, &map);
+        .collect::<Vec<_>>();
+    let substitute = |ts| crate::util::subst::replace_map(ts, &map);
 
     // Inline bounds: each type param's bound lands on the impl generic its
     // positional arg names; a non-generic arg degrades to a where predicate.
@@ -108,13 +108,13 @@ pub(crate) fn bare_param_name(name: &TokenStream) -> TokenStream {
 /// declaration (the type annotation lives in the name tokens — there is
 /// nowhere else for it to go; the later duplicates are simply dropped).
 pub(crate) fn merge_dup_params(parts: &mut ImplParts) {
-    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut counts = HashMap::new();
     for (name, _) in &parts.impl_generics {
-        *counts.entry(bare_param_name(name).to_string()).or_insert(0) += 1;
+        *counts.entry(bare_param_name(name).to_string()).or_insert(0usize) += 1;
     }
-    let mut merged: Vec<(TokenStream, Option<Ty>)> = Vec::new();
-    let mut extra_where: Vec<TokenStream> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut merged = Vec::new();
+    let mut extra_where = Vec::new();
+    let mut seen = HashSet::new();
     for (name, bound) in std::mem::take(&mut parts.impl_generics) {
         let name_str = name.to_string();
         let is_const = name_str.starts_with("const");
@@ -151,7 +151,7 @@ pub(crate) fn merge_dup_params(parts: &mut ImplParts) {
 /// `T: <P0,P1> Fn(P0,P1)` — a generic declaration inside a predicate, which
 /// rustc rejects.
 pub(crate) fn hoist_bound_fresh(impl_generics: &mut Vec<(TokenStream, Option<Ty>)>) {
-    let mut hoisted: Vec<(TokenStream, Option<Ty>)> = vec![];
+    let mut hoisted = vec![];
     for (_, bound) in impl_generics.iter_mut() {
         if let Some(b) = bound {
             let (stripped, fresh) = strip_bound_fresh(b);

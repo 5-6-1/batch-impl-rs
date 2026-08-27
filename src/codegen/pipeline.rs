@@ -43,24 +43,21 @@ pub(crate) fn generate_parts(
     // the fresh declarations join the impl generics). A bound generator
     // (`Fn.().N`) declares its fresh params inside the bound Ty — they must
     // live on the impl, not inside the predicate.
-    crate::codegen::generics::hoist_bound_fresh(&mut parts.impl_generics);
+    hoist_bound_fresh(&mut parts.impl_generics);
 
     // Same-name declaration merge: chained `<>` blocks (`<T: Clone><T: Copy> X`)
     // would declare `T` twice (invalid Rust). Keep a single bare declaration and
     // move every bound of that name into a where predicate
     // (`impl<T> ... where T: Clone, T: Copy`); single declarations are untouched.
-    crate::codegen::generics::merge_dup_params(&mut parts);
+    merge_dup_params(&mut parts);
 
     // Impl generic names, normalized for const params (`const N` in the parse
     // layer — the keyword is needed to render `const N: usize`; bare `N` here
     // to match trait args and where-predicate refs). Shared by bound
     // inheritance and where-predicate resolution. Fresh declarations are
     // still their identity carriers at this point.
-    let impl_name_streams = parts
-        .impl_generics
-        .iter()
-        .map(|(n, _)| crate::codegen::generics::bare_param_name(n))
-        .collect::<Vec<TokenStream>>();
+    let impl_name_streams =
+        parts.impl_generics.iter().map(|(n, _)| bare_param_name(n)).collect::<Vec<TokenStream>>();
 
     // The collision set display names must skip: every ident the impl
     // already writes (user params, target type, trait args, predicates,
@@ -85,7 +82,7 @@ pub(crate) fn generate_parts(
         collect_used_idents(v, &mut used);
     }
     for n in &impl_name_streams {
-        if crate::ast::fresh::decl_fresh_pos(n).is_none() {
+        if decl_fresh_pos(n).is_none() {
             collect_used_idents(n, &mut used);
         }
     }
@@ -135,10 +132,7 @@ pub(crate) fn generate_parts(
         if let Some(b) = bound
             && b.to_token_stream().to_string().contains('@')
         {
-            let resolved = match crate::codegen::range_refs::expand_range_refs(
-                b.to_token_stream(),
-                &fresh_ctx,
-            ) {
+            let resolved = match range_refs::expand_range_refs(b.to_token_stream(), &fresh_ctx) {
                 Ok(t) => t,
                 Err(e) => return e,
             };
@@ -151,22 +145,18 @@ pub(crate) fn generate_parts(
     // entries already carry display names — unique among freshs and skipping
     // every user-written ident by construction; an overlap with an existing
     // declaration is skipped, not duplicated.
-    if let Err(e) =
-        crate::codegen::range_refs::expand_range_decls(&mut parts.impl_generics, &fresh_ctx)
-    {
+    if let Err(e) = range_refs::expand_range_decls(&mut parts.impl_generics, &fresh_ctx) {
         return e;
     }
 
     // The target type's references resolve now: its tokens must be valid
     // Rust before the shape kernel syn-parses them, and the resolvers emit
     // final names — nothing downstream renames idents anymore.
-    let target_tokens = match crate::codegen::range_refs::expand_range_refs(
-        parts.target_type.to_token_stream(),
-        &fresh_ctx,
-    ) {
-        Ok(t) => t,
-        Err(e) => return e,
-    };
+    let target_tokens =
+        match range_refs::expand_range_refs(parts.target_type.to_token_stream(), &fresh_ctx) {
+            Ok(t) => t,
+            Err(e) => return e,
+        };
     // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
     // rewrites (where predicates + body here; the target type at render,
@@ -175,9 +165,9 @@ pub(crate) fn generate_parts(
     // body's repeat blocks (`@(...)..`), which expand before the slot
     // mapping rewrites the resulting segment names.
     let (shape_map, var_segs) = if parts.impl_templates.is_empty() {
-        (crate::codegen::Mapping::default(), Vec::new())
+        (Mapping::default(), Vec::new())
     } else {
-        match crate::codegen::render::collect_shape_mapping(&target_tokens, &parts.impl_templates) {
+        match render::collect_shape_mapping(&target_tokens, &parts.impl_templates) {
             Ok((m, s)) => (m, s),
             Err(e) => return compile_error_str(&e.message(), proc_macro2::Span::call_site()),
         }
@@ -204,8 +194,7 @@ pub(crate) fn generate_parts(
         // switch `impl{@N..}` whose rounds consume `@{N}` references — the
         // "declare what you use" rule. Without either, a carrier in the body
         // errors with guidance.
-        if !parts.body_at && parts.fresh_binding.is_none() && crate::ast::fresh::body_has_carrier(b)
-        {
+        if !parts.body_at && parts.fresh_binding.is_none() && body_has_carrier(b) {
             return compile_error_str(
                 "batch-impl: a `@{N}` fresh reference in the body requires the \
                  `impl{@{}}` body-slot switch (declare it on the spec, e.g. \
@@ -225,7 +214,7 @@ pub(crate) fn generate_parts(
             Ok(e) => e,
             Err(e) => return e,
         };
-        let expanded = match crate::codegen::range_refs::expand_range_refs(expanded, &fresh_ctx) {
+        let expanded = match range_refs::expand_range_refs(expanded, &fresh_ctx) {
             Ok(e) => e,
             Err(e) => return e,
         };
@@ -235,7 +224,7 @@ pub(crate) fn generate_parts(
             apply_mapping(expanded, &shape_map)
         };
     }
-    crate::codegen::render::render_impl(
+    render::render_impl(
         parts,
         where_resolved,
         target_tokens,

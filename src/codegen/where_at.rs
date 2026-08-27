@@ -6,7 +6,7 @@ use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 
 use super::FreshCtx;
 use super::{at_group_out_of_range, at_num_out_of_range};
-use crate::ast::fresh::{FreshEnd, FreshRef};
+use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner, fold_flat_refs, is_carrier_at};
 use crate::util::{compile_err, compile_error_str};
 
 /// Macro-meta position references in where predicates: `@N` → the N-th fresh
@@ -39,8 +39,8 @@ pub(crate) fn resolve_where_predicates(
             if p.as_char() == '*'
                 && matches!(
                     g.delimiter(),
-                    proc_macro2::Delimiter::Parenthesis
-                        | proc_macro2::Delimiter::Bracket
+                    delimiter![()]
+                    | delimiter![[]]
                 )
         ) {
             errs.push(compile_err!(
@@ -68,25 +68,19 @@ pub(crate) fn resolve_where_at(
     // Normalize first: every flat spelling (`@N` / `@g_i` / ranges /
     // `@all_fresh`) folds into the self-delimiting carrier `@{...}` — one
     // representation for the whole scan below, no lookahead arithmetic.
-    let folded = crate::ast::fresh::fold_flat_refs(&pred.clone().into_iter().collect::<Vec<_>>());
+    let folded = fold_flat_refs(&pred.clone().into_iter().collect::<Vec<_>>());
     let tokens = folded;
     let fresh_sorted = &ctx.names;
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        let is_carrier = matches!(&tokens[i], TokenTree::Punct(p) if p.as_char() == '@')
-            && match tokens.get(i + 1) {
-                Some(TokenTree::Group(g)) => g.delimiter() == proc_macro2::Delimiter::Brace,
-                _ => false,
-            };
+        let is_carrier = is_carrier_at(&tokens, i);
         if is_carrier {
             // Parse the reference out of the carrier group.
-            let inner: String = match &tokens[i + 1] {
-                TokenTree::Group(g) => {
-                    g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("")
-                }
+            let inner = carrier_inner(match &tokens[i + 1] {
+                TokenTree::Group(g) => g,
                 _ => unreachable!("matched above"),
-            };
+            });
             let at_span = match &tokens[i] {
                 TokenTree::Punct(p) => p.span(),
                 _ => unreachable!("matched above"),
@@ -101,7 +95,7 @@ pub(crate) fn resolve_where_at(
             match r.end {
                 FreshEnd::Single => {
                     // Document-order index (flat) or exact group position.
-                    let name: Option<TokenStream> = match r.group {
+                    let name = match r.group {
                         None => fresh_sorted.get(r.start).map(|(_, _, n)| n.clone()),
                         Some(g) => ctx
                             .names

@@ -3,7 +3,7 @@ use crate::ast::*;
 use crate::parse::generic::empty;
 use crate::parse::parse_item;
 use crate::util::{Cursor, contains_punct};
-use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 
 /// `N..M` / `N..=M` range parsing
 pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
@@ -51,7 +51,7 @@ fn lone_splat(contents: &[TokenTree]) -> bool {
             if p.as_char() == '*'
                 && matches!(
                     g.delimiter(),
-                    Delimiter::Parenthesis | Delimiter::Bracket
+                    delimiter![()]|delimiter![[]]
                 )
     )
 }

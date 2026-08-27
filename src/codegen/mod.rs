@@ -161,7 +161,7 @@ pub(crate) fn generate_impl(
     // every other generics concern so the distributed impls flow through the
     // pipeline independently (fresh hoisting, `@0..` re-opening, sweeping).
     let mut out = TokenStream::new();
-    for parts in crate::codegen::bound_gen::distribute_bound_arrays(parts) {
+    for parts in bound_gen::distribute_bound_arrays(parts) {
         out.extend(generate_parts(
             parts,
             trait_name,

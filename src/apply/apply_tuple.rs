@@ -100,7 +100,7 @@ fn pow_single(template: Ty, n: usize) -> Ty {
 /// The product count is checked inside `cartesian` before each allocation
 /// (`elems.N` can far exceed [`MAX_EXPAND`]).
 fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
-    let dims: Vec<Vec<Ty>> = std::iter::repeat_n(elems, n).collect();
+    let dims = std::iter::repeat_n(elems, n).collect::<Vec<_>>();
     let combos = match cartesian(&dims, MAX_EXPAND) {
         Ok(c) => c,
         Err(size) => return expand_limit_err("tuple Cartesian product", size),
@@ -161,12 +161,7 @@ fn fresh_params(g: usize, n: usize) -> Vec<Ty> {
 }
 
 fn fresh_ref_ty(g: usize, i: usize) -> Ty {
-    TyFresh(crate::ast::fresh::FreshRef {
-        group: Some(g),
-        start: i,
-        end: crate::ast::fresh::FreshEnd::Single,
-    })
-    .to_ty()
+    TyFresh(FreshRef { group: Some(g), start: i, end: FreshEnd::Single }).to_ty()
 }
 
 impl Apply for TyTuple {

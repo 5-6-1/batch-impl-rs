@@ -149,8 +149,8 @@ pub(crate) fn match_shape(
 /// directly (`repeat_drivers.rs::substitute` against [`Mapping::seg_value`]),
 /// so no segment spelling ever reaches the body. Recursive (groups descended).
 pub(crate) fn apply_mapping(tokens: TokenStream, map: &Mapping) -> TokenStream {
-    let v: Vec<_> = tokens.into_iter().collect();
-    let mut out: Vec<TokenTree> = Vec::with_capacity(v.len());
+    let v = tokens.into_iter().collect::<Vec<_>>();
+    let mut out = Vec::with_capacity(v.len());
     for t in v {
         match t {
             TokenTree::Ident(id) => {

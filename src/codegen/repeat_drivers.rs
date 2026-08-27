@@ -43,7 +43,7 @@ pub(super) fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
     out
 }
 
-use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at};
+use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at, tokens_to_string};
 
 /// The inner segment references of a block body: the deduplicated `@ident`
 /// prefixes (first-appearance order) and their common length (`None` when the
@@ -51,8 +51,8 @@ use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at};
 pub(crate) fn collect_drivers(
     tokens: &[TokenTree], segs: &[VarSeg],
 ) -> Result<(Vec<String>, Option<usize>), TokenStream> {
-    let mut prefixes: Vec<String> = vec![];
-    let mut len: Option<usize> = None;
+    let mut prefixes = vec![];
+    let mut len = None;
     let mut i = 0;
     while i < tokens.len() {
         if is_punct_at(tokens, i, '@') {
@@ -65,7 +65,7 @@ pub(crate) fn collect_drivers(
             // (`@{g_i}`, emitted by the directive signature substitution):
             // not a driver — pass through.
             if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-                if g.delimiter() == proc_macro2::Delimiter::Brace)
+                if g.delimiter() == delimiter![{}])
             {
                 i += 2;
                 continue;
@@ -188,8 +188,7 @@ pub(crate) fn substitute(
                     }
                 }
             } else {
-                let inner: String =
-                    inner_tokens.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+                let inner = tokens_to_string(&inner_tokens);
                 match inner.parse::<usize>() {
                     Ok(n) => n,
                     // A range or grouped carrier: pass through for range

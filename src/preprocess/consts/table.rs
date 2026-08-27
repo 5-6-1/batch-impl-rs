@@ -159,20 +159,6 @@ fn expand_consts_at(
             // expand `@trait` (batch_impl knows the trait path) — `@N` stays
             // untouched for codegen. Bare `where pred {body}` has its
             // predicate at the top level and is already covered by the loop.
-            TokenTree::Ident(id) if id == "where" => {
-                if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
-                    && g.delimiter() == delimiter![{}]
-                {
-                    let inner = g.stream().into_iter().collect::<Vec<_>>();
-                    let expanded = expand_consts_at(&inner, ctx, depth + 1)?.into_iter().collect();
-                    result.push(tokens[i].clone());
-                    result.push(Group::new(delimiter![{}], expanded).into());
-                    i += 2;
-                } else {
-                    result.push(tokens[i].clone());
-                    i += 1;
-                }
-            }
             // `impl{...}` shape template: a Brace group
             // right after the `impl` ident is the shape template, entered to
             // expand `@trait` / `@` constants — the remaining tokens form a
@@ -181,7 +167,7 @@ fn expand_consts_at(
             // walker skips). The `impl{...}` discrimination is centralized in
             // `util::is_impl_template` (shared with `where_process`); the
             // guard below re-checks instead of unwrapping — no-panic promise.
-            TokenTree::Ident(_) if is_impl_template(tokens, i) => {
+            TokenTree::Ident(id) if id == "where" || is_impl_template(tokens, i) => {
                 if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
                     && g.delimiter() == delimiter![{}]
                 {

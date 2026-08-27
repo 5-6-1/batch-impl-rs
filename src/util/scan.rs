@@ -68,6 +68,11 @@ impl<'a> Cursor<'a> {
         read_op(self.tokens, self.pos)
     }
 
+    /// [`peek_op`] at an offset from the current position (bounds-safe).
+    pub(crate) fn op_at(&self, off: usize) -> Option<(crate::util::Op, usize)> {
+        read_op(self.tokens, self.pos + off)
+    }
+
     /// Whether the `:` at the current position is a standalone single colon (not part of `::`)
     pub(crate) fn is_single_colon(&self) -> bool {
         is_single_colon(self.tokens, self.pos)
@@ -136,6 +141,12 @@ pub(crate) fn is_punct(token: &TokenTree, punctuation: char) -> bool {
     matches!(token, TokenTree::Punct(p) if p.as_char() == punctuation)
 }
 
+/// Joins tokens into their surface spelling — the one token-to-string join
+/// (a carrier's inner content is this on the group's stream).
+pub(crate) fn tokens_to_string(ts: &[TokenTree]) -> String {
+    ts.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("")
+}
+
 /// Whether `tokens[index]` is the given punctuation (bounds-safe).
 pub(crate) fn is_punct_at(tokens: &[TokenTree], index: usize, ch: char) -> bool {
     tokens.get(index).is_some_and(|t| is_punct(t, ch))
@@ -170,36 +181,27 @@ pub(crate) fn is_impl_template(tokens: &[TokenTree], index: usize) -> bool {
         (
             Some(TokenTree::Ident(id)),
             Some(TokenTree::Group(g)),
-        ) if *id == "impl" && g.delimiter() == proc_macro2::Delimiter::Brace
+        ) if *id == "impl" && g.delimiter() == delimiter![{}]
     )
 }
 
 /// Check whether `tokens[index]` is the `>` of `->` (previous token is a Joint `-`).
 ///
 /// The `->` arrow neither counts as `>` depth in scanning nor acts as a DSL stop token.
+/// Whether `tokens[index]` is the `>` of a `->` arrow (its `-` head sits at
+/// `index - 1`, read off the operator dictionary).
 pub(crate) fn is_arrow(tokens: &[TokenTree], index: usize) -> bool {
-    index > 0
-        && matches!(&tokens[index - 1], TokenTree::Punct(p)
-            if p.as_char() == '-' && p.spacing() == Spacing::Joint)
+    index > 0 && matches!(read_op(tokens, index - 1), Some((crate::util::Op::Arrow, _)))
 }
 
 /// Check whether `tokens[index]` is a standalone `:` (not part of `::`).
 ///
-/// In `::`, the first `:` has `Spacing::Joint` (directly followed by the second), which
-/// rules out: the previous token being a Joint `:` (this token is the second half of `::`),
-/// or the next token being `:` while this token is `Spacing::Joint` (this token is the
-/// first half of `::`).
+/// Read off the operator dictionary: a plain `Colon` that is not the second
+/// half of a `ColonColon` (a `::` whose head sits at `index - 1`).
 pub(crate) fn is_single_colon(tokens: &[TokenTree], index: usize) -> bool {
-    let Some(TokenTree::Punct(p)) = tokens.get(index) else {
-        return false;
-    };
-    p.as_char() == ':'
+    matches!(read_op(tokens, index), Some((crate::util::Op::Colon, _)))
         && !(index > 0
-            && matches!(&tokens[index - 1], TokenTree::Punct(q)
-                if q.as_char() == ':' && q.spacing() == Spacing::Joint)
-            || index + 1 < tokens.len()
-                && matches!(&tokens[index + 1], TokenTree::Punct(q)
-                    if q.as_char() == ':' && p.spacing() == Spacing::Joint))
+            && matches!(read_op(tokens, index - 1), Some((crate::util::Op::ColonColon, _))))
 }
 
 /// Check whether the token sequence contains the given top-level punctuation

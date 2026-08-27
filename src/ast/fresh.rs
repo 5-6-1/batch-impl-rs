@@ -20,6 +20,8 @@
 
 use proc_macro2::{TokenStream, TokenTree};
 
+use crate::util::{Op, read_op, tokens_to_string};
+
 /// Mints the **declaration carrier** of generator fresh `(group g, position
 /// i)`: the same self-delimiting `@{g_i}` form a reference carries. The
 /// declaration's identity is this structured pair — dedup across cloned
@@ -42,7 +44,7 @@ fn carrier_tokens(inner: String, span: proc_macro2::Span) -> TokenStream {
     ts.extend(std::iter::once(TokenTree::Punct(at)));
     // The spelled inner is always a valid token sequence; the default keeps
     // the no-panic promise under internal invariant drift.
-    let parsed: TokenStream = inner.parse().unwrap_or_default();
+    let parsed = inner.parse().unwrap_or_default();
     let mut g = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, parsed);
     g.set_span(span);
     ts.extend(std::iter::once(TokenTree::Group(g)));
@@ -53,18 +55,14 @@ fn carrier_tokens(inner: String, span: proc_macro2::Span) -> TokenStream {
 /// grouped). Returns the structured identity; `None` for anything else —
 /// user-written params, range carriers, malformed pairs.
 pub(crate) fn decl_fresh_pos(tokens: &TokenStream) -> Option<(usize, usize)> {
-    let v: Vec<_> = tokens.clone().into_iter().collect();
-    match v.as_slice() {
-        [TokenTree::Punct(p), TokenTree::Group(g)]
-            if p.as_char() == '@' && g.delimiter() == proc_macro2::Delimiter::Brace =>
-        {
-            let inner: String =
-                g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
-            match FreshRef::parse(&inner)? {
-                FreshRef { group: Some(g), start: i, end: FreshEnd::Single } => Some((g, i)),
-                _ => None,
-            }
-        }
+    let v = tokens.clone().into_iter().collect::<Vec<_>>();
+    if !is_carrier_at(&v, 0) {
+        return None;
+    }
+    let TokenTree::Group(g) = &v[1] else { unreachable!("matched above") };
+    let inner = carrier_inner(g);
+    match FreshRef::parse(&inner)? {
+        FreshRef { group: Some(g), start: i, end: FreshEnd::Single } => Some((g, i)),
         _ => None,
     }
 }
@@ -157,6 +155,13 @@ pub(crate) fn is_carrier_at(tokens: &[TokenTree], i: usize) -> bool {
             if g.delimiter() == proc_macro2::Delimiter::Brace)
 }
 
+/// The `@{...}` carrier's inner content as a string (`@{0_0}` → `"0_0"`).
+/// The single extraction every carrier reader uses — the token-to-string
+/// join must not be re-derived across the codebase.
+pub(crate) fn carrier_inner(g: &proc_macro2::Group) -> String {
+    tokens_to_string(&g.stream().into_iter().collect::<Vec<_>>())
+}
+
 /// Whether a body token stream contains a **user-level fresh-position carrier**
 /// (`@{...}`) that the body-slot switch (`impl{@{}}`) must gate. A **grouped**
 /// carrier (`@{0_0}`) is macro-generated (blanket delegates mint `@{g_i}` for
@@ -195,7 +200,7 @@ fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> bool {
 /// `@{0}` references are user-written.
 fn is_macro_generated_carrier(tokens: &[TokenTree], i: usize) -> bool {
     let Some(TokenTree::Group(g)) = tokens.get(i + 1) else { return false };
-    let inner: String = g.stream().into_iter().map(|t| t.to_string()).collect::<Vec<_>>().join("");
+    let inner = carrier_inner(g);
     // A grouped head (`0_0`) contains an underscore; a range contains `..`.
     // A flat single reference (`0`) has neither.
     inner.contains('_') || inner.contains("..")
@@ -242,7 +247,7 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
         if let Some(TokenTree::Literal(lit)) = tokens.get(i + 1) {
             let s = lit.to_string();
             // Head classification: `N` (flat) or `L_N` (grouped).
-            let (group, start): (Option<usize>, usize) = if let Ok(n) = s.parse::<usize>() {
+            let (group, start) = if let Ok(n) = s.parse::<usize>() {
                 (None, n)
             } else if let Some((l, n)) = s.split_once('_')
                 && let (Ok(l), Ok(n)) = (l.parse::<usize>(), n.parse::<usize>())
@@ -255,15 +260,15 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
             };
             // Optional range tail: `..` (open) / `..=M` / `..M`.
             let mut consumed = 2usize;
-            let end = if matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                && matches!(tokens.get(i + 3), Some(TokenTree::Punct(q)) if q.as_char() == '.')
+            let end = if let Some((op, _)) = read_op(tokens, i + 2)
+                && matches!(op, Op::DotDot | Op::DotDotEq)
             {
-                consumed = 4;
-                let inclusive =
-                    matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=');
-                if inclusive {
-                    consumed += 1;
-                }
+                let inclusive = matches!(op, Op::DotDotEq);
+                consumed = 2 + match op {
+                    Op::DotDot => 2,
+                    Op::DotDotEq => 3,
+                    _ => unreachable!("matched above"),
+                };
                 match tokens.get(i + consumed) {
                     Some(TokenTree::Literal(el)) => match el.to_string().parse::<usize>() {
                         Ok(e) => {

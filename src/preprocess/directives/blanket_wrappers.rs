@@ -46,10 +46,8 @@ pub(crate) fn parse_blanket_wrappers(
     tokens: &[TokenTree],
 ) -> Result<Vec<BlanketWrapper>, TokenStream> {
     let mut wrappers = vec![];
-    let mut current: Vec<TokenTree> = vec![];
-    let flush = |mut current: Vec<TokenTree>,
-                 wrappers: &mut Vec<BlanketWrapper>|
-     -> Result<(), TokenStream> {
+    let mut current = vec![];
+    let flush = |mut current: Vec<_>, wrappers: &mut Vec<_>| -> Result<(), TokenStream> {
         if current.is_empty() {
             return Err(compile_error_str(
                 "batch-impl: #blanket wrapper list contains an empty element \
@@ -153,8 +151,7 @@ pub(crate) fn parse_blanket_wrappers(
             [TokenTree::Punct(at), TokenTree::Ident(name)]
                 if at.as_char() == '@' && name == "Cow" =>
             {
-                let preds: Vec<TokenTree> =
-                    quote!(@0: ToOwned + ?Sized, @0::Owned: @trait).into_iter().collect();
+                let preds = quote!(@0: ToOwned + ?Sized, @0::Owned: @trait).into_iter().collect();
                 // quote does not pair angle brackets — `Cow<'_>` needs a
                 // manually built <> group (blanket output no longer goes
                 // through angle_collect; a flat `<` would remain)

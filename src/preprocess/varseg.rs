@@ -101,10 +101,10 @@ fn mark_template(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, T
                 proc_macro2::Spacing::Alone,
             ))));
             marker.extend(std::iter::once(TokenTree::Group(Group::new(
-                proc_macro2::Delimiter::Parenthesis,
+                delimiter![()],
                 TokenStream::new(),
             ))));
-            out.push(TokenTree::Group(Group::new(proc_macro2::Delimiter::Bracket, marker)));
+            out.push(TokenTree::Group(Group::new(delimiter![[]], marker)));
             i += 4;
             // A variadic segment at the end of a tuple/list element list is
             // normally written with a trailing comma (`(A@..,)`) — the comma

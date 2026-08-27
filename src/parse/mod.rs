@@ -56,7 +56,7 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                     // Already a carrier (`@{...}`): pass both tokens through
                     // untouched — the self-delimiting group is atomic and the
                     // resolvers downstream match this exact shape.
-                    Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace => {
+                    Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}] => {
                         out.push(tokens[i].clone());
                         out.push(tokens[i + 1].clone());
                         i += 2;
@@ -72,15 +72,14 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                         // `<@0.. as T>::Scalar`).
                         let range_lit = parse_range_literal(&lit_str);
                         if let Some((group, start)) = range_lit
-                            && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                            && matches!(tokens.get(i + 3), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                            && let Some((op, _)) = crate::util::read_op(tokens, i + 2)
+                            && matches!(op, crate::util::Op::DotDot | crate::util::Op::DotDotEq)
                         {
-                            let mut consumed = 4;
-                            // `@N..=M`: an `=` after the dots
-                            if matches!(tokens.get(i + 4), Some(TokenTree::Punct(p)) if p.as_char() == '=')
-                            {
-                                consumed += 1;
-                            }
+                            let mut consumed = 2 + match op {
+                                crate::util::Op::DotDot => 2,
+                                crate::util::Op::DotDotEq => 3,
+                                _ => unreachable!("matched above"),
+                            };
                             // closed `@N..M` / `@N..=M`: an end literal
                             let end = match tokens.get(i + consumed) {
                                 Some(TokenTree::Literal(el)) => {
@@ -91,12 +90,12 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                                         ));
                                     };
                                     consumed += 1;
-                                    crate::ast::fresh::FreshEnd::Closed(e)
+                                    FreshEnd::Closed(e)
                                 }
-                                _ => crate::ast::fresh::FreshEnd::Open,
+                                _ => FreshEnd::Open,
                             };
-                            let r = crate::ast::fresh::FreshRef { group, start, end };
-                            out.extend(crate::ast::fresh::fresh_ref_tokens(r, at_span));
+                            let r = FreshRef { group, start, end };
+                            out.extend(fresh_ref_tokens(r, at_span));
                             i += consumed;
                             continue;
                         }
@@ -107,7 +106,7 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                                 at_span,
                             )
                         })?;
-                        out.extend(crate::ast::fresh::fresh_ref_tokens(r, at_span));
+                        out.extend(fresh_ref_tokens(r, at_span));
                         i += 2;
                     }
                     _ => {
@@ -150,7 +149,7 @@ pub(crate) fn parse_range_literal(s: &str) -> Option<(Option<usize>, usize)> {
 /// Parses a single-position reference literal (`N` / `g_i`) into its
 /// structured form — the token-chunk counterpart of `parse::blocks`'s
 /// `parse_single_ref`.
-fn parse_single_ref_token(lit: &str) -> Option<crate::ast::fresh::FreshRef> {
+fn parse_single_ref_token(lit: &str) -> Option<FreshRef> {
     use crate::ast::fresh::{FreshEnd, FreshRef};
     if let Ok(n) = lit.parse::<usize>() {
         return Some(FreshRef { group: None, start: n, end: FreshEnd::Single });
@@ -165,7 +164,7 @@ fn parse_single_ref_token(lit: &str) -> Option<crate::ast::fresh::FreshRef> {
 /// validation (`-` retirement, stray `;`/`=`/`@`/`#`, ...).
 pub(crate) fn parse_primitive(tokens: &[TokenTree], trait_name: Option<&Ident>) -> Ty {
     let mut cursor = Cursor::new(tokens);
-    parse_block(&mut cursor, trait_name).unwrap_or_else(|| crate::parse::generic::primitive(tokens))
+    parse_block(&mut cursor, trait_name).unwrap_or_else(|| generic::primitive(tokens))
 }
 
 #[cfg(test)]

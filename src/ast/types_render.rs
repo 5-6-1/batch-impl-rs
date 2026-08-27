@@ -66,7 +66,7 @@ impl ToTokens for Ty {
                 // Delegate to the carrier emitter — the same self-delimiting
                 // `@{...}` form the token-level resolvers match, so a Ty-side
                 // reference and a token-side one are indistinguishable.
-                crate::ast::fresh::fresh_ref_tokens(f.0, self.span)
+                fresh_ref_tokens(f.0, self.span)
             }
             TyKind::Generic(g) => params_to_tokens(&g.0.to_token_stream(), &g.1),
             TyKind::Trait(t) => params_to_tokens(&t.0, &t.1),
@@ -122,13 +122,13 @@ impl ToTokens for Ty {
             TyKind::Fn(f) => {
                 let u = f.2.then_some(quote!(unsafe));
                 let head = match f.3 {
-                    crate::ast::FnKind::Bare => quote!(fn),
-                    crate::ast::FnKind::Trait => quote!(Fn),
-                    crate::ast::FnKind::TraitMut => quote!(FnMut),
-                    crate::ast::FnKind::TraitOnce => quote!(FnOnce),
-                    crate::ast::FnKind::TraitAsync => quote!(AsyncFn),
-                    crate::ast::FnKind::TraitAsyncMut => quote!(AsyncFnMut),
-                    crate::ast::FnKind::TraitAsyncOnce => quote!(AsyncFnOnce),
+                    FnKind::Bare => quote!(fn),
+                    FnKind::Trait => quote!(Fn),
+                    FnKind::TraitMut => quote!(FnMut),
+                    FnKind::TraitOnce => quote!(FnOnce),
+                    FnKind::TraitAsync => quote!(AsyncFn),
+                    FnKind::TraitAsyncMut => quote!(AsyncFnMut),
+                    FnKind::TraitAsyncOnce => quote!(AsyncFnOnce),
                 };
                 match &f.0 {
                     Some(params) => {

@@ -15,7 +15,7 @@ use crate::util::{Op, read_op};
 /// Rewrites every map key in `ts` to its replacement. See the module docs
 /// for the path-segment rule.
 pub(crate) fn replace_map(ts: &TokenStream, map: &[(String, TokenStream)]) -> TokenStream {
-    let v: Vec<TokenTree> = ts.clone().into_iter().collect();
+    let v = ts.clone().into_iter().collect::<Vec<_>>();
     let mut out = TokenStream::new();
     worker(&v, map, false, &mut out);
     out
@@ -67,7 +67,7 @@ fn worker(
                     }
                 }
             }
-            TokenTree::Ident(id) if in_path => {
+            TokenTree::Ident(_) if in_path => {
                 // path segment: verbatim; another `::` keeps the path going
                 out.extend(std::iter::once(v[i].clone()));
                 i += 1;
@@ -82,7 +82,7 @@ fn worker(
                 seg_next(&mut in_path, v, i);
             }
             TokenTree::Group(g) => {
-                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                let inner = g.stream().into_iter().collect::<Vec<_>>();
                 let mut nested = TokenStream::new();
                 worker(&inner, map, false, &mut nested);
                 let mut ng = proc_macro2::Group::new(g.delimiter(), nested);

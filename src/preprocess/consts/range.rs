@@ -62,7 +62,7 @@ pub(crate) fn builtin_range_open(
     let (fam, _) = split_range_endpoint(anchor).ok_or_else(|| {
         format!("`@{anchor}` has an invalid width (legal: u/i are 8/16/32/64/128, f is 32/64)")
     })?;
-    let (min_w, max_w): (u32, u32) = if fam == 'f' { (32, 64) } else { (8, 128) };
+    let (min_w, max_w) = if fam == 'f' { (32u32, 64u32) } else { (8, 128) };
     let s = match start {
         Some(s) => s.to_string(),
         None => format!("{fam}{min_w}"),

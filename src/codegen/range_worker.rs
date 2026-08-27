@@ -18,7 +18,7 @@ mod tests {
         vec![decl(0, 0), decl(1, 0), decl(1, 1)]
     }
     fn decl(g: usize, i: usize) -> TokenStream {
-        crate::ast::fresh::fresh_decl_tokens(g, i)
+        fresh_decl_tokens(g, i)
     }
     /// The resolved display name of fresh `(g, i)` — P-numbered in document
     /// order against an empty collision set.
@@ -33,7 +33,7 @@ mod tests {
     }
     fn carrier(spell: &str) -> TokenStream {
         let r = FreshRef::parse(spell).unwrap();
-        crate::ast::fresh::fresh_ref_tokens(r, proc_macro2::Span::call_site())
+        fresh_ref_tokens(r, proc_macro2::Span::call_site())
     }
     /// Builds `prefix @carrier suffix` — a rendered type holding one reference.
     fn wrap(prefix: &str, spell: &str, suffix: &str) -> TokenStream {
@@ -91,7 +91,7 @@ mod tests {
     fn decl_position_open_range() {
         // `<@{0..}>` — a range reference as an impl-generic declaration
         // expands into one bare declaration per fresh.
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![(carrier("0.."), None)];
+        let mut gens: Vec<(TokenStream, Option<Ty>)> = vec![(carrier("0.."), None)];
         expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
         assert_eq!(got, [d(0, 0), d(1, 0), d(1, 1)]);
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn decl_position_closed_range() {
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![(carrier("1..=2"), None)];
+        let mut gens: Vec<(TokenStream, Option<Ty>)> = vec![(carrier("1..=2"), None)];
         expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
         assert_eq!(got, [d(1, 0), d(1, 1)]);
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn decl_position_mixed_with_plain() {
         // A user param and a range declaration coexist; the plain one stays.
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
+        let mut gens: Vec<(TokenStream, Option<Ty>)> =
             vec![("X".parse().unwrap(), None), (carrier("0.."), None)];
         expand_range_decls(&mut gens, &fresh_ctx()).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
@@ -120,10 +120,10 @@ mod tests {
         // An entry the list already declares (same identity) is not re-inserted
         // by an overlapping range declaration. The pipeline renames declaration
         // carriers to display names before this pass — mirrored here.
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> =
+        let mut gens: Vec<(TokenStream, Option<Ty>)> =
             vec![(decl(1, 0), None), (carrier("1.."), None)];
         let ctx = fresh_ctx();
-        crate::codegen::rename_fresh_decls(&mut gens, &ctx);
+        rename_fresh_decls(&mut gens, &ctx);
         expand_range_decls(&mut gens, &ctx).unwrap();
         let got: Vec<String> = gens.iter().map(|(n, _)| n.to_string()).collect();
         assert_eq!(got, [d(1, 0), d(1, 1)]);
@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn decl_position_closed_out_of_bounds_errors() {
-        let mut gens: Vec<(TokenStream, Option<crate::ast::Ty>)> = vec![(carrier("0..=5"), None)];
+        let mut gens: Vec<(TokenStream, Option<Ty>)> = vec![(carrier("0..=5"), None)];
         assert!(expand_range_decls(&mut gens, &fresh_ctx()).is_err());
     }
 

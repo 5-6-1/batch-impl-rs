@@ -17,7 +17,7 @@ use crate::parse::parse_atom::parse_range;
 use crate::parse::parse_item;
 use crate::parse::space::parse_block;
 use crate::util::Cursor;
-use proc_macro2::{Delimiter, Ident, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 
 /// Whether the cursor sits on a `->` fn arrow (Joint `-` followed by `>`).
@@ -97,9 +97,7 @@ pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
             cursor.bump();
             TyWithPrefix(TyPrefix::PtrMut, None).to_ty()
         }
-        Some(TokenTree::Group(g))
-            if matches!(g.delimiter(), Delimiter::Bracket | Delimiter::Parenthesis) =>
-        {
+        Some(TokenTree::Group(g)) if matches!(g.delimiter(), delimiter![()] | delimiter![[]]) => {
             let g = g.clone();
             cursor.bump();
             let inner = g.stream().into_iter().collect::<Vec<_>>();
@@ -108,7 +106,7 @@ pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
                 .filter(|c| !c.is_empty())
                 .map(|c| parse_item(&mut Cursor::new(c), Op::Space, None).unwrap_or_else(empty))
                 .collect::<Vec<_>>();
-            if g.delimiter() == Delimiter::Bracket {
+            if g.delimiter() == delimiter![[]] {
                 TySplat::Array(TyArray(elems)).to_ty()
             } else {
                 TySplat::Tuple(TyTuple(elems)).to_ty()
@@ -133,7 +131,7 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
     cursor.bump(); // `@`
     match cursor.peek() {
         // Folded carrier: `@{...}` — parse the group's inner spelling.
-        Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace => {
+        Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}] => {
             let inner = g
                 .stream()
                 .into_iter()
@@ -141,9 +139,9 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
                 .iter()
                 .map(|t| t.to_string())
                 .collect::<String>();
-            if let Some(r) = crate::ast::fresh::FreshRef::parse(&inner) {
+            if let Some(r) = FreshRef::parse(&inner) {
                 cursor.bump();
-                return crate::ast::TyFresh(r).to_ty().with_span(at_span);
+                return TyFresh(r).to_ty().with_span(at_span);
             }
             err_ty_at(
                 "batch-impl: `@{...}` must hold a position reference \
@@ -156,8 +154,10 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
             // `@N..` / `@L_N..` / `@N..M` / `@N..=M`: a structured range ref.
             let range_lit = crate::parse::parse_range_literal(&lit_str);
             if let Some((group, start)) = range_lit
-                && matches!(cursor.peek_at(1), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-                && matches!(cursor.peek_at(2), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                && matches!(
+                    cursor.op_at(1),
+                    Some((crate::util::Op::DotDot | crate::util::Op::DotDotEq, _))
+                )
             {
                 cursor.bump(); // the literal
                 cursor.bump(); // first `.`
@@ -178,15 +178,13 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
                     }
                     _ => FreshEnd::Open,
                 };
-                return crate::ast::TyFresh(crate::ast::fresh::FreshRef { group, start, end })
-                    .to_ty()
-                    .with_span(at_span);
+                return TyFresh(FreshRef { group, start, end }).to_ty().with_span(at_span);
             }
             // `@N` / `@g_i`: a single-position reference.
             match parse_single_ref(&lit_str) {
                 Some(fresh) => {
                     cursor.bump();
-                    crate::ast::TyFresh(fresh).to_ty().with_span(at_span)
+                    TyFresh(fresh).to_ty().with_span(at_span)
                 }
                 None => err_ty_at(
                     "batch-impl: `@` in a type must be followed by a position \
@@ -203,7 +201,7 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
 }
 
 /// Parses a single-position reference literal: `N` → flat, `g_i` → grouped.
-fn parse_single_ref(lit: &str) -> Option<crate::ast::fresh::FreshRef> {
+fn parse_single_ref(lit: &str) -> Option<FreshRef> {
     use crate::ast::fresh::{FreshEnd, FreshRef};
     if let Ok(n) = lit.parse::<usize>() {
         return Some(FreshRef { group: None, start: n, end: FreshEnd::Single });
@@ -216,40 +214,36 @@ fn parse_single_ref(lit: &str) -> Option<crate::ast::fresh::FreshRef> {
 /// only the range's own tokens are examined, whatever follows is a chain
 /// block).
 pub(crate) fn literal_block(cursor: &mut Cursor) -> Ty {
-    // `N..M` / `N..=M`
-    if matches!(cursor.peek_at(1), Some(TokenTree::Punct(p)) if p.as_char() == '.')
-        && matches!(cursor.peek_at(2), Some(TokenTree::Punct(q)) if q.as_char() == '.')
-    {
-        let n = if matches!(cursor.peek_at(3), Some(TokenTree::Punct(e)) if e.as_char() == '=') {
-            5
-        } else {
-            4
-        };
-        let tokens = cursor.slice_at(cursor.pos(), n).to_vec();
-        if let Some(range) = parse_range(&tokens) {
-            cursor.advance(n);
-            return range;
+    // `N..M` / `N..=M` — the range operator read off the dictionary
+    let n = match cursor.op_at(1) {
+        Some((crate::util::Op::DotDot, _)) => 4,
+        Some((crate::util::Op::DotDotEq, _)) => 5,
+        _ => {
+            // a bare number
+            return match cursor.peek() {
+                Some(TokenTree::Literal(lit)) => match lit.to_string().parse::<usize>() {
+                    Ok(number) => {
+                        cursor.bump();
+                        TyNum(number).to_ty()
+                    }
+                    Err(_) => err_ty_at(
+                        "batch-impl: a bare literal in a type position must be an \
+                             integer (usize); float/string/char literals are not types",
+                        lit.span(),
+                    ),
+                },
+                _ => err_ty_at("batch-impl: unexpected literal in a type position", cursor.span()),
+            };
         }
-        return err_ty_at(
-            "batch-impl: a range (`..`/`..=`) in a type position needs integer \
-             endpoints (e.g. `0..=3`)",
-            cursor.span(),
-        );
+    };
+    let tokens = cursor.slice_at(cursor.pos(), n).to_vec();
+    if let Some(range) = parse_range(&tokens) {
+        cursor.advance(n);
+        return range;
     }
-    if let Some(TokenTree::Literal(lit)) = cursor.peek() {
-        match lit.to_string().parse::<usize>() {
-            Ok(number) => {
-                cursor.bump();
-                return TyNum(number).to_ty();
-            }
-            Err(_) => {
-                return err_ty_at(
-                    "batch-impl: a bare literal in a type position must be an \
-                     integer (usize); float/string/char literals are not types",
-                    lit.span(),
-                );
-            }
-        }
-    }
-    err_ty_at("batch-impl: unexpected literal in a type position", cursor.span())
+    err_ty_at(
+        "batch-impl: a range (`..`/`..=`) in a type position needs integer \
+         endpoints (e.g. `0..=3`)",
+        cursor.span(),
+    )
 }

@@ -108,7 +108,7 @@ fn scan_body_boundary(
     tokens: &[TokenTree], is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
 ) -> Option<(TokenTree, usize)> {
     let mut j = 0;
-    let mut result: Vec<TokenTree> = vec![];
+    let mut result = vec![];
     while j < tokens.len() {
         match &tokens[j] {
             // A `{...}` group is a body boundary — **unless** it is a

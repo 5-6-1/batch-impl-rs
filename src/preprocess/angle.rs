@@ -301,7 +301,7 @@ mod tests {
         // Real None group (macro-variable expansion output): after flattening,
         // the <...> in its content pairs as usual
         let inner = "Vec<T>".parse::<TS2>().unwrap();
-        let none = proc_macro2::Group::new(delimiter![none], inner);
+        let none = Group::new(delimiter![none], inner);
         let collected = angle_collect(&[none.into()]).unwrap();
         let rendered = render_angles(collected.into_iter().collect());
         assert_eq!(rendered.to_string(), "Vec < T >");

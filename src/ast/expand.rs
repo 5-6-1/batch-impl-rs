@@ -45,13 +45,13 @@ impl Ty {
                 // distribution, which also covers pow_cartesian outputs
                 // nested in outer tuples). Pure tuples stay a Leaf.
                 if t.0.iter().any(|e| matches!(e.kind, TyKind::Array(_))) {
-                    let dims: Vec<Vec<Ty>> =
+                    let dims =
                         t.0.iter()
                             .map(|e| match &e.kind {
                                 TyKind::Array(a) => a.0.clone(),
                                 _ => vec![e.clone()],
                             })
-                            .collect();
+                            .collect::<Vec<_>>();
                     let combos = match cartesian(&dims, MAX_EXPAND) {
                         Ok(c) => c,
                         Err(size) => {
@@ -131,7 +131,7 @@ impl Ty {
                 // by splat powers (`*(*@u*).2` → `[*(u8,u8), ...]`) all reach
                 // params as a `TyArray` and distribute here.
                 if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_))) {
-                    let dims: Vec<TyParams> =
+                    let dims =
                         g.1.params
                             .iter()
                             .map(|(name, bound)| match &name.kind {
@@ -140,7 +140,7 @@ impl Ty {
                                 }
                                 _ => vec![(name.clone(), bound.clone())],
                             })
-                            .collect();
+                            .collect::<Vec<_>>();
                     let combos = match cartesian(&dims, MAX_EXPAND) {
                         Ok(c) => c,
                         Err(size) => {

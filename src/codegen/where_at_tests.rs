@@ -13,11 +13,11 @@ use syn::parse_quote;
 
 fn fresh_names(n: usize) -> Vec<TokenStream> {
     // Declaration carriers `@{0_i}` — the identity form the ctx parses.
-    (0..n).map(|i| crate::ast::fresh::fresh_decl_tokens(0, i)).collect()
+    (0..n).map(|i| fresh_decl_tokens(0, i)).collect()
 }
 
 fn resolve(s: &str, names: &[TokenStream]) -> String {
-    let pred: TokenStream = s.parse().unwrap();
+    let pred = s.parse().unwrap();
     let ctx = FreshCtx::new(names, &Default::default());
     resolve_where_at(&pred, &ctx).unwrap().to_string()
 }
@@ -46,8 +46,8 @@ fn at_ref_inside_group_resolves() {
     // angle_collect pairs `<>` into a None group; `@0` inside is a value
     // reference and must resolve (recursion mirrors resolve_at_refs)
     let names = fresh_names(2);
-    let inner: TokenStream = "Scalar = @0 :: Scalar".parse().unwrap();
-    let none = Group::new(proc_macro2::Delimiter::None, inner);
+    let inner = "Scalar = @0 :: Scalar".parse().unwrap();
+    let none = Group::new(delimiter![<>], inner);
     let pred = TokenStream::from(TokenTree::Group(none));
     assert_eq!(
         resolve_where_at(&pred, &FreshCtx::new(&names, &Default::default())).unwrap().to_string(),
@@ -85,7 +85,7 @@ fn closed_range_tail_value_ref() {
 /// expansion has no compile_error (regression guard against IDE/stale false positives)
 #[test]
 fn const_param_where_predicate_no_error() {
-    let trait_def: syn::ItemTrait = parse_quote!(
+    let trait_def = parse_quote!(
         trait WhereArr<T, const N: usize>
         where
             [T; N]: Sized,

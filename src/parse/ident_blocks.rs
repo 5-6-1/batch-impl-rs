@@ -11,7 +11,7 @@ use crate::parse::generic::{empty, parse_angle_bracket_contents};
 use crate::parse::parse_item;
 use crate::parse::space::{parse_block, parse_return_expr, parse_return_expr_tokens, starts_block};
 use crate::util::Cursor;
-use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::ToTokens;
 
 /// Ident block: `::` paths (`std::vec::Vec`), macro calls (`m!(...)`), the
@@ -50,23 +50,21 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
             // (`Fn::assoc` — rare, but a qualified path starts with `::`)
             // must not be hijacked; `Fn` followed by `::` falls through to
             // the plain-ident path.
-            if matches!(cursor.peek_at(1), Some(TokenTree::Punct(p))
-                if p.as_char() == ':' && matches!(cursor.peek_at(2), Some(TokenTree::Punct(q)) if q.as_char() == ':'))
-            {
+            if matches!(cursor.op_at(1), Some((crate::util::Op::ColonColon, _))) {
                 plain_ident_block(cursor, id, trait_name)
             } else {
                 let kind = match id.to_string().as_str() {
-                    "FnMut" => crate::ast::FnKind::TraitMut,
-                    "FnOnce" => crate::ast::FnKind::TraitOnce,
-                    "AsyncFn" => crate::ast::FnKind::TraitAsync,
-                    "AsyncFnMut" => crate::ast::FnKind::TraitAsyncMut,
-                    "AsyncFnOnce" => crate::ast::FnKind::TraitAsyncOnce,
-                    _ => crate::ast::FnKind::Trait,
+                    "FnMut" => FnKind::TraitMut,
+                    "FnOnce" => FnKind::TraitOnce,
+                    "AsyncFn" => FnKind::TraitAsync,
+                    "AsyncFnMut" => FnKind::TraitAsyncMut,
+                    "AsyncFnOnce" => FnKind::TraitAsyncOnce,
+                    _ => FnKind::Trait,
                 };
                 fn_trait_block(cursor, &id, kind)
             }
         }
-        "impl" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace) =>
+        "impl" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}]) =>
         {
             let g = match cursor.peek_at(1) {
                 Some(TokenTree::Group(g)) => g.clone(),
@@ -76,7 +74,7 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
             TyWithImpl(None, TyImplTemplate(g.stream())).to_ty()
         }
         "impl" => swallow_chain(cursor, &id, trait_name),
-        "where" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace) =>
+        "where" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}]) =>
         {
             let g = match cursor.peek_at(1) {
                 Some(TokenTree::Group(g)) => g.clone(),
@@ -96,7 +94,7 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
 /// `.` later.
 pub(crate) fn fn_block(cursor: &mut Cursor, trait_name: Option<&Ident>, is_unsafe: bool) -> Ty {
     cursor.bump(); // `fn`
-    let params = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
+    let params = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![()])
     {
         let g = match cursor.peek() {
             Some(TokenTree::Group(g)) => g.clone(),
@@ -119,7 +117,7 @@ pub(crate) fn fn_block(cursor: &mut Cursor, trait_name: Option<&Ident>, is_unsaf
     } else {
         None
     };
-    TyFn(params, ret.map(Into::into), is_unsafe, crate::ast::FnKind::Bare).to_ty()
+    TyFn(params, ret.map(Into::into), is_unsafe, FnKind::Bare).to_ty()
 }
 
 /// `extern "C" fn(...)` — one passthrough block (the ABI literal is not a
@@ -134,9 +132,9 @@ pub(crate) fn extern_fn_block(cursor: &mut Cursor) -> Ty {
 /// trait), so the `.().N` / `.().N..M` generators work on them — and a bare
 /// `Fn` (no parens) keeps `None` params to be filled by `.` later, exactly
 /// like a bare `fn`.
-pub(crate) fn fn_trait_block(cursor: &mut Cursor, id: &Ident, kind: crate::ast::FnKind) -> Ty {
+pub(crate) fn fn_trait_block(cursor: &mut Cursor, id: &Ident, kind: FnKind) -> Ty {
     cursor.bump(); // `Fn` / `FnMut` / `FnOnce`
-    let params = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
+    let params = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![()])
     {
         let g = match cursor.peek() {
             Some(TokenTree::Group(g)) => g.clone(),
@@ -172,8 +170,7 @@ fn passthrough_block(cursor: &mut Cursor, n_leading: usize) -> Ty {
     for _ in 0..n_leading {
         cursor.bump();
     }
-    if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
-    {
+    if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![()]) {
         cursor.bump();
     }
     if cursor_is_arrow(cursor) {
@@ -193,7 +190,7 @@ fn passthrough_block(cursor: &mut Cursor, n_leading: usize) -> Ty {
 /// `for<'a> <inner>`.
 pub(crate) fn for_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
     cursor.bump(); // `for`
-    let binder = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::None)
+    let binder = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>])
     {
         let g = match cursor.peek() {
             Some(TokenTree::Group(g)) => g.clone(),
@@ -284,7 +281,7 @@ pub(crate) fn plain_ident_block(cursor: &mut Cursor, id: Ident, trait_name: Opti
     // `Box<u8>` — a trailing `<>` group is the ident's argument list (the
     // args are consumed into the block, not a separate space application).
     if let Some(TokenTree::Group(g)) = cursor.peek()
-        && g.delimiter() == Delimiter::None
+        && g.delimiter() == delimiter![<>]
     {
         let args = g.stream().into_iter().collect::<Vec<_>>();
         cursor.bump();

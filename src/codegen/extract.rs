@@ -227,17 +227,18 @@ pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>
         TyKind::WithType(wt) => {
             for (name, bound) in wt.0.params {
                 let is_decl = matches!(&name.kind, TyKind::Fresh(f)
-                    if f.0.group.is_some() && f.0.end == crate::ast::fresh::FreshEnd::Single);
+                    if f.0.group.is_some() && f.0.end == FreshEnd::Single);
                 if is_decl {
                     let TyFresh(f) = match *name {
                         Ty { kind: TyKind::Fresh(f), .. } => f,
                         _ => unreachable!("matched above"),
                     };
                     let (g, i) = (f.group.unwrap(), f.start);
-                    let carrier = crate::ast::fresh::fresh_decl_tokens(g, i);
-                    match out.iter_mut().find(|(n, _)| {
-                        crate::ast::fresh::decl_fresh_pos(n).is_some_and(|k| k == (g, i))
-                    }) {
+                    let carrier = fresh_decl_tokens(g, i);
+                    match out
+                        .iter_mut()
+                        .find(|(n, _)| decl_fresh_pos(n).is_some_and(|k| k == (g, i)))
+                    {
                         // Prefer a declaration with a bound over the bare one.
                         Some(existing) if existing.1.is_none() => {
                             existing.1 = bound.map(|b| *b);
@@ -281,7 +282,7 @@ pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names
     // Substitution is path-aware (shared with where-predicate inheritance,
     // `util::subst`): `T::Item`'s root substitutes, the associated-type
     // segment stays literal.
-    let map: Vec<(String, TokenStream)> = trait_param_names
+    let map = trait_param_names
         .iter()
         .zip(parts.trait_generic_names.iter().filter(|ts| {
             !matches!(
@@ -290,7 +291,7 @@ pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names
             )
         }))
         .map(|(name, arg)| (name.to_string(), arg.clone()))
-        .collect();
+        .collect::<Vec<_>>();
     parts.body = Some(crate::util::subst::replace_map(&body, &map));
 }
 
@@ -311,7 +312,7 @@ fn split_impl_attachments(tokens: &TokenStream) -> Vec<TokenStream> {
 /// content is a fresh range reference (`@0..` / `@1..` / `@0_0..` /
 /// `@0..=M` — the same literal forms the type position folds). Returns the
 /// binding range; `None` for any ordinary shape template.
-fn parse_fresh_switch(tokens: &TokenStream) -> Option<crate::ast::fresh::FreshRef> {
+fn parse_fresh_switch(tokens: &TokenStream) -> Option<FreshRef> {
     use crate::ast::fresh::{FreshEnd, FreshRef};
     let v = tokens.clone().into_iter().collect::<Vec<_>>();
     let [
@@ -356,7 +357,7 @@ fn parse_at_brace_switch(tokens: &TokenStream) -> bool {
         v.as_slice(),
         [TokenTree::Punct(at), TokenTree::Group(g)]
             if at.as_char() == '@'
-                && g.delimiter() == proc_macro2::Delimiter::Brace
+                && g.delimiter() == delimiter![{}]
                 && g.stream().is_empty()
     )
 }

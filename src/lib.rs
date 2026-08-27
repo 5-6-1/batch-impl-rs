@@ -101,7 +101,7 @@ pub fn batch_impl(
             .map(proc_macro::TokenStream::from)
             .unwrap_or_else(Into::into);
     }
-    proc_macro::TokenStream::from(crate::util::compile_error_str(
+    proc_macro::TokenStream::from(util::compile_error_str(
         "batch-impl: expected a trait definition (`trait ...`) or an impl block \
          (`impl Trait for Type { ... }`)",
         proc_macro2::Span::call_site(),

@@ -21,7 +21,7 @@ use crate::codegen::shape::{Mapping, ShapeError, VarSeg, match_shape};
 pub(crate) fn collect_shape_mapping(
     target_tokens: &TokenStream, templates: &[TokenStream],
 ) -> Result<(Mapping, Vec<VarSeg>), ShapeError> {
-    let target: syn::Type = syn::parse2(target_tokens.clone()).map_err(|_| {
+    let target = syn::parse2(target_tokens.clone()).map_err(|_| {
         ShapeError::ShapeMismatch(
             "the target type is not a standard Rust type (DSL leftovers cannot be destructured by an `impl{...}` template)"
                 .into(),
@@ -34,7 +34,7 @@ pub(crate) fn collect_shape_mapping(
         // (`impl{...}` is now entered like `where{...}`), but syn needs flat
         // `<...>` — restore the pairing before parsing.
         let flat = crate::preprocess::render_angles(t.clone());
-        let template: syn::Type = syn::parse2(flat).map_err(|_| {
+        let template = syn::parse2(flat).map_err(|_| {
             ShapeError::ShapeMismatch(
                 "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)"
                     .into(),
@@ -58,8 +58,7 @@ pub(crate) fn collect_shape_mapping(
 /// trait arg re-opens into the fresh list).
 pub(crate) fn render_impl(
     parts: ImplParts, where_resolved: Vec<TokenStream>, target_tokens: TokenStream,
-    trait_name: &TokenStream, is_unsafe_trait: bool, shape_map: &crate::codegen::Mapping,
-    fresh_ctx: &FreshCtx,
+    trait_name: &TokenStream, is_unsafe_trait: bool, shape_map: &Mapping, fresh_ctx: &FreshCtx,
 ) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
     let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
@@ -105,8 +104,11 @@ pub(crate) fn render_impl(
     // the body were already re-opened by the codegen postprocess
     // (`expand_range_refs` in `generate_parts`, next to the repeat-block
     // expansion); render just assembles the tokens.
-    let mut body_tokens: Vec<TokenStream> =
-        parts.associated_types.iter().map(|(name, value)| quote!(type #name = #value;)).collect();
+    let mut body_tokens = parts
+        .associated_types
+        .iter()
+        .map(|(name, value)| quote!(type #name = #value;))
+        .collect::<Vec<_>>();
     if let Some(body) = &parts.body {
         body_tokens.push(body.clone());
     }

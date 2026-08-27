@@ -29,69 +29,69 @@ enum Tok {
 fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
     let leaf = prop_oneof![
         // DSL / Rust keywords and common type names
-        prop::strategy::Just(Tok::Ident("usize")),
-        prop::strategy::Just(Tok::Ident("isize")),
-        prop::strategy::Just(Tok::Ident("Vec")),
-        prop::strategy::Just(Tok::Ident("Box")),
-        prop::strategy::Just(Tok::Ident("T")),
-        prop::strategy::Just(Tok::Ident("where")),
-        prop::strategy::Just(Tok::Ident("fn")),
-        prop::strategy::Just(Tok::Ident("self")),
-        prop::strategy::Just(Tok::Ident("unsafe")),
+        Just(Tok::Ident("usize")),
+        Just(Tok::Ident("isize")),
+        Just(Tok::Ident("Vec")),
+        Just(Tok::Ident("Box")),
+        Just(Tok::Ident("T")),
+        Just(Tok::Ident("where")),
+        Just(Tok::Ident("fn")),
+        Just(Tok::Ident("self")),
+        Just(Tok::Ident("unsafe")),
         // Directive words: drive the `#` directive and open-extension paths
         // in the full-pipeline fuzz (the no-panic promise covers them too).
-        prop::strategy::Just(Tok::Ident("blanket")),
-        prop::strategy::Just(Tok::Ident("fill")),
-        prop::strategy::Just(Tok::Ident("delegate")),
-        prop::strategy::Just(Tok::Ident("name")),
-        prop::strategy::Just(Tok::Ident("all")),
+        Just(Tok::Ident("blanket")),
+        Just(Tok::Ident("fill")),
+        Just(Tok::Ident("delegate")),
+        Just(Tok::Ident("name")),
+        Just(Tok::Ident("all")),
         // Constant-system words: built-in families / range endpoints / the
         // `@trait` marker / blanket's `@Cow` — the `@` punct below can now
         // reach the constant expansion, range, and lifetime paths.
-        prop::strategy::Just(Tok::Ident("u8")),
-        prop::strategy::Just(Tok::Ident("i32")),
-        prop::strategy::Just(Tok::Ident("f64")),
-        prop::strategy::Just(Tok::Ident("Cow")),
-        prop::strategy::Just(Tok::Ident("trait")),
+        Just(Tok::Ident("u8")),
+        Just(Tok::Ident("i32")),
+        Just(Tok::Ident("f64")),
+        Just(Tok::Ident("Cow")),
+        Just(Tok::Ident("trait")),
         // Numeric literals (small-integer DSL exponents)
-        prop::strategy::Just(Tok::Literal("0")),
-        prop::strategy::Just(Tok::Literal("1")),
-        prop::strategy::Just(Tok::Literal("3")),
+        Just(Tok::Literal("0")),
+        Just(Tok::Literal("1")),
+        Just(Tok::Literal("3")),
         // DSL operators and punctuation
-        prop::strategy::Just(Tok::Punct('<', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('>', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('.', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('-', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct(',', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct(';', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct(':', Spacing::Alone)),
+        Just(Tok::Punct('<', Spacing::Alone)),
+        Just(Tok::Punct('>', Spacing::Alone)),
+        Just(Tok::Punct('.', Spacing::Alone)),
+        Just(Tok::Punct('-', Spacing::Alone)),
+        Just(Tok::Punct(',', Spacing::Alone)),
+        Just(Tok::Punct(';', Spacing::Alone)),
+        Just(Tok::Punct(':', Spacing::Alone)),
         // A Joint `:` can combine with the next `:` into `::`
-        prop::strategy::Just(Tok::Punct(':', Spacing::Joint)),
-        prop::strategy::Just(Tok::Punct('&', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('*', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('#', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('!', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('=', Spacing::Alone)),
+        Just(Tok::Punct(':', Spacing::Joint)),
+        Just(Tok::Punct('&', Spacing::Alone)),
+        Just(Tok::Punct('*', Spacing::Alone)),
+        Just(Tok::Punct('#', Spacing::Alone)),
+        Just(Tok::Punct('!', Spacing::Alone)),
+        Just(Tok::Punct('=', Spacing::Alone)),
         // `@` constants, `..`/`..=` ranges (Joint `.` heads a range), `'`
         // lifetimes, and bound/bound-start punctuation — the paths the old
         // vocabulary could never reach.
-        prop::strategy::Just(Tok::Punct('@', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('.', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('.', Spacing::Joint)),
-        prop::strategy::Just(Tok::Punct('+', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('?', Spacing::Alone)),
-        prop::strategy::Just(Tok::Punct('\'', Spacing::Alone)),
+        Just(Tok::Punct('@', Spacing::Alone)),
+        Just(Tok::Punct('.', Spacing::Alone)),
+        Just(Tok::Punct('.', Spacing::Joint)),
+        Just(Tok::Punct('+', Spacing::Alone)),
+        Just(Tok::Punct('?', Spacing::Alone)),
+        Just(Tok::Punct('\'', Spacing::Alone)),
     ];
     if depth == 0 {
         prop::collection::vec(leaf, 0..6).boxed()
     } else {
         let grouped = prop_oneof![
-            prop::strategy::Just(delimiter![()]),
-            prop::strategy::Just(delimiter![[]]),
-            prop::strategy::Just(delimiter![{}]),
+            Just(delimiter![()]),
+            Just(delimiter![[]]),
+            Just(delimiter![{}]),
             // Real None groups simulate macro-variable expansion output — angle_collect
             // should flatten them (contents are DSL tokens)
-            prop::strategy::Just(delimiter![none]),
+            Just(delimiter![none]),
         ]
         .prop_flat_map(move |d| tokens(depth - 1).prop_map(move |inner| Tok::Group(d, inner)));
         prop::collection::vec(prop_oneof![leaf, grouped], 0..6).boxed()

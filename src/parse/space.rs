@@ -20,7 +20,7 @@ use crate::parse::generic::empty;
 use crate::parse::ident_blocks::ident_block;
 use crate::parse::parse_atom::parse_group;
 use crate::util::Cursor;
-use proc_macro2::{Delimiter, Ident, Spacing, TokenTree};
+use proc_macro2::{Ident, Spacing, TokenTree};
 use quote::quote;
 
 /// Whether the token opens a new block: any ident/literal/group or a
@@ -43,10 +43,10 @@ pub(crate) fn cursor_is_dotdot(cursor: &Cursor) -> bool {
 /// `where{...}` / `impl{...}`) — the return-expression chain stops there.
 pub(crate) fn cursor_at_attachment(cursor: &Cursor) -> bool {
     match cursor.peek() {
-        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace => true,
+        Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}] => true,
         Some(TokenTree::Ident(id))
             if (id == "where" || id == "impl")
-                && matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace) =>
+                && matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}]) =>
         {
             true
         }
@@ -63,11 +63,11 @@ pub(crate) fn cursor_at_attachment(cursor: &Cursor) -> bool {
 /// Rust syntax forces the fragment together: lifetime references
 /// (`&'a mut u8`) and the fn family (`fn(u8) -> u8`).
 pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Option<Ty> {
-    let ty: Ty = match cursor.peek()? {
+    let ty = match cursor.peek()? {
         // `#[attr]` — attribute block (the chain applies the next block)
         TokenTree::Punct(p)
             if p.as_char() == '#'
-                && matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Bracket) =>
+                && matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![[]]) =>
         {
             let attr = match cursor.peek_at(1) {
                 Some(TokenTree::Group(g)) => g.stream(),
@@ -78,13 +78,13 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
         }
         // `{body}` code block (incl. `#name{...}` directive products) and
         // the `{! ...}` top-level macro form — chain blocks now.
-        TokenTree::Group(g) if g.delimiter() == Delimiter::Brace => {
+        TokenTree::Group(g) if g.delimiter() == delimiter![{}] => {
             let body = g.stream();
             cursor.bump();
             TyWithCode(None, TyCodeBlock(body)).to_ty()
         }
         // `(...)` tuple / `[...]` list-array — the whole group is one block
-        TokenTree::Group(g) if g.delimiter() != Delimiter::None => {
+        TokenTree::Group(g) if g.delimiter() != delimiter![<>] => {
             let g = g.clone();
             cursor.bump();
             parse_group(&g, trait_name)
@@ -115,7 +115,7 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
                 TyLifetime(crate::parse::blocks::lifetime_tokens(&lt)).to_ty()
             } else {
                 cursor.bump();
-                crate::apply::err_ty_at(
+                err_ty_at(
                     "batch-impl: a lone `'` cannot start a type (a lifetime needs \
                      an identifier, e.g. `'a`)",
                     p.span(),
@@ -180,7 +180,7 @@ pub(crate) fn parse_bound_expr(cursor: &mut Cursor, trait_name: Option<&Ident>) 
                 // Progress invariant, as in [`parse_return_expr`]: a stalled
                 // block-start must end the chain with a diagnostic, never spin.
                 if cursor.pos() == pos {
-                    return crate::apply::err_ty_at(
+                    return err_ty_at(
                         &format!("batch-impl: unexpected `{t}` in a bound expression"),
                         t.span(),
                     );

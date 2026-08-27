@@ -152,7 +152,7 @@ mod tests {
     /// attribute be wrongly expanded).
     #[test]
     fn passthrough_guard_consistency() {
-        let trait_def: syn::ItemTrait = syn::parse_quote!(
+        let trait_def: ItemTrait = syn::parse_quote!(
             trait T {
                 fn m(&self) -> u32;
             }
