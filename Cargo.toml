@@ -29,3 +29,11 @@ quote = "1"
 [dev-dependencies]
 trybuild = "1.0.118"
 proptest = "1"
+
+# The MSVC linker prints "creating library ... and object ..." to stdout,
+# which rustc treats as `linker_messages` warnings (a Rust 2024
+# warn-by-default lint, deliberately outside the `warnings` group). These
+# are harmless Windows link-product notices; suppressed for every target
+# (lib/tests/...), not just the crate root.
+[lints.rust]
+linker_messages = "allow"

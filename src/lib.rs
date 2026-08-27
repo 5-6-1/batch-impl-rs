@@ -6,10 +6,6 @@
 // catchable panics instead of process aborts.
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
-// The MSVC linker prints "creating library ... and object ..." to stdout, which rustc
-// treats as linker_messages warnings; these are harmless Windows link-product notices,
-// suppressed globally.
-#![allow(linker_messages)]
 // The `delimiter!` macro is defined at the top of preprocess and imported into the crate
 // root via `#[macro_use]`; textual scope requires its declaration to precede all users
 // (fuzz / parse / this module).
