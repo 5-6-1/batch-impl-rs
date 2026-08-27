@@ -95,10 +95,19 @@ fn expand_one_spec(
             // ---- shape form: `shape-template : new-generic-decl? matrix-source?` ----
             // The angle groups must be restored to flat `<...>` before syn
             // parsing (render_angles; syn cannot consume the
-            // `delimiter![<>]` carrier groups).
+            // `delimiter![<>]` carrier groups). A template may declare
+            // variadic segments (`(T@..)` → the `[T; ()]` marker) — matched
+            // against generator tuples by the shape kernel.
+            let template_raw = spec[..colon]
+                .iter()
+                .cloned()
+                .collect::<TokenStream>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let template_marked = crate::preprocess::varseg::mark_template(&template_raw, 0)?;
             let template_tokens =
-                render_angles(spec[..colon].iter().cloned().collect::<TokenStream>());
-            let template =
+                render_angles(template_marked.into_iter().collect::<TokenStream>());
+            let template: syn::Type =
                 syn::parse2(template_tokens).map_err(|e| {
                     compile_error_str(
                         &format!(
@@ -107,26 +116,11 @@ fn expand_one_spec(
                         Span::call_site(),
                     )
                 })?;
-            // Shape-validity check: the impl's for-Type must
-            // match the template ident-for-ident (zero bindings) — a binding
-            // means the for-Type doesn't carry the placeholder slot names.
-            let for_type = syn::parse2(item.self_ty.to_token_stream()).map_err(|_| {
-                compile_error_str(
-                    "batch-impl: the impl's for-Type is not a valid type",
-                    Span::call_site(),
-                )
-            })?;
-            let check = match_shape(&template, &for_type)
-                .map(|(m, _)| m)
-                .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
-            if !check.slots().is_empty() {
-                return Err(compile_error_str(
-                    "batch-impl: the impl's for-Type must match the shape template \
-                     ident-for-ident (write the same placeholder names, e.g. `impl Tr for A<B>` \
-                     with template `A<B>`)",
-                    Span::call_site(),
-                ));
-            }
+            // The template matches each matrix leaf; the slot mapping is then
+            // **textually applied** to the impl's for-Type / where predicates
+            // / body — the for-Type need not mirror the template
+            // ident-for-ident (write the same slot names where substitution
+            // should happen; anything else passes through verbatim).
             let (new_gen, matrix) = split_new_gen(&spec[colon + 1..]);
             // `used`: fresh display names must not collide with anything the
             // impl writes (template slots, the new generic decl, the item).
@@ -155,6 +149,7 @@ fn expand_one_spec(
                     &[],
                     &where_resolved,
                     &Mapping::default(),
+                    &[],
                     item.self_ty.to_token_stream(),
                 );
             }
@@ -180,8 +175,7 @@ fn expand_one_spec(
                         Span::call_site(),
                     )
                 })?;
-                let m = match_shape(&template, &leaf_ty)
-                    .map(|(m, _)| m)
+                let (m, template_segs) = match_shape(&template, &leaf_ty)
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                 // for-Type: slot names rewritten to the bound leaf subtrees.
                 let for_ty = apply_mapping(item.self_ty.to_token_stream(), &m);
@@ -194,6 +188,7 @@ fn expand_one_spec(
                     &fresh_names,
                     &where_resolved,
                     &m,
+                    &template_segs,
                     for_ty,
                 )?);
             }
@@ -237,6 +232,7 @@ fn expand_one_spec(
                 &fresh_names,
                 &where_resolved,
                 &Mapping::default(),
+                &[],
                 for_tokens,
             )
         }

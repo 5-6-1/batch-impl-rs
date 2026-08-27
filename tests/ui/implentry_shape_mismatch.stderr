@@ -1,7 +1,0 @@
-error: batch-impl: the impl's for-Type must match the shape template ident-for-ident (write the same placeholder names, e.g. `impl Tr for A<B>` with template `A<B>`)
- --> tests/ui/implentry_shape_mismatch.rs:6:1
-  |
-6 | #[batch_impl(A<B> : [Box].[u8])]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

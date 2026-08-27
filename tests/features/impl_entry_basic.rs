@@ -301,3 +301,26 @@ fn impl_entry_fresh_marker_direct_ref() {
     type F = <GenA<(u8, u16)> as FirstTr>::First;
     let _: F = 7u8;
 }
+
+// ------------------------------------------------------------
+// 15. Textual substitution (the non-matching mode): the template `Box<T>`
+//     matches each matrix leaf and the slot mapping is applied to the impl's
+//     for-Type **verbatim** — the for-Type need not mirror the template
+//     (`Vec<T>` here): the slot `T` still rewrites (`Vec<u8>` / `Vec<u16>`).
+// ------------------------------------------------------------
+#[batch_impl(Box<T> : [Box<u8>, Box<u16>])]
+impl TextTr for Vec<T> {
+    fn tag(&self) -> u32 {
+        1
+    }
+}
+
+trait TextTr {
+    fn tag(&self) -> u32;
+}
+
+#[test]
+fn impl_entry_textual_substitution() {
+    assert_eq!(<Vec<u8> as TextTr>::tag(&vec![0u8]), 1);
+    assert_eq!(<Vec<u16> as TextTr>::tag(&vec![0u16]), 1);
+}

@@ -74,8 +74,12 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
 }
 
 /// Marks `ident@..` inside one template's token stream; recurses into every
-/// group (tuples `(A@..,)`, flat `<...>` args, arrays, ...).
-fn mark_template(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
+/// group (tuples `(A@..,)`, flat `<...>` args, arrays, ...). Shared by
+/// `mark_varseg` (inside `impl{...}` groups) and the impl entry's shape
+/// template (`(T@..)` — the template of the shape form).
+pub(crate) fn mark_template(
+    tokens: &[TokenTree], depth: usize,
+) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
     }

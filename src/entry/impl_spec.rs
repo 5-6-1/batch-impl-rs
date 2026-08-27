@@ -25,7 +25,8 @@ use crate::util::{Cursor, compile_error_str, is_punct_at, is_single_colon};
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble_impl(
     item: &ItemImpl, trait_path: Option<&syn::Path>, new_gen: Option<&TokenStream>,
-    fresh_names: &[TokenStream], where_preds: &[TokenStream], m: &Mapping, for_ty: TokenStream,
+    fresh_names: &[TokenStream], where_preds: &[TokenStream], m: &Mapping,
+    template_segs: &[VarSeg], for_ty: TokenStream,
 ) -> Result<TokenStream, TokenStream> {
     let item_params = item.generics.params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
     // Generics: the attr new-generic-decl first, then the hoisted fresh names
@@ -73,7 +74,7 @@ pub(crate) fn assemble_impl(
         .items
         .iter()
         .map(|it| apply_mapping(it.to_token_stream(), m))
-        .map(|it| expand_fresh_marks(it, fresh_names))
+        .map(|it| expand_fresh_marks(it, fresh_names, template_segs, m))
         .collect::<Result<Vec<_>, _>>()?;
     let unsafe_kw = if item.unsafety.is_some() { quote!(unsafe) } else { quote!() };
     let head = match trait_path {
@@ -88,14 +89,15 @@ pub(crate) fn assemble_impl(
 }
 
 /// Expands `fresh!(...)` markers in the item body: the group's content is
-/// DSL — repeat blocks (`@(...)..`), `@ident` = an implicit segment bound to
-/// this impl's fresh generics (element `i` is the i-th fresh name), `@{N}` =
-/// the N-th fresh name. `fresh!` is an invisible internal marker (the
-/// attribute entry's repeat protocol, wrapped in a macro-call spelling so
-/// the body stays legal Rust): the call is fully expanded here and never
-/// reaches the output — the user never defines a `fresh` macro.
+/// DSL — repeat blocks (`@(...)..`), `@ident` = a segment reference (a
+/// **template segment** from the shape form's `ident@..`, or an implicit
+/// segment bound to this impl's fresh generics), `@{N}` = the N-th fresh
+/// name. `fresh!` is an invisible internal marker (the attribute entry's
+/// repeat protocol, wrapped in a macro-call spelling so the body stays
+/// legal Rust): the call is fully expanded here and never reaches the
+/// output — the user never defines a `fresh` macro.
 fn expand_fresh_marks(
-    tokens: TokenStream, fresh_names: &[TokenStream],
+    tokens: TokenStream, fresh_names: &[TokenStream], template_segs: &[VarSeg], m: &Mapping,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
     let mut out = vec![];
@@ -110,13 +112,13 @@ fn expand_fresh_marks(
         {
             let TokenTree::Group(g) = &v[i + 2] else { unreachable!("matched above") };
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            out.extend(expand_fresh_inner(&inner, fresh_names)?);
+            out.extend(expand_fresh_inner(&inner, fresh_names, template_segs, m)?);
             i += 3;
             continue;
         }
         // Recurse into every other group (attributes, tuple literals, ...).
         if let TokenTree::Group(g) = &v[i] {
-            let inner = expand_fresh_marks(g.stream(), fresh_names)?;
+            let inner = expand_fresh_marks(g.stream(), fresh_names, template_segs, m)?;
             let mut ng = Group::new(g.delimiter(), inner);
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));
@@ -129,16 +131,26 @@ fn expand_fresh_marks(
     Ok(out.into_iter().collect())
 }
 
-/// Expands one `fresh!(...)` group against this impl's fresh names: the
-/// implicit segments (`@ident` → the i-th fresh) drive the repeat blocks;
-/// `@{N}` resolves to the N-th fresh. Reuses the attribute entry's repeat
-/// machinery verbatim (a cursor-only block without an `@ident` is an error
-/// — `fresh!` has no fresh-binding switch).
+/// Expands one `fresh!(...)` group against this impl's fresh names: a
+/// template segment (`(T@..)` from the shape form) drives the repeat blocks
+/// with its matched leaf values; an `@ident` outside the template segments
+/// declares an implicit segment bound to the fresh list. `@{N}` resolves to
+/// the N-th fresh. Reuses the attribute entry's repeat machinery verbatim.
 fn expand_fresh_inner(
-    inner: &[TokenTree], fresh_names: &[TokenStream],
+    inner: &[TokenTree], fresh_names: &[TokenStream], template_segs: &[VarSeg], m: &Mapping,
 ) -> Result<Vec<TokenTree>, TokenStream> {
-    let mut segs = vec![];
+    let mut segs = template_segs.to_vec();
     let mut map = Mapping::default();
+    // Template segments first (values come from the shape match's mapping).
+    for s in template_segs {
+        for k in 0..s.len {
+            let pos = s.start + k;
+            if let Some(v) = m.seg_value(&s.prefix, pos) {
+                map.bind_seg(&s.prefix, pos, v.clone())
+                    .map_err(|e| compile_error_str(&e.message(), proc_macro2::Span::call_site()))?;
+            }
+        }
+    }
     collect_fresh_segment(inner, fresh_names, &mut segs, &mut map)?;
     let fresh = FreshCtx {
         names: fresh_names.iter().enumerate().map(|(i, n)| (0, i, n.clone())).collect(),
