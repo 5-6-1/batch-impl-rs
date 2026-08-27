@@ -350,3 +350,26 @@ fn impl_entry_second_template_segment() {
     type M4 = <Rc<(u8, u16)> as TupleTr2>::MyTuple;
     let _: M4 = (0u8, 1u16);
 }
+
+// ------------------------------------------------------------
+// 17. The block model: each matrix element pairs a container with its own
+//     `impl{...}` template at any position (`[[Box,Rc]impl{A<(T@..)>},
+//     Vec impl{Vec<(T@..)>}].().2..=3`) — one matrix source, each leaf
+//     matched by its own template (the `T@..` segment drives `fresh!`).
+// ------------------------------------------------------------
+trait TupleTr3 {
+    type MyTuple;
+}
+
+#[batch_impl(A<B> : [[Box,Rc]impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3)]
+impl TupleTr3 for A<B> {
+    type MyTuple = (fresh!(@(@T,)..));
+}
+
+#[test]
+fn impl_entry_block_model_per_container_templates() {
+    type M = <Box<(u8, u16)> as TupleTr3>::MyTuple;
+    let _: M = (0u8, 1u16);
+    type M2 = <Vec<(u8, u16, u8)> as TupleTr3>::MyTuple;
+    let _: M2 = (0u8, 1u16, 2u8);
+}

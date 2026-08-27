@@ -33,6 +33,7 @@ use quote::{ToTokens, quote};
 use std::collections::HashSet;
 use syn::ItemImpl;
 
+use crate::ast::TyKind;
 use crate::codegen::{
     FreshCtx, Mapping, apply_mapping, collect_used_idents, expand_range_refs, hoist_type_params,
     match_shape, resolve_where_predicates,
@@ -92,13 +93,10 @@ fn expand_one_spec(
 ) -> Result<TokenStream, TokenStream> {
     // `where{...}` (where_process output) is the tail.
     let (spec, where_preds) = peel_where(spec);
-    // A trailing `impl{...}` is a **second shape template** (the attr
-    // entry's spelling — `impl_process` turned the bare `impl A<(T@..)>`
-    // into `impl{A<(T@..)>}`): it matches the same matrix leaves, and its
-    // slots/segments merge with the first template's (`A<B> : [Box,Rc,&]
-    // ().2..=12 impl A<(T@..)>` — the `T@..` segment drives the body's
-    // `fresh!` references). One matrix source, no Cartesian combination.
-    let (template2, spec) = split_impl_template(spec);
+    // The matrix source inherits the attribute entry's block model: an
+    // `impl{...}` attachment (`[Box,Rc] impl{A<(T@..)>}` — or a trailing
+    // `... impl{A<(T@..)>}`) pairs with its container at any position; the
+    // parsed leaves carry the attachment as `WithImpl`, split off per leaf.
     match find_shape_colon(spec) {
         Some(colon) => {
             // ---- shape form: `shape-template : new-generic-decl? matrix-source?` ----
@@ -165,6 +163,22 @@ fn expand_one_spec(
             let leaves = parse_matrix_leaves(&matrix)?;
             let mut out = quote![];
             for leaf in leaves {
+                // A leaf may carry its own shape template as a block
+                // attachment (`[[Box,Rc]impl{A<(T@..)>}, & impl{&(T@..)}]
+                // .().2..=3` — the attr block model: each container pairs
+                // with its template, `&` gets a reference template). Split
+                // the attachment off; the inner type is the matched target.
+                let (leaf, leaf_template) = match leaf.kind {
+                    TyKind::WithImpl(wi) => (wi.0.map(|b| *b), Some(wi.1.0)),
+                    _ => (Some(leaf), None),
+                };
+                let Some(leaf) = leaf else {
+                    return Err(compile_error_str(
+                        "batch-impl: an `impl{...}` template in the matrix source \
+                         needs a container to pair with (e.g. `[Box,Rc] impl{A<(T@..)>}`)",
+                        Span::call_site(),
+                    ));
+                };
                 // Generators in a leaf (`A<()0..=12>`) mint fresh
                 // declarations: hoist them out of the leaf (they join the
                 // impl generics), name them (`P0, P1, ...`) and resolve the
@@ -186,19 +200,22 @@ fn expand_one_spec(
                 })?;
                 let (mut m, mut template_segs) = match_shape(&template, &leaf_ty)
                     .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
-                // The second template (`impl{...}`) matches the same leaf and
-                // merges: its slots must agree (A := Box on both sides), its
-                // segments (the `T@..` driving the body's `fresh!`) join.
-                if let Some(t2_raw) = &template2 {
-                    let t2_marked = crate::preprocess::varseg::mark_template(t2_raw, 0)?;
-                    let t2_tokens = render_angles(t2_marked.into_iter().collect::<TokenStream>());
-                    let t2: syn::Type = syn::parse2(t2_tokens).map_err(|_| {
+                // The leaf's own template (`impl{...}`) matches the same leaf
+                // and merges: its slots must agree, its segments (the `T@..`
+                // driving the body's `fresh!`) join.
+                if let Some(lt) = leaf_template {
+                    let lt_marked = crate::preprocess::varseg::mark_template(
+                        &lt.into_iter().collect::<Vec<_>>(),
+                        0,
+                    )?;
+                    let lt_tokens = render_angles(lt_marked.into_iter().collect::<TokenStream>());
+                    let lt_ty: syn::Type = syn::parse2(lt_tokens).map_err(|_| {
                         compile_error_str(
                             "batch-impl: the `impl{...}` template is not a valid type",
                             Span::call_site(),
                         )
                     })?;
-                    let (m2, segs2) = match_shape(&t2, &leaf_ty)
+                    let (m2, segs2) = match_shape(&lt_ty, &leaf_ty)
                         .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                     m.merge(m2).map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
                     template_segs.extend(segs2);
@@ -263,20 +280,6 @@ fn expand_one_spec(
             )
         }
     }
-}
-
-/// Splits a trailing `impl{...}` (the second shape template — the attr
-/// entry's spelling) off the spec: returns (its inner tokens, the spec
-/// without it). Recognized by [`is_impl_template`](crate::util::is_impl_template)
-/// (the `impl` ident + Brace group); nothing else splits.
-fn split_impl_template(spec: &[TokenTree]) -> (Option<Vec<TokenTree>>, &[TokenTree]) {
-    for i in 0..spec.len() {
-        if crate::util::is_impl_template(spec, i) {
-            let TokenTree::Group(g) = &spec[i + 1] else { unreachable!("matched above") };
-            return (Some(g.stream().into_iter().collect()), &spec[..i]);
-        }
-    }
-    (None, spec)
 }
 
 /// Rejects `#name(...)` directives (only `#[...]` attributes pass through) —

@@ -7,6 +7,19 @@
 
 ## Unreleased (in development — the next release after 0.9.5)
 
+- **Matrix leaves inherit the block model** (user correction: the impl
+  entry's templates were fixed to a trailing position — the attribute
+  entry's block model already supports an `impl{...}` attachment pairing
+  with its container at any position, e.g. `[[Box,Rc] impl{A<(T@..)>},
+  Vec impl{Vec<(T@..)>}].().2..=3`) — the per-element template is split
+  off each parsed leaf (`TyKind::WithImpl` — the parsed attachment) and
+  matches the same leaf, merging its slots and joining its segments (the
+  `T@..` driving the body's `fresh!`). The trailing-position special case
+  (`split_impl_template`) is gone — the block model covers it. Known
+  limit: the shape template (`A<B>`) cannot match a reference leaf (a
+  path slot has no reference form) — a `&` container needs its own
+  reference template, which the block model provides. Tests:
+  `impl_entry_block_model_per_container_templates`.
 - **Second shape template on the ItemImpl entry** (user design: `A<B> :
   [Box,Rc,&].().2..=12 impl A<(T@..)>` — borrow the attr entry's `impl{...}`
   template to declare segments, one matrix source, no Cartesian
