@@ -7,6 +7,18 @@
 
 ## Unreleased (in development — the next release after 0.9.5)
 
+- **`fresh!(...)` — the body-level DSL marker on the ItemImpl entry**
+  (user design: borrow the attribute entry's repeat protocol, wrapped in a
+  legal macro-call spelling — the body stays ordinary Rust) —
+  `fresh!((@(@T,)..))` in an item body expands against this impl's fresh
+  generics: `@ident` is an **implicit segment** bound to the fresh list
+  (element `i` = the i-th fresh name; `(@(@T,)..)` → `(P0, P1, P2, P3)`),
+  `@{N}` names the N-th fresh, repeat blocks / cursors reuse
+  `repeat.rs::expand_repeat_blocks` + `substitute` verbatim. The marker is
+  fully expanded in `impl_spec.rs::expand_fresh_marks` — the output never
+  contains a `fresh!` call, so the user never defines a `fresh` macro
+  (documented as an invisible internal marker). Tests:
+  `impl_entry_fresh_marker_segment_repeat` / `_direct_ref`.
 - **Generators + `@N` selectors on the ItemImpl entry** (user direction —
   the spec layer must match the attribute entry) — the shape form's matrix
   and the direct form's for-type now parse as full DSL: a generator

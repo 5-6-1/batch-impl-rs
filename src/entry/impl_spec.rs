@@ -3,14 +3,19 @@
 //! generated impl from the extracted parts; the small helpers parse the
 //! matrix source and split the shape-form spec.
 
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
+use std::cell::Cell;
 use syn::ItemImpl;
 
 use crate::ast::{Op, Ty};
-use crate::codegen::{Mapping, apply_mapping, sync_trait_application};
+use crate::codegen::FreshCtx;
+use crate::codegen::{
+    MAX_REPEAT_TOKENS, Mapping, RepeatCtx, VarSeg, apply_mapping, expand_repeat_blocks,
+    sync_trait_application,
+};
 use crate::entry::driver::collect_spec_leaves;
-use crate::util::{Cursor, is_single_colon};
+use crate::util::{Cursor, compile_error_str, is_punct_at, is_single_colon};
 
 /// Assembles one generated impl: generics (attr new-generic-decl first, then
 /// the hoisted fresh names, then the impl's own params), trait path
@@ -64,8 +69,12 @@ pub(crate) fn assemble_impl(
         preds.push(apply_mapping(p, m));
     }
     let where_clause = if preds.is_empty() { quote!() } else { quote!(where #(#preds),*) };
-    let items =
-        item.items.iter().map(|it| apply_mapping(it.to_token_stream(), m)).collect::<Vec<_>>();
+    let items = item
+        .items
+        .iter()
+        .map(|it| apply_mapping(it.to_token_stream(), m))
+        .map(|it| expand_fresh_marks(it, fresh_names))
+        .collect::<Result<Vec<_>, _>>()?;
     let unsafe_kw = if item.unsafety.is_some() { quote!(unsafe) } else { quote!() };
     let head = match trait_path {
         Some(p) => quote!(impl #gen_tokens #p for #for_ty),
@@ -76,6 +85,122 @@ pub(crate) fn assemble_impl(
             #(#items)*
         }
     })
+}
+
+/// Expands `fresh!(...)` markers in the item body: the group's content is
+/// DSL — repeat blocks (`@(...)..`), `@ident` = an implicit segment bound to
+/// this impl's fresh generics (element `i` is the i-th fresh name), `@{N}` =
+/// the N-th fresh name. `fresh!` is an invisible internal marker (the
+/// attribute entry's repeat protocol, wrapped in a macro-call spelling so
+/// the body stays legal Rust): the call is fully expanded here and never
+/// reaches the output — the user never defines a `fresh` macro.
+fn expand_fresh_marks(
+    tokens: TokenStream, fresh_names: &[TokenStream],
+) -> Result<TokenStream, TokenStream> {
+    let v = tokens.into_iter().collect::<Vec<_>>();
+    let mut out = vec![];
+    let mut i = 0;
+    while i < v.len() {
+        // `fresh ! ( ... )` — the marker.
+        if let TokenTree::Ident(id) = &v[i]
+            && id == "fresh"
+            && matches!(v.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '!')
+            && matches!(v.get(i + 2), Some(TokenTree::Group(g))
+                if g.delimiter() == delimiter![()])
+        {
+            let TokenTree::Group(g) = &v[i + 2] else { unreachable!("matched above") };
+            let inner = g.stream().into_iter().collect::<Vec<_>>();
+            out.extend(expand_fresh_inner(&inner, fresh_names)?);
+            i += 3;
+            continue;
+        }
+        // Recurse into every other group (attributes, tuple literals, ...).
+        if let TokenTree::Group(g) = &v[i] {
+            let inner = expand_fresh_marks(g.stream(), fresh_names)?;
+            let mut ng = Group::new(g.delimiter(), inner);
+            ng.set_span(g.span());
+            out.push(TokenTree::Group(ng));
+            i += 1;
+            continue;
+        }
+        out.push(v[i].clone());
+        i += 1;
+    }
+    Ok(out.into_iter().collect())
+}
+
+/// Expands one `fresh!(...)` group against this impl's fresh names: the
+/// implicit segments (`@ident` → the i-th fresh) drive the repeat blocks;
+/// `@{N}` resolves to the N-th fresh. Reuses the attribute entry's repeat
+/// machinery verbatim (a cursor-only block without an `@ident` is an error
+/// — `fresh!` has no fresh-binding switch).
+fn expand_fresh_inner(
+    inner: &[TokenTree], fresh_names: &[TokenStream],
+) -> Result<Vec<TokenTree>, TokenStream> {
+    let mut segs = vec![];
+    let mut map = Mapping::default();
+    collect_fresh_segment(inner, fresh_names, &mut segs, &mut map)?;
+    let fresh = FreshCtx {
+        names: fresh_names.iter().enumerate().map(|(i, n)| (0, i, n.clone())).collect(),
+    };
+    let cx = RepeatCtx {
+        segs: &segs,
+        map: &map,
+        fresh: &fresh,
+        binding: None,
+        budget: Cell::new(MAX_REPEAT_TOKENS),
+    };
+    // Repeat blocks + segments first (the `@{...}` carriers inside a block
+    // resolve in `substitute`); top-level carriers pass through and resolve
+    // here.
+    let expanded = expand_repeat_blocks(inner.iter().cloned().collect(), &cx)?;
+    crate::codegen::expand_range_refs(expanded, &fresh).map(|o| o.into_iter().collect())
+}
+
+/// Collects the implicit segments of one `fresh!(...)` group: an `@ident`
+/// reference (groups recursed) declares a segment whose elements are this
+/// impl's fresh names (`T` → `T0 := P0, T1 := P1, ...`). A `fresh!` with no
+/// freshs to bind is an error. `@{...}` carriers and `@N` cursors are not
+/// segments.
+fn collect_fresh_segment(
+    tokens: &[TokenTree], fresh_names: &[TokenStream], segs: &mut Vec<VarSeg>, map: &mut Mapping,
+) -> Result<(), TokenStream> {
+    let mut i = 0;
+    while i < tokens.len() {
+        if is_punct_at(tokens, i, '@')
+            && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
+            && !matches!(tokens.get(i + 2), Some(TokenTree::Group(_)))
+        {
+            let prefix = id.to_string();
+            if !segs.iter().any(|s| s.prefix == prefix) {
+                if fresh_names.is_empty() {
+                    return Err(compile_error_str(
+                        &format!(
+                            "batch-impl: `fresh!` references `@{}` but this impl has no \
+                             fresh generics (no generator in the target)",
+                            prefix,
+                        ),
+                        id.span(),
+                    ));
+                }
+                segs.push(VarSeg { prefix: prefix.clone(), start: 0, len: fresh_names.len() });
+                for (k, n) in fresh_names.iter().enumerate() {
+                    map.bind_seg(&prefix, k, n.clone())
+                        .map_err(|e| compile_error_str(&e.message(), id.span()))?;
+                }
+            }
+        }
+        if let TokenTree::Group(g) = &tokens[i] {
+            collect_fresh_segment(
+                &g.stream().into_iter().collect::<Vec<_>>(),
+                fresh_names,
+                segs,
+                map,
+            )?;
+        }
+        i += 1;
+    }
+    Ok(())
 }
 
 /// Parses a matrix-source (DSL expression) into its leaf types.

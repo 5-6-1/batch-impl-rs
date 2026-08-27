@@ -264,3 +264,40 @@ fn impl_entry_direct_form_generator() {
     let a = GenA::<(u8, u16, u8)>((0, 1, 2));
     assert_eq!(a.tag(), 1);
 }
+
+// ------------------------------------------------------------
+// 14. `fresh!` — the body-level DSL marker (the attribute entry's repeat
+//     protocol wrapped in a legal macro-call spelling): `@ident` is an
+//     implicit segment bound to this impl's fresh generics (`(@(@T,)..)` →
+//     `(P0, P1, P2, P3)`), `@{N}` names the N-th fresh. The marker is fully
+//     expanded — the output never contains a `fresh!` call.
+// ------------------------------------------------------------
+trait TupleTr {
+    type MyTuple;
+}
+
+#[batch_impl(GenA<B> : GenA<()1..=3>)]
+impl TupleTr for GenA<B> {
+    type MyTuple = (fresh!(@(@T,)..));
+}
+
+#[test]
+fn impl_entry_fresh_marker_segment_repeat() {
+    type T3 = <GenA<(u8, u16, u8)> as TupleTr>::MyTuple;
+    let _: T3 = (0u8, 1u16, 2u8);
+}
+
+trait FirstTr {
+    type First;
+}
+
+#[batch_impl(GenA<B> : GenA<()1..=2>)]
+impl FirstTr for GenA<B> {
+    type First = fresh!(@{0});
+}
+
+#[test]
+fn impl_entry_fresh_marker_direct_ref() {
+    type F = <GenA<(u8, u16)> as FirstTr>::First;
+    let _: F = 7u8;
+}
