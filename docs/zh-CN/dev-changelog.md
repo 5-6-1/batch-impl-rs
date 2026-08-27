@@ -2,7 +2,12 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## Unreleased（开发中——0.9.5 之后的下一个版本）
+## 0.9.6 (2026-08-27)
+
+> ItemImpl 入口的 DSL 追赶（常量 / 生成器 / `fresh!` / 块模型 / where 任意位置 / 文本替换）、运算符字典与去重/拆分 pass——条目按开发顺序落在下方 Unreleased 区，发布时归入此版本。
+
+- **ItemImpl 入口的 where 附件借用 parse 层**（用户架构方向：先 parse——矩阵区的 where 附件走 attr 入口的 parse 层进入 `TyWithWhere`，逐 leaf 提取并借用共享的谓词切分；只有**模板区**（形状冒号前）在 token 层剥离 `where{...}`（模板必须保持标准 syn 类型）。impl entry 特有的 codegen 收敛为模板匹配、槽替换、fresh hoist、装配）。手写的全 spec where 剥离删除。测试：`impl_entry_where_any_position`（中间 where）/ `impl_entry_where_multiple_attachments`（模板区 + 矩阵源附件逗号合并）；隔离 `u8: NotClone` 探针确认谓词真正落地。
+- **矩阵 leaf 继承块模型**（用户纠正：impl entry 的模板被固定到尾部位置——attr 入口的块模型已支持 `impl{...}` 附件在任意位置与容器配对，如 `[[Box,Rc] impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3`）——逐 leaf 拆出解析后的附件（`TyKind::WithImpl`）与同一 leaf 匹配，槽合并、段并入（驱动 body 的 `fresh!`）。尾部专用处理（`split_impl_template`）删除——块模型覆盖。已知限制：形状模板（`A<B>`）匹配不了引用 leaf（path 槽没有引用形态）——`&` 容器需要自己的引用模板（块模型提供）。测试：`impl_entry_block_model_per_container_templates`。
 
 - **ItemImpl 入口的第二形状模板**（用户设计：`A<B> : [Box,Rc,&].().2..=12 impl A<(T@..)>`——借用 attr 入口的 `impl{...}` 模板声明段，单一矩阵源，不产生笛卡尔积）——尾部的 `impl{...}`（裸 `impl A<(T@..)>` 由 `impl_process` 重写；管线改为 `impl_process` → `mark_varseg` → `expand_consts`，与 attr 入口一致，使其中的 `T@..` 不会进入常量阶段）作为**第二模板**匹配同一矩阵 leaf：其槽必须与第一模板一致（`Mapping::merge` 合并），其段加入（驱动 body 的 `fresh!` 引用——`type MyTuple = (fresh!(@(@T,)..))` → `(P0, P1, ...)`）。`match_ty` 新增泛型实参中的段情形（`A<(T@..)>` 对照 `Box<(P0, P1)>` → `T0 := P0, T1 := P1`）。测试：`impl_entry_second_template_segment`。
 

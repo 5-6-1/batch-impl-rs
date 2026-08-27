@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.5** (2026-08-27) — **direct-splice completion + impl-template ergonomics**: repeat blocks splice the segment's bound element **directly** into each round (the `$( ... )*` semantics — `(@(@A::from(self.@0)),..)` expands straight to `(u8::from(self.0), u16::from(self.1), u32::from(self.2))`, the intermediate carrier spelling is gone); a bare `impl` collects like a bare `where` and adjacent bare regions split (`impl A<B> impl @{}` ≡ `impl A<B>, @{}`); `impl{...}` attachments may be comma-joined (`impl{(A@..,), @0.., @{}}`); a `@{N}` fresh reference in a body now requires a declared body slot — `impl{@{}}` or the fresh-binding switch `impl{@0..}` (breaking tightening); the fresh-name reference inside repeat blocks is spelled `@{N}` (was `@@N`), with the per-round cursor form `@{@N}` (`(@(@{@N}::foo()),..)` → `(P0::foo(), P1::foo(), P2::foo())`); AsyncFn/AsyncFnMut/AsyncFnOnce bounds; lifetimes first-class (`<'a>` / `'a` args / `+ 'a`); where inheritance by positional substitution (renamed args inherit too, path-aware); inherent impls (`#[batch_impl(spec)] impl Type { … }`); open-ended range families (`@..u128` ≡ `@u8..u128`, `@u16..` ≡ `@u16..u128`); expansion chains capped and repeat-block output budgeted (no more OOM on composed specs).
+**v0.9.6** (2026-08-27) — **the ItemImpl entry catches up with the attribute entry**: `#[batch_impl(spec)] impl ...` now shares the full DSL — `@` built-in constants (`@u*` / `@f*` / `@num` / ranges) in the matrix source; generators with `@N..` where selectors (`GenA<()0..=12>` hoists fresh generics onto the impl, `where @0..: SomeTrait` constrains them); the `fresh!(...)` body marker (`type MyTuple = (fresh!(@(@T,)..))` → `(P0, P1, P2)` — repeat blocks / fresh references in the body, wrapped in a legal macro-call spelling and fully expanded — the output never contains a `fresh!` call); the block model (each matrix element pairs a container with its own `impl{...}` template — `[[Box,Rc]impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3`; `where{...}` composes at any position); textual substitution for non-matching templates; variadic-segment templates (`A<(T@..)>`) driving `fresh!` segment references. Internally the operator dictionary (`read_op`) unifies multi-char operator recognition (`..` / `..=` / `->` / `::`).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -79,10 +79,10 @@ Pick by the grouping shape you want: use the space to list arguments side by sid
 
 ```toml
 [dependencies]
-batch-impl = "0.8.1"
+batch-impl = "0.9.6"
 ```
 
-Requires Rust 2024 edition or newer.
+Requires Rust 1.95 or newer (edition 2024).
 
 ```rust
 use batch_impl::batch_impl;

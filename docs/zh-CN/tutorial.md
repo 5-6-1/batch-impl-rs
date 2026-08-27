@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.9.5**（2026-08-27）——**直接拼接收尾 + impl 模板人体工学**：repeat 块把段的**绑定元素**直接拼进每轮输出（`$( ... )*` 语义——`(@(@A::from(self.@0)),..)` 一步展开为 `(u8::from(self.0), u16::from(self.1), u32::from(self.2))`，中间载体拼写删除）；裸 `impl` 与裸 `where` 同款收集、相邻裸区拆分（`impl A<B> impl @{}` ≡ `impl A<B>, @{}`）；`impl{...}` 附件可逗号并列（`impl{(A@..,), @0.., @{}}`）；body 里的 `@{N}` fresh 引用现在必须声明 body 槽——`impl{@{}}` 或 fresh 绑定开关 `impl{@0..}`（"用必先声明"）；repeat 块内 fresh 名称引用拼写统一为 `@{N}`（原 `@@N`），并新增逐轮游标形态 `@{@N}`（`(@(@{@N}::foo()),..)` → `(P0::foo(), P1::foo(), P2::foo())`，见 §8.4）。要引用特定元素就在模板里显式写普通固定槽（`impl{(A0, @A..,)}`，body 裸写 `A0`）。本版新增：AsyncFn/AsyncFnMut/AsyncFnOnce bound、lifetime 一等公民（`<'a>` / `'a` 实参 / `+ 'a`）、where 继承按位置替换（改名实参同样继承，路径感知）、固有 impl（`#[batch_impl(spec)] impl Type { … }`）、开放端点 range 族（`@..u128` ≡ `@u8..u128`）、组合展开链封顶 + repeat 块输出预算（组合 spec 不再 OOM）。
+**v0.9.6**（2026-08-27）——**ItemImpl 入口追上 attr 入口**：`#[batch_impl(spec)] impl ...` 现在共享完整 DSL——矩阵源可用 `@` 内置常量；生成器 + `@N..` where 选择器（`GenA<()0..=12>` 把 fresh 泛型 hoist 上 impl，`where @0..: SomeTrait` 约束它们）；`fresh!(...)` body 标记（`type MyTuple = (fresh!(@(@T,)..))` → `(P0, P1, P2)`——body 里的 repeat 块 / fresh 引用，用合法宏调用拼写包装并完全展开——输出永不含 `fresh!` 调用）；块模型（矩阵每个元素把自己的 `impl{...}` 模板与容器配对——`[[Box,Rc]impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3`；`where{...}` 任意位置组合）；非匹配模板的文本替换；变长段模板（`A<(T@..)>`）驱动 `fresh!` 段引用。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 

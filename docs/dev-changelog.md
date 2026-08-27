@@ -5,7 +5,12 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased (in development — the next release after 0.9.5)
+## 0.9.6 (2026-08-27)
+
+> The ItemImpl entry's DSL catch-up (constants / generators / `fresh!` /
+> block model / where at any position / textual substitution), the operator
+> dictionary and the dedupe/split passes — items landed in development
+> order in the Unreleased section below, versioned here at release.
 
 - **`where` composes at any position on the ItemImpl entry** (user
   architecture direction: parse first — the where attachments of the

@@ -1,5 +1,33 @@
 # batch-impl Internal Architecture
 
+**v0.9.6** (2026-08-27) — **the ItemImpl entry catches up with the
+attribute entry**: the impl entry (`#[batch_impl(spec)] impl ...`) now
+shares the full DSL — its pipeline runs `impl_process` → `mark_varseg` →
+`expand_consts` (`ConstCtx::ItemImpl { trait_path }`; built-in families +
+`@trait` → the impl's own path) → `angle_collect` → `reject_directives` →
+`where_process`, then splits on the shape colon and dispatches
+(`entry/impl_entry.rs::expand_one_spec` → `expand_shape_form` /
+`expand_direct_form` / `expand_leaf`). The spec layer reuses the attribute
+entry's machinery verbatim: the matrix source parses through
+`collect_spec_leaves` (the block model — per-container `impl{...}`
+templates become `TyWithImpl` attachments stripped per leaf, `where{...}`
+becomes `TyWithWhere` extracted per leaf with the shared predicate
+splitting; only the template region strips `where` at the token level —
+the template must stay a syn type), generators hoist via
+`extract::hoist_type_params`, freshs are named by `FreshCtx` and resolved
+by `range_refs::expand_range_refs`, `@N..` where selectors resolve via
+`where_at::resolve_where_predicates`, and the body's `fresh!(...)` marker
+(`impl_spec.rs::expand_fresh_marks`) reuses `repeat::expand_repeat_blocks`
++ `substitute` with implicit segments bound to the fresh list.
+Impl-entry-specific codegen is limited to template matching
+(`codegen::match_shape`), slot substitution (`apply_mapping`), the hoisted
+fresh generics and `assemble_impl` (impl_spec.rs). Also: the operator
+dictionary `util/punct_ops.rs::read_op` is the single authority for
+multi-char operator shapes (`..` / `..=` / `->` / `::`) — `scan_stop`'s
+three guards are gone and `::` recognition converges; duplicated
+carrier-extraction joins were deduplicated (`tokens_to_string` /
+`carrier_inner`).
+
 **v0.9.5** (2026-08-27) — **direct-splice completion + the impl-template
 family**: body-side segment references now splice **directly** —
 `repeat_drivers.rs::substitute` resolves `@ident` against

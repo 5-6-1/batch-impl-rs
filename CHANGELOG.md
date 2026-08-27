@@ -5,6 +5,41 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.9.6 (2026-08-27)
+
+> The ItemImpl entry catches up with the attribute entry: `#[batch_impl(spec)]
+> impl ...` now shares the full DSL — `@` built-in constants, generators with
+> `@N..` where selectors, the `fresh!(...)` body marker, the block model
+> (per-container `impl{...}` templates, `where{...}` at any position),
+> textual substitution for non-matching templates, and variadic-segment
+> templates. Internally the operator dictionary unifies multi-char operator
+> recognition.
+
+- **The impl entry shares the attribute entry's DSL** — the shape form's
+  matrix and the direct form's for-type now parse as full DSL:
+  - **`@` built-in constants** (`@u*` / `@f*` / `@num` / range families)
+    in the matrix source; `@trait` expands to the impl's own trait path
+    (an error on an inherent impl)
+  - **generators + `@N` selectors** — `GenA<()0..=12>` hoists fresh
+    generics onto the impl (`impl<P0..P12> GenA<(P0, ..., P12)>`);
+    `where @0..: SomeTrait` constrains them
+  - **`fresh!(...)` body marker** — `type MyTuple = (fresh!(@(@T,)..))`
+    expands to `(P0, P1, P2)` (repeat blocks / fresh references in the
+    body, wrapped in a legal macro-call spelling); the marker is fully
+    expanded — the output never contains a `fresh!` call
+  - **the block model** — each matrix element pairs a container with its
+    own `impl{...}` template (`[[Box,Rc]impl{A<(T@..)>}, Vec
+    impl{Vec<(T@..)>}].().2..=3`); `where{...}` composes at any position
+    (template region and matrix region, multiple attachments comma-joined)
+  - **textual substitution** — the impl's for-Type need not mirror the
+    template ident-for-ident (non-matching mode)
+  - **variadic-segment templates** (`A<(T@..)>`) driving `fresh!` segment
+    references
+- **Operator dictionary** (internal) — `read_op` is the single authority
+  for multi-char operator shapes (`..` / `..=` / `->` / `::`); the
+  scattered `Spacing::Joint` guards (including `scan_stop`'s three)
+  converge on it, and duplicated carrier-extraction joins were deduplicated.
+
 ## 0.9.5 (2026-08-27)
 
 > The direct-splice completion + DSL ergonomics release: the 0.9.4 carrier

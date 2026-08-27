@@ -1,25 +1,18 @@
 # batch-impl Tutorial
 
-**v0.9.5** (2026-08-27) — **direct-splice completion + impl-template
-ergonomics**: repeat blocks splice the segment's **bound element** directly
-into each round (the `$( ... )*` semantics — `(@(@A::from(self.@0)),..)`
-expands straight to `(u8::from(self.0), u16::from(self.1),
-u32::from(self.2))`, the intermediate carrier spelling is gone); a bare
-`impl` collects like a bare `where` and adjacent bare regions split
-(`impl A<B> impl @{}` ≡ `impl A<B>, @{}`); `impl{...}` attachments may be
-comma-joined (`impl{(A@..,), @0.., @{}}`); a `@{N}` fresh reference in a
-body now requires a declared body slot — `impl{@{}}` or the fresh-binding
-switch `impl{@0..}` ("declare what you use"); the fresh-name reference
-inside repeat blocks is spelled `@{N}` (was `@@N`), with the per-round
-cursor form `@{@N}` (`(@(@{@N}::foo()),..)` → `(P0::foo(), P1::foo(),
-P2::foo())`, see §8.4). Name a specific segment element with an explicit
-fixed slot (`impl{(A0, @A..,)}`, body writes plain `A0`). New in this
-version too: AsyncFn/AsyncFnMut/AsyncFnOnce bounds, lifetimes first-class
-(`<'a>` / `'a` args / `+ 'a`), where inheritance by positional
-substitution (renamed args inherit, path-aware), inherent impls
-(`#[batch_impl(spec)] impl Type { … }`), open-ended range families
-(`@..u128` ≡ `@u8..u128`), expansion chains capped + repeat-block output
-budgeted (no OOM on composed specs).
+**v0.9.6** (2026-08-27) — **the ItemImpl entry catches up with the
+attribute entry**: `#[batch_impl(spec)] impl ...` now shares the full DSL —
+`@` built-in constants in the matrix source; generators with `@N..` where
+selectors (`GenA<()0..=12>` hoists fresh generics onto the impl, `where
+@0..: SomeTrait` constrains them); the `fresh!(...)` body marker
+(`type MyTuple = (fresh!(@(@T,)..))` → `(P0, P1, P2)` — repeat blocks /
+fresh references in the body, wrapped in a legal macro-call spelling and
+fully expanded — the output never contains a `fresh!` call); the block
+model (each matrix element pairs a container with its own `impl{...}`
+template — `[[Box,Rc]impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3`;
+`where{...}` composes at any position); textual substitution for
+non-matching templates; variadic-segment templates (`A<(T@..)>`) driving
+`fresh!` segment references.
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 
