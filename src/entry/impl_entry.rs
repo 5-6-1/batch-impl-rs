@@ -34,6 +34,7 @@ use std::collections::HashSet;
 use syn::ItemImpl;
 
 use crate::ast::TyKind;
+use crate::ast::reset_fresh_counter;
 use crate::codegen::{
     FreshCtx, Mapping, apply_mapping, collect_used_idents, expand_range_refs, hoist_type_params,
     match_shape, resolve_where_predicates,
@@ -87,6 +88,10 @@ pub(crate) fn expand_impl_entry(
         if spec.is_empty() {
             continue;
         }
+        // Fresh-generator group ids are DSL-local per spec (each spec
+        // generates independent impl sets) — the same reset `batch_trait!`
+        // performs per segment.
+        reset_fresh_counter();
         out.extend(expand_one_spec(spec, &item, trait_path.as_ref())?);
     }
     Ok(render_angles(out))

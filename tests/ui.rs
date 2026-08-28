@@ -72,6 +72,11 @@ fn ui() {
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
     // at the definition by `check_value_refs`
     t.compile_fail("tests/ui/const_bare_endpoint.rs");
+    // a top-level bare `ident@..` is a malformed open constant range (a
+    // variadic segment lives only inside `impl{...}` templates, consumed by
+    // mark_varseg) — must report a targeted error, never a panic
+    // (regression guard for the mark_template postcondition relocation)
+    t.compile_fail("tests/ui/at_open_range_bare.rs");
     // custom `@name=value;` sections are `batch_trait!`-only — an attribute
     // macro definition errors (0.7.2 feature reverted in 0.8.0)
     t.compile_fail("tests/ui/const_attr_unsupported.rs");

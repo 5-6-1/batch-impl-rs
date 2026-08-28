@@ -16,6 +16,25 @@
   doc discipline, dependency/toolchain policy, test layout, packaging hygiene,
   boundaries) so rotating AI reviewers and future contributors start from a
   single document instead of reverse-engineering habits from history.
+- **Canary relocated to the `mark_template` postcondition** (review finding,
+  root-cause fixed) — the `expand_consts`-input canary claimed "no unmarked
+  `ident@..` in the input", but that invariant only holds inside `impl{...}`
+  templates: a top-level bare `A@..` is a **legal user-error path**
+  (`expand_consts` reports "range constant `@..` must name the family's
+  maximum endpoint"), and `Box @..u128` is an open constant range — the
+  canary panicked on both in debug builds (proc macros usually build debug).
+  Moved to the consumer's output: `mark_template` now asserts its own
+  postcondition ("output contains no unmarked `ident@..`"), where the shape
+  is unambiguous (an open range's `@` is preceded by `<`/`,`/`(`, never an
+  ident). The marking loop and the canary share one segment-shape predicate
+  (`contains_unmarked_segment`). Regression guard: new UI fixture
+  `tests/ui/at_open_range_bare.rs` locks the user error. The `angle_collect`
+  canary remains impossible (pairing output and real transparent groups are
+  both `Delimiter::None`).
+- **impl entry resets the fresh-generator counter per spec** (review P2) —
+  `expand_impl_entry`'s `;`-separated spec loop did not call
+  `reset_fresh_counter`, unlike `batch_trait!`'s per-segment reset: group ids
+  leaked across specs. Now reset per spec, matching `batch_trait!`.
 
 - **Typestate preprocessing pipeline** (`preprocess/stream.rs`) — `Stream<S>`
   wraps the token vector in a state named after the **invariant** it

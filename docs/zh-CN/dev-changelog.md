@@ -6,6 +6,9 @@
 
 > 类型态管线：预处理顺序由类型系统强制（评审驱动；本项目由轮换 AI 评审开发）。
 
+- **开发规范**（`docs/development-guide.md` + zh-CN）——项目约定收编一处（提交规范、质量门、发布流程含 Unreleased 占位规则、架构契约、双语文档纪律、依赖/工具链策略、测试布局、打包卫生、边界），让轮换的 AI 评审与未来 contributor 从单一文档接手，不必从历史反推习惯。
+- **金丝雀移到 `mark_template` 后置条件**（评审发现，根因修复）——`expand_consts` 入口的 canary 声称"输入中不应有未标记 `ident@..`"，但该不变量只在 `impl{...}` 模板内成立：顶层裸 `A@..` 是**合法用户错误路径**（`expand_consts` 报 "range constant `@..` must name the family's maximum endpoint"），`Box @..u128` 是开放范围常量——canary 在 debug 构建下对两者都 panic（proc macro 通常以 debug 构建）。移到消费方的输出：`mark_template` 现在断言自己的后置条件（"输出不含未标记 `ident@..`"），此处形状无歧义（开放范围的 `@` 前是 `<`/`,`/`(`，绝不可能是 ident）。标记循环与金丝雀共用同一个段形状判定（`contains_unmarked_segment`）。回归守卫：新 UI fixture `tests/ui/at_open_range_bare.rs` 锁定用户错误。`angle_collect` 金丝雀仍不可行（配对产物与真实透明组同为 `Delimiter::None`）。
+- **impl entry 每 spec 重置 fresh 计数器**（评审 P2）——`expand_impl_entry` 的 `;` 分隔 spec 循环没有调用 `reset_fresh_counter`，与 `batch_trait!` 每段重置不一致：组 id 跨 spec 泄漏。现改为每 spec 重置，与 `batch_trait!` 对齐。
 - **类型态预处理管线**（`preprocess/stream.rs`）——`Stream<S>` 把 token
   向量包在以**不变量**命名的状态里（`Raw → Marked → ConstsDone → Paired
   → DirectivesResolved → WhereDone → Ready`），每个 pass 只作为"可消费它

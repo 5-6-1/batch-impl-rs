@@ -192,29 +192,22 @@ pub(crate) fn new(tokens: Vec<TokenTree>) -> Stream<Raw> {
 }
 
 // ---------------------------------------------------------------------------
-// Canary guards (fuzz bypasses the typestate chain)
+// ---------------------------------------------------------------------------
+// Canaries
 // ---------------------------------------------------------------------------
 
-// NOTE on the angle_collect canary: pairing is destructive, but the "already
-// paired" signal cannot be read off the tokens — both the pairing **output**
-// (`delimiter![<>]` groups) and a real transparent group (`delimiter![none]`,
-// macro-variable expansion output, a legal `angle_collect` input) are
-// `Delimiter::None`. The two are only distinguishable by context, so an
-// input-level canary for `angle_collect` is impossible; the typestate chain
-// is its only guard. `expand_consts`'s canary below works because unmarked
-// `ident@..` exists only before `mark_varseg`.
-
-/// Whether `tokens` contains an unmarked variadic segment — the exact shape
-/// `mark_varseg` recognizes: `ident @ . .` (an ident **before** the `@`).
-/// `@u8..u128`-style **constant ranges** have the `@` at the start and are
-/// untouched by `mark_varseg` — they must NOT trip this canary. The input
-/// `expand_consts` must never see an unmarked segment (`mark_varseg` should
-/// have consumed it).
-pub(crate) fn contains_unmarked_varseg(tokens: &[TokenTree]) -> bool {
-    tokens.windows(4).any(|w| {
-        matches!(&w[0], TokenTree::Ident(_))
-            && matches!(&w[1], TokenTree::Punct(p) if p.as_char() == '@')
-            && matches!(&w[2], TokenTree::Punct(p) if p.as_char() == '.')
-            && matches!(&w[3], TokenTree::Punct(p) if p.as_char() == '.')
-    })
-}
+// The one canary that survived design review lives in `varseg.rs` as the
+// **postcondition of `mark_template`** ("my output contains no unmarked
+// `ident@..`") — not at `expand_consts`'s input. Only the consumer's output
+// makes the shape unambiguous: an open constant range (`@..u128`) has its
+// `@` preceded by `<`/`,`/`(` — never an ident — while a true segment is
+// `ident @ ..`; at `expand_consts`'s input the same shape is a legal
+// user-error path (`A@..` reports "range constant must name endpoint") and
+// must not panic.
+//
+// An `angle_collect` canary is impossible: pairing is destructive, but the
+// "already paired" signal cannot be read off the tokens — both the pairing
+// **output** (`delimiter![<>]` groups) and a real transparent group
+// (`delimiter![none]`, macro-variable expansion output, a legal
+// `angle_collect` input) are `Delimiter::None`. The two are only
+// distinguishable by context, so the typestate chain is its only guard.

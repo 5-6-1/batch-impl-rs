@@ -83,6 +83,45 @@ pub(crate) fn mark_template(
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
     }
+    let out = mark_template_impl(tokens, depth)?;
+    // Postcondition canary: `mark_template`'s contract is to consume every
+    // `ident@..` inside the template — its output must contain none. This
+    // guard lives **here** (the consumer's output), not at `expand_consts`'s
+    // input, because only here is the `ident@..` shape unambiguous: an open
+    // constant range (`@..u128`) has its `@` preceded by `<`/`,`/`(` — never
+    // an ident — while a true segment is `ident @ ..`; at `expand_consts`'s
+    // input the same shape is a legal error path (`A@..` reports "range
+    // constant must name endpoint") and must not panic. A mis-ordered or
+    // partial marking therefore surfaces here as a loud debug panic, and
+    // fuzz's direct calls are covered (they pass through this function).
+    debug_assert!(
+        !contains_unmarked_segment(&out),
+        "mark_template: output still contains an unmarked `ident@..` \
+         (variadic-segment marking failed to consume it)"
+    );
+    Ok(out)
+}
+
+/// The segment shape `mark_template` consumes: `ident @ . .` (an ident
+/// **before** the `@`). Shared by the marking loop and the postcondition
+/// canary so the two cannot drift.
+fn contains_unmarked_segment(tokens: &[TokenTree]) -> bool {
+    let mut i = 0;
+    while i + 3 < tokens.len() {
+        if matches!(&tokens[i], TokenTree::Ident(_))
+            && is_punct_at(tokens, i + 1, '@')
+            && is_punct_at(tokens, i + 2, '.')
+            && is_punct_at(tokens, i + 3, '.')
+        {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// The marking loop (see [`mark_template`]); recurses into groups.
+fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
@@ -136,7 +175,9 @@ pub(crate) fn mark_template(
                 return Err(depth_err(&tokens[i..i + 1], ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let marked = mark_template(&inner, depth + 1)?;
+            // Inner recursion: use the raw impl (the public entry's
+            // postcondition runs once at the template's top level).
+            let marked = mark_template_impl(&inner, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), marked.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));

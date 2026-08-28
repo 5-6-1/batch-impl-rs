@@ -66,15 +66,6 @@ pub(crate) fn render_list<S: ToString>(names: impl IntoIterator<Item = S>) -> To
 pub(crate) fn expand_consts(
     tokens: &[TokenTree], ctx: ConstCtx,
 ) -> Result<Vec<TokenTree>, TokenStream> {
-    // Canary (fuzz bypasses the typestate chain and calls passes directly):
-    // `mark_varseg` must have consumed every `ident@..` before this stage —
-    // an unmarked variadic segment would be misread as an unknown `@`
-    // constant. A mis-ordered direct call turns silent wrong output into a
-    // loud debug panic.
-    debug_assert!(
-        !crate::preprocess::stream::contains_unmarked_varseg(tokens),
-        "expand_consts: unmarked `ident@..` in input (mark_varseg must run first)"
-    );
     expand_consts_at(tokens, ctx, 0)
 }
 

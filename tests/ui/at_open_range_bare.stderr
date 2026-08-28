@@ -1,0 +1,13 @@
+error: batch-impl: range constant `@..` must name the family's maximum endpoint (e.g. `@..u128`, `@..f64`)
+ --> tests/ui/at_open_range_bare.rs:8:1
+  |
+8 | #[batch_impl(A@..)]
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0601]: `main` function not found in crate `$CRATE`
+ --> tests/ui/at_open_range_bare.rs:9:11
+  |
+9 | trait T {}
+  |           ^ consider adding a `main` function to `$DIR/tests/ui/at_open_range_bare.rs`
