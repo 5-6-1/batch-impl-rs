@@ -231,7 +231,8 @@ fn expand_leaf(
     let fresh_ctx = FreshCtx::new(&decl_names, used);
     let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
     let leaf_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
-    let leaf_span = leaf_tokens.clone().into_iter().next().map(|t| t.span()).unwrap_or_else(Span::call_site);
+    let leaf_span =
+        leaf_tokens.clone().into_iter().next().map(|t| t.span()).unwrap_or_else(Span::call_site);
     let leaf_ty = syn::parse2(leaf_tokens).map_err(|e| {
         compile_error_str(
             "batch-impl: the matrix leaf is not a standard Rust type \
@@ -239,8 +240,8 @@ fn expand_leaf(
             e.span(),
         )
     })?;
-    let (mut m, mut template_segs) = match_shape(template, &leaf_ty)
-        .map_err(|e| compile_error_str(&e.message(), leaf_span))?;
+    let (mut m, mut template_segs) =
+        match_shape(template, &leaf_ty).map_err(|e| compile_error_str(&e.message(), leaf_span))?;
     // The leaf's own template (`impl{...}`) matches the same leaf and
     // merges: its slots must agree, its segments (the `T@..` driving the
     // body's `fresh!`) join.
@@ -251,13 +252,10 @@ fn expand_leaf(
         let lt_span =
             lt_tokens.clone().into_iter().next().map(|t| t.span()).unwrap_or_else(Span::call_site);
         let lt_ty: syn::Type = syn::parse2(lt_tokens).map_err(|e| {
-            compile_error_str(
-                "batch-impl: the `impl{...}` template is not a valid type",
-                e.span(),
-            )
+            compile_error_str("batch-impl: the `impl{...}` template is not a valid type", e.span())
         })?;
-        let (m2, segs2) = match_shape(&lt_ty, &leaf_ty)
-            .map_err(|e| compile_error_str(&e.message(), lt_span))?;
+        let (m2, segs2) =
+            match_shape(&lt_ty, &leaf_ty).map_err(|e| compile_error_str(&e.message(), lt_span))?;
         m.merge(m2).map_err(|e| compile_error_str(&e.message(), lt_span))?;
         template_segs.extend(segs2);
     }

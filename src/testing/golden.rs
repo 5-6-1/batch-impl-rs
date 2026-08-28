@@ -26,26 +26,10 @@ struct Spec {
 }
 
 const SPECS: &[Spec] = &[
-    Spec {
-        name: "matrix",
-        attr: "[Box, Rc] [u8, u16]",
-        trait_src: "trait M {}",
-    },
-    Spec {
-        name: "splat",
-        attr: "Pair3<*[Box, Rc]>",
-        trait_src: "trait S {}",
-    },
-    Spec {
-        name: "nested_apply",
-        attr: "Box Vec u8",
-        trait_src: "trait N {}",
-    },
-    Spec {
-        name: "where_clause",
-        attr: "<T: Clone> Holder<T> Box<T>",
-        trait_src: "trait W {}",
-    },
+    Spec { name: "matrix", attr: "[Box, Rc] [u8, u16]", trait_src: "trait M {}" },
+    Spec { name: "splat", attr: "Pair3<*[Box, Rc]>", trait_src: "trait S {}" },
+    Spec { name: "nested_apply", attr: "Box Vec u8", trait_src: "trait N {}" },
+    Spec { name: "where_clause", attr: "<T: Clone> Holder<T> Box<T>", trait_src: "trait W {}" },
     Spec {
         name: "directive",
         attr: "[u8, u16] #name{\"n\"}",
@@ -118,7 +102,10 @@ fn render_tokens(tokens: &[TokenTree], depth: usize) -> String {
         match t {
             TokenTree::Group(g) => {
                 out.push_str(&format!("{pad}{}\n", group_open(g)));
-                out.push_str(&render_tokens(&g.stream().into_iter().collect::<Vec<_>>(), depth + 1));
+                out.push_str(&render_tokens(
+                    &g.stream().into_iter().collect::<Vec<_>>(),
+                    depth + 1,
+                ));
                 out.push_str(&format!("{pad}{}\n", group_close(g)));
             }
             other => out.push_str(&format!("{pad}{other}\n")),
