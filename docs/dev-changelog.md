@@ -10,6 +10,13 @@
 > The typestate pipeline: the preprocessing order is enforced by the type
 > system (review-driven; this project is developed by rotating AI reviewers).
 
+- **Development guide** (`docs/development-guide.md` + zh-CN) — the project's
+  conventions collected in one place (commit convention, quality gate, release
+  flow with the Unreleased-placeholder rule, architecture contracts, bilingual
+  doc discipline, dependency/toolchain policy, test layout, packaging hygiene,
+  boundaries) so rotating AI reviewers and future contributors start from a
+  single document instead of reverse-engineering habits from history.
+
 - **Typestate preprocessing pipeline** (`preprocess/stream.rs`) — `Stream<S>`
   wraps the token vector in a state named after the **invariant** it
   guarantees (`Raw → Marked → ConstsDone → Paired → DirectivesResolved →
