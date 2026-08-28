@@ -50,6 +50,7 @@ pub(crate) mod angle;
 pub(crate) mod consts;
 pub(crate) mod directives;
 pub(crate) mod empty_generics;
+pub(crate) mod stream;
 pub(crate) mod varseg;
 pub(crate) mod where_process;
 

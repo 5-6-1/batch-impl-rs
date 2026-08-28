@@ -5,6 +5,35 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+> The typestate pipeline: the preprocessing order is enforced by the type
+> system (review-driven; this project is developed by rotating AI reviewers).
+
+- **Typestate preprocessing pipeline** (`preprocess/stream.rs`) — `Stream<S>`
+  wraps the token vector in a state named after the **invariant** it
+  guarantees (`Raw → Marked → ConstsDone → Paired → DirectivesResolved →
+  WhereDone → Ready`), and each pass exists only as a method on the state
+  that may consume it. A mis-ordered pipeline fails to compile: the compiler
+  reviews the structural half of the order contract. The shared prefix is
+  one method (`Stream<Raw>::preprocess(ctx)` — bare-`impl` collection →
+  variadic marking → `@` expansion → pairing); the three entries choose
+  their tail after `Paired` (`expand_tokens` for attr, `reject_directives`
+  for the impl entry, straight `where_process` for `batch_trait!`).
+  `expand_empty_trait_generics` exists only on `WhereDone` — "`Foo<>` inside
+  predicates must pass through" is a method-availability rule, not a comment.
+  States are named after invariants (not passes), per review guidance.
+- **`reject_directives` moved into `preprocess/directives/`** — it was a
+  private helper of the impl entry; it is pure token processing (only
+  `#[...]` attributes pass through) and now shares the directives module
+  with `expand_tokens` (both establish `DirectivesResolved`).
+- **Canary guard on `expand_consts`** — a `debug_assert!` rejects input still
+  containing the `ident @ . .` segment shape (`mark_varseg` must run first),
+  catching mis-ordered direct calls from fuzz (which bypasses the typestate
+  chain by design) as loud debug panics. The `angle_collect` canary is
+  impossible: pairing output and real transparent groups are both
+  `Delimiter::None` (documented in the module).
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

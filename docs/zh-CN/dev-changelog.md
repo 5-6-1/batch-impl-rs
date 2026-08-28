@@ -2,6 +2,29 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## Unreleased
+
+> 类型态管线：预处理顺序由类型系统强制（评审驱动；本项目由轮换 AI 评审开发）。
+
+- **类型态预处理管线**（`preprocess/stream.rs`）——`Stream<S>` 把 token
+  向量包在以**不变量**命名的状态里（`Raw → Marked → ConstsDone → Paired
+  → DirectivesResolved → WhereDone → Ready`），每个 pass 只作为"可消费它
+  的状态"上的方法存在——顺序写错就编译失败，编译器承担顺序契约的
+  结构性一半。公共前缀是一个方法（`Stream<Raw>::preprocess(ctx)`——裸
+  impl 收集 → 变长段标记 → `@` 展开 → 配对）；三个入口在 `Paired` 之后
+  选尾巴（attr 走 `expand_tokens`、impl entry 走 `reject_directives`、
+  `batch_trait!` 直通 `where_process`）。`expand_empty_trait_generics`
+  只存在于 `WhereDone`——"谓词内 `Foo<>` 必须先直通"是方法可用性规则，
+  不是注释。状态按不变量命名（非 pass 名），依评审建议。
+- **`reject_directives` 移入 `preprocess/directives/`**——此前是 impl entry
+  的私有辅助；它是纯 token 处理（只放行 `#[...]` 属性），现与
+  `expand_tokens` 同居 directives 模块（两者都建立 `DirectivesResolved`）。
+- **`expand_consts` 金丝雀守卫**——`debug_assert!` 拒绝仍含
+  `ident @ . .` 段形状的输入（`mark_varseg` 必须先跑），把 fuzz（按设计
+  绕过类型态链）的乱序直调从静默错流变成响亮 debug panic。
+  `angle_collect` 金丝雀不可行：配对产物与真实透明组同为
+  `Delimiter::None`（模块内已记录）。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

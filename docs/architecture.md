@@ -143,6 +143,30 @@ generate_impl**
 - Consequence of the reversed order (`<>` before `@`): the `@inner` in `Vec<@inner>` gets paired into an angle-bracket group, while expand_consts **deliberately never enters `<>` groups** (`delimiter![<>]` and real None groups expand to the same value and cannot be distinguished in separate match arms) — `@` leaks into the output and compilation reports `found '@'` (fixed and verified in 0.6.1);
 - Capability matrix: `batch_impl`/`batch_impl_only` support built-in `@` + `<>` + `#` + where; `batch_trait!` supports custom `@` + `<>` + where (the `#` directive needs the trait definition as the source of signature truth, which a function-like macro cannot obtain).
 
+### The Typestate Pipeline (`preprocess/stream.rs`)
+
+The order above is **enforced by the type system**, not by prose: `Stream<S>` wraps the token vector in a state named after the **invariant** it guarantees, and each pass exists only as a method on the state it may consume. A mis-ordered pipeline fails to compile — the compiler reviews the structural half of the order contract (this project is developed by rotating AI reviewers with no shared memory, so prose discipline is not enough).
+
+```
+Raw ──preprocess()──▶ Paired ──expand_tokens──────▶ DirectivesResolved ──where_process──▶ WhereDone ──expand_empty_trait_generics──▶ Ready
+                       │            └─reject_directives──▶ (same state; impl entry)
+                       └─(batch_trait! tail) ──where_process──▶ WhereDone
+```
+
+| State | Invariant (what it guarantees) |
+|---|---|
+| `Raw` | original tokens (bare `impl` not collected, `@..` not marked) |
+| `Marked` | variadic segments marked — `ident@..` opaque to `expand_consts` |
+| `ConstsDone` | `@` resolved — output may contain flat `<...>`! |
+| `Paired` | `<...>` paired into opaque groups — **destructive, never pair twice** |
+| `DirectivesResolved` | `#` handled (expanded by `expand_tokens`, or rejected by `reject_directives`; `#[...]` passes through) |
+| `WhereDone` | bare `where` rewritten — `Foo<>` inside predicates safe |
+| `Ready` | `A<>` expanded — the only state safe to hand to `syn::parse` |
+
+The shared prefix is one method — `Stream<Raw>::preprocess(ctx) → Stream<Paired>` (bare-`impl` collection → variadic marking → `@` expansion → pairing); the three entries choose their tail after `Paired` (`expand_tokens` for attr, `reject_directives` for impl entry, straight `where_process` for `batch_trait!`). `expand_empty_trait_generics` exists only on `WhereDone` (attr only) — "`Foo<>` inside predicates must pass through" is a method-availability rule, not a comment.
+
+**Fuzz bypasses the chain** (it deliberately calls passes directly with out-of-order input). The free functions stay `pub(crate)`; a canary `debug_assert!` on `expand_consts` rejects input still containing the `ident @ . .` segment shape (`mark_varseg` must run first) — a mis-ordered direct call turns silent wrong output into a loud debug panic. The `angle_collect` canary is impossible: both the pairing **output** and a real transparent group are `Delimiter::None`, indistinguishable at the token level (see the `delimiter!` macro note) — the typestate chain is its only guard.
+
 ### Key Design Decisions
 
 - **Angle-bracket groups**: proc-macro2 only groups `()`/`[]`/`{}`; `<>` is flat Punct. `angle_collect` pairs `<...>` into `delimiter![<>]` groups in a single pass at the entry (the `>` of `->` arrows does not participate), so downstream parsing no longer tracks `<>` depth; on the output side `render_angles` restores the flat `<...>`. `angle_collect` is **destructive** (re-collecting an already-paired group would flatten it as a real None group), so it runs only once.

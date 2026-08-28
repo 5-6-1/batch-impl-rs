@@ -28,7 +28,7 @@
 //! **body** stays ordinary Rust (no `@` carriers); `#` directives and `@N`
 //! refs without a generator are rejected.
 
-use proc_macro2::{Group, Span, TokenStream, TokenTree};
+use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use std::collections::HashSet;
 use syn::ItemImpl;
@@ -42,7 +42,9 @@ use crate::entry::impl_spec::{
     assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
 };
 use crate::parse::split_at_depth0;
-use crate::preprocess::{angle_collect, impl_process, render_angles, where_process};
+use crate::preprocess::consts::ConstCtx;
+use crate::preprocess::render_angles;
+use crate::preprocess::stream::new as stream_new;
 use crate::util::compile_error_str;
 
 /// Splits a token slice at depth-0 separators and renders each chunk back to
@@ -64,27 +66,20 @@ pub(crate) fn expand_impl_entry(
 ) -> Result<TokenStream, TokenStream> {
     let trait_path = item.trait_.as_ref().map(|(path, _)| path.clone());
 
-    // ---- preprocessing subset: bare `impl` (the second shape template
-    // `impl A<(T@..)>` → `impl{...}`) → variadic-segment marking (inside
-    // `impl{...}`) → `@` constant expansion (built-in families + `@trait` →
-    // the impl's own trait path; `@N` refs resolve against hoisted freshs)
-    // → angle pairing → directive rejection → bare-`where` rewrite (see the
-    // entry module docs) ----
+    // ---- preprocessing subset (typestate pipeline, see
+    // `preprocess/stream.rs`): bare `impl` collection → variadic-segment
+    // marking → `@` constant expansion (built-in families + `@trait` → the
+    // impl's own trait path; `@N` refs resolve against hoisted freshs) →
+    // angle pairing → directive rejection (`#` banned on this entry) →
+    // bare-`where` rewrite. The stream's states enforce the order; the
+    // ItemImpl tail is `Paired → DirectivesResolved → WhereDone` ----
     let attr_vec = attr.into_iter().collect::<Vec<_>>();
-    let paired = impl_process(&attr_vec)?;
-    let paired = crate::preprocess::mark_varseg(&paired)?;
     let trait_path_ts = trait_path.as_ref().map(|p| p.to_token_stream());
-    let paired = crate::preprocess::expand_consts(
-        &paired,
-        crate::preprocess::ConstCtx::ItemImpl { trait_path: trait_path_ts.as_ref() },
-    )?;
-    // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)
-    let paired = angle_collect(&paired)?;
-    let paired = reject_directives(&paired)?;
-    // The ItemImpl attr has no body after the predicates, so the end of the
-    // stream terminates the where region (the predicates become a body-less
-    // `where{...}` suffix).
-    let paired = where_process(&paired)?;
+    let paired = stream_new(attr_vec)
+        .preprocess(ConstCtx::ItemImpl { trait_path: trait_path_ts.as_ref() })?
+        .reject_directives()?
+        .where_process()?;
+    let paired = paired.into_tokens();
 
     // ---- `;`-separated specs (the single-spec case is the common one) ----
     let mut out = quote![];
@@ -326,44 +321,4 @@ fn expand_direct_form(
         &[],
         for_tokens,
     )
-}
-
-/// Rejects `#name(...)` directives (only `#[...]` attributes pass through) —
-/// the ItemImpl entry has no directive system. `@` was handled earlier by
-/// `expand_consts` (built-in constants + `@trait`).
-fn reject_directives(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
-    let mut out = vec![];
-    let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
-            // `#` directives are banned; `#[...]` attributes pass through.
-            TokenTree::Punct(p) if p.as_char() == '#' => {
-                if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-                    if g.delimiter() == delimiter![[]])
-                {
-                    out.push(tokens[i].clone());
-                    out.push(tokens[i + 1].clone());
-                    i += 2;
-                } else {
-                    return Err(compile_error_str(
-                        "batch-impl: `#` directives are not supported on the ItemImpl entry \
-                         (write the impl body directly)",
-                        tokens[i].span(),
-                    ));
-                }
-            }
-            TokenTree::Group(g) => {
-                let inner = reject_directives(&g.stream().into_iter().collect::<Vec<_>>())?;
-                let mut ng = Group::new(g.delimiter(), inner.into_iter().collect());
-                ng.set_span(g.span());
-                out.push(TokenTree::Group(ng));
-                i += 1;
-            }
-            _ => {
-                out.push(tokens[i].clone());
-                i += 1;
-            }
-        }
-    }
-    Ok(out)
 }

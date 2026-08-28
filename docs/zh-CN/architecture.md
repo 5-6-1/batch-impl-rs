@@ -91,6 +91,44 @@ angle_collect 配对尖括号组 → 指令预处理（每条指令展开为 0..
   `#` + where；`batch_trait!` 支持自定义 `@` + `<>` + where
   （指令 `#` 需要 trait 定义作签名真相源，函数式宏拿不到）。
 
+### 类型态管线（`preprocess/stream.rs`）
+
+上述顺序由**类型系统**强制而非散文：`Stream<S>` 把 token 向量包在
+一个以**不变量**命名的状态里（不是以 pass 命名），每个 pass 只作为
+"可消费它的状态"上的方法存在——顺序写错就编译失败，编译器承担顺序
+契约的结构性一半（本项目由轮换的 AI 评审开发、无共享记忆，散文纪律
+不够）。
+
+```
+Raw ──preprocess()──▶ Paired ──expand_tokens──────▶ DirectivesResolved ──where_process──▶ WhereDone ──expand_empty_trait_generics──▶ Ready
+                       │            └─reject_directives──▶（同状态；impl entry）
+                       └─（batch_trait! 尾巴）──where_process──▶ WhereDone
+```
+
+| 状态 | 不变量（保证什么） |
+|---|---|
+| `Raw` | 原始 token（裸 `impl` 未收集、`@..` 未标记） |
+| `Marked` | 变长段已标记——`ident@..` 对 `expand_consts` 不透明 |
+| `ConstsDone` | `@` 已解析——产物可能含扁平 `<...>`！ |
+| `Paired` | `<...>` 已配对成不透明组——**破坏性，绝不二次配对** |
+| `DirectivesResolved` | `#` 已处理（`expand_tokens` 展开或 `reject_directives` 拒绝；`#[...]` 原样） |
+| `WhereDone` | 裸 `where` 已改写——谓词内 `Foo<>` 安全 |
+| `Ready` | `A<>` 已展开——唯一可交给 `syn::parse` 的状态 |
+
+公共前缀是一个方法——`Stream<Raw>::preprocess(ctx) → Stream<Paired>`
+（裸 impl 收集 → 变长段标记 → `@` 展开 → 配对）；三个入口在 `Paired`
+之后选尾巴（attr 走 `expand_tokens`、impl entry 走 `reject_directives`、
+`batch_trait!` 直通 `where_process`）。`expand_empty_trait_generics` 只
+存在于 `WhereDone`（仅 attr）——"谓词内 `Foo<>` 必须先直通"是方法可用
+性规则，不是注释。
+
+**fuzz 绕过链**（它刻意乱序直调单 pass）。自由函数保持 `pub(crate)`；
+`expand_consts` 入口的金丝雀 `debug_assert!` 拒绝仍含 `ident @ . .`
+段形状的输入（`mark_varseg` 必须先跑）——乱序直调从静默错流变成响亮
+panic。`angle_collect` 的金丝雀不可行：配对**产物**与真实透明组同为
+`Delimiter::None`，token 层无法区分（见 `delimiter!` 宏注）——类型态
+链是它唯一的守卫。
+
 ### 关键设计决策
 
 - **尖括号组**：proc-macro2 只对 `()`/`[]`/`{}` 分组，`<>` 是扁平 Punct。

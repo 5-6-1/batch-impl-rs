@@ -18,9 +18,8 @@ use syn::ItemTrait;
 
 use crate::analyze::TraitBounds;
 use crate::ast::{Op, reset_fresh_counter};
-use crate::preprocess::{
-    angle_collect, expand_empty_trait_generics, expand_tokens, render_angles, where_process,
-};
+use crate::preprocess::consts::ConstCtx;
+use crate::preprocess::render_angles;
 use crate::util::{Cursor, compile_error_str};
 use path_prefix::try_parse_path_prefix;
 
@@ -155,31 +154,24 @@ pub(crate) fn prepare_attr_expansion(
     // **before** `mark_varseg`: a bare `impl (A@..)` fragment's `ident@..`
     // must land inside an `impl{...}` template group before the variadic
     // marker pass scans for it.
-    let rest_tokens = crate::preprocess::impl_process(&rest_tokens)?;
-    // Variadic-segment marking runs first: `ident@..` inside `impl{...}` templates
-    // would otherwise hit the constant stage as an unknown `@`.
-    let rest_tokens = crate::preprocess::mark_varseg(&rest_tokens)?;
-    let rest_tokens = crate::preprocess::expand_consts(
-        &rest_tokens,
-        crate::preprocess::ConstCtx::Attribute {
-            trait_def: &trait_item,
-            trait_full_path: &trait_full_path,
-        },
-    )?;
-    // Entry conversion: flatten None groups + pair `<...>` (see angle_collect)
-    let rest_tokens = angle_collect(&rest_tokens)?;
-
-    let expanded = expand_tokens(&rest_tokens, &trait_item, &trait_full_path)?;
-    // New bare `where predicate {body}` syntax → uniformly rewritten to legacy `where{predicate}`
-    // (before `A<>` expansion: `Foo<>` inside predicates must pass through, not be expanded).
-    // A bare `where` with no trailing code block ends the region at the spec end
-    // (`where A: Clone` ≡ `where A: Clone {}`).
-    let expanded = where_process(&expanded)?;
+    // ---- preprocessing (typestate pipeline, see `preprocess/stream.rs`):
+    // `Raw → Paired → DirectivesResolved → WhereDone → Ready`. The
+    // bare-`impl` collection → variadic marking → `@` expansion → pairing
+    // prefix is the shared `preprocess()`; the attribute tail expands `#`
+    // directives, rewrites bare `where`, and copies `A<>`. The order is
+    // enforced by the stream's states (the `Foo<>`-in-predicates passthrough
+    // is why `where_process` precedes `expand_empty_trait_generics`).
     let is_unsafe = trait_item.unsafety.is_some();
     let trait_bounds = crate::analyze::extract_trait_bounds(&trait_item);
-    // `A<>`: copy the trait generics (args and bounds all come from the trait definition,
-    // including where predicates), so the expansion is fully equivalent to handwritten code.
-    let expanded = expand_empty_trait_generics(&expanded, &trait_item, &trait_bounds)?;
+    let ready = crate::preprocess::stream::new(rest_tokens)
+        .preprocess(ConstCtx::Attribute {
+            trait_def: &trait_item,
+            trait_full_path: &trait_full_path,
+        })?
+        .expand_tokens(&trait_item, &trait_full_path)?
+        .where_process()?
+        .expand_empty_trait_generics(&trait_item, &trait_bounds)?;
+    let expanded = ready.into_tokens();
     // Trait generic param names — needed by the codegen postprocess (trait
     // generic substitution) for *both* entry macros: batch_impl_only drops the
     // trait definition but still substitutes its params in directive bodies.
@@ -251,19 +243,15 @@ pub(crate) fn expand_batch_trait(
     // the expansion may contain flat `<...>` that angle_collect must pair uniformly —
     // reversed, `Vec<@inner>`'s `@inner` enters the group and is never expanded; observed).
     let (tokens, user_consts) = crate::preprocess::collect_user_consts(&tokens)?;
-    // Bare `impl` collection precedes the variadic/constant stages (a bare
-    // `impl (A@..)` fragment's `ident@..` must land in an `impl{...}`
-    // template before `mark_varseg` scans for it).
-    let tokens = crate::preprocess::impl_process(&tokens)?;
-    // Variadic-segment marking precedes the constant stage (an `ident@..`
-    // inside an `impl{...}` template is not a constant reference).
-    let tokens = crate::preprocess::mark_varseg(&tokens)?;
-    let tokens = crate::preprocess::expand_consts(
-        &tokens,
-        crate::preprocess::ConstCtx::Trait { user_table: &user_consts },
-    )?;
-    let tokens = angle_collect(&tokens)?;
-    let tokens = where_process(&tokens)?;
+    // ---- preprocessing (typestate pipeline): `Raw → Paired → WhereDone`.
+    // `batch_trait!` has no trait definition, so there is no `#` expansion
+    // (`expand_tokens` needs the trait) and no `A<>` copy — the tail is just
+    // the bare-`where` rewrite; the segment loop below handles `@trait` per
+    // segment. The `@`-before-pairing reason lives in `preprocess()`.
+    let where_done = crate::preprocess::stream::new(tokens)
+        .preprocess(crate::preprocess::ConstCtx::Trait { user_table: &user_consts })?
+        .where_process()?;
+    let tokens = where_done.into_tokens();
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
     loop {
