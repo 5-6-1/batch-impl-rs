@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.6** (2026-08-27) — the ItemImpl entry catches up with the attribute entry. Release notes: [CHANGELOG](CHANGELOG.md).
+**v0.9.7** (2026-08-29) — review-fix release: golden expansion snapshots, measured expansion cost, package hygiene, Windows CI. Release notes: [CHANGELOG](CHANGELOG.md).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -51,6 +51,15 @@ smart pointers, collections). **alga2 0.1.0 is released** on
 crates.io; the batch-impl DSL has been its impl generator throughout
 development.
 
+## Expansion cost
+
+The DSL is a proc macro — the work happens at compile time, not runtime.
+Measured on the author's machine (stable Rust, `cargo test --lib perf`):
+a 1024-impl spec at the expansion ceiling (`(u8, u16, u32, u64).5` Cartesian
+tuple power) expands in **~0.2 ms/impl**; a typical 4-impl spec is ~2.5 ms.
+The measurement runs the same pipeline the attribute entry uses, at
+proc-macro2 level (rustc's own type-checking is not included).
+
 ## Mental model
 
 What you write is **a description of a "type matrix"**, and batch-impl generates an impl for every cell of the matrix:
@@ -79,13 +88,13 @@ Pick by the grouping shape you want: use the space to list arguments side by sid
 
 ```toml
 [dependencies]
-batch-impl = "0.9.6"
+batch-impl = "0.9.7"
 ```
 
-Requires Rust 1.95 or newer (edition 2024). The edition alone needs 1.85, but
-the crate also relies on edition-2024-only syntax such as let-chains
-(`if let ... &&`) stabilized after 1.88, so 1.95 keeps a comfortable stable
-margin for the MSRV.
+Requires Rust 1.95 or newer (edition 2024). The MSRV is deliberate: the
+codegen uses `Cell::update` and match-arm if-let guards (stabilized around
+1.87/1.88), and 1.95 keeps a comfortable stable margin (see the developer
+changelog for the exact adoption record).
 
 ```rust
 use batch_impl::batch_impl;

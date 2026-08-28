@@ -1,0 +1,15 @@
+trait
+N
+{
+}
+impl
+N
+for
+Box
+<
+Vec
+,
+u8
+>
+{
+}

@@ -2,9 +2,18 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## Unreleased
+## 0.9.7 (2026-08-29)
 
-> 文档与卫生发布：README 首页重构（版本横幅压成一行并链接 CHANGELOG、"为什么要用它" + 最小示例置顶）、特性表加核心/进阶层级标注、MSRV 原因写入文档。六个纯文档占位宏（`batch_impl_delegate!` / `fill` / `blanket` / `name` / `open` / `consts`）被误调用时现在报定向 "documentation-only entry point" 错误，不再静默展开为空。
+> 评审修复发布：黄金快照测试层（最后一块覆盖空白）、实测展开开销、打包卫生、Windows CI。无 DSL 语法变化。
+
+- **黄金展开快照**——代表性 spec（矩阵 / splat / 嵌套空格应用 / where / 指令 / 两个 impl entry 形状）的**最终渲染输出**与 `tests/golden/*.golden` 锁定（`BLESS=1 cargo test --lib golden` 重写）。渲染管线漂移现在以一行 diff 失败，不再藏在"仍能编译"后面。
+- **展开开销实测**——README 新增 **展开开销** 小节，由可复现的 perf 测试支撑（`cargo test --lib perf`）：1024 个 impl 上限（`(u8, u16, u32, u64).5`）约 0.2 ms/impl；典型 4 个 impl 约 2.5 ms（proc-macro2 层，不含 rustc 类型检查）。
+- **打包卫生**——无关的本地笔记文件 `rust-2024-feature.md` 此前被打进每个 `.crate` 下载（`cargo package --list` 实测确认）；已从仓库移除（本地保留）并排除打包。
+- **Windows（MSVC）CI job**——`windows-latest` 上跑功能/回归 + doctest，正是 `linker_messages` 抑制所要服务的平台。
+- **impl entry 精确诊断 span**——形状模板解析错误用 `syn::Error::span()`，`match_shape` 失败携带 leaf/模板 span，`@{N}` 缺开关错误指向载体 token（此前全部 `Span::call_site`）。
+- **纯文档占位宏不再静默**——误调用 `batch_impl_delegate!` / `fill` / `blanket` / `name` / `open` / `consts` 现在报 "documentation-only entry point"，不再展开为空；`batch_preprocess_test!` 文档化为其真实身份：可用的参考实现。
+- **入口单次解析**——`#[batch_impl]` 扫描 item 首个语义 token（`impl` vs trait）再解析，不再每次尝试两次 `syn::parse`。
+- **README 首页重构**——版本横幅压成一行并链接 CHANGELOG、"为什么要用它" + 最小示例置顶、特性表加核心/进阶层级标注、MSRV 原因写入文档（刻意选择：`Cell::update` 与 match 臂 if-let guard）。
 
 ## 0.9.6 (2026-08-27)
 

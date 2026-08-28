@@ -5,11 +5,14 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic
 > spans, entry dispatch, and doc/API polish.
 
+- **Golden expansion snapshots (P3-3, the last test-coverage gap)** — new `tests/golden/*.golden` layer (`src/testing/golden.rs`, `BLESS=1 cargo test --lib golden` to rewrite): representative specs (matrix / splat / nested space-apply / where clause / directive / two impl-entry shapes) are expanded through the real `expand_attr_macro` / `expand_impl_entry` and their **final rendered output** locked against golden files. The token-level consistency tests cross-check two entries; the single UI pass fixture only asserts compilability — a render drift (spacing, ordering, fresh naming, where placement) now shows up as a one-line diff instead of hiding behind "still compiles". Note the `nested_apply` snapshot pins the space chain's left-fold (`Box Vec u8` = `Box<Vec, u8>`).
+- **Expansion-cost measurement (P3-4)** — `src/testing/perf.rs` times the real pipeline at proc-macro2 level: 4 impls ≈ 2.5 ms, a 1024-impl spec at the `MAX_EXPAND` ceiling (`(u8, u16, u32, u64).5`) ≈ 205 ms (~0.2 ms/impl). Numbers written into both READMEs (informational assert, cannot flake CI).
+- **`rust-2024-feature.md` untracked (review ③)** — it was **tracked** (committed in `a5bd13a`), so the previous `.gitignore` entry was inert; `git rm --cached` now removes it from the repo/`cargo package` while keeping the local file.
 - **`rust-2024-feature.md` excluded from the crate package** (P0, verified via `cargo package --list`) — the untracked local notes file was being shipped in every `.crate` download; added to `Cargo.toml` `exclude` + `.gitignore`.
 - **CI gains a Windows (MSVC) functional job** (`test-windows`): functional/regression + doctest on `windows-latest` — the platform whose linker prints the `linker_messages` notices the `[lints.rust]` suppression exists for (trybuild UI snapshots skipped, their `.stderr` wording drifts across platforms).
 - **Impl-entry / shape diagnostics point at the offending token** (P1): the shape-template syn parse errors use `syn::Error::span()`; `match_shape` failures and the shape-mapping error carry the leaf/template/target span; `body_has_carrier` returns the carrier's span so the `@{N}`-without-switch error points at the `@{...}` itself (was all `Span::call_site`).

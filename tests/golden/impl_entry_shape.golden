@@ -1,0 +1,66 @@
+impl
+Make
+for
+Box
+<
+u8
+>
+{
+  fn
+  make
+  (
+  )
+  -
+  >
+  Box
+  <
+  u8
+  >
+  {
+    Box
+    :
+    :
+    new
+    (
+      u8
+      :
+      :
+      default
+      (
+      )
+    )
+  }
+}
+impl
+Make
+for
+Rc
+<
+u8
+>
+{
+  fn
+  make
+  (
+  )
+  -
+  >
+  Rc
+  <
+  u8
+  >
+  {
+    Rc
+    :
+    :
+    new
+    (
+      u8
+      :
+      :
+      default
+      (
+      )
+    )
+  }
+}

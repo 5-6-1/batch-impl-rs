@@ -1,14 +1,17 @@
 # batch-impl Internal Architecture
 
-**v0.9.6** (2026-08-27) — **the ItemImpl entry catches up with the
-attribute entry**: the impl entry (`#[batch_impl(spec)] impl ...`) now
-shares the full DSL — its pipeline runs `impl_process` → `mark_varseg` →
-`expand_consts` (`ConstCtx::ItemImpl { trait_path }`; built-in families +
-`@trait` → the impl's own path) → `angle_collect` → `reject_directives` →
-`where_process`, then splits on the shape colon and dispatches
-(`entry/impl_entry.rs::expand_one_spec` → `expand_shape_form` /
-`expand_direct_form` / `expand_leaf`). The spec layer reuses the attribute
-entry's machinery verbatim: the matrix source parses through
+**v0.9.7** (2026-08-29) — review-fix release: golden expansion snapshots
+(`src/testing/golden.rs` + `tests/golden/`, the final test-coverage gap —
+rendered output locked against `BLESS=1` golden files), expansion-cost
+measurement (`src/testing/perf.rs`, proc-macro2-level timing of the real
+pipeline), `rust-2024-feature.md` untracked (was shipped in every `.crate`),
+Windows (MSVC) CI job (`test-windows`), precise spans on impl-entry/shape
+diagnostics (`syn::Error::span()` / leaf-token spans / carrier span),
+`is_impl_template` deduplicated into the single authority,
+`chunks_to_streams()` extracted in the impl entry, and the entry dispatch
+parses once (first-semantic-token scan). The 0.9.6 entry architecture
+described below is unchanged: the impl entry (`#[batch_impl(spec)] impl
+...`) shares the attribute entry's machinery verbatim — the matrix source parses through
 `collect_spec_leaves` (the block model — per-container `impl{...}`
 templates become `TyWithImpl` attachments stripped per leaf, `where{...}`
 becomes `TyWithWhere` extracted per leaf with the shared predicate

@@ -1,0 +1,116 @@
+impl
+Conv
+<
+B
+>
+for
+Box
+<
+u8
+>
+where
+u8
+:
+Clone
+{
+  fn
+  into_b
+  (
+    self
+  )
+  -
+  >
+  u8
+  {
+    self
+    .
+    0
+  }
+}
+impl
+Conv
+<
+B
+>
+for
+Rc
+<
+u8
+>
+where
+u8
+:
+Clone
+{
+  fn
+  into_b
+  (
+    self
+  )
+  -
+  >
+  u8
+  {
+    self
+    .
+    0
+  }
+}
+impl
+Conv
+<
+B
+>
+for
+Box
+<
+u16
+>
+where
+u16
+:
+Clone
+{
+  fn
+  into_b
+  (
+    self
+  )
+  -
+  >
+  u16
+  {
+    self
+    .
+    0
+  }
+}
+impl
+Conv
+<
+B
+>
+for
+Rc
+<
+u16
+>
+where
+u16
+:
+Clone
+{
+  fn
+  into_b
+  (
+    self
+  )
+  -
+  >
+  u16
+  {
+    self
+    .
+    0
+  }
+}

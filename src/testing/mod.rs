@@ -2,6 +2,8 @@
 //! tokens into the real macro entry points, promising "no panic on user input".
 
 pub(crate) mod fuzz;
+pub(crate) mod golden;
+pub(crate) mod perf;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 

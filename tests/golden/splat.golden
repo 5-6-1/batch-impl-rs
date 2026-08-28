@@ -1,0 +1,15 @@
+trait
+S
+{
+}
+impl
+S
+for
+Pair3
+<
+Box
+,
+Rc
+>
+{
+}

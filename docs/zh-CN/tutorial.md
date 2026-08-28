@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.9.6**（2026-08-27）——**ItemImpl 入口追上 attr 入口**：`#[batch_impl(spec)] impl ...` 现在共享完整 DSL——矩阵源可用 `@` 内置常量；生成器 + `@N..` where 选择器（`GenA<()0..=12>` 把 fresh 泛型 hoist 上 impl，`where @0..: SomeTrait` 约束它们）；`fresh!(...)` body 标记（`type MyTuple = (fresh!(@(@T,)..))` → `(P0, P1, P2)`——body 里的 repeat 块 / fresh 引用，用合法宏调用拼写包装并完全展开——输出永不含 `fresh!` 调用）；块模型（矩阵每个元素把自己的 `impl{...}` 模板与容器配对——`[[Box,Rc]impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3`；`where{...}` 任意位置组合）；非匹配模板的文本替换；变长段模板（`A<(T@..)>`）驱动 `fresh!` 段引用。
+**v0.9.7**（2026-08-29）——评审修复发布：黄金展开快照（`tests/golden/`，测试体系最后一块空白）、实测展开开销（1024 个 impl 上限约 0.2 ms/impl，`cargo test --lib perf`）、打包卫生（`rust-2024-feature.md` 不再进包）、Windows（MSVC）CI job、impl entry 精确诊断 span、入口单次解析、纯文档占位宏不再静默。无 DSL 语法变化——下方 0.9.6 语法面不变。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
 

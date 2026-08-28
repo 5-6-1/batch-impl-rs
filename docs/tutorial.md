@@ -1,18 +1,12 @@
 # batch-impl Tutorial
 
-**v0.9.6** (2026-08-27) — **the ItemImpl entry catches up with the
-attribute entry**: `#[batch_impl(spec)] impl ...` now shares the full DSL —
-`@` built-in constants in the matrix source; generators with `@N..` where
-selectors (`GenA<()0..=12>` hoists fresh generics onto the impl, `where
-@0..: SomeTrait` constrains them); the `fresh!(...)` body marker
-(`type MyTuple = (fresh!(@(@T,)..))` → `(P0, P1, P2)` — repeat blocks /
-fresh references in the body, wrapped in a legal macro-call spelling and
-fully expanded — the output never contains a `fresh!` call); the block
-model (each matrix element pairs a container with its own `impl{...}`
-template — `[[Box,Rc]impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3`;
-`where{...}` composes at any position); textual substitution for
-non-matching templates; variadic-segment templates (`A<(T@..)>`) driving
-`fresh!` segment references.
+**v0.9.7** (2026-08-29) — review-fix release: golden expansion snapshots
+(`tests/golden/`, the final test-coverage gap), measured expansion cost
+(~0.2 ms/impl at the 1024-impl ceiling, `cargo test --lib perf`), package
+hygiene (`rust-2024-feature.md` no longer shipped), Windows (MSVC) CI job,
+precise diagnostic spans on the impl entry, single-parse entry dispatch,
+and non-silent doc-only placeholder macros. No DSL syntax changes — the
+0.9.6 surface below is unchanged.
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 

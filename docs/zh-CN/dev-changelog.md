@@ -2,10 +2,13 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## Unreleased
+## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。
 
+- **黄金展开快照（P3-3，测试体系最后一块空白）**——新增 `tests/golden/*.golden` 快照层（`src/testing/golden.rs`，`BLESS=1 cargo test --lib golden` 重写）：代表性 spec（矩阵 / splat / 嵌套空格应用 / where 子句 / 指令 / 两个 impl entry 形状）经真实 `expand_attr_macro` / `expand_impl_entry` 展开，**最终渲染输出**与 golden 文件锁定。token 级一致性测试只互查两个入口；唯一 UI pass fixture 只断言可编译——渲染漂移（间距、顺序、fresh 命名、where 放置）现在以一行 diff 暴露，不再藏在"仍能编译"后面。注意 `nested_apply` 快照锁定了空格链的左折叠（`Box Vec u8` = `Box<Vec, u8>`）。
+- **展开开销测量（P3-4）**——`src/testing/perf.rs` 在 proc-macro2 层计时真实管线：4 个 impl ≈ 2.5 ms；顶到 `MAX_EXPAND` 上限（1024 个 impl，`(u8, u16, u32, u64).5`）≈ 205 ms（约 0.2 ms/impl）。数字写入两个 README（信息性断言，不会 flake CI）。
+- **`rust-2024-feature.md` 取消跟踪（评审③）**——它**已被跟踪**（`a5bd13a` 误提交），上一轮 `.gitignore` 条目因此无效；`git rm --cached` 现在把它移出仓库/`cargo package`，本地文件保留。
 - **`rust-2024-feature.md` 移出 crate 包**（P0，`cargo package --list` 实测确认）——未跟踪的本地笔记文件此前被打进每个 `.crate` 下载；加入 `Cargo.toml` `exclude` + `.gitignore`。
 - **CI 新增 Windows（MSVC）功能 job**（`test-windows`）：`windows-latest` 上跑功能/回归 + doctest——正是 `linker_messages` 抑制所要服务的平台（trybuild UI 快照跳过，其 `.stderr` 措辞跨平台漂移）。
 - **impl entry / shape 诊断指向出错 token**（P1）：形状模板 syn 解析错误用 `syn::Error::span()`；`match_shape` 失败与 shape mapping 错误携带 leaf/模板/目标 span；`body_has_carrier` 返回载体 span，使 `@{N}` 缺开关的错误指向 `@{...}` 本身（此前全部 `Span::call_site`）。

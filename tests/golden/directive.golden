@@ -1,0 +1,59 @@
+trait
+D
+{
+  fn
+  name
+  (
+    &
+    self
+  )
+  -
+  >
+  &
+  '
+  static
+  str
+  ;
+}
+impl
+D
+for
+u8
+{
+  fn
+  name
+  (
+    &
+    self
+  )
+  -
+  >
+  &
+  '
+  static
+  str
+  {
+    "n"
+  }
+}
+impl
+D
+for
+u16
+{
+  fn
+  name
+  (
+    &
+    self
+  )
+  -
+  >
+  &
+  '
+  static
+  str
+  {
+    "n"
+  }
+}

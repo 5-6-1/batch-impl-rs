@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.6**（2026-08-27）——ItemImpl 入口追上 attr 入口。发布说明见 [CHANGELOG](CHANGELOG.md)。
+**v0.9.7**（2026-08-29）——评审修复发布：黄金展开快照、实测展开开销、打包卫生、Windows CI。发布说明见 [CHANGELOG](CHANGELOG.md)。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
@@ -54,6 +54,10 @@ trait TupleTrait {}
 `Option`、`Complex`、`Quaternion`、`ModN`、智能指针、集合）。**alga2 0.1.0
 已在 crates.io 发布**；开发全程以 batch-impl DSL 为 impl 生成器。
 
+## 展开开销
+
+DSL 是过程宏——工作在编译期发生，不在运行时。作者机器实测（stable Rust，`cargo test --lib perf`）：顶到展开上限的 1024 个 impl 的 spec（`(u8, u16, u32, u64).5` 笛卡尔元组幂）展开约 **0.2 ms/impl**；典型的 4 个 impl 的 spec 约 2.5 ms。测量走的是 attr 入口同一条管线（proc-macro2 层；不含 rustc 自身的类型检查）。
+
 ## 心智模型
 
 你写的是**一条"类型矩阵"的描述**，batch-impl 对矩阵的每个格子生成 impl：
@@ -80,10 +84,10 @@ trait TupleTrait {}
 
 ```toml
 [dependencies]
-batch-impl = "0.9.6"
+batch-impl = "0.9.7"
 ```
 
-需要 Rust 1.95 及以上（edition 2024）。仅 edition 2024 本身需 1.85，但本库还依赖 edition-2024 独有的语法（如 let-chains `if let ... &&`，1.88 之后才稳定），1.95 为 MSRV 保留了宽裕的 stable 余量。
+需要 Rust 1.95 及以上（edition 2024）。MSRV 是刻意的：codegen 使用了 `Cell::update` 与 match 臂 if-let guard（约 1.87/1.88 稳定），1.95 为稳定版保留宽裕余量（采纳记录见开发者变更日志）。
 
 ```rust
 use batch_impl::batch_impl;

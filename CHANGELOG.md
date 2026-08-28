@@ -5,14 +5,42 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.9.7 (2026-08-29)
 
-> Docs and hygiene release: README front page restructured (one-line version banner
-> linking the CHANGELOG, "Why use it" + minimal example first), a core/advanced
-> tier marker in the feature table, and the MSRV reason documented. The six
-> doc-only placeholder macros (`batch_impl_delegate!` / `fill` / `blanket` /
-> `name` / `open` / `consts`) now report a targeted "documentation-only entry
-> point" error instead of silently expanding to nothing.
+> Review-fix release: the golden-snapshot test layer (the last coverage gap),
+> measured expansion cost, package hygiene, Windows CI. No DSL syntax changes.
+
+- **Golden expansion snapshots** — the final rendered output of representative
+  specs (matrix / splat / nested space-apply / where / directive / two
+  impl-entry shapes) is locked against `tests/golden/*.golden`
+  (`BLESS=1 cargo test --lib golden` to rewrite). A render-pipeline drift now
+  fails with a one-line diff instead of hiding behind "still compiles".
+- **Expansion cost measured** — README gains an **Expansion cost** section
+  backed by a repeatable perf test (`cargo test --lib perf`): ~0.2 ms/impl at
+  the 1024-impl ceiling (`(u8, u16, u32, u64).5`), ~2.5 ms for a typical
+  4-impl spec (proc-macro2 level, rustc's type-checking excluded).
+- **Package hygiene** — the unrelated local notes file `rust-2024-feature.md`
+  was being shipped inside every `.crate` download (verified via
+  `cargo package --list`); it is removed from the repo (local copy kept) and
+  excluded from packaging.
+- **Windows (MSVC) CI job** — functional/regression + doctest on
+  `windows-latest`, the platform whose linker produces the `linker_messages`
+  notices the lint suppression exists for.
+- **Precise diagnostic spans on the impl entry** — shape-template parse errors
+  use `syn::Error::span()`, `match_shape` failures carry the leaf/template
+  span, and the `@{N}`-without-switch error points at the carrier token
+  (previously all `Span::call_site`).
+- **Doc-only placeholder macros are no longer silent** — misinvoking
+  `batch_impl_delegate!` / `fill` / `blanket` / `name` / `open` / `consts`
+  now reports "documentation-only entry point" instead of expanding to
+  nothing; `batch_preprocess_test!` is documented as the working reference
+  implementation it is.
+- **Entry dispatch parses once** — `#[batch_impl]` scans the item's first
+  semantic token (`impl` vs trait) instead of attempting two `syn::parse`s.
+- **README front page restructured** — one-line version banner linking the
+  CHANGELOG, "Why use it" + minimal example first, core/advanced tier marker
+  in the feature table, MSRV reason documented (deliberate: `Cell::update`
+  and match-arm if-let guards).
 
 ## 0.9.6 (2026-08-27)
 
