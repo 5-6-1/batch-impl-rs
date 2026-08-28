@@ -104,19 +104,20 @@ pub(crate) fn mark_template(
 
 /// The segment shape `mark_template` consumes: `ident @ . .` (an ident
 /// **before** the `@`). Single authority for the shape — the marking loop
-/// tests it at each position, and the postcondition canary re-checks the
-/// output with the same predicate, so the two cannot drift (the previous
-/// regression root cause was detection and consumption disagreeing).
-fn is_unmarked_segment_at(tokens: &[TokenTree], i: usize) -> bool {
-    matches!(&tokens[i], TokenTree::Ident(_))
-        && is_punct_at(tokens, i + 1, '@')
+/// and the postcondition canary both use it, so the two cannot drift (the
+/// previous regression root cause was detection and consumption disagreeing).
+/// Returns the segment's prefix ident, which the loop consumes directly.
+fn unmarked_segment_at(tokens: &[TokenTree], i: usize) -> Option<&TokenTree> {
+    (is_punct_at(tokens, i + 1, '@')
         && is_punct_at(tokens, i + 2, '.')
-        && is_punct_at(tokens, i + 3, '.')
+        && is_punct_at(tokens, i + 3, '.'))
+    .then(|| tokens.get(i))
+    .flatten()
 }
 
 /// Whether `tokens` contains any unmarked segment (the postcondition test).
 fn contains_unmarked_segment(tokens: &[TokenTree]) -> bool {
-    (0..tokens.len().saturating_sub(3)).any(|i| is_unmarked_segment_at(tokens, i))
+    (0..tokens.len().saturating_sub(3)).any(|i| unmarked_segment_at(tokens, i).is_some())
 }
 
 /// The marking loop (see [`mark_template`]); recurses into groups.
@@ -127,21 +128,14 @@ fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTre
         // `ident @ ..` — the `..` is two joint/alone `.` puncts; Spacing is
         // irrelevant (a leading segment never follows it). `@u8..u128` is
         // untouched: its `@` is not preceded by an ident. The shape test is
-        // the shared [`is_unmarked_segment_at`] — the postcondition canary
-        // re-checks with the same predicate.
-        if is_unmarked_segment_at(tokens, i) {
+        // the shared [`unmarked_segment_at`] — the postcondition canary
+        // re-checks with the same function.
+        if let Some(TokenTree::Ident(id)) = unmarked_segment_at(tokens, i) {
             // Structural marker: `[Prefix; ()]` — an array whose length is
             // the **unit tuple**: a shape that cannot appear in any
             // compilable code (array lengths are `usize`; `()` never is), so
             // no meaningful user template can collide with it. Ordinary Rust
             // for `syn`, decoded by shape — no reserved name involved.
-            let Some(TokenTree::Ident(id)) = tokens.get(i) else {
-                // `is_unmarked_segment_at` guarantees an ident at `i`; the
-                // else-branch exists only to keep the no-panic-on-input
-                // promise (skip the position rather than `unreachable!`).
-                i += 1;
-                continue;
-            };
             let mut marker: TokenStream = TokenTree::Ident(id.clone()).into();
             marker.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
                 ';',
