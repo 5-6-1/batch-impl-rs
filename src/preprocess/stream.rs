@@ -30,10 +30,11 @@
 //!
 //! Fuzz note: `testing::fuzz` calls the free functions directly (by design —
 //! it wants out-of-order, malformed input to hit single passes). The typestate
-//! chain therefore protects only the entry points; the free functions stay
-//! `pub(crate)` and each carries a canary `debug_assert!` on its input
-//! invariant, so a mis-ordered direct call turns a silent wrong output into a
-//! loud panic in debug builds.
+//! chain therefore protects only the entry points. The one guard beyond the
+//! chain is the `mark_template` **postcondition** (its output contains no
+//! unmarked `ident@..`) — see the canaries section below; it lives on the
+//! consumer's output, not on the free functions' inputs, because only there
+//! is the segment shape unambiguous.
 
 use std::marker::PhantomData;
 
@@ -192,11 +193,10 @@ pub(crate) fn new(tokens: Vec<TokenTree>) -> Stream<Raw> {
 }
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // Canaries
 // ---------------------------------------------------------------------------
 
-// The one canary that survived design review lives in `varseg.rs` as the
+// The one guard beyond the typestate chain lives in `varseg.rs` as the
 // **postcondition of `mark_template`** ("my output contains no unmarked
 // `ident@..`") — not at `expand_consts`'s input. Only the consumer's output
 // makes the shape unambiguous: an open constant range (`@..u128`) has its
@@ -205,9 +205,10 @@ pub(crate) fn new(tokens: Vec<TokenTree>) -> Stream<Raw> {
 // user-error path (`A@..` reports "range constant must name endpoint") and
 // must not panic.
 //
-// An `angle_collect` canary is impossible: pairing is destructive, but the
-// "already paired" signal cannot be read off the tokens — both the pairing
-// **output** (`delimiter![<>]` groups) and a real transparent group
-// (`delimiter![none]`, macro-variable expansion output, a legal
-// `angle_collect` input) are `Delimiter::None`. The two are only
-// distinguishable by context, so the typestate chain is its only guard.
+// No `angle_collect` canary exists, for a structural reason unrelated to the
+// above: pairing is destructive, but the "already paired" signal cannot be
+// read off the tokens — both the pairing **output** (`delimiter![<>]`
+// groups) and a real transparent group (`delimiter![none]`, macro-variable
+// expansion output, a legal `angle_collect` input) are `Delimiter::None`.
+// The two are only distinguishable by context, so the typestate chain is
+// the only guard for pairing.

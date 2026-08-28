@@ -35,6 +35,15 @@
   `expand_impl_entry`'s `;`-separated spec loop did not call
   `reset_fresh_counter`, unlike `batch_trait!`'s per-segment reset: group ids
   leaked across specs. Now reset per spec, matching `batch_trait!`.
+- **Canary docs + shared shape predicate finalized** (review tails) —
+  `stream.rs`'s module doc still claimed "each free function carries an
+  input-invariant canary" (stale after the relocation) and the `angle_collect`
+  note hung off a guard system that no longer exists — both rewritten to
+  describe the actual `mark_template` postcondition. And the "cannot drift"
+  promise is now real: the marking loop tests `is_unmarked_segment_at` (the
+  shared predicate) instead of an inline copy, so detection and consumption
+  literally share one function (the previous regression's root cause was the
+  two disagreeing).
 
 - **Typestate preprocessing pipeline** (`preprocess/stream.rs`) — `Stream<S>`
   wraps the token vector in a state named after the **invariant** it
