@@ -107,8 +107,11 @@ pub(crate) fn mark_template(
 /// and the postcondition canary both use it, so the two cannot drift (the
 /// previous regression root cause was detection and consumption disagreeing).
 /// Returns the segment's prefix ident, which the loop consumes directly.
+/// The prefix must be an **ident** — `Vec<@..u128>`'s `@` is preceded by `<`,
+/// not an ident, so the open constant range is not a segment.
 fn unmarked_segment_at(tokens: &[TokenTree], i: usize) -> Option<&TokenTree> {
-    (is_punct_at(tokens, i + 1, '@')
+    (matches!(tokens.get(i), Some(TokenTree::Ident(_)))
+        && is_punct_at(tokens, i + 1, '@')
         && is_punct_at(tokens, i + 2, '.')
         && is_punct_at(tokens, i + 3, '.'))
     .then(|| tokens.get(i))

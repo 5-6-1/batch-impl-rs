@@ -1,0 +1,13 @@
+error: batch-impl: `impl{...}` template cannot destructure the target type (the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside))
+ --> tests/ui/impl_template_range_constant.rs:9:1
+  |
+9 | #[batch_impl(Box u8 impl{Vec<@..u128>})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/impl_template_range_constant.rs:10:11
+   |
+10 | trait T {}
+   |           ^ consider adding a `main` function to `$DIR/tests/ui/impl_template_range_constant.rs`

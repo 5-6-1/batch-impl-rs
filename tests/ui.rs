@@ -148,6 +148,9 @@ fn ui() {
     // the `impl{...}` shape templates: DSL operators / shape
     // mismatch / inconsistent merged bindings / attachment depth
     t.compile_fail("tests/ui/impl_template_dsl_ops.rs");
+    // a constant range (`@..u128`) inside a template is a DSL operator, not
+    // a variadic segment — targeted error, never a panic
+    t.compile_fail("tests/ui/impl_template_range_constant.rs");
     t.compile_fail("tests/ui/impl_shape_mismatch.rs");
     t.compile_fail("tests/ui/impl_inconsistent_binding.rs");
     t.compile_fail("tests/ui/impl_attach_too_deep.rs");
