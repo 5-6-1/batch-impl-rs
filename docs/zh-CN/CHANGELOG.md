@@ -2,6 +2,10 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
+## Unreleased
+
+> 文档与卫生发布：README 首页重构（版本横幅压成一行并链接 CHANGELOG、"为什么要用它" + 最小示例置顶）、特性表加核心/进阶层级标注、MSRV 原因写入文档。六个纯文档占位宏（`batch_impl_delegate!` / `fill` / `blanket` / `name` / `open` / `consts`）被误调用时现在报定向 "documentation-only entry point" 错误，不再静默展开为空。
+
 ## 0.9.6 (2026-08-27)
 
 > ItemImpl 入口追上 attr 入口：`#[batch_impl(spec)] impl ...` 现在共享完整 DSL——`@` 内置常量、生成器 + `@N..` where 选择器、`fresh!(...)` body 标记、块模型（每容器 `impl{...}` 模板、`where{...}` 任意位置）、非匹配模板的文本替换、变长段模板。内部统一了多字符运算符识别。

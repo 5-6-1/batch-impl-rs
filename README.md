@@ -1,17 +1,18 @@
 # batch-impl
 
-**v0.9.6** (2026-08-27) — **the ItemImpl entry catches up with the attribute entry**: `#[batch_impl(spec)] impl ...` now shares the full DSL — `@` built-in constants (`@u*` / `@f*` / `@num` / ranges) in the matrix source; generators with `@N..` where selectors (`GenA<()0..=12>` hoists fresh generics onto the impl, `where @0..: SomeTrait` constrains them); the `fresh!(...)` body marker (`type MyTuple = (fresh!(@(@T,)..))` → `(P0, P1, P2)` — repeat blocks / fresh references in the body, wrapped in a legal macro-call spelling and fully expanded — the output never contains a `fresh!` call); the block model (each matrix element pairs a container with its own `impl{...}` template — `[[Box,Rc]impl{A<(T@..)>}, Vec impl{Vec<(T@..)>}].().2..=3`; `where{...}` composes at any position); textual substitution for non-matching templates; variadic-segment templates (`A<(T@..)>`) driving `fresh!` segment references. Internally the operator dictionary (`read_op`) unifies multi-char operator recognition (`..` / `..=` / `->` / `::`).
+**v0.9.6** (2026-08-27) — the ItemImpl entry catches up with the attribute entry. Release notes: [CHANGELOG](CHANGELOG.md).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
-Beyond the core batch-impl DSL, the crate carries two deeper layers: a
-**macro-meta layer** (`@` constants / selectors / positional references — a
-small meta-language for composing generated generics) and an **open directive
-system** (`#fill` / `#delegate` / `#blanket` + user `#name` macros, including
-top-level macro injection `{! ...}`). Think of it as a batch impl generator
-with a pluggable codegen protocol — the "one line" story covers the common
-case; the layers below it cover the composing cases (dispatch matrices,
-blanket delegation, custom codegen).
+## Why use it
+
+Hand-writing the same trait implementation for multiple types means **repetition**: the signature is copied N times, the body is copied N times, generic parameters and associated types are each written separately, and changing one place misses three. batch-impl puts the **quantity** of impls into a description outside the human brain:
+
+- **One source of truth**: the trait definition is written only once (signature/generics/bound/where constraints), the DSL only writes "which types × what implementation", and the macro fills in the rest — signatures, generic bounds, associated type bindings, and even trait-level where constraints are **automatically inherited** from the trait definition, fully equivalent to hand-written code.
+- **One-line matrix**: `[...]` lists, space/`.` application, `().N` tuple generation — one DSL line describes a "type matrix", and the macro generates one impl per cell.
+- **Batch, but hand-written in feel**: `{ body }` is ordinary Rust code, `#` directives automatically copy signatures, and the generated impl is token-for-token equivalent to hand-written code — whatever rustc can verify, it can verify.
+
+A real scenario (see `examples/simplify.rs`): 12 numeric types + 4 wrapper types + 4 tuples + some miscellaneous = **29 impls from about 15 lines of DSL**, versus about 80 lines by hand.
 
 ```rust
 use batch_impl::batch_impl;
@@ -31,6 +32,15 @@ trait TupleTrait {}
 // → impl<A, B, C, D> TupleTrait for (A, B, C, D) {}
 ```
 
+Beyond the core batch-impl DSL, the crate carries two deeper layers: a
+**macro-meta layer** (`@` constants / selectors / positional references — a
+small meta-language for composing generated generics) and an **open directive
+system** (`#fill` / `#delegate` / `#blanket` + user `#name` macros, including
+top-level macro injection `{! ...}`). Think of it as a batch impl generator
+with a pluggable codegen protocol — the "one line" story covers the common
+case; the layers below it cover the composing cases (dispatch matrices,
+blanket delegation, custom codegen).
+
 ## Built with batch-impl
 
 **[alga2](https://docs.rs/alga2) is a real user** — a modern abstract-algebra
@@ -40,16 +50,6 @@ hierarchy for Rust (the successor to [alga](https://docs.rs/alga)), with
 smart pointers, collections). **alga2 0.1.0 is released** on
 crates.io; the batch-impl DSL has been its impl generator throughout
 development.
-
-## Why use it
-
-Hand-writing the same trait implementation for multiple types means **repetition**: the signature is copied N times, the body is copied N times, generic parameters and associated types are each written separately, and changing one place misses three. batch-impl puts the **quantity** of impls into a description outside the human brain:
-
-- **One source of truth**: the trait definition is written only once (signature/generics/bound/where constraints), the DSL only writes "which types × what implementation", and the macro fills in the rest — signatures, generic bounds, associated type bindings, and even trait-level where constraints are **automatically inherited** from the trait definition, fully equivalent to hand-written code.
-- **One-line matrix**: `[...]` lists, space/`.` application, `().N` tuple generation — one DSL line describes a "type matrix", and the macro generates one impl per cell.
-- **Batch, but hand-written in feel**: `{ body }` is ordinary Rust code, `#` directives automatically copy signatures, and the generated impl is token-for-token equivalent to hand-written code — whatever rustc can verify, it can verify.
-
-A real scenario (see `examples/simplify.rs`): 12 numeric types + 4 wrapper types + 4 tuples + some miscellaneous = **29 impls from about 15 lines of DSL**, versus about 80 lines by hand.
 
 ## Mental model
 
@@ -82,7 +82,10 @@ Pick by the grouping shape you want: use the space to list arguments side by sid
 batch-impl = "0.9.6"
 ```
 
-Requires Rust 1.95 or newer (edition 2024).
+Requires Rust 1.95 or newer (edition 2024). The edition alone needs 1.85, but
+the crate also relies on edition-2024-only syntax such as let-chains
+(`if let ... &&`) stabilized after 1.88, so 1.95 keeps a comfortable stable
+margin for the MSRV.
 
 ```rust
 use batch_impl::batch_impl;
@@ -113,23 +116,25 @@ trait Describe2 { fn describe(&self) -> String; }
 
 ## Feature overview
 
-| Feature                                          | In one sentence                              | Tutorial chapter |
-|--------------------------------------------------|----------------------------------------------|------------------|
-| Side-by-side lists `[A, B]`                      | Implement for multiple types at once, body reused | §3 |
-| Splat `*` prefix                                | Flatten containers/generators into the enclosing list — in-list splice, `.` right-operand flat append, generic multi-arg; left operand `*[...]` distribute / `*(...)` append | §4 |
-| space / `.` operators                          | Left/right associativity of the same operation: accumulation vs. nesting | §2 |
-| Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | §5 |
-| Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | §5.3 |
-| Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | §7 |
-| Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | §7 |
-| Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | §7 |
-| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` leading `@name=value;` custom sections (lazy expansion, chained references; attribute macros do not support them — write matrices directly) | §6 |
-| Generic parameter families                     | `@all_type_params` / `@all_const_params` / `@all_lifetimes` — generic declarations copy the trait's formal params (bounds via same-name inheritance) | §6 |
-| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..=M`) belong to the macro-meta layer | §6 |
-| `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | §8 |
-| Tuple generation                                 | `().3`, `(T,).N`, Cartesian product, ranges  | §9 |
-| Variadic segments + repeat blocks                | `ident@..` in `impl{...}` templates (cover every remaining tuple position) + `@(...)..` body repetition (`@ident` names, `@N` index cursors) — one spec covers every tuple arity | §8.4 |
-| fn types / unsafe / pointers / attributes        | Full support for type-level modifiers (`unsafe fn` is the fn type; `unsafe.fn` marks the impl unsafe) | §10 |
+**Core (80% of use cases — start here):** side-by-side lists, space/`.` application, `where{...}`, tuple generation, and the splat cover most real matrices; §1–§5 of the tutorial are enough. Everything below the core line is a deeper layer (macro-meta `@`, directives, shape templates) — useful when you need it, ignorable when you don't.
+
+| Feature                                          | In one sentence                              | Tutorial chapter | Tier |
+|--------------------------------------------------|----------------------------------------------|------------------|------|
+| Side-by-side lists `[A, B]`                      | Implement for multiple types at once, body reused | §3 | core |
+| space / `.` operators                          | Left/right associativity of the same operation: accumulation vs. nesting | §2 | core |
+| `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | §8 | core |
+| Tuple generation                                 | `().3`, `(T,).N`, Cartesian product, ranges  | §9 | core |
+| Splat `*` prefix                                | Flatten containers/generators into the enclosing list — in-list splice, `.` right-operand flat append, generic multi-arg; left operand `*[...]` distribute / `*(...)` append | §4 | core |
+| Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | §5 | core |
+| Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | §5.3 | core |
+| fn types / unsafe / pointers / attributes        | Full support for type-level modifiers (`unsafe fn` is the fn type; `unsafe.fn` marks the impl unsafe) | §10 | core |
+| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` leading `@name=value;` custom sections (lazy expansion, chained references; attribute macros do not support them — write matrices directly) | §6 | advanced |
+| Generic parameter families                     | `@all_type_params` / `@all_const_params` / `@all_lifetimes` — generic declarations copy the trait's formal params (bounds via same-name inheritance) | §6 | advanced |
+| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..=M`) belong to the macro-meta layer | §6 | advanced |
+| Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | §7 | advanced |
+| Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | §7 | advanced |
+| Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | §7 | advanced |
+| Variadic segments + repeat blocks                | `ident@..` in `impl{...}` templates (cover every remaining tuple position) + `@(...)..` body repetition (`@ident` names, `@N` index cursors) — one spec covers every tuple arity | §8.4 | advanced |
 
 > **Shorthand**: a single method `#fill([foo]){body}` equals `#foo{body}`; predicates + code block `where{predicates} {code block}` can be written bare as `where predicates {code block}` (see §7.2 / §8.2).
 

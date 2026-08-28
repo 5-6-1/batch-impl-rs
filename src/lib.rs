@@ -86,17 +86,58 @@ pub fn batch_impl(
 ) -> proc_macro::TokenStream {
     // impl entry (0.8.0): the attribute also accepts an `impl` block — batch
     // instantiation from a shape-template × matrix-source description. The
-    // trait branch is untouched (top-level dispatch only).
-    if let Ok(trait_item) = syn::parse::<ItemTrait>(item.clone()) {
-        return expand_attr_macro(attr.into(), trait_item, true)
-            .map(proc_macro::TokenStream::from)
-            .unwrap_or_else(Into::into);
+    // trait branch is untouched (top-level dispatch only). Dispatch on the
+    // first semantic token (`impl` → impl entry, otherwise → trait entry) so
+    // the common trait path parses `syn::ItemTrait` exactly once; a malformed
+    // input still gets the shared misuse diagnostic.
+    if starts_with_impl(&item) {
+        match syn::parse::<syn::ItemImpl>(item) {
+            Ok(impl_item) => entry::expand_impl_entry(attr.into(), impl_item)
+                .map(proc_macro::TokenStream::from)
+                .unwrap_or_else(Into::into),
+            Err(_) => entry_misuse_error(),
+        }
+    } else {
+        match syn::parse::<ItemTrait>(item) {
+            Ok(trait_item) => expand_attr_macro(attr.into(), trait_item, true)
+                .map(proc_macro::TokenStream::from)
+                .unwrap_or_else(Into::into),
+            Err(_) => entry_misuse_error(),
+        }
     }
-    if let Ok(impl_item) = syn::parse::<syn::ItemImpl>(item.clone()) {
-        return entry::expand_impl_entry(attr.into(), impl_item)
-            .map(proc_macro::TokenStream::from)
-            .unwrap_or_else(Into::into);
+}
+
+/// Whether the macro input is an impl block: scan top-level tokens past
+/// attributes (`#[...]`), visibility (`pub` / `pub(crate)`), and the
+/// `unsafe` / `auto` / `default` modifiers — the first semantic ident decides
+/// (`impl` vs anything else, e.g. `trait`). Body content (nested `impl Trait`
+/// in signatures) lives inside groups and never reaches this scan.
+fn starts_with_impl(item: &proc_macro::TokenStream) -> bool {
+    let mut iter = item.clone().into_iter().peekable();
+    while let Some(t) = iter.next() {
+        match t {
+            // `#[...]` attribute
+            proc_macro::TokenTree::Punct(p) if p.as_char() == '#' => {
+                iter.next(); // the `[...]` group
+            }
+            // `pub` — a `(crate)` / `(super)` / `(in path)` group may follow
+            proc_macro::TokenTree::Ident(id) if id.to_string() == "pub" => {
+                if matches!(iter.peek(), Some(proc_macro::TokenTree::Group(_))) {
+                    iter.next();
+                }
+            }
+            // `unsafe` / `auto` / `default` modifiers
+            proc_macro::TokenTree::Ident(id)
+                if matches!(id.to_string().as_str(), "unsafe" | "auto" | "default") => {}
+            proc_macro::TokenTree::Ident(id) => return id.to_string() == "impl",
+            _ => return false,
+        }
     }
+    false
+}
+
+/// Shared misuse diagnostic for an input that is neither a trait nor an impl.
+fn entry_misuse_error() -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(util::compile_error_str(
         "batch-impl: expected a trait definition (`trait ...`) or an impl block \
          (`impl Trait for Type { ... }`)",
@@ -141,41 +182,73 @@ pub fn batch_preview(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 // The `#` directives and `@` constants live inside macro arguments, so IDE
 // hover and docs.rs cannot reach them. Each placeholder below is a public
 // no-op function whose doc block documents one directive — a hoverable,
-// searchable rustdoc entry. Never call these functions.
+// searchable rustdoc entry. They are not callable: invoking one reports the
+// documentation-only status instead of silently expanding to nothing.
 // ============================================================
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/directive_delegate.md"))]
 #[proc_macro]
 pub fn batch_impl_delegate(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::new()
+    proc_macro::TokenStream::from(util::compile_error_str(
+        "batch-impl: `batch_impl_delegate!` is a documentation-only entry point \
+         for the `#delegate` directive — use `#delegate(methods){target}` inside \
+         `#[batch_impl(...)]` instead",
+        proc_macro2::Span::call_site(),
+    ))
 }
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/directive_fill.md"))]
 #[proc_macro]
 pub fn batch_impl_fill(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::new()
+    proc_macro::TokenStream::from(util::compile_error_str(
+        "batch-impl: `batch_impl_fill!` is a documentation-only entry point \
+         for the `#fill` directive — use `#fill(methods){body}` inside \
+         `#[batch_impl(...)]` instead",
+        proc_macro2::Span::call_site(),
+    ))
 }
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/directive_blanket.md"))]
 #[proc_macro]
 pub fn batch_impl_blanket(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::new()
+    proc_macro::TokenStream::from(util::compile_error_str(
+        "batch-impl: `batch_impl_blanket!` is a documentation-only entry point \
+         for the `#blanket` directive — use `#blanket(methods){wrapper matrix}` \
+         inside `#[batch_impl(...)]` instead",
+        proc_macro2::Span::call_site(),
+    ))
 }
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/directive_name.md"))]
 #[proc_macro]
 pub fn batch_impl_name(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::new()
+    proc_macro::TokenStream::from(util::compile_error_str(
+        "batch-impl: `batch_impl_name!` is a documentation-only entry point \
+         for the `#name` directive — use `#name{body}` inside \
+         `#[batch_impl(...)]` instead",
+        proc_macro2::Span::call_site(),
+    ))
 }
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/directive_open.md"))]
 #[proc_macro]
 pub fn batch_impl_open(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::new()
+    proc_macro::TokenStream::from(util::compile_error_str(
+        "batch-impl: `batch_impl_open!` is a documentation-only entry point \
+         for the open-extension protocol — write your own `#name(args){body}` \
+         macro instead (see `batch_preprocess_test!` for a reference \
+         implementation)",
+        proc_macro2::Span::call_site(),
+    ))
 }
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/directive_consts.md"))]
 #[proc_macro]
 pub fn batch_impl_consts(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::new()
+    proc_macro::TokenStream::from(util::compile_error_str(
+        "batch-impl: `batch_impl_consts!` is a documentation-only entry point \
+         for the `@` constant system — write `@name=value;` sections directly \
+         (only `batch_trait!` supports custom constants)",
+        proc_macro2::Span::call_site(),
+    ))
 }

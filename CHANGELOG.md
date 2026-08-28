@@ -5,6 +5,15 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+> Docs and hygiene release: README front page restructured (one-line version banner
+> linking the CHANGELOG, "Why use it" + minimal example first), a core/advanced
+> tier marker in the feature table, and the MSRV reason documented. The six
+> doc-only placeholder macros (`batch_impl_delegate!` / `fill` / `blanket` /
+> `name` / `open` / `consts`) now report a targeted "documentation-only entry
+> point" error instead of silently expanding to nothing.
+
 ## 0.9.6 (2026-08-27)
 
 > The ItemImpl entry catches up with the attribute entry: `#[batch_impl(spec)]

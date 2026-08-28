@@ -61,4 +61,11 @@ impl block (`#[attr] trait` cannot appear in an impl), whereas a
 function-like macro in an impl-body position is expanded by rustc into
 associated items.
 
-**Documentation marker only — never call this function.**
+**It is a working reference implementation, not a stub** — `batch_preprocess_test!`
+is exercised by the open-extension UI/functional tests and can be copied
+verbatim as the starting point for your own `#name(args){body}` extension
+(rename it and adjust the emitted item). The doc blocks of
+`batch_impl_delegate!` / `batch_impl_fill!` / `batch_impl_blanket!` /
+`batch_impl_name!` / `batch_impl_open!` / `batch_impl_consts!` are
+documentation-only entry points for the directive docs — those six are
+placeholders and must not be called, this one is real.

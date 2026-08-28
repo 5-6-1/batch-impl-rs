@@ -5,6 +5,19 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+> External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic
+> spans, entry dispatch, and doc/API polish.
+
+- **`rust-2024-feature.md` excluded from the crate package** (P0, verified via `cargo package --list`) — the untracked local notes file was being shipped in every `.crate` download; added to `Cargo.toml` `exclude` + `.gitignore`.
+- **CI gains a Windows (MSVC) functional job** (`test-windows`): functional/regression + doctest on `windows-latest` — the platform whose linker prints the `linker_messages` notices the `[lints.rust]` suppression exists for (trybuild UI snapshots skipped, their `.stderr` wording drifts across platforms).
+- **Impl-entry / shape diagnostics point at the offending token** (P1): the shape-template syn parse errors use `syn::Error::span()`; `match_shape` failures and the shape-mapping error carry the leaf/template/target span; `body_has_carrier` returns the carrier's span so the `@{N}`-without-switch error points at the `@{...}` itself (was all `Span::call_site`).
+- **The six doc-only placeholder macros report a targeted error** (P2): `batch_impl_delegate!` / `fill` / `blanket` / `name` / `open` / `consts` were silent no-ops when misinvoked; each now emits "documentation-only entry point" with the correct directive spelling. `batch_preprocess_test.md`'s self-contradicting "never call this function" ending fixed — it is a working reference implementation (exercised by tests), only the six placeholders are doc-only.
+- **`is_impl_template` deduplicated** (P2): `preprocess/angle.rs`'s private `is_impl_template_group` was the same predicate as `util::is_impl_template` with the index shifted by one — now delegates to the single authority.
+- **Impl-entry where-chunk boilerplate extracted** (P2): the `split_at_depth0(..., ',').iter().map(clone→TokenStream).collect()` pattern appeared four times; now `chunks_to_streams()`.
+- **Entry dispatch parses once** (P3): `#[batch_impl]` now scans the item's first semantic token (`impl` vs trait) instead of attempting `syn::parse::<ItemTrait>` then `syn::parse::<ItemImpl>` on every invocation.
+
 ## 0.9.6 (2026-08-27)
 
 > The ItemImpl entry's DSL catch-up (constants / generators / `fresh!` /

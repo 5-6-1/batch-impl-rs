@@ -167,9 +167,15 @@ pub(crate) fn generate_parts(
     let (shape_map, var_segs) = if parts.impl_templates.is_empty() {
         (Mapping::default(), Vec::new())
     } else {
+        let target_span = target_tokens
+            .clone()
+            .into_iter()
+            .next()
+            .map(|t| t.span())
+            .unwrap_or_else(proc_macro2::Span::call_site);
         match render::collect_shape_mapping(&target_tokens, &parts.impl_templates) {
             Ok((m, s)) => (m, s),
-            Err(e) => return compile_error_str(&e.message(), proc_macro2::Span::call_site()),
+            Err(e) => return compile_error_str(&e.message(), target_span),
         }
     };
     if !shape_map.slots().is_empty() {
@@ -194,12 +200,15 @@ pub(crate) fn generate_parts(
         // switch `impl{@N..}` whose rounds consume `@{N}` references — the
         // "declare what you use" rule. Without either, a carrier in the body
         // errors with guidance.
-        if !parts.body_at && parts.fresh_binding.is_none() && body_has_carrier(b) {
+        if !parts.body_at
+            && parts.fresh_binding.is_none()
+            && let Some(carrier_span) = body_has_carrier(b)
+        {
             return compile_error_str(
                 "batch-impl: a `@{N}` fresh reference in the body requires the \
                  `impl{@{}}` body-slot switch (declare it on the spec, e.g. \
                  `impl{@{}}`); without it, `@` in a body starts a repeat block",
-                proc_macro2::Span::call_site(),
+                carrier_span,
             );
         }
         let binding = parts.fresh_binding;

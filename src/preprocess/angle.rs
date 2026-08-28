@@ -21,12 +21,11 @@ fn is_where_group(tokens: &[TokenTree], i: usize) -> bool {
     i >= 1 && matches!(&tokens[i - 1], TokenTree::Ident(id) if id == "where")
 }
 
-/// `true` when `tokens[i]` is a Brace group directly preceded by the `impl`
-/// keyword — the `impl{...}` shape template (DSL: its content is a Rust type
-/// template whose `<...>` must be paired — see [`is_impl_template`]),
-/// as opposed to a code-block body.
+/// `true` when `tokens[i]` is the Brace group of an `impl{...}` shape
+/// template (DSL: its content is a Rust type whose `<...>` must be paired —
+/// see [`is_impl_template`]), as opposed to a code-block body.
 fn is_impl_template_group(tokens: &[TokenTree], i: usize) -> bool {
-    i >= 1 && matches!(&tokens[i - 1], TokenTree::Ident(id) if id == "impl")
+    i >= 1 && crate::util::is_impl_template(tokens, i - 1)
 }
 
 /// Entry transformation: a single pass flattens None groups and pairs `<...>`.

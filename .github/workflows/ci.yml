@@ -53,6 +53,18 @@ jobs:
       - run: cargo test --lib --test dsl
       - run: cargo test --doc
 
+  test-windows:
+    name: test (Windows, functional)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Windows/MSVC：链接产物通知（linker_messages）与路径分隔符是平台特有面，
+      # 功能/回归 + doctest 覆盖它；trybuild UI 快照的 .stderr 措辞跨平台漂移，跳过
+      - run: cargo test --lib --test dsl
+      - run: cargo test --doc
+
   doc:
     name: doc
     runs-on: ubuntu-latest

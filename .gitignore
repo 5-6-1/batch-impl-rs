@@ -4,3 +4,5 @@ Cargo.lock
 .idea/
 # trybuild scratch (recreated on snapshot mismatch)
 /wip/
+# local Rust 2024 feature notes (project-adjacent reference, not packaged)
+/rust-2024-feature.md

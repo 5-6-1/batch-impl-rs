@@ -2,6 +2,18 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## Unreleased
+
+> 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。
+
+- **`rust-2024-feature.md` 移出 crate 包**（P0，`cargo package --list` 实测确认）——未跟踪的本地笔记文件此前被打进每个 `.crate` 下载；加入 `Cargo.toml` `exclude` + `.gitignore`。
+- **CI 新增 Windows（MSVC）功能 job**（`test-windows`）：`windows-latest` 上跑功能/回归 + doctest——正是 `linker_messages` 抑制所要服务的平台（trybuild UI 快照跳过，其 `.stderr` 措辞跨平台漂移）。
+- **impl entry / shape 诊断指向出错 token**（P1）：形状模板 syn 解析错误用 `syn::Error::span()`；`match_shape` 失败与 shape mapping 错误携带 leaf/模板/目标 span；`body_has_carrier` 返回载体 span，使 `@{N}` 缺开关的错误指向 `@{...}` 本身（此前全部 `Span::call_site`）。
+- **六个纯文档占位宏改为定向报错**（P2）：`batch_impl_delegate!` / `fill` / `blanket` / `name` / `open` / `consts` 被误调用时此前静默展开为空；现在各自报 "documentation-only entry point" 并给出正确指令写法。`batch_preprocess_test.md` 结尾自相矛盾的 "never call this function" 修正——它是可用的参考实现（测试在用），只有六个占位符是纯文档。
+- **`is_impl_template` 去重**（P2）：`preprocess/angle.rs` 的私有 `is_impl_template_group` 与 `util::is_impl_template` 是同一判定（index 错一位）——改为委托单一权威。
+- **impl entry where 块样板提取**（P2）：`split_at_depth0(..., ',').iter().map(clone→TokenStream).collect()` 出现四次——现为 `chunks_to_streams()`。
+- **入口分派单次解析**（P3）：`#[batch_impl]` 先扫 item 首个语义 token（`impl` vs trait）再解析，不再每次调用都先试 `ItemTrait` 再试 `ItemImpl`。
+
 ## 0.9.6 (2026-08-27)
 
 > ItemImpl 入口的 DSL 追赶（常量 / 生成器 / `fresh!` / 块模型 / where 任意位置 / 文本替换）、运算符字典与去重/拆分 pass——条目按开发顺序落在下方 Unreleased 区，发布时归入此版本。

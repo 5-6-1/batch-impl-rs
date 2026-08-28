@@ -45,6 +45,16 @@ use crate::parse::split_at_depth0;
 use crate::preprocess::{angle_collect, impl_process, render_angles, where_process};
 use crate::util::compile_error_str;
 
+/// Splits a token slice at depth-0 separators and renders each chunk back to
+/// a `TokenStream` (the where-predicate splitting pattern shared by the shape
+/// form, the leaf expansion and the direct form).
+fn chunks_to_streams(tokens: &[TokenTree], sep: char) -> Vec<TokenStream> {
+    split_at_depth0(tokens, sep)
+        .iter()
+        .map(|c| c.iter().cloned().collect::<TokenStream>())
+        .collect()
+}
+
 /// Entry: expand `#[batch_impl(<dsl>)] impl ...` into N `impl` blocks.
 /// Accepts both trait impls (`impl Trait for Type`) and **inherent impls**
 /// (`impl Type` — same spec grammar, no `for` section rendered, `@trait`
@@ -122,7 +132,7 @@ fn expand_shape_form(
     let template: syn::Type = syn::parse2(template_tokens).map_err(|e| {
         compile_error_str(
             &format!("batch-impl: the shape template before `:` is not a valid type ({e})",),
-            Span::call_site(),
+            e.span(),
         )
     })?;
     let (new_gen, matrix) = split_new_gen(&spec[colon + 1..]);
@@ -137,10 +147,7 @@ fn expand_shape_form(
     if matrix.is_empty() {
         // Empty matrix source → N = 1, the shape itself (no slot mapping;
         // the for-Type is emitted verbatim).
-        let where_chunks = split_at_depth0(where_preds, ',')
-            .iter()
-            .map(|c| c.iter().cloned().collect::<TokenStream>())
-            .collect::<Vec<_>>();
+        let where_chunks = chunks_to_streams(where_preds, ',');
         let fresh_ctx = FreshCtx::new(&[], &used);
         let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
             .map_err(|es| es.into_iter().collect::<TokenStream>())?;
@@ -224,15 +231,16 @@ fn expand_leaf(
     let fresh_ctx = FreshCtx::new(&decl_names, used);
     let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
     let leaf_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
-    let leaf_ty = syn::parse2(leaf_tokens).map_err(|_| {
+    let leaf_span = leaf_tokens.clone().into_iter().next().map(|t| t.span()).unwrap_or_else(Span::call_site);
+    let leaf_ty = syn::parse2(leaf_tokens).map_err(|e| {
         compile_error_str(
             "batch-impl: the matrix leaf is not a standard Rust type \
              (a generator's fresh generics could not be resolved)",
-            Span::call_site(),
+            e.span(),
         )
     })?;
     let (mut m, mut template_segs) = match_shape(template, &leaf_ty)
-        .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
+        .map_err(|e| compile_error_str(&e.message(), leaf_span))?;
     // The leaf's own template (`impl{...}`) matches the same leaf and
     // merges: its slots must agree, its segments (the `T@..` driving the
     // body's `fresh!`) join.
@@ -240,15 +248,17 @@ fn expand_leaf(
         let lt_marked =
             crate::preprocess::varseg::mark_template(&lt.into_iter().collect::<Vec<_>>(), 0)?;
         let lt_tokens = render_angles(lt_marked.into_iter().collect::<TokenStream>());
-        let lt_ty: syn::Type = syn::parse2(lt_tokens).map_err(|_| {
+        let lt_span =
+            lt_tokens.clone().into_iter().next().map(|t| t.span()).unwrap_or_else(Span::call_site);
+        let lt_ty: syn::Type = syn::parse2(lt_tokens).map_err(|e| {
             compile_error_str(
                 "batch-impl: the `impl{...}` template is not a valid type",
-                Span::call_site(),
+                e.span(),
             )
         })?;
         let (m2, segs2) = match_shape(&lt_ty, &leaf_ty)
-            .map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
-        m.merge(m2).map_err(|e| compile_error_str(&e.message(), Span::call_site()))?;
+            .map_err(|e| compile_error_str(&e.message(), lt_span))?;
+        m.merge(m2).map_err(|e| compile_error_str(&e.message(), lt_span))?;
         template_segs.extend(segs2);
     }
     // for-Type: slot names rewritten to the bound leaf subtrees.
@@ -256,16 +266,9 @@ fn expand_leaf(
     // where predicates: the template region's (peel_where) plus this leaf's
     // `where{...}` attachments — each resolves independently against the
     // leaf's fresh names.
-    let mut chunks = split_at_depth0(where_preds, ',')
-        .iter()
-        .map(|c| c.iter().cloned().collect::<TokenStream>())
-        .collect::<Vec<_>>();
+    let mut chunks = chunks_to_streams(where_preds, ',');
     if !leaf_preds.is_empty() {
-        chunks.extend(
-            split_at_depth0(&leaf_preds, ',')
-                .iter()
-                .map(|c| c.iter().cloned().collect::<TokenStream>()),
-        );
+        chunks.extend(chunks_to_streams(&leaf_preds, ','));
     }
     let where_resolved = resolve_where_predicates(&chunks, &fresh_ctx)
         .map_err(|es| es.into_iter().collect::<TokenStream>())?;
@@ -298,10 +301,7 @@ fn expand_direct_form(
     if let Some(ng) = &new_gen {
         collect_used_idents(&ng.to_token_stream(), &mut used);
     }
-    let where_chunks = split_at_depth0(where_preds, ',')
-        .iter()
-        .map(|c| c.iter().cloned().collect::<TokenStream>())
-        .collect::<Vec<_>>();
+    let where_chunks = chunks_to_streams(where_preds, ',');
     let leaves = parse_matrix_leaves(&for_tokens.to_vec())?;
     if leaves.len() != 1 {
         return Err(compile_error_str(

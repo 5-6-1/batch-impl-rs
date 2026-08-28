@@ -167,30 +167,31 @@ pub(crate) fn carrier_inner(g: &proc_macro2::Group) -> String {
 /// carrier (`@{0_0}`) is macro-generated (blanket delegates mint `@{g_i}` for
 /// their fresh generic) and exempt: it always expands to a fresh name. A flat
 /// `@{N}` in an expression, return type, etc. is user-written and requires
-/// the switch ("declare what you use").
-pub(crate) fn body_has_carrier(tokens: &TokenStream) -> bool {
+/// the switch ("declare what you use"). Returns the carrier's span when one
+/// is found, so the caller can point the diagnostic at the offending token.
+pub(crate) fn body_has_carrier(tokens: &TokenStream) -> Option<proc_macro2::Span> {
     let v = tokens.clone().into_iter().collect::<Vec<_>>();
     carrier_at_any(&v, 0)
 }
 
-fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> bool {
+fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> Option<proc_macro2::Span> {
     if depth > crate::util::MAX_NEST_DEPTH {
-        return false;
+        return None;
     }
     let mut i = 0;
     while i < tokens.len() {
         if is_carrier_at(tokens, i) && !is_macro_generated_carrier(tokens, i) {
-            return true;
+            return Some(tokens[i].span());
         }
         if let TokenTree::Group(g) = &tokens[i] {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            if carrier_at_any(&inner, depth + 1) {
-                return true;
+            if let Some(sp) = carrier_at_any(&inner, depth + 1) {
+                return Some(sp);
             }
         }
         i += 1;
     }
-    false
+    None
 }
 
 /// Whether the carrier at `i` (`@{...}`) is **macro-generated**: its Brace
