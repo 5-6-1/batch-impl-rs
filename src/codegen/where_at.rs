@@ -6,7 +6,7 @@ use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 
 use super::FreshCtx;
 use super::{at_group_out_of_range, at_num_out_of_range};
-use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner, fold_flat_refs, is_carrier_at};
+use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner_at, fold_flat_refs};
 use crate::util::{compile_err, compile_error_str};
 
 /// Macro-meta position references in where predicates: `@N` → the N-th fresh
@@ -74,17 +74,8 @@ pub(crate) fn resolve_where_at(
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        let is_carrier = is_carrier_at(&tokens, i);
-        if is_carrier {
-            // Parse the reference out of the carrier group.
-            let inner = carrier_inner(match &tokens[i + 1] {
-                TokenTree::Group(g) => g,
-                _ => unreachable!("matched above"),
-            });
-            let at_span = match &tokens[i] {
-                TokenTree::Punct(p) => p.span(),
-                _ => unreachable!("matched above"),
-            };
+        if let Some(inner) = carrier_inner_at(&tokens, i) {
+            let at_span = tokens[i].span();
             let r = FreshRef::parse(&inner).ok_or_else(|| {
                 compile_error_str(
                     "batch-impl: `@{...}` must hold a position reference \

@@ -37,10 +37,20 @@ pub(crate) fn peek_ident_at(cursor: &Cursor, off: usize, name: &str) -> bool {
     matches!(cursor.peek_at(off), Some(TokenTree::Ident(id)) if id == name)
 }
 
-/// Whether the cursor sits on a `'` + ident lifetime.
-pub(crate) fn cursor_is_lifetime(cursor: &Cursor) -> bool {
-    matches!(cursor.peek(), Some(TokenTree::Punct(p)) if p.as_char() == '\'')
-        && matches!(cursor.peek_at(1), Some(TokenTree::Ident(_)))
+/// Whether the cursor sits on a `'` + ident lifetime; returns the lifetime
+/// ident when present (one test + extraction — callers use the ident
+/// directly instead of re-peeking).
+pub(crate) fn cursor_lifetime(cursor: &Cursor) -> Option<Ident> {
+    let id = match cursor.peek_at(1) {
+        Some(TokenTree::Ident(id))
+            if matches!(cursor.peek(),
+            Some(TokenTree::Punct(p)) if p.as_char() == '\'') =>
+        {
+            id
+        }
+        _ => return None,
+    };
+    Some(Ident::new(&id.to_string(), id.span()))
 }
 
 /// `&` block family: `&` / `&mut` / `&'a` / `&'a mut` — the prefix never
@@ -52,11 +62,7 @@ pub(crate) fn reference_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -
     if is_mut {
         cursor.bump();
     }
-    let lifetime = if cursor_is_lifetime(cursor) {
-        let lt = match cursor.peek_at(1) {
-            Some(TokenTree::Ident(id)) => Ident::new(&id.to_string(), id.span()),
-            _ => unreachable!(),
-        };
+    let lifetime = if let Some(lt) = cursor_lifetime(cursor) {
         cursor.advance(2);
         if peek_ident_at(cursor, 0, "mut") {
             is_mut = true;

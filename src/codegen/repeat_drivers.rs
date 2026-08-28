@@ -160,10 +160,7 @@ pub(crate) fn substitute(
         // `(P0::foo(), P1::foo(), P2::foo())`). A **range** carrier
         // (`@{0..}`) passes through untouched for the later range re-opening
         // pass (`expand_range_refs`).
-        if crate::ast::fresh::is_carrier_at(tokens, i) {
-            let Some(TokenTree::Group(g)) = tokens.get(i + 1) else {
-                unreachable!("matched above");
-            };
+        if let Some(g) = crate::ast::fresh::carrier_group_at(tokens, i) {
             let inner_tokens = g.stream().into_iter().collect::<Vec<_>>();
             let index = if is_punct_at(&inner_tokens, 0, '@') {
                 match inner_tokens.as_slice() {

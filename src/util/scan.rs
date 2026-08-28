@@ -5,7 +5,7 @@
 //! opaque groups by `angle_collect`, so scanning no longer tracks `<>` depth; the only
 //! remaining guard is the `->` arrow (`-` is not a Space stop token when followed by `>`).
 
-use proc_macro2::{Spacing, TokenTree};
+use proc_macro2::{Group, Spacing, TokenTree};
 
 use crate::util::read_op;
 
@@ -43,6 +43,21 @@ impl<'a> Cursor<'a> {
     /// Token at an offset from the current position (bounds-safe).
     pub(crate) fn peek_at(&self, off: usize) -> Option<&'a TokenTree> {
         self.tokens.get(self.pos + off)
+    }
+
+    /// A Group at an offset whose delimiter matches `delim` — one test +
+    /// extraction (callers get the group directly instead of `matches!`
+    /// plus a second `peek_at` re-destructure).
+    pub(crate) fn peek_group_at(&self, off: usize, delim: proc_macro2::Delimiter) -> Option<Group> {
+        match self.tokens.get(self.pos + off) {
+            Some(TokenTree::Group(g)) if g.delimiter() == delim => Some(g.clone()),
+            _ => None,
+        }
+    }
+
+    /// The Group at the current position whose delimiter matches `delim`.
+    pub(crate) fn peek_group(&self, delim: proc_macro2::Delimiter) -> Option<Group> {
+        self.peek_group_at(0, delim)
     }
 
     /// Advance by `n` tokens (clamped to the end).
@@ -150,6 +165,18 @@ pub(crate) fn tokens_to_string(ts: &[TokenTree]) -> String {
 /// Whether `tokens[index]` is the given punctuation (bounds-safe).
 pub(crate) fn is_punct_at(tokens: &[TokenTree], index: usize, ch: char) -> bool {
     tokens.get(index).is_some_and(|t| is_punct(t, ch))
+}
+
+/// A Group at `tokens[index]` whose delimiter matches `delim` — one test +
+/// extraction (callers get the group directly instead of `matches!` plus a
+/// second `tokens.get(index)` re-destructure with `unreachable!`).
+pub(crate) fn group_at(
+    tokens: &[TokenTree], index: usize, delim: proc_macro2::Delimiter,
+) -> Option<&proc_macro2::Group> {
+    match tokens.get(index) {
+        Some(TokenTree::Group(g)) if g.delimiter() == delim => Some(g),
+        _ => None,
+    }
 }
 
 /// Whether the token is the given punctuation with `Joint` spacing (e.g. the

@@ -226,14 +226,20 @@ pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>
         // spelling; user-written params pass through verbatim.
         TyKind::WithType(wt) => {
             for (name, bound) in wt.0.params {
-                let is_decl = matches!(&name.kind, TyKind::Fresh(f)
-                    if f.0.group.is_some() && f.0.end == FreshEnd::Single);
-                if is_decl {
-                    let TyFresh(f) = match *name {
-                        Ty { kind: TyKind::Fresh(f), .. } => f,
-                        _ => unreachable!("matched above"),
-                    };
-                    let (g, i) = (f.group.unwrap(), f.start);
+                // A declaration carrier: a grouped single-position fresh ref
+                // (`@{g_i}`). Extract it in one step — the check and the
+                // destructure share one match, so they cannot drift.
+                let decl = match &name.kind {
+                    TyKind::Fresh(f) if f.0.group.is_some() && f.0.end == FreshEnd::Single => {
+                        Some(f.0)
+                    }
+                    _ => None,
+                };
+                if let Some(f) = decl {
+                    // `group` is Some by the decl condition above; the
+                    // let-else keeps the no-panic promise instead of unwrap.
+                    let Some(g) = f.group else { continue };
+                    let i = f.start;
                     let carrier = fresh_decl_tokens(g, i);
                     match out
                         .iter_mut()

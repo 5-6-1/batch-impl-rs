@@ -64,24 +64,25 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
                 fn_trait_block(cursor, &id, kind)
             }
         }
-        "impl" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}]) =>
-        {
-            let g = match cursor.peek_at(1) {
-                Some(TokenTree::Group(g)) => g.clone(),
-                _ => unreachable!(),
-            };
-            cursor.advance(2);
-            TyWithImpl(None, TyImplTemplate(g.stream())).to_ty()
+        "impl" => {
+            // `impl{...}` shape template — the Brace group is the template
+            if let Some(g) = cursor.peek_group_at(1, delimiter![{}]) {
+                cursor.advance(2);
+                TyWithImpl(None, TyImplTemplate(g.stream())).to_ty()
+            } else {
+                // bare `impl` — swallow the qualified type and `+` bounds
+                swallow_chain(cursor, &id, trait_name)
+            }
         }
-        "impl" => swallow_chain(cursor, &id, trait_name),
-        "where" if matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}]) =>
-        {
-            let g = match cursor.peek_at(1) {
-                Some(TokenTree::Group(g)) => g.clone(),
-                _ => unreachable!(),
-            };
-            cursor.advance(2);
-            TyWithWhere(None, TyWhere(g.stream())).to_ty()
+        "where" => {
+            // `where{...}` predicate suffix — the Brace group holds the predicates
+            if let Some(g) = cursor.peek_group_at(1, delimiter![{}]) {
+                cursor.advance(2);
+                TyWithWhere(None, TyWhere(g.stream())).to_ty()
+            } else {
+                // bare `where` is not a type — plain ident path (errors downstream)
+                plain_ident_block(cursor, id, trait_name)
+            }
         }
         _ => plain_ident_block(cursor, id, trait_name),
     }
@@ -94,12 +95,7 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, trait_name: Option<&Id
 /// `.` later.
 pub(crate) fn fn_block(cursor: &mut Cursor, trait_name: Option<&Ident>, is_unsafe: bool) -> Ty {
     cursor.bump(); // `fn`
-    let params = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![()])
-    {
-        let g = match cursor.peek() {
-            Some(TokenTree::Group(g)) => g.clone(),
-            _ => unreachable!(),
-        };
+    let params = if let Some(g) = cursor.peek_group(delimiter![()]) {
         cursor.bump();
         let args = g.stream().into_iter().collect::<Vec<_>>();
         let mut pc = Cursor::new(&args);
@@ -134,12 +130,7 @@ pub(crate) fn extern_fn_block(cursor: &mut Cursor) -> Ty {
 /// like a bare `fn`.
 pub(crate) fn fn_trait_block(cursor: &mut Cursor, id: &Ident, kind: FnKind) -> Ty {
     cursor.bump(); // `Fn` / `FnMut` / `FnOnce`
-    let params = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![()])
-    {
-        let g = match cursor.peek() {
-            Some(TokenTree::Group(g)) => g.clone(),
-            _ => unreachable!(),
-        };
+    let params = if let Some(g) = cursor.peek_group(delimiter![()]) {
         cursor.bump();
         let args = g.stream().into_iter().collect::<Vec<_>>();
         let mut pc = Cursor::new(&args);
@@ -190,12 +181,7 @@ fn passthrough_block(cursor: &mut Cursor, n_leading: usize) -> Ty {
 /// `for<'a> <inner>`.
 pub(crate) fn for_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
     cursor.bump(); // `for`
-    let binder = if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>])
-    {
-        let g = match cursor.peek() {
-            Some(TokenTree::Group(g)) => g.clone(),
-            _ => unreachable!(),
-        };
+    let binder = if let Some(g) = cursor.peek_group(delimiter![<>]) {
         cursor.bump();
         g.stream()
     } else {
@@ -252,15 +238,14 @@ pub(crate) fn plain_ident_block(cursor: &mut Cursor, id: Ident, trait_name: Opti
     loop {
         match cursor.peek() {
             // `::` path segment stays in the block (read as one unit by the
-            // operator dictionary)
+            // operator dictionary); the segment ident is the third token.
             Some(TokenTree::Punct(_))
-                if matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _)))
-                    && matches!(cursor.peek_at(2), Some(TokenTree::Ident(_))) =>
+                if matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _))) =>
             {
-                let seg = match cursor.peek_at(2) {
-                    Some(TokenTree::Ident(s)) => s.clone(),
-                    _ => unreachable!(),
+                let Some(TokenTree::Ident(seg)) = cursor.peek_at(2) else {
+                    break;
                 };
+                let seg = seg.clone();
                 tokens.push(cursor.peek().unwrap().clone());
                 tokens.push(cursor.peek_at(1).unwrap().clone());
                 tokens.push(TokenTree::Ident(seg));

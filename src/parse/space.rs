@@ -66,13 +66,14 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
     let ty = match cursor.peek()? {
         // `#[attr]` — attribute block (the chain applies the next block)
         TokenTree::Punct(p)
-            if p.as_char() == '#'
-                && matches!(cursor.peek_at(1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![[]]) =>
+            if p.as_char() == '#' && matches!(cursor.peek_at(1), Some(TokenTree::Group(_))) =>
         {
-            let attr = match cursor.peek_at(1) {
-                Some(TokenTree::Group(g)) => g.stream(),
-                _ => unreachable!(),
+            let Some(attr_group) = cursor.peek_group_at(1, delimiter![[]]) else {
+                // `#` followed by a non-Bracket group is a directive-ish stray
+                // — fall through to the next-block handling below.
+                return None;
             };
+            let attr = attr_group.stream();
             cursor.advance(2);
             TyWithAttr(TyAttr(attr), None).to_ty()
         }

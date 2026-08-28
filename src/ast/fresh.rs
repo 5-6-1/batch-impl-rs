@@ -56,11 +56,7 @@ fn carrier_tokens(inner: String, span: proc_macro2::Span) -> TokenStream {
 /// user-written params, range carriers, malformed pairs.
 pub(crate) fn decl_fresh_pos(tokens: &TokenStream) -> Option<(usize, usize)> {
     let v = tokens.clone().into_iter().collect::<Vec<_>>();
-    if !is_carrier_at(&v, 0) {
-        return None;
-    }
-    let TokenTree::Group(g) = &v[1] else { unreachable!("matched above") };
-    let inner = carrier_inner(g);
+    let inner = carrier_inner_at(&v, 0)?;
     match FreshRef::parse(&inner)? {
         FreshRef { group: Some(g), start: i, end: FreshEnd::Single } => Some((g, i)),
         _ => None,
@@ -150,9 +146,28 @@ pub(crate) fn fresh_ref_tokens(r: FreshRef, span: proc_macro2::Span) -> TokenStr
 /// test; the shape is owned here so the protocol and its recognition can
 /// never drift apart.
 pub(crate) fn is_carrier_at(tokens: &[TokenTree], i: usize) -> bool {
-    matches!(tokens.get(i), Some(TokenTree::Punct(p)) if p.as_char() == '@')
-        && matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-            if g.delimiter() == proc_macro2::Delimiter::Brace)
+    carrier_group_at(tokens, i).is_some()
+}
+
+/// The carrier's Brace group at `tokens[i]` (`@` + Brace), when present.
+/// The single recognition + extraction — callers that need the group (or
+/// its content) use this instead of `is_carrier_at` plus a manual
+/// `tokens[i + 1]` re-destructure (which can drift from the recognition
+/// test and needs `unreachable!`).
+pub(crate) fn carrier_group_at(tokens: &[TokenTree], i: usize) -> Option<&proc_macro2::Group> {
+    let g = match tokens.get(i + 1) {
+        Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Brace => g,
+        _ => return None,
+    };
+    matches!(tokens.get(i), Some(TokenTree::Punct(p)) if p.as_char() == '@').then_some(g)
+}
+
+/// The `@{...}` carrier's inner content as a string (`@{0_0}` → `"0_0"`),
+/// when `tokens[i]` opens a carrier. **One** test + extraction — callers
+/// that need the content use this instead of `is_carrier_at` plus a manual
+/// `tokens[i + 1]` re-destructure.
+pub(crate) fn carrier_inner_at(tokens: &[TokenTree], i: usize) -> Option<String> {
+    carrier_group_at(tokens, i).map(carrier_inner)
 }
 
 /// The `@{...}` carrier's inner content as a string (`@{0_0}` → `"0_0"`).
@@ -200,8 +215,7 @@ fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> Option<proc_macro2::Spa
 /// the shape trait-argument substitution produces ranges). Flat single
 /// `@{0}` references are user-written.
 fn is_macro_generated_carrier(tokens: &[TokenTree], i: usize) -> bool {
-    let Some(TokenTree::Group(g)) = tokens.get(i + 1) else { return false };
-    let inner = carrier_inner(g);
+    let Some(inner) = carrier_inner_at(tokens, i) else { return false };
     // A grouped head (`0_0`) contains an underscore; a range contains `..`.
     // A flat single reference (`0`) has neither.
     inner.contains('_') || inner.contains("..")

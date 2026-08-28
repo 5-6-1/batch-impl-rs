@@ -101,14 +101,19 @@ fn sync_at(
     let mut out = vec![];
     let mut i = 0;
     while i < tokens.len() {
-        let is_ident_angle =
-            matches!(&tokens[i], TokenTree::Ident(_)) && empty_angle_at(tokens, i + 1);
-        if is_ident_angle {
-            // `is_ident_angle` guarantees an Ident here; the `let else`
-            // keeps the no-panic promise on any internal drift.
-            let Some(TokenTree::Ident(id)) = tokens.get(i) else {
-                return Err(crate::util::depth_err(tokens, ""));
-            };
+        // `Ident` + an empty `<>` (paired group or flat `< >`) — extract the
+        // ident and the advance distance in one step (the check and the
+        // destructure share the same match, so they cannot drift).
+        let ident_angle = match &tokens[i] {
+            TokenTree::Ident(id) if empty_angle_at(tokens, i + 1) => {
+                // 2 tokens for a paired group, 3 for flat `< >`.
+                let adv =
+                    if matches!(tokens.get(i + 1), Some(TokenTree::Group(_))) { 2 } else { 3 };
+                Some((id.clone(), adv))
+            }
+            _ => None,
+        };
+        if let Some((id, adv)) = ident_angle {
             // Fill the brackets with the spec's trait args; a trait
             // application with no args drops the brackets (`X<>` → `X`).
             let mut ts = quote!(#id);
@@ -116,7 +121,7 @@ fn sync_at(
                 ts.extend(quote!(<#(#args),*>));
             }
             out.extend(ts);
-            i += if matches!(tokens[i + 1], TokenTree::Group(_)) { 2 } else { 3 };
+            i += adv;
             continue;
         }
         if let TokenTree::Group(g) = &tokens[i] {

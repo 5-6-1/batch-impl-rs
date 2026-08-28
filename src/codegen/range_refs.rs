@@ -15,7 +15,7 @@
 use proc_macro2::{Group, Span, TokenStream, TokenTree};
 
 use crate::ast::MAX_EXPAND;
-use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner, is_carrier_at};
+use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner_at};
 use crate::codegen::FreshCtx;
 use crate::parse::split_at_depth0;
 use crate::util::compile_error_str;
@@ -138,12 +138,7 @@ pub(super) fn bare_display(n: &TokenStream) -> String {
 /// `@` followed by a Brace group (and nothing else).
 pub(super) fn decl_fresh_ref(name: &TokenStream) -> Option<FreshRef> {
     let v = name.clone().into_iter().collect::<Vec<_>>();
-    if is_carrier_at(&v, 0) {
-        let TokenTree::Group(g) = &v[1] else { unreachable!("matched above") };
-        FreshRef::parse(&carrier_inner(g))
-    } else {
-        None
-    }
+    FreshRef::parse(&carrier_inner_at(&v, 0)?)
 }
 /// Drops **orphaned empty elements** from an expanded tuple and rejoins: a
 /// `@N..` range that re-opened to zero entries leaves an empty element
@@ -199,12 +194,8 @@ fn expand_at(
     while i < tokens.len() {
         // A fresh-reference carrier: `@` + Brace group. A single position
         // splices one name; a range splices the covered names comma-separated.
-        if crate::ast::fresh::is_carrier_at(tokens, i) {
+        if let Some(inner) = crate::ast::fresh::carrier_inner_at(tokens, i) {
             let at_span = tokens[i].span();
-            let inner = carrier_inner(match tokens.get(i + 1) {
-                Some(TokenTree::Group(g)) => g,
-                _ => unreachable!("matched above"),
-            });
             let r = match FreshRef::parse(&inner) {
                 Some(r) => r,
                 None => {

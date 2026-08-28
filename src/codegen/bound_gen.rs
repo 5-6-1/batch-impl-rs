@@ -26,13 +26,20 @@ pub(crate) fn distribute_bound_arrays(parts: ImplParts) -> Vec<ImplParts> {
         },
         _ => None,
     };
-    let positions: Vec<usize> =
-        (0..parts.impl_generics.len()).filter(|&i| array_at(i).is_some()).collect();
-    if positions.is_empty() {
+    // Collect (position, elements) in one pass — no `.is_some()` filter
+    // followed by a second `array_at(i).unwrap()` (check + extraction in
+    // one step).
+    let dims: Vec<(usize, Vec<_>)> = (0..parts.impl_generics.len())
+        .filter_map(|i| array_at(i).map(|elems| (i, elems)))
+        .collect();
+    if dims.is_empty() {
         return vec![parts];
     }
-    let dims: Vec<Vec<_>> = positions.iter().map(|&i| array_at(i).unwrap()).collect();
-    let combos = match cartesian(&dims, crate::ast::MAX_EXPAND) {
+    let positions: Vec<usize> = dims.iter().map(|(i, _)| *i).collect();
+    let combos = match cartesian(
+        &dims.into_iter().map(|(_, elems)| elems).collect::<Vec<_>>(),
+        crate::ast::MAX_EXPAND,
+    ) {
         Ok(c) => c,
         Err(_) => return vec![parts],
     };

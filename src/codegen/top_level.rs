@@ -130,23 +130,19 @@ pub(crate) fn finalize_fresh_names(tokens: TokenStream) -> TokenStream {
 fn collect_carriers(v: &[TokenTree], groups: &mut Vec<(usize, usize)>) {
     let mut i = 0;
     while i < v.len() {
-        match (&v[i], v.get(i + 1)) {
-            _ if is_carrier_at(v, i) => {
-                let TokenTree::Group(g) = &v[i + 1] else { unreachable!("matched above") };
-                let inner = carrier_inner(g);
-                if let Some(FreshRef { group: Some(gp), start, end: FreshEnd::Single }) =
-                    FreshRef::parse(&inner)
-                {
-                    groups.push((gp, start));
-                }
-                i += 2;
+        if let Some(inner) = carrier_inner_at(v, i) {
+            if let Some(FreshRef { group: Some(gp), start, end: FreshEnd::Single }) =
+                FreshRef::parse(&inner)
+            {
+                groups.push((gp, start));
             }
-            (TokenTree::Group(g), _) => {
-                let inner = g.stream().into_iter().collect::<Vec<_>>();
-                collect_carriers(&inner, groups);
-                i += 1;
-            }
-            _ => i += 1,
+            i += 2;
+        } else if let TokenTree::Group(g) = &v[i] {
+            let inner = g.stream().into_iter().collect::<Vec<_>>();
+            collect_carriers(&inner, groups);
+            i += 1;
+        } else {
+            i += 1;
         }
     }
 }
@@ -155,42 +151,36 @@ fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) ->
     let mut out = vec![];
     let mut i = 0;
     while i < v.len() {
-        match (&v[i], v.get(i + 1)) {
-            _ if is_carrier_at(&v, i) => {
-                let TokenTree::Group(g) = &v[i + 1] else { unreachable!("matched above") };
-                let inner = carrier_inner(g);
-                let name = FreshRef::parse(&inner)
-                    .and_then(|r| match r {
-                        FreshRef { group: Some(gp), start, end: FreshEnd::Single } => {
-                            map.get(&(gp, start)).cloned()
-                        }
-                        _ => None,
-                    })
-                    .map(|n| {
-                        let id = Ident::new(&n, v[i].span());
-                        TokenTree::Ident(id)
-                    });
-                match name {
-                    Some(id) => out.push(id),
-                    None => {
-                        out.push(v[i].clone());
-                        out.push(v[i + 1].clone());
+        if let Some(inner) = carrier_inner_at(&v, i) {
+            let name = FreshRef::parse(&inner)
+                .and_then(|r| match r {
+                    FreshRef { group: Some(gp), start, end: FreshEnd::Single } => {
+                        map.get(&(gp, start)).cloned()
                     }
+                    _ => None,
+                })
+                .map(|n| {
+                    let id = Ident::new(&n, v[i].span());
+                    TokenTree::Ident(id)
+                });
+            match name {
+                Some(id) => out.push(id),
+                None => {
+                    out.push(v[i].clone());
+                    out.push(v[i + 1].clone());
                 }
-                i += 2;
             }
-            (TokenTree::Group(g), _) => {
-                let inner = g.stream().into_iter().collect();
-                let mut ng =
-                    Group::new(g.delimiter(), rewrite_carriers(inner, map).into_iter().collect());
-                ng.set_span(g.span());
-                out.push(TokenTree::Group(ng));
-                i += 1;
-            }
-            _ => {
-                out.push(v[i].clone());
-                i += 1;
-            }
+            i += 2;
+        } else if let TokenTree::Group(g) = &v[i] {
+            let inner = g.stream().into_iter().collect();
+            let mut ng =
+                Group::new(g.delimiter(), rewrite_carriers(inner, map).into_iter().collect());
+            ng.set_span(g.span());
+            out.push(TokenTree::Group(ng));
+            i += 1;
+        } else {
+            out.push(v[i].clone());
+            i += 1;
         }
     }
     out

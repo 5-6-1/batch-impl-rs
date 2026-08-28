@@ -8,7 +8,7 @@ use quote::ToTokens;
 use std::collections::HashSet;
 
 use super::fresh::FreshCtx;
-use crate::ast::{FreshEnd, FreshRef, Ty, carrier_inner};
+use crate::ast::{FreshEnd, FreshRef, Ty, carrier_inner_at};
 use crate::util::compile_error_str;
 pub(crate) fn at_num_out_of_range(n: usize, fresh_count: usize, span: Span) -> TokenStream {
     compile_error_str(
@@ -63,16 +63,13 @@ fn collect_dangling(
     let mut errs = vec![];
     let mut i = 0;
     while i < v.len() {
-        if is_fresh_carrier(&v[i], v.get(i + 1)) {
+        if let Some(inner) = carrier_inner_at(&v, i) {
             let span = match &v[i] {
                 TokenTree::Punct(p) => p.span(),
                 _ => Span::call_site(),
             };
-            if let Some(TokenTree::Group(g)) = v.get(i + 1) {
-                let inner = carrier_inner(g);
-                if let Some(r) = FreshRef::parse(&inner) {
-                    errs.extend(validate_ref(&r, declared, fresh_count, span));
-                }
+            if let Some(r) = FreshRef::parse(&inner) {
+                errs.extend(validate_ref(&r, declared, fresh_count, span));
             }
             i += 2;
             continue;
@@ -84,13 +81,6 @@ fn collect_dangling(
         i += 1;
     }
     errs
-}
-
-/// Whether a token pair is a fresh-ref carrier: a `@` punct directly
-/// followed by a Brace group.
-fn is_fresh_carrier(at: &TokenTree, g: Option<&TokenTree>) -> bool {
-    matches!(at, TokenTree::Punct(p) if p.as_char() == '@')
-        && matches!(g, Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}])
 }
 
 /// The range/single checks shared by every validator — one authority so the

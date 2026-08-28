@@ -107,10 +107,12 @@ fn expand_fresh_marks(
         if let TokenTree::Ident(id) = &v[i]
             && id == "fresh"
             && matches!(v.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '!')
-            && matches!(v.get(i + 2), Some(TokenTree::Group(g))
-                if g.delimiter() == delimiter![()])
         {
-            let TokenTree::Group(g) = &v[i + 2] else { unreachable!("matched above") };
+            let Some(g) = crate::util::group_at(&v, i + 2, delimiter![()]) else {
+                out.push(v[i].clone());
+                i += 1;
+                continue;
+            };
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             out.extend(expand_fresh_inner(&inner, fresh_names, template_segs, m)?);
             i += 3;
@@ -242,10 +244,12 @@ pub(crate) fn peel_where(spec: &[TokenTree]) -> (Vec<TokenTree>, Vec<TokenTree>)
     while i < colon {
         if let TokenTree::Ident(id) = &spec[i]
             && *id == "where"
-            && matches!(spec.get(i + 1), Some(TokenTree::Group(g))
-                if g.delimiter() == delimiter![{}])
         {
-            let TokenTree::Group(g) = &spec[i + 1] else { unreachable!("matched above") };
+            let Some(g) = crate::util::group_at(spec, i + 1, delimiter![{}]) else {
+                out.push(spec[i].clone());
+                i += 1;
+                continue;
+            };
             if !preds.is_empty() {
                 preds.push(TokenTree::Punct(proc_macro2::Punct::new(
                     ',',
