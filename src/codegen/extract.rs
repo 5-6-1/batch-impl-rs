@@ -148,7 +148,20 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                 // shape match (multiple attachments merge).
                 for seg in split_impl_attachments(&wi.1.0) {
                     if let Some(range) = parse_fresh_switch(&seg) {
-                        parts.fresh_binding = Some(range);
+                        // An inverted/empty fresh range (`@2..1` /
+                        // `@2..=1`) binds nothing — a targeted error via the
+                        // target-type Error channel (the shape-template path's
+                        // "DSL operators not allowed" would mislead; a silent
+                        // re-open would change semantics).
+                        if is_invalid_switch(&range) {
+                            parts.target_type = crate::apply::err_ty(
+                                "batch-impl: invalid fresh-binding \
+                                 switch — the range covers no fresh (`@2..1` / \
+                                 `@2..=1`); write `@N..` / `@N..=M` with `N <= M`",
+                            );
+                        } else {
+                            parts.fresh_binding = Some(range);
+                        }
                     } else if parse_at_brace_switch(&seg) {
                         parts.body_at = true;
                     } else {
@@ -335,6 +348,14 @@ fn parse_fresh_switch(tokens: &TokenStream) -> Option<FreshRef> {
         return None;
     }
     let (group, start) = crate::parse::parse_range_literal(&lit.to_string())?;
+    // An **inverted** range (`@2..1` / `@2..=1`) is invalid — the switch
+    // would bind no fresh. Report it as an invalid switch rather than
+    // silently re-opening (`@2..1` → `@2..`) or falling into the shape
+    // template path (which would claim "DSL operators are not allowed"
+    // for a fresh-range spelling). The `Closed(0)` sentinel can never
+    // collide with a valid switch: a valid closed range has `start <= e`
+    // and `start >= 0`, so `@0..=0` is `Closed(0)` with `start == 0` — the
+    // sentinel uses `start == usize::MAX` to stay distinct.
     let end = match rest {
         // `@N..` — open to the last fresh of the scope
         [] => None,
@@ -343,19 +364,38 @@ fn parse_fresh_switch(tokens: &TokenStream) -> Option<FreshRef> {
             Some(el.to_string().parse().ok()?)
         }
         // `@N..M` — exclusive, normalized to the inclusive protocol
-        // (`..=M-1`), matching the where-predicate resolution
+        // (`..=M-1`), matching the where-predicate resolution.
         [TokenTree::Literal(el)] => {
             let e = el.to_string().parse().ok()?;
-            (start < e).then_some(e - 1)
+            if start < e {
+                Some(e - 1)
+            } else {
+                // empty exclusive range (`@2..1`)
+                return Some(invalid_switch());
+            }
         }
         _ => return None,
     };
     let range = FreshRef { group, start, end: end.map(FreshEnd::Closed).unwrap_or(FreshEnd::Open) };
-    (match range.end {
-        FreshEnd::Closed(e) => range.start <= e,
-        _ => true,
-    })
-    .then_some(range)
+    // An inverted closed range (`@2..=1`) binds nothing — the invalid
+    // sentinel (the closed form is only valid when `start <= end`).
+    if matches!(range.end, FreshEnd::Closed(e) if range.start > e) {
+        return Some(invalid_switch());
+    }
+    Some(range)
+}
+
+/// The invalid-switch sentinel: a fresh range that binds nothing (`@2..1` /
+/// `@2..=1`). The caller detects it and reports a targeted error. Uses
+/// `start = usize::MAX` — no valid switch (always `start <= end`) collides.
+fn invalid_switch() -> FreshRef {
+    use crate::ast::fresh::{FreshEnd, FreshRef};
+    FreshRef { group: None, start: usize::MAX, end: FreshEnd::Closed(0) }
+}
+
+/// Whether a parsed switch is the invalid sentinel (an inverted/empty range).
+fn is_invalid_switch(r: &crate::ast::fresh::FreshRef) -> bool {
+    r.group.is_none() && r.start == usize::MAX
 }
 
 /// Recognizes the **`@{N}` body-slot switch**: an `impl{...}` whose whole

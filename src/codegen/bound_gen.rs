@@ -41,7 +41,29 @@ pub(crate) fn distribute_bound_arrays(parts: ImplParts) -> Vec<ImplParts> {
         crate::ast::MAX_EXPAND,
     ) {
         Ok(c) => c,
-        Err(_) => return vec![parts],
+        Err(_) => {
+            // Over-limit product: do NOT fall back to the single input — the
+            // array bound would render as `T: [A, B, ...]` (an illegal bound
+            // rustc reports with a confusing error; the render layer has no
+            // size check). Emit a targeted diagnostic instead, through the
+            // error-bound channel the driver aggregates.
+            let mut p = parts;
+            let total = positions
+                .iter()
+                .map(|&i| match &p.impl_generics[i].1 {
+                    Some(t) if matches!(&t.kind, TyKind::Array(_)) => {
+                        if let TyKind::Array(a) = &t.kind { a.0.len() } else { 0 }
+                    }
+                    _ => 0,
+                })
+                .product::<usize>();
+            p.impl_generics[positions[0]].1 = Some(crate::apply::err_ty(&format!(
+                "batch-impl: bound-generator distribution expands to {total} \
+                     impls (limit {}); reduce the range sizes",
+                crate::ast::MAX_EXPAND,
+            )));
+            return vec![p];
+        }
     };
     combos
         .into_iter()

@@ -16,6 +16,12 @@
 - **`merge_dup_params` 按形状而非名字前缀判定 const**（评审 P4）——`name_str.starts_with("const")` 把名为 `constant` 的类型参数误判为 const 参数，静默丢弃其重复 bound（const 分支丢弃后续重复；where 合并分支保留）。现按 `const` + ident 双 token 形状判定（与 `bare_param_name` 同形状）。
 - **`repeat_drivers` 游标 `n + round` 饱和**（评审次要 2）——`@18446744073709551615` 型字面量可解析为 `usize::MAX`，`+ round` 在 debug 下溢出；改用 `saturating_add`。
 - **`unmarked_segment_at` 恢复 ident 前缀检查**——`bool → Option` 重构丢了 `tokens[i]` 必须是 Ident 的条件，`<@..`（`Vec<@..u128>`）被误判为未标记段、canary panic；范围常量的 `@` 前是 `<`/`,`/`(`，绝不可能是 ident。fixture `tests/ui/impl_template_range_constant.rs`。
+- **where 谓词开区间越界不再 panic**（评审 P1）——`resolve_where_at` 的 range 分支在 `r.start` 超出作用域长度时切片 `slice[r.start..r.start+count]`（count==0，`().2` 配 `@5..`）——debug 构建下索引越界，正是 `range_refs::range_entries` 的 `count == 0` 守卫（其注释点名该 panic）的对称缺口。越界现在贡献零谓词。功能测试 `open_range_past_end_contributes_nothing`。
+- **无效 fresh-binding 开关报定向错误**（评审 P2）——`impl{@2..1}`（空排他）此前静默重开成 `@2..`，`impl{@2..=1}`（倒置闭区间）落入形状模板通道报误导的 "DSL operators not allowed"——同一拼写两种错误行为。`parse_fresh_switch` 现在检测两者（无效哨兵），调用方报 "invalid fresh-binding switch — the range covers no fresh"。
+- **bound 生成器超限分发报定向错误**（评审）——`distribute_bound_arrays` 的超限回退返回单份输入，渲染出 `T: [A, B, ...]`（非法 bound，rustc 报晦涩错误；渲染层无尺寸检查）。现经错误 bound 通道报 "bound-generator distribution expands to N impls (limit ...)"。
+- **`resolve_target_predicates` 递归进组**（评审）——wrapper where 谓词里 `Vec<@trait>` 泄漏 `@trait`（同文件 `has_at0` 本就递归）。组内现在也替换 trait 路径。
+- **`match_ty` 删除 varseg 死防御**（评审）——裸 ident 臂的 `is_varseg_type`（varseg 标记必为 `Type::Array`，绝不进 `Type::Path`）与数组臂的第二次 `is_varseg_array`（臂顶已 return）都是不可达代码，删除。
+- **裸 where × 裸 impl 边界不对称记录在案**（评审）——where 收集器的边界只有 `impl{...}`；混写 `where A: Clone impl B {..}` 会把片段收进谓词（可接受：以 syn/rustc 错误呈现，绝不 panic）——记入 `where_process` 模块文档。
 - **类型态预处理管线**（`preprocess/stream.rs`）——`Stream<S>` 把 token
   向量包在以**不变量**命名的状态里（`Raw → Marked → ConstsDone → Paired
   → DirectivesResolved → WhereDone → Ready`），每个 pass 只作为"可消费它

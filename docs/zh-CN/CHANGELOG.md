@@ -9,6 +9,9 @@
 - **排他 `@N..M` 范围现在在所有位置都排除端点**——`@0..2` 处处覆盖 `P0, P1`（目标类型、`<>` 实参、where 谓词），符合文档化的 "normalized to inclusive" 协议；此前在类型位置覆盖 `P0, P1, P2`（与 where 谓词路径不一致）。空排他范围（`@2..1`）报定向错误。冻结语法面注：`@N..M`（排他）与 `@N..=M`（含端点）分别等价于 `@N..=M-1` 与 `@N..=M`。
 - **no-panic 修复**——`#delegate(=foo)`（重命名缺左侧）、`#blanket` 方法参数组内 `Self`（`(Self, u8)`——现在像裸 `Self` 一样被拦截并引导）、repeat 块内极端 `@N` 游标字面量都不再 panic；各自报定向错误。
 - **`<constant: Clone>` 重复声明保留两个 bound**——仅*名为* `constant` 的类型参数不再被误判为 `const` 参数；重复 bound 按文档并成 where 谓词。
+- **越界开区间 fresh 范围处处无操作**——`where{@5..: Clone}` 在 2-fresh impl 上贡献零谓词而不是 panic（where 谓词路径此前有与类型路径同款的索引越界缺口）。
+- **无效 fresh-binding 开关报错**——`impl{@2..1}` / `impl{@2..=1}`（覆盖零个 fresh 的范围）报 "invalid fresh-binding switch"，不再静默重开或落入形状模板通道。
+- **超限 bound 生成器分发报错**——bound 数组笛卡尔积超过展开上限时报 "expands to N impls (limit ...)"，不再把非法的 `T: [A, B, ...]` bound 交给 rustc 报晦涩错误。
 
 ## 0.9.7 (2026-08-29)
 

@@ -23,6 +23,17 @@
 - **`<constant: Clone>` duplicate declarations keep both bounds** — a type
   param merely *named* `constant` is no longer mistaken for a `const`
   parameter; duplicate bounds merge into where predicates as documented.
+- **Open fresh ranges past the end are a no-op everywhere** — `where{@5..:
+  Clone}` on a 2-fresh impl contributes zero predicates instead of panicking
+  (the where-predicate path had the same index-out-of-bounds gap the type
+  path had already fixed).
+- **Invalid fresh-binding switches error** — `impl{@2..1}` / `impl{@2..=1}`
+  (a range covering no fresh) report "invalid fresh-binding switch" instead
+  of silently re-opening or falling into the shape-template path.
+- **Over-limit bound-generator distribution errors** — a bound-array
+  Cartesian product past the expansion cap reports "expands to N impls
+  (limit ...)" instead of emitting an illegal `T: [A, B, ...]` bound for
+  rustc to report confusingly.
 
 ## 0.9.7 (2026-08-29)
 

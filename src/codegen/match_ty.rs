@@ -34,17 +34,8 @@ pub(crate) fn match_ty(
         // Bare ident: `_` is a wildcard (matches any type, never binds a
         // slot); an equal leaf ident → literal; anything else → slot bound
         // to the whole leaf subtree (the "0-arity → T := leaf" rule).
-        // A variadic-segment placeholder is legal only as a tuple element —
-        // reaching the bare-ident arm means it sits elsewhere (rejected).
         syn::Type::Path(tp) if is_bare_ident(tp) => {
             let name = &tp.path.segments[0].ident;
-            if is_varseg_type(template) {
-                return Err(ShapeError::ShapeMismatch(
-                    "a variadic segment (`ident@..`) is only supported as a tuple element \
-                     inside an `impl{...}` template"
-                        .into(),
-                ));
-            }
             if name == "_" {
                 return Ok(());
             }
@@ -276,17 +267,10 @@ pub(crate) fn match_ty(
                 return Ok(());
             }
             let syn::Type::Array(l) = leaf else {
-                // A variadic-segment marker (`[A; ()]` — the unit-tuple
-                // length) against a non-tuple target: the user wrote
-                // `ident@..` outside a tuple. The marker shape is invisible
-                // to them, so report in their spelling, not ours.
-                if crate::preprocess::varseg::is_varseg_array(t) {
-                    return Err(ShapeError::ShapeMismatch(
-                        "a variadic segment (`ident@..`) is only legal as a tuple \
-                         element inside `impl{...}`"
-                            .into(),
-                    ));
-                }
+                // A variadic-segment marker (`[A; ()]`) never reaches this
+                // arm — the generic-argument case above handled it (with the
+                // tuple-target requirement); here the template is a plain
+                // array and the target is not one.
                 return Err(ShapeError::ShapeMismatch(
                     "the template is an array but the target is not".into(),
                 ));

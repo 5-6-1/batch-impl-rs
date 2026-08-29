@@ -80,6 +80,38 @@
   `<@..` (`Vec<@..u128>`) was mistaken for an unmarked segment and the
   canary panicked; a constant range's `@` is preceded by `<`/`,`/`(`, never
   an ident. Fixture `tests/ui/impl_template_range_constant.rs`.
+- **Where-predicate open range past the end no longer panics** (review P1) —
+  `resolve_where_at`'s range branch sliced `slice[r.start..r.start+count]`
+  with `count == 0` when `r.start` exceeded the scope length (`().2` with
+  `@5..`), an index out of bounds in debug builds — the symmetric gap to
+  `range_refs::range_entries`'s `count == 0` guard (whose comment names the
+  exact panic). Now contributes zero predicates past the end. Feature test
+  `open_range_past_end_contributes_nothing`.
+- **Invalid fresh-binding switches report a targeted error** (review P2) —
+  `impl{@2..1}` (empty exclusive) silently re-opened to `@2..`, and
+  `impl{@2..=1}` (inverted closed) fell into the shape-template path with a
+  misleading "DSL operators not allowed" — one spelling, two wrong
+  behaviors. `parse_fresh_switch` now detects both (an invalid sentinel)
+  and the caller emits "invalid fresh-binding switch — the range covers no
+  fresh".
+- **Bound-generator over-limit distribution reports a targeted error**
+  (review) — `distribute_bound_arrays`'s over-limit fallback returned the
+  single input, rendering `T: [A, B, ...]` (an illegal bound rustc reports
+  confusingly; the render layer has no size check). Now emits
+  "bound-generator distribution expands to N impls (limit ...)" through the
+  error-bound channel.
+- **`resolve_target_predicates` recurses into groups** (review) — a
+  `Vec<@trait>` in a wrapper where predicate leaked `@trait` (the sibling
+  `has_at0` already recursed). Groups now substitute the trait path too.
+- **`match_ty` dead varseg defenses removed** (review) — the bare-ident
+  arm's `is_varseg_type` (varseg markers are always `Type::Array`, never
+  `Type::Path`) and the array arm's second `is_varseg_array` (the top of the
+  arm already returned) were unreachable code; deleted.
+- **Bare-where × bare-impl boundary asymmetry documented** (review) — the
+  where collector's boundary is only `impl{...}`; a mixed
+  `where A: Clone impl B {..}` collects the fragment into the predicates
+  (accepted: fails with a syn/rustc error, never a panic) — noted in
+  `where_process`'s module docs.
 
 - **Typestate preprocessing pipeline** (`preprocess/stream.rs`) — `Stream<S>`
   wraps the token vector in a state named after the **invariant** it

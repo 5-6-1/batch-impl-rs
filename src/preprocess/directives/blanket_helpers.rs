@@ -116,8 +116,21 @@ pub(crate) fn resolve_target_predicates(
                 }
             },
             _ => {
-                out.push(preds[i].clone());
-                i += 1;
+                // Recurse into groups: `Vec<@trait>` in a wrapper where
+                // predicate must substitute the trait path inside the group
+                // too (a top-level-only scan would leak `@trait` into the
+                // output — same recursion the sibling `has_at0` performs).
+                if let TokenTree::Group(g) = &preds[i] {
+                    let inner = g.stream().into_iter().collect::<Vec<_>>();
+                    let resolved = resolve_target_predicates(&inner, trait_full_path)?;
+                    let mut ng = Group::new(g.delimiter(), resolved.into_iter().collect());
+                    ng.set_span(g.span());
+                    out.push(TokenTree::Group(ng));
+                    i += 1;
+                } else {
+                    out.push(preds[i].clone());
+                    i += 1;
+                }
             }
         }
     }

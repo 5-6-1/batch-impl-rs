@@ -192,3 +192,21 @@ fn exclusive_range_in_type_position_is_exclusive() {
     fn check<T: GenConvX<u8, u16, u32>>(_: &T) {}
     check(&Wrap2Ty(0u8, 1u16));
 }
+
+// ============================================================
+// 11. An open range **past the end** of the fresh list in a where predicate
+//     contributes zero predicates — no panic (regression guard: the
+//     where-predicate path used to slice `slice[r.start..r.start+0]` with
+//     `r.start` past the scope length, panicking on `().2` with `@5..`).
+// ============================================================
+#[batch_impl(Wrap2<*().2> where{@5..: Clone} { fn m(&self) {} })]
+#[allow(dead_code)]
+trait RangeWherePastEnd {
+    fn m(&self);
+}
+
+#[test]
+fn open_range_past_end_contributes_nothing() {
+    fn check<T: RangeWherePastEnd>(_: &T) {}
+    check(&Wrap2(0u8, 1u16));
+}

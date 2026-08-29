@@ -114,7 +114,13 @@ pub(crate) fn resolve_where_at(
                     };
                     let count = crate::codegen::range_refs::range_count(&r, slice.len(), at_span)?;
                     let tail = resolve_tail(&tokens[i + 2..], ctx)?;
-                    emit_fresh_predicates(&mut out, &slice[r.start..r.start + count], &tail);
+                    // count == 0 (open range past the end): contribute
+                    // nothing — never slice `slice[r.start..]` (the index can
+                    // exceed the scope length and panic; the same guard
+                    // `range_refs::range_entries` carries).
+                    if count > 0 {
+                        emit_fresh_predicates(&mut out, &slice[r.start..r.start + count], &tail);
+                    }
                     i = tokens.len();
                     continue;
                 }

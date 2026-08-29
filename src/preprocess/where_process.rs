@@ -12,6 +12,16 @@
 //! keyword with **no** trailing code block is legal (the region rides into a
 //! body-less suffix).
 //!
+//! **Known boundary asymmetry**: the where collector's boundary is only the
+//! `impl{...}` **attachment** form (`is_impl_template`) — a bare
+//! `impl A<B> {body}` (0.8.2's un-collected spelling) is NOT a boundary, so
+//! `where A: Clone impl B {..}` collects the whole `impl B {..}` fragment
+//! into the where predicates (a confusing downstream diagnostic). The two
+//! bare-keyword syntaxes (0.8.2 bare `impl` + bare `where`) predate each
+//! other's boundary rules; the interaction is accepted (the fragment fails
+//! with a syn/rustc error, never a panic) but not worth special-casing — a
+//! mixed spelling is a typo-level rarity.
+//!
 //! Shared by all three entries (`#[batch_impl]` / `#[batch_impl_only]` /
 //! `batch_trait!`) and the impl entry; the parse layer need not know about the
 //! bare spellings.
