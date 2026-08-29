@@ -12,6 +12,7 @@
 - **越界开区间 fresh 范围处处无操作**——`where{@5..: Clone}` 在 2-fresh impl 上贡献零谓词而不是 panic（where 谓词路径此前有与类型路径同款的索引越界缺口）。
 - **无效 fresh-binding 开关报错**——`impl{@2..1}` / `impl{@2..=1}`（覆盖零个 fresh 的范围）报 "invalid fresh-binding switch"，不再静默重开或落入形状模板通道。
 - **超限 bound 生成器分发报错**——bound 数组笛卡尔积超过展开上限时报 "expands to N impls (limit ...)"，不再把非法的 `T: [A, B, ...]` bound 交给 rustc 报晦涩错误。
+- **`impl` 条目多模板合并**——一个矩阵上带多个形状模板（`impl{...} impl{...}`）的 `impl` 条目现在保留并合并*每一个*模板，而不是静默只留最后一个；所有模板合并出的槽位在体内都可绑定（attribute 条目本就合并——impl 条目现在走同一条路径）。
 
 ## 0.9.7 (2026-08-29)
 

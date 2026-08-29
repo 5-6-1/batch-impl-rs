@@ -187,15 +187,20 @@ fn expand_leaf(
     item: &ItemImpl, trait_path: Option<&syn::Path>, new_gen: Option<&TokenStream>,
 ) -> Result<TokenStream, TokenStream> {
     // Attachment extraction: recursively strip the leaf's attachments,
-    // collecting its own shape template (`[Box,Rc]impl{A<(T@..)>}`) and its
-    // where predicates.
-    let mut leaf_template = None;
+    // collecting its own shape templates (`[Box,Rc]impl{A<(T@..)>}` — several
+    // may be comma-joined inside one `impl{...}`, like the attribute entry's
+    // multi-template merge) and its where predicates.
+    let mut leaf_templates: Vec<TokenStream> = vec![];
     let mut leaf_preds: Vec<TokenTree> = vec![];
     let mut leaf = Some(leaf);
     while let Some(t) = leaf {
         match t.kind {
             TyKind::WithImpl(wi) => {
-                leaf_template = Some(wi.1.0);
+                // An `impl{...}` attachment may hold several comma-separated
+                // templates (`impl{A<B>, C<D>}`) — split and collect them
+                // all; each matches the leaf and merges (the attribute
+                // entry's `split_impl_attachments` is the shared splitter).
+                leaf_templates.extend(crate::codegen::split_impl_attachments(&wi.1.0));
                 leaf = wi.0.map(|b| *b);
             }
             TyKind::WithWhere(ww) => {
@@ -242,10 +247,11 @@ fn expand_leaf(
     })?;
     let (mut m, mut template_segs) =
         match_shape(template, &leaf_ty).map_err(|e| compile_error_str(&e.message(), leaf_span))?;
-    // The leaf's own template (`impl{...}`) matches the same leaf and
-    // merges: its slots must agree, its segments (the `T@..` driving the
-    // body's `fresh!`) join.
-    if let Some(lt) = leaf_template {
+    // The leaf's own templates (`impl{...}`) match the same leaf and merge:
+    // their slots must agree (inconsistent bindings error), their segments
+    // (the `T@..` driving the body's `fresh!`) join. The same merge the
+    // attribute entry performs over multiple `impl{...}` attachments.
+    for lt in leaf_templates {
         let lt_marked =
             crate::preprocess::varseg::mark_template(&lt.into_iter().collect::<Vec<_>>(), 0)?;
         let lt_tokens = render_angles(lt_marked.into_iter().collect::<TokenStream>());

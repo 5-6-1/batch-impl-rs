@@ -318,7 +318,9 @@ pub(crate) fn substitute_trait_generics(parts: &mut ImplParts, trait_param_names
 /// already paired into opaque groups by `angle_collect` (the impl-template
 /// groups are covered), so the flat `split_at_depth0` cut is safe — commas
 /// inside `@(A<B>)`, `A<B>` and `@{}` never surface at the top level.
-fn split_impl_attachments(tokens: &TokenStream) -> Vec<TokenStream> {
+/// Shared by the attribute entry (multi-template merge) and the impl entry's
+/// leaf templates (same merge semantics).
+pub(crate) fn split_impl_attachments(tokens: &TokenStream) -> Vec<TokenStream> {
     let v = tokens.clone().into_iter().collect::<Vec<_>>();
     split_at_depth0(&v, ',')
         .iter()

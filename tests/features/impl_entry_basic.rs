@@ -418,3 +418,35 @@ fn impl_entry_where_multiple_attachments() {
     assert_eq!(<Box<u8> as WhTr2>::tag(&Box::new(0u8)), 2);
     assert_eq!(<Rc<u8> as WhTr2>::tag(&Rc::new(0u8)), 2);
 }
+
+// ------------------------------------------------------------
+// Multi-template merge: two shape templates on one matrix leaf — the
+// impl entry must keep and merge BOTH (the same semantics as the attribute
+// entry's `collect_shape_mapping` over multiple templates; the impl entry
+// used to keep only the last, silently dropping the first).
+// The matrix `[Box, Rc] u8` produces leaves `Box<u8>` / `Rc<u8>`;
+// `A<B>` binds A := Box, B := u8; `C<D>` binds C := Box, D := u8.
+// The body uses both A and C — either dropped template leaves a slot
+// unbound and the body fails to compile.
+// ------------------------------------------------------------
+#[batch_impl(A<B> : [Box, Rc] u8 impl{A<B>} impl{C<D>})]
+impl MkMulti for A<B> {
+    fn mk() -> A<B> {
+        // A and B (return type) come from the first template, C and D from
+        // the second; using C proves the second template was not dropped,
+        // returning A<B> proves the first survived the merge.
+        C::new(1)
+    }
+}
+
+trait MkMulti {
+    fn mk() -> Self;
+}
+
+#[test]
+fn impl_entry_multi_template_merge() {
+    let b: Box<u8> = <Box<u8> as MkMulti>::mk();
+    assert_eq!(*b, 1);
+    let r: Rc<u8> = <Rc<u8> as MkMulti>::mk();
+    assert_eq!(*r, 1);
+}

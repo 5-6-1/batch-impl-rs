@@ -31,6 +31,15 @@
   `tests/ui/at_open_range_bare.rs` locks the user error. The `angle_collect`
   canary remains impossible (pairing output and real transparent groups are
   both `Delimiter::None`).
+- **impl entry reuses the shared attachment splitter** (multi-template
+  merge unification) — `expand_leaf` collected only the *last* `impl{...}`
+  shape template (a `WithImpl` overwrite bug) while the attribute entry
+  merged all templates via `collect_shape_mapping`; the impl entry now
+  collects every template into `leaf_templates` and merges them into
+  `m`/`template_segs` through the same authority (`split_impl_attachments`,
+  now `pub(crate)`, plus `Mapping::merge`). Feature test
+  `impl_entry_multi_template_merge` locks that both templates' slots are
+  bound.
 - **impl entry resets the fresh-generator counter per spec** (review P2) —
   `expand_impl_entry`'s `;`-separated spec loop did not call
   `reset_fresh_counter`, unlike `batch_trait!`'s per-segment reset: group ids

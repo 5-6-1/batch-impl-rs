@@ -34,6 +34,11 @@
   Cartesian product past the expansion cap reports "expands to N impls
   (limit ...)" instead of emitting an illegal `T: [A, B, ...]` bound for
   rustc to report confusingly.
+- **`impl`-entry multi-template merge** — an `impl` entry with several
+  shape templates over one matrix (`impl{...} impl{...}`) now keeps and
+  merges *every* template instead of silently keeping only the last; the
+  slots from all templates are bound in the body (the attribute entry
+  already merged — the impl entry now shares the same path).
 
 ## 0.9.7 (2026-08-29)
 

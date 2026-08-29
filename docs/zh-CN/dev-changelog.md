@@ -19,6 +19,7 @@
 - **where 谓词开区间越界不再 panic**（评审 P1）——`resolve_where_at` 的 range 分支在 `r.start` 超出作用域长度时切片 `slice[r.start..r.start+count]`（count==0，`().2` 配 `@5..`）——debug 构建下索引越界，正是 `range_refs::range_entries` 的 `count == 0` 守卫（其注释点名该 panic）的对称缺口。越界现在贡献零谓词。功能测试 `open_range_past_end_contributes_nothing`。
 - **无效 fresh-binding 开关报定向错误**（评审 P2）——`impl{@2..1}`（空排他）此前静默重开成 `@2..`，`impl{@2..=1}`（倒置闭区间）落入形状模板通道报误导的 "DSL operators not allowed"——同一拼写两种错误行为。`parse_fresh_switch` 现在检测两者（无效哨兵），调用方报 "invalid fresh-binding switch — the range covers no fresh"。
 - **bound 生成器超限分发报定向错误**（评审）——`distribute_bound_arrays` 的超限回退返回单份输入，渲染出 `T: [A, B, ...]`（非法 bound，rustc 报晦涩错误；渲染层无尺寸检查）。现经错误 bound 通道报 "bound-generator distribution expands to N impls (limit ...)"。
+- **impl entry 复用共享附件切分器**（多模板合并统一）——`expand_leaf` 此前只收集*最后一个* `impl{...}` 形状模板（`WithImpl` 覆盖 bug），而 attribute 条目通过 `collect_shape_mapping` 合并全部；impl 条目现在把每个模板收进 `leaf_templates`，经由同一个 `split_impl_attachments`（改为 `pub(crate)`）+ `Mapping::merge` 权威合并进 `m`/`template_segs`。功能测试 `impl_entry_multi_template_merge` 锁定两个模板的槽位都可绑定。
 - **`resolve_target_predicates` 递归进组**（评审）——wrapper where 谓词里 `Vec<@trait>` 泄漏 `@trait`（同文件 `has_at0` 本就递归）。组内现在也替换 trait 路径。
 - **`match_ty` 删除 varseg 死防御**（评审）——裸 ident 臂的 `is_varseg_type`（varseg 标记必为 `Type::Array`，绝不进 `Type::Path`）与数组臂的第二次 `is_varseg_array`（臂顶已 return）都是不可达代码，删除。
 - **裸 where × 裸 impl 边界不对称记录在案**（评审）——where 收集器的边界只有 `impl{...}`；混写 `where A: Clone impl B {..}` 会把片段收进谓词（可接受：以 syn/rustc 错误呈现，绝不 panic）——记入 `where_process` 模块文档。
