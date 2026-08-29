@@ -169,8 +169,11 @@ fn expand_delegate(
         if let Some(eq) =
             chunk.iter().position(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '='))
         {
-            let from_ident = match chunk.get(eq - 1) {
-                Some(TokenTree::Ident(id)) if eq >= 1 => id.clone(),
+            // `eq == 0` (`#delegate(=foo)`) is a missing left side — the
+            // checked_sub keeps the no-panic promise (a raw `eq - 1` would
+            // overflow in debug builds).
+            let from_ident = match eq.checked_sub(1).and_then(|i| chunk.get(i)) {
+                Some(TokenTree::Ident(id)) => id.clone(),
                 _ => {
                     return Err(compile_err!(
                         "batch-impl: #delegate rename `X = Y` needs identifiers on \

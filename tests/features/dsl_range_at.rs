@@ -169,3 +169,26 @@ fn grouped_range_decl() {
     fn check<T: PairGenDecl<u8, u16, u32, u64, u128>>(_: &T) {}
     check(&MultiTarget);
 }
+
+// ============================================================
+// 10. Exclusive `@N..M` in a **type position** (target type) normalizes to
+//     the inclusive protocol, matching the where-predicate path:
+//     `@0..2` covers P0, P1 (not P2). `GenConvX<*().3>` hoists 3 freshs;
+//     the 2-param target compiles only if the exclusive range excludes the
+//     third. Regression guard: the parse-layer range folding used to keep
+//     the raw end (inclusive) here while the where path excluded it — one
+//     spelling, two semantics.
+// ============================================================
+struct Wrap2Ty<A, B>(A, B);
+
+#[batch_impl(GenConvX<*().3> Wrap2Ty<@0..2> { fn m(&self) {} })]
+#[allow(dead_code)]
+trait GenConvX<A, B, C> {
+    fn m(&self);
+}
+
+#[test]
+fn exclusive_range_in_type_position_is_exclusive() {
+    fn check<T: GenConvX<u8, u16, u32>>(_: &T) {}
+    check(&Wrap2Ty(0u8, 1u16));
+}

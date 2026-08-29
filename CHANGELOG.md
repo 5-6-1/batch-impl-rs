@@ -5,6 +5,25 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+> Robustness pass: no-panic fixes and a frozen-syntax semantic unification.
+
+- **Exclusive `@N..M` ranges now exclude the end in every position** —
+  `@0..2` covers `P0, P1` everywhere (target type, `<>` args, where
+  predicates), matching the documented "normalized to inclusive" protocol;
+  it previously covered `P0, P1, P2` in type positions (inconsistent with
+  the where-predicate path). An empty exclusive range (`@2..1`) reports a
+  targeted error. Frozen-syntax note: `@N..M` (exclusive) and `@N..=M`
+  (inclusive) are now equivalent to `@N..=M-1` and `@N..=M` respectively.
+- **No-panic fixes** — `#delegate(=foo)` (missing rename left side),
+  `#blanket` with a `Self` inside a group (`(Self, u8)` — now caught and
+  guided like a bare `Self`), and an extreme `@N` cursor literal in a repeat
+  block no longer panic; each reports a targeted error.
+- **`<constant: Clone>` duplicate declarations keep both bounds** — a type
+  param merely *named* `constant` is no longer mistaken for a `const`
+  parameter; duplicate bounds merge into where predicates as documented.
+
 ## 0.9.7 (2026-08-29)
 
 > Review-fix release: the golden-snapshot test layer (the last coverage gap),

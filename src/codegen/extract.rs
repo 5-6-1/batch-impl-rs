@@ -338,11 +338,16 @@ fn parse_fresh_switch(tokens: &TokenStream) -> Option<FreshRef> {
     let end = match rest {
         // `@N..` — open to the last fresh of the scope
         [] => None,
-        // `@N..=M` — closed
+        // `@N..=M` — closed (inclusive)
         [TokenTree::Punct(eq), TokenTree::Literal(el)] if eq.as_char() == '=' => {
             Some(el.to_string().parse().ok()?)
         }
-        // `@N..M` — closed
+        // `@N..M` — exclusive, normalized to the inclusive protocol
+        // (`..=M-1`), matching the where-predicate resolution
+        [TokenTree::Literal(el)] => {
+            let e = el.to_string().parse().ok()?;
+            (start < e).then_some(e - 1)
+        }
         _ => return None,
     };
     let range = FreshRef { group, start, end: end.map(FreshEnd::Closed).unwrap_or(FreshEnd::Open) };

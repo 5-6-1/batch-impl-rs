@@ -75,12 +75,16 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                             && let Some((op, _)) = crate::util::read_op(tokens, i + 2)
                             && matches!(op, crate::util::Op::DotDot | crate::util::Op::DotDotEq)
                         {
+                            let inclusive = matches!(op, crate::util::Op::DotDotEq);
                             let mut consumed = 2 + match op {
                                 crate::util::Op::DotDot => 2,
                                 crate::util::Op::DotDotEq => 3,
                                 _ => unreachable!("matched above"),
                             };
-                            // closed `@N..M` / `@N..=M`: an end literal
+                            // closed `@N..M` / `@N..=M`: an end literal.
+                            // `@N..M` (exclusive) normalizes to the inclusive
+                            // protocol (`..=M-1`), matching the where-predicate
+                            // resolution (`FreshRef::Closed` is inclusive).
                             let end = match tokens.get(i + consumed) {
                                 Some(TokenTree::Literal(el)) => {
                                     let Some(e) = el.to_string().parse::<usize>().ok() else {
@@ -90,7 +94,15 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                                         ));
                                     };
                                     consumed += 1;
-                                    FreshEnd::Closed(e)
+                                    if inclusive || start < e {
+                                        FreshEnd::Closed(if inclusive { e } else { e - 1 })
+                                    } else {
+                                        // empty exclusive range (`@2..1`)
+                                        return Err(compile_error_str(
+                                            "batch-impl: empty exclusive range `@{}..{}` (start not below end)",
+                                            at_span,
+                                        ));
+                                    }
                                 }
                                 _ => FreshEnd::Open,
                             };

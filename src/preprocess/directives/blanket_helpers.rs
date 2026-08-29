@@ -35,14 +35,26 @@ pub(crate) fn sig_refs_bare_self(sig: &syn::Signature) -> bool {
             .any(|i| matches!(i, syn::FnArg::Typed(pt) if ty_refs_bare_self(&pt.ty)))
 }
 
-/// A type's token stream references bare `Self` (not `Self::`).
+/// A type's token stream references bare `Self` (not `Self::`) — recursing
+/// into groups, so a `Self` inside `(Self, u8)` / `Box<Self>` is caught too
+/// (a group is a single top-level token; a top-level-only scan would miss
+/// it and emit a delegation that silently forwards the wrong type).
 fn ty_refs_bare_self(ty: &syn::Type) -> bool {
     let tokens = ty.to_token_stream().into_iter().collect::<Vec<_>>();
-    tokens.iter().enumerate().any(|(i, tt)| {
-        matches!(tt, TokenTree::Ident(id) if id == "Self")
+    ty_tokens_refs_bare_self(&tokens)
+}
+
+fn ty_tokens_refs_bare_self(tokens: &[TokenTree]) -> bool {
+    tokens.iter().enumerate().any(|(i, tt)| match tt {
+        TokenTree::Ident(id) if id == "Self" => {
             // `Self::` — an associated projection, allowed (see above)
-            && !(matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == ':')
+            !(matches!(tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == ':')
                 && matches!(tokens.get(i + 2), Some(TokenTree::Punct(p)) if p.as_char() == ':'))
+        }
+        TokenTree::Group(g) => {
+            ty_tokens_refs_bare_self(&g.stream().into_iter().collect::<Vec<_>>())
+        }
+        _ => false,
     })
 }
 

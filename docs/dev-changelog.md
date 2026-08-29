@@ -44,6 +44,42 @@
   shared predicate) instead of an inline copy, so detection and consumption
   literally share one function (the previous regression's root cause was the
   two disagreeing).
+- **`#delegate` rename missing its left side is a user error, not a panic**
+  (review P1) — `#delegate(=foo)` made the `eq - 1` lookup underflow in debug
+  builds (arithmetic overflow panic; release wrapped to `usize::MAX` → the
+  friendly error, so debug/release behavior diverged). Now `eq.checked_sub(1)`
+  — no-panic promise restored. Regression fixture
+  `tests/ui/delegate_rename_missing_left.rs`.
+- **Exclusive `@N..M` unified to the inclusive protocol in type positions**
+  (review P2, frozen-syntax inconsistency) — `@0..2` expanded to `P0, P1, P2`
+  in `<>` args / tuple targets / impl-generic bounds (the parse-layer range
+  folding kept the raw end) while the where-predicate path normalized it to
+  `..=M-1` (`P0, P1`) — one spelling, two semantics. The protocol documents
+  `@N..M` / `@N..=M` as "normalized to inclusive"; the parse layer now
+  normalizes the exclusive form (`..M` → `Closed(M-1)`), matching the
+  where-predicate resolution, in `at_ref_block`, `resolve_at_refs` and
+  `parse_fresh_switch` (whose comment claimed `@N..M` support while the code
+  returned `None`). An empty exclusive range (`@2..1`) now reports a targeted
+  error. Feature test `exclusive_range_in_type_position_is_exclusive`.
+- **Bare-`Self` blanket detection recurses into groups** (review P3) —
+  `ty_refs_bare_self` scanned only top-level tokens, so a `Self` inside
+  `(Self, u8)` / `Box<Self>` was missed and the delegation emitted with a
+  confusing rustc E0308. Now recurses into groups. Fixture
+  `tests/ui/blanket_self_in_group.rs`.
+- **`merge_dup_params` const detection by shape, not name prefix** (review
+  P4) — `name_str.starts_with("const")` misclassified a type param named
+  `constant` as a const param, silently dropping its duplicate bound (the
+  const branch discards later duplicates; the where-merge branch keeps them).
+  Now detects the `const` + ident two-token shape (via the same
+  `bare_param_name` shape).
+- **`repeat_drivers` cursor `n + round` saturates** (review minor 2) — a
+  `@18446744073709551615`-style cursor literal could parse to `usize::MAX`
+  and overflow on `+ round` in debug builds; now `saturating_add`.
+- **`unmarked_segment_at` ident-prefix check restored** — the
+  `bool → Option` refactor dropped the `tokens[i]`-is-an-ident condition, so
+  `<@..` (`Vec<@..u128>`) was mistaken for an unmarked segment and the
+  canary panicked; a constant range's `@` is preceded by `<`/`,`/`(`, never
+  an ident. Fixture `tests/ui/impl_template_range_constant.rs`.
 
 - **Typestate preprocessing pipeline** (`preprocess/stream.rs`) — `Stream<S>`
   wraps the token vector in a state named after the **invariant** it

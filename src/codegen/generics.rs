@@ -116,8 +116,17 @@ pub(crate) fn merge_dup_params(parts: &mut ImplParts) {
     let mut extra_where = Vec::new();
     let mut seen = HashSet::new();
     for (name, bound) in std::mem::take(&mut parts.impl_generics) {
-        let name_str = name.to_string();
-        let is_const = name_str.starts_with("const");
+        // `const N` — the const-param shape (two idents, first is `const`).
+        // A name that merely *starts with* "const" (`constant`) is an
+        // ordinary type param and must not take the const branch (whose
+        // duplicate handling drops the later bound entirely).
+        let is_const = {
+            let mut it = name.clone().into_iter();
+            matches!(
+                (it.next(), it.next()),
+                (Some(TokenTree::Ident(kw)), Some(TokenTree::Ident(_))) if kw == "const"
+            )
+        };
         let key = bare_param_name(&name).to_string();
         if counts.get(&key).copied().unwrap_or(0) > 1 {
             // duplicate name: bare single declaration (or the first full

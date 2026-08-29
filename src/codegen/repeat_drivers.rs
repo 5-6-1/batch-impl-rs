@@ -250,7 +250,10 @@ pub(crate) fn substitute(
                             lit.span(),
                         ));
                     };
-                    let val = Literal::u64_unsuffixed((n + round) as u64);
+                    // saturating_add: a `@18446744073709551615`-style cursor
+                    // literal can parse to usize::MAX; a raw `n + round`
+                    // would overflow in debug builds (no-panic promise).
+                    let val = Literal::u64_unsuffixed((n.saturating_add(round)) as u64);
                     out.push(TokenTree::Literal(val));
                     i += 2;
                     continue;

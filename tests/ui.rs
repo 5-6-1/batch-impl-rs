@@ -27,6 +27,9 @@ fn ui() {
     t.compile_fail("tests/ui/delegate_on_non_fn.rs");
     // a trait method can be renamed to only one target method
     t.compile_fail("tests/ui/delegate_double_rename.rs");
+    // a `#delegate` rename missing its left side (`=foo`) is a user error,
+    // never a panic (the eq-1 lookup used to underflow in debug builds)
+    t.compile_fail("tests/ui/delegate_rename_missing_left.rs");
 
     // DSL semantic errors
     t.compile_fail("tests/ui/empty_range.rs");
@@ -133,6 +136,9 @@ fn ui() {
     // #blanket: a method returning `Self` cannot be blanket-delegated
     // (forwarding yields the inner type, not the wrapper's `Self`)
     t.compile_fail("tests/ui/blanket_self_return.rs");
+    // ... and neither can a `Self` **inside a group** (`(Self, u8)`) — the
+    // bare-Self detection recurses into groups (top-level-only scan missed it)
+    t.compile_fail("tests/ui/blanket_self_in_group.rs");
 
     // remaining silent-drop / raw-passthrough guards (see dev-changelog)
     t.compile_fail("tests/ui/binding_bound_empty.rs");

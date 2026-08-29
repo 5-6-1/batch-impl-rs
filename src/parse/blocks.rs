@@ -160,29 +160,39 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
             // `@N..` / `@L_N..` / `@N..M` / `@N..=M`: a structured range ref.
             let range_lit = crate::parse::parse_range_literal(&lit_str);
             if let Some((group, start)) = range_lit
-                && matches!(
-                    cursor.op_at(1),
-                    Some((crate::util::Op::DotDot | crate::util::Op::DotDotEq, _))
-                )
+                && let Some((op, _)) = cursor.op_at(1)
+                && matches!(op, crate::util::Op::DotDot | crate::util::Op::DotDotEq)
             {
+                let inclusive = matches!(op, crate::util::Op::DotDotEq);
                 cursor.bump(); // the literal
                 cursor.bump(); // first `.`
                 cursor.bump(); // second `.`
-                if cursor.is_punct('=') {
-                    cursor.bump();
+                if inclusive {
+                    cursor.bump(); // `=`
                 }
-                let end = match cursor.peek() {
-                    Some(TokenTree::Literal(el)) => {
-                        let Some(e) = el.to_string().parse::<usize>().ok() else {
-                            return err_ty_at(
-                                "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
-                                at_span,
-                            );
-                        };
-                        cursor.bump();
-                        FreshEnd::Closed(e)
+                // The closed end: `@N..=M` keeps M, `@N..M` (exclusive)
+                // normalizes to `..=M-1` — matching the where-predicate
+                // resolution (`FreshRef::Closed` is always inclusive).
+                let end = if let Some(TokenTree::Literal(el)) = cursor.peek() {
+                    let Some(e) = el.to_string().parse::<usize>().ok() else {
+                        return err_ty_at(
+                            "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
+                            at_span,
+                        );
+                    };
+                    cursor.bump();
+                    if inclusive || start < e {
+                        FreshEnd::Closed(if inclusive { e } else { e - 1 })
+                    } else {
+                        // empty exclusive range (`@2..1`) — a typo; the closed
+                        // form cannot represent it.
+                        return err_ty_at(
+                            "batch-impl: empty exclusive range `@{}..{}` (start not below end)",
+                            at_span,
+                        );
                     }
-                    _ => FreshEnd::Open,
+                } else {
+                    FreshEnd::Open
                 };
                 return TyFresh(FreshRef { group, start, end }).to_ty().with_span(at_span);
             }
