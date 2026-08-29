@@ -129,6 +129,15 @@ fn ui() {
     // primitive validates instead of rendering invalid Rust
     t.compile_fail("tests/ui/semi_in_spec.rs");
 
+    // a bare `impl <trait-object>` target (`impl Fn() -> u8` / `impl dyn
+    // Fn() -> u8` / `impl Iterator + Clone` — the pre-0.9.5 parse-layer
+    // spelling) is not a shape template: targeted diagnostic instead of a
+    // template that silently rendered an empty target type
+    t.compile_fail("tests/ui/bare_impl_trait_target.rs");
+    // an empty exclusive fresh range in a where predicate must error like
+    // the type-position path — never leak a raw `@` into the rendered clause
+    t.compile_fail("tests/ui/where_empty_exclusive_range.rs");
+
     // fn types: trailing tokens after the parameter list error (a return
     // type is `-> B` or `B`; re-applying after `->` errors)
     t.compile_fail("tests/ui/fn_return_reapply.rs");

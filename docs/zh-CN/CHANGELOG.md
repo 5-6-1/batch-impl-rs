@@ -13,6 +13,10 @@
 - **无效 fresh-binding 开关报错**——`impl{@2..1}` / `impl{@2..=1}`（覆盖零个 fresh 的范围）报 "invalid fresh-binding switch"，不再静默重开或落入形状模板通道。
 - **超限 bound 生成器分发报错**——bound 数组笛卡尔积超过展开上限时报 "expands to N impls (limit ...)"，不再把非法的 `T: [A, B, ...]` bound 交给 rustc 报晦涩错误。
 - **`impl` 条目多模板合并**——一个矩阵上带多个形状模板（`impl{...} impl{...}`）的 `impl` 条目现在保留并合并*每一个*模板，而不是静默只留最后一个；所有模板合并出的槽位在体内都可绑定（attribute 条目本就合并——impl 条目现在走同一条路径）。
+- **裸 `impl <trait-object>` 目标报定向错误**——spec 里的 `impl Fn() -> u8` / `impl dyn Fn() -> u8` / `impl Iterator + Clone` 不是形状模板（0.9.5 前的目标拼写从未渲染出合法 Rust，且自裸 impl 收集起静默产出空目标类型）。错误指引可用的拼写：trait 对象写 `dyn Fn() -> u8`，模板写 `impl{...}`。
+- **impl 条目容忍 impl 块上的槽位同名泛型**——`impl<T> Mk for Wrapper<T>` 配模板槽位 `T` 不再产出 rustc E0207：冗余参数被剥除，其 bound 转为 where 谓词（`impl<T: Clone>` → `where u8: Clone`）。
+- **无 body 的裸 `where` 不再吞掉下一个 spec**——`#[batch_impl(u8 where u8: Copy, isize)]` 恢复为两个 spec（`,` 是 spec 列表分隔符）；`where A: Clone, B: Copy` 仍然继续扫描（两个块都是谓词）。
+- **where 谓词中的空排他范围报错**——`where{@2..2: Clone}` 与类型位置一样报 "empty exclusive range"，不再把裸 `@..` 泄漏进渲染出的子句。
 
 ## 0.9.7 (2026-08-29)
 

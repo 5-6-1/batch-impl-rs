@@ -40,6 +40,44 @@
   now `pub(crate)`, plus `Mapping::merge`). Feature test
   `impl_entry_multi_template_merge` locks that both templates' slots are
   bound.
+- **Bare-`impl` impl-Trait target diagnosed** (review P1) — the parse layer
+  has always tolerated `impl Fn() -> u8` / `impl dyn Fn() -> u8` / `impl
+  Iterator + Clone` as a target spelling (locked by
+  `parse/mod.rs::impl_trait_parses`; the rendered output was never valid
+  Rust — a double `impl` — verified against 0.9.4), but the 0.9.5
+  bare-`impl` collection silently rewrote it into a shape template that
+  rendered an **empty** target type (`impl T1 for {}`). `impl_process` now
+  classifies the collected region (fn-family / `dyn` / `for` head, or a
+  depth-0 `+` chain) as an impl-Trait target and reports a targeted
+  diagnostic guiding to `dyn Fn() -> u8` / `impl{...}`; the parse-layer
+  tolerance and its unit tests are unchanged. UI fixture
+  `tests/ui/bare_impl_trait_target.rs`.
+- **Impl entry strips slot-named item generics** (review P2) —
+  `assemble_impl` kept the item's `<>` declaration verbatim while the slot
+  mapping rewrote the for-Type/body, so `impl<T> Mk for Wrapper<T>` with
+  template slot `T` emitted `impl<T> Mk for Box<u8>` → rustc E0207 with no
+  macro-level hint. A param whose name is a mapping slot is now stripped (it
+  is a substitution target, not a declaration) and its bounds become where
+  predicates on the substituted type (`impl<T: Clone>` → `where u8: Clone`)
+  instead of being dropped. Tests
+  `impl_entry_slot_named_item_generic_stripped` /
+  `impl_entry_slot_named_param_bounds_become_where`.
+- **Bare-`where` comma boundary** (review P3) — `scan_body_boundary` stops
+  a body-less where region at a depth-0 `,` when the following chunk is not
+  a predicate (`usize where T: Clone, isize` — `isize` cannot be a
+  predicate — leaves `, isize` as the next `,`-separated spec; `where A:
+  Clone, B: Copy` keeps scanning). The lookahead (`chunk_is_predicate`)
+  reuses the region's stop conditions; angle groups are already opaque, so a
+  flat scan cannot see inside `<>`. Tests
+  `bare_where_comma_splits_specs` / `bare_where_comma_keeps_predicates` +
+  feature test `comma_after_bare_where_splits_specs`.
+- **`fold_flat_refs` reports malformed references** (review P3) — the
+  where-predicate path left an empty exclusive range (`@2..2`) and other
+  malformed `@` spellings raw, so the `@` leaked into the rendered clause
+  (`where @ 2 .. 2 : Clone`) where the type-position path errors. The fold
+  now returns `Result` and reports the same diagnostics as the type path
+  (non-position token, non-numeric range end, empty exclusive range). UI
+  fixture `tests/ui/where_empty_exclusive_range.rs`.
 - **impl entry resets the fresh-generator counter per spec** (review P2) —
   `expand_impl_entry`'s `;`-separated spec loop did not call
   `reset_fresh_counter`, unlike `batch_trait!`'s per-segment reset: group ids

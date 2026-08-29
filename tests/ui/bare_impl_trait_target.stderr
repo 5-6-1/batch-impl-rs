@@ -1,0 +1,7 @@
+error: batch-impl: a bare `impl` in the spec is a shape template — an `impl <trait-object>` target type is not supported; write the trait object directly (e.g. `dyn Fn() -> u8`) or use an `impl{...}` template
+ --> tests/ui/bare_impl_trait_target.rs:8:1
+  |
+8 | #[batch_impl(impl Fn() -> u8 { fn f() -> u8 { 0 } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

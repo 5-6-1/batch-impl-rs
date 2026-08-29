@@ -324,3 +324,20 @@ fn self_identity_in_matrix() {
     check(&Box::new(0u8));
     check(&0u8);
 }
+
+// ============================================================
+// 31. A body-less bare-`where` region ends at a depth-0 `,` when the
+//     following chunk is not a predicate: `u8 where u8: Copy, isize` is
+//     TWO specs (the attr entry's `,`-separated list), not one spec whose
+//     where clause swallows `isize`. The `where A: Clone, B: Copy`
+//     multi-predicate form still scans on (both chunks are predicates).
+// ============================================================
+#[batch_impl(u8 where u8: Copy, isize)]
+trait CommaAfterBareWhere {}
+
+#[test]
+fn comma_after_bare_where_splits_specs() {
+    fn check<T: CommaAfterBareWhere>(_: &T) {}
+    check(&0u8);
+    check(&0isize);
+}

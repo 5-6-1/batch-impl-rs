@@ -43,9 +43,16 @@ use crate::util::{bracket_is_passthrough, compile_error_str, is_impl_template, i
 
 /// Bare `where` preprocessing: `where predicates {body}` →
 /// `where{predicates} {body}` (the legacy suffix).
+///
+/// A depth-0 `,` in the region ends it when the following chunk is not a
+/// predicate (`usize where T: Clone, isize` — `isize` cannot be a predicate —
+/// splits into two specs; `where A: Clone, B: Copy` keeps scanning). Without
+/// this, a body-less `where` region silently swallowed the comma and the next
+/// spec into its predicates.
 pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let is_boundary = |tokens: &[TokenTree], j: usize| is_impl_template(tokens, j);
-    kw_process(tokens, "where", &is_boundary)
+    let comma_boundary = |tokens: &[TokenTree], j: usize| !chunk_is_predicate(tokens, j + 1);
+    kw_process(tokens, "where", &is_boundary, &comma_boundary, None)
 }
 
 /// Bare `impl` preprocessing: `impl template {body}` → `impl{template} {body}`
@@ -53,19 +60,51 @@ pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Toke
 /// the shared boundary — a following `{...}` body, an ident `where` or a bare
 /// `impl` (a second bare region starts a new one), a depth-0 `;`, or the
 /// stream end.
+///
+/// An **impl-Trait target region** (`impl Fn() -> u8` / `impl dyn Fn() -> u8`
+/// / `impl Iterator + Clone` — the pre-0.9.5 parse-layer spelling, locked by
+/// `parse/mod.rs::impl_trait_parses`) is never a shape template: it reports a
+/// targeted diagnostic instead of being collected into a template that
+/// silently renders an empty target type. The parse layer's tolerance for the
+/// spelling is unchanged (its unit tests bypass this pass).
 pub(crate) fn impl_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let is_boundary = |tokens: &[TokenTree], j: usize| matches!(tokens.get(j), Some(TokenTree::Ident(id)) if id == "impl");
-    kw_process(tokens, "impl", &is_boundary)
+    // A bare-impl region never splits at a depth-0 `,` (a template has no
+    // comma-separated predicates).
+    let no_comma_boundary = |_: &[TokenTree], _: usize| false;
+    let validate = |region: &[TokenTree], span: proc_macro2::Span| {
+        if region_is_impl_trait(region) {
+            Err(compile_error_str(
+                "batch-impl: a bare `impl` in the spec is a shape template — an \
+                 `impl <trait-object>` target type is not supported; write the \
+                 trait object directly (e.g. `dyn Fn() -> u8`) or use an \
+                 `impl{...}` template",
+                span,
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    kw_process(tokens, "impl", &is_boundary, &no_comma_boundary, Some(&validate))
 }
+
+/// The region-validation hook (the bare-`impl` impl-Trait diagnostic):
+/// inspects the collected region before the rewrite.
+type RegionValidator<'a> = &'a dyn Fn(&[TokenTree], proc_macro2::Span) -> Result<(), TokenStream>;
 
 /// The shared keyword collector: scans for a bare `kw` (not directly followed
 /// by a `{...}` group — that is the legacy suffix, passed through), collects
 /// the region up to the boundary, and rewrites it into a `kw{...}` group.
 /// `is_boundary` decides whether an `impl` at position `j` ends the region
 /// (the two callers differ: where stops at `impl{...}` attachments, impl
-/// stops at any bare `impl`).
+/// stops at any bare `impl`); `comma_boundary` decides whether a depth-0 `,`
+/// ends it (where: only when the next chunk is not a predicate); an optional
+/// `validate_region` inspects the collected region before the rewrite (impl:
+/// the impl-Trait target diagnostic).
 fn kw_process(
     tokens: &[TokenTree], kw: &str, is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
+    comma_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
+    validate_region: Option<RegionValidator<'_>>,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
@@ -77,7 +116,9 @@ fn kw_process(
             && !matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
                 if g.delimiter() == delimiter![{}])
         {
-            let Some((body, rest_index)) = scan_body_boundary(&tokens[i + 1..], is_boundary) else {
+            let Some((region, rest_index)) =
+                scan_body_boundary(&tokens[i + 1..], is_boundary, comma_boundary)
+            else {
                 return Err(compile_error_str(
                     if kw == "where" {
                         "batch-impl: `where` predicates are missing a code block {...}"
@@ -87,8 +128,11 @@ fn kw_process(
                     tokens[i].span(),
                 ));
             };
+            if let Some(v) = validate_region {
+                v(&region, tokens[i].span())?;
+            }
             result.push(ident.clone().into());
-            result.push(body);
+            result.push(Group::new(delimiter![{}], region.into_iter().collect()).into());
             i += 1 + rest_index;
         } else if let TokenTree::Group(g) = &tokens[i]
             && g.delimiter() == delimiter!([])
@@ -97,7 +141,7 @@ fn kw_process(
             && !bracket_is_passthrough(tokens, i)
         {
             let v = g.stream().into_iter().collect::<Vec<_>>();
-            let vt = kw_process(&v, kw, is_boundary)?;
+            let vt = kw_process(&v, kw, is_boundary, comma_boundary, validate_region)?;
             result.push(Group::new(delimiter![[]], vt.into_iter().collect()).into());
             i += 1
         } else {
@@ -110,13 +154,18 @@ fn kw_process(
 
 /// The region boundary = the first `{...}` group (excluding `ident!{...}`
 /// macro bodies), an ident `where`, an `impl` satisfying the caller's
-/// boundary rule, or a depth-0 `;` (impl entry spec separator /
-/// `batch_trait!` segment boundary, left in the stream). The end of the token
-/// stream is also a boundary: the region rides into a body-less `kw{...}`
-/// suffix (bare `where A: Clone` ≡ `where A: Clone {}`).
+/// boundary rule, a depth-0 `;` (impl entry spec separator /
+/// `batch_trait!` segment boundary, left in the stream), or a depth-0 `,`
+/// satisfying the caller's comma rule (where: a spec-list separator when the
+/// next chunk is not a predicate). The end of the token stream is also a
+/// boundary: the region rides into a body-less `kw{...}` suffix (bare
+/// `where A: Clone` ≡ `where A: Clone {}`). Returns the **raw** region and
+/// the index of the boundary token — the caller wraps the group so it can
+/// validate the region first (the impl-Trait diagnostic).
 fn scan_body_boundary(
     tokens: &[TokenTree], is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
-) -> Option<(TokenTree, usize)> {
+    comma_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
+) -> Option<(Vec<TokenTree>, usize)> {
     let mut j = 0;
     let mut result = vec![];
     while j < tokens.len() {
@@ -129,18 +178,23 @@ fn scan_body_boundary(
                     && !is_macro_body(tokens, j)
                     && !matches!(result.last(), Some(TokenTree::Punct(p)) if p.as_char() == '@') =>
             {
-                return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
+                return (result, j).into();
             }
             TokenTree::Ident(w) if w == "where" => {
-                return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
+                return (result, j).into();
             }
             TokenTree::Ident(_) if is_boundary(tokens, j) => {
-                return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
+                return (result, j).into();
             }
             // `;` ends the region; the `;` itself stays in the stream (spec
             // separator / segment boundary).
             TokenTree::Punct(p) if p.as_char() == ';' => {
-                return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
+                return (result, j).into();
+            }
+            // `,` ends the region when the caller's comma rule says so; the
+            // `,` stays in the stream (the attr entry's spec-list separator).
+            TokenTree::Punct(p) if p.as_char() == ',' && comma_boundary(tokens, j) => {
+                return (result, j).into();
             }
             _ => result.push(tokens[j].clone()),
         }
@@ -150,9 +204,54 @@ fn scan_body_boundary(
     // **some** content (an empty region is a typo); a non-empty region
     // becomes a body-less `kw{...}` suffix.
     if !result.is_empty() {
-        return (Group::new(delimiter![{}], result.into_iter().collect()).into(), j).into();
+        return (result, j).into();
     }
     None
+}
+
+/// Whether the where region's chunk after a depth-0 `,` (starting at `start`)
+/// is a **predicate continuation**: a chunk containing a depth-0 `:` before
+/// its end. If so, the `,` is a predicate separator and the region keeps
+/// scanning (`where A: Clone, B: Copy`); otherwise the `,` is the attr
+/// entry's spec-list separator and the region ends (`usize where T: Clone,
+/// isize` — `isize` cannot be a predicate — leaves `, isize` as the next
+/// spec). The chunk ends at the next depth-0 `,` or any region boundary (a
+/// `{...}` body — unless an `@{...}` carrier — an ident `where`, an
+/// `impl{...}` attachment, a `;`, or the stream end).
+fn chunk_is_predicate(tokens: &[TokenTree], start: usize) -> bool {
+    let mut k = start;
+    while k < tokens.len() {
+        match &tokens[k] {
+            TokenTree::Punct(p) if p.as_char() == ',' => return false,
+            TokenTree::Punct(p) if p.as_char() == ':' => return true,
+            TokenTree::Group(g)
+                if g.delimiter() == delimiter![{}]
+                    && !is_macro_body(tokens, k)
+                    && !matches!(tokens.get(k - 1), Some(TokenTree::Punct(p)) if p.as_char() == '@') =>
+            {
+                return false;
+            }
+            TokenTree::Ident(w) if w == "where" => return false,
+            TokenTree::Punct(p) if p.as_char() == ';' => return false,
+            _ => k += 1,
+        }
+    }
+    false
+}
+
+/// Whether the collected bare-`impl` region is an impl-Trait **target type**
+/// (the pre-0.9.5 parse-layer spelling `impl Fn() -> u8` / `impl dyn
+/// Fn() -> u8` / `impl Iterator + Clone`), which a shape template can never
+/// be: an fn-family head, a `dyn`/`for` head, or a depth-0 `+` bound chain.
+fn region_is_impl_trait(region: &[TokenTree]) -> bool {
+    let head_is_trait_object = matches!(region.first(),
+    Some(TokenTree::Ident(id))
+        if matches!(
+            id.to_string().as_str(),
+            "Fn" | "FnMut" | "FnOnce" | "AsyncFn" | "AsyncFnMut" | "AsyncFnOnce" | "dyn" | "for"
+        ));
+    head_is_trait_object
+        || region.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '+'))
 }
 
 fn is_macro_body(tokens: &[TokenTree], index: usize) -> bool {
@@ -170,6 +269,18 @@ mod tests {
         let ts = s.parse::<TokenStream>().unwrap();
         let v = ts.into_iter().collect::<Vec<_>>();
         impl_process(&v).unwrap().into_iter().collect::<TokenStream>().to_string()
+    }
+
+    fn run_impl_err(s: &str) -> String {
+        let ts = s.parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        impl_process(&v).unwrap_err().to_string()
+    }
+
+    fn run_where(s: &str) -> String {
+        let ts = s.parse::<TokenStream>().unwrap();
+        let v = ts.into_iter().collect::<Vec<_>>();
+        where_process(&v).unwrap().into_iter().collect::<TokenStream>().to_string()
     }
 
     #[test]
@@ -199,5 +310,46 @@ mod tests {
     fn braced_impl_passthrough() {
         // The legacy `impl{...}` suffix passes through untouched.
         assert_eq!(run_impl("impl{(A@..)} { fn m() {} }"), "impl { (A @..) } { fn m () { } }");
+    }
+
+    #[test]
+    fn bare_impl_trait_target_diagnosed() {
+        // The pre-0.9.5 `impl Trait` target spelling (fn-family / `dyn` /
+        // `+`-chain shapes) is not a shape template — a targeted error
+        // instead of a template that silently rendered an empty target type.
+        for s in [
+            "impl Fn() -> u8 { fn m() {} }",
+            "impl dyn Fn() -> u8 { fn m() {} }",
+            "impl for<'a> fn(&'a u8) { fn m() {} }",
+            "impl Iterator + Clone { fn m() {} }",
+        ] {
+            let err = run_impl_err(s);
+            assert!(err.contains("not supported"), "expected the target diagnostic, got: {err}");
+        }
+    }
+
+    #[test]
+    fn bare_impl_template_shapes_still_collect() {
+        // The template shapes (`A<B>`, `(A@..)`, `@{}`) are unaffected by
+        // the impl-Trait diagnostic.
+        assert_eq!(run_impl("impl Box<u8> { fn m() {} }"), "impl { Box < u8 > } { fn m () { } }");
+    }
+
+    #[test]
+    fn bare_where_comma_splits_specs() {
+        // A body-less where region ends at a depth-0 `,` when the following
+        // chunk is not a predicate (`isize` cannot be a predicate) — the
+        // comma and the next spec stay in the stream.
+        assert_eq!(run_where("usize where T : Clone , isize"), "usize where { T : Clone } , isize");
+    }
+
+    #[test]
+    fn bare_where_comma_keeps_predicates() {
+        // `where A: Clone, B: Copy` — both chunks are predicates, the comma
+        // is a predicate separator and the region scans on.
+        assert_eq!(
+            run_where("usize where A : Clone , B : Copy { fn m() {} }"),
+            "usize where { A : Clone , B : Copy } { fn m () { } }"
+        );
     }
 }

@@ -96,9 +96,10 @@ fn impl_entry_unsafe_impl() {
 //    rewritten to the matrix leaf — `impl Tr for Box<T>` with template
 //    `Box<T>` and leaf `Box<u8>` emits `impl Tr for Box<u8>`, and the
 //    placeholder also rewrites inside the body (`T::BITS` → `u8::BITS`).
-//    A placeholder is a substitution target, NOT a generic parameter: it
-//    must not appear in the impl's own `<>` declaration (that would declare
-//    a second identity for the rewritten name).
+//    A placeholder is a substitution target, NOT a generic parameter:
+//    declaring it in the impl's own `<>` (`impl<T> ...`) is tolerated — the
+//    redundant param is stripped at assembly (see `MkP2` below) instead of
+//    emitting rustc E0207.
 // ------------------------------------------------------------
 #[batch_impl(Box<T> : [Box<u8>, Box<u16>])]
 impl Mk8 for Box<T> {
@@ -449,4 +450,52 @@ fn impl_entry_multi_template_merge() {
     assert_eq!(*b, 1);
     let r: Rc<u8> = <Rc<u8> as MkMulti>::mk();
     assert_eq!(*r, 1);
+}
+
+// ------------------------------------------------------------
+// Slot-named generic on the impl block is a substitution target, not a
+// declaration: `impl<T> Mk for Wrapper<T>` with template slot `T` (bound to
+// `u8` by the leaf) used to emit `impl<T> Mk for Box<u8>` — rustc E0207
+// (unconstrained `T`). The redundant `<T>` is now stripped; the body's `T`
+// still substitutes (`Wrapper::new(T::default())` → `Box::new(u8::default())`).
+// ------------------------------------------------------------
+#[batch_impl(Wrapper<T> : [Box, Rc].u8)]
+impl<T> MkP2 for Wrapper<T> {
+    fn make() -> Wrapper<T> {
+        Wrapper::new(T::default())
+    }
+}
+
+trait MkP2 {
+    fn make() -> Self;
+}
+
+#[test]
+fn impl_entry_slot_named_item_generic_stripped() {
+    let b: Box<u8> = <Box<u8> as MkP2>::make();
+    assert_eq!(*b, 0);
+    let r: Rc<u8> = <Rc<u8> as MkP2>::make();
+    assert_eq!(*r, 0);
+}
+
+// The stripped param's bounds carry over as a where predicate on the
+// substituted type: `impl<T: Clone>` → `where u8: Clone` (not silently
+// dropped with the param).
+#[batch_impl(Wrapper<T> : [Box, Rc].u8)]
+impl<T: Clone> MkP2b for Wrapper<T> {
+    fn make() -> Wrapper<T> {
+        Wrapper::new(T::default())
+    }
+}
+
+trait MkP2b {
+    fn make() -> Self;
+}
+
+#[test]
+fn impl_entry_slot_named_param_bounds_become_where() {
+    let b: Box<u8> = <Box<u8> as MkP2b>::make();
+    assert_eq!(*b, 0);
+    let r: Rc<u8> = <Rc<u8> as MkP2b>::make();
+    assert_eq!(*r, 0);
 }

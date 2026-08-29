@@ -1,0 +1,7 @@
+error: batch-impl: empty exclusive range `@{}..{}` (start not below end)
+ --> tests/ui/where_empty_exclusive_range.rs:6:1
+  |
+6 | #[batch_impl(().2 where{@2..2: Clone})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -18,7 +18,11 @@ use crate::entry::driver::collect_spec_leaves;
 use crate::util::{Cursor, compile_error_str, is_punct_at, is_single_colon};
 
 /// Assembles one generated impl: generics (attr new-generic-decl first, then
-/// the hoisted fresh names, then the impl's own params), trait path
+/// the hoisted fresh names, then the impl's own params — a param whose name
+/// is a shape-template **slot** is a substitution target, not a declaration:
+/// the mapping already rewrote every occurrence, so declaring it again would
+/// emit rustc E0207; it is stripped, and its bounds become where predicates
+/// on the substituted type, `impl<T: Clone>` → `where u8: Clone`), trait path
 /// (**`None` for an inherent impl** — the `for` section is omitted and the
 /// rewritten self type stands alone), merged where clause, rewritten body.
 /// `m` is the slot mapping (empty for the direct form / empty matrix).
@@ -28,7 +32,36 @@ pub(crate) fn assemble_impl(
     fresh_names: &[TokenStream], where_preds: &[TokenStream], m: &Mapping,
     template_segs: &[VarSeg], for_ty: TokenStream,
 ) -> Result<TokenStream, TokenStream> {
-    let item_params = item.generics.params.iter().map(|p| p.to_token_stream()).collect::<Vec<_>>();
+    let slot_names: std::collections::HashSet<&str> =
+        m.slots().iter().map(|(n, _)| n.as_str()).collect();
+    let mut item_params = vec![];
+    let mut param_bound_preds: Vec<TokenStream> = vec![];
+    for p in &item.generics.params {
+        let name = match p {
+            syn::GenericParam::Type(tp) => Some(&tp.ident),
+            syn::GenericParam::Const(cp) => Some(&cp.ident),
+            syn::GenericParam::Lifetime(_) => None,
+        };
+        if let Some(name) = name
+            && slot_names.contains(&name.to_string().as_str())
+        {
+            // The slot mapping replaced every occurrence of the name (the
+            // for-Type / where predicates / body are rewritten) — keeping
+            // the declaration would be an unconstrained param (E0207). Its
+            // bounds carry over as a where predicate on the substituted
+            // type: `impl<T: Clone> Mk for Wrapper<T>` with leaf `u8` →
+            // `impl Mk for Box<u8> where u8: Clone` (the name substitutes
+            // through `apply_mapping` below).
+            if let syn::GenericParam::Type(tp) = p
+                && !tp.bounds.is_empty()
+            {
+                let bounds = &tp.bounds;
+                param_bound_preds.push(quote!(#name: #bounds));
+            }
+            continue;
+        }
+        item_params.push(p.to_token_stream());
+    }
     // Generics: the attr new-generic-decl first, then the hoisted fresh names
     // (`P0, P1, ...` from a generator in the target), then the impl's own
     // params.
@@ -67,6 +100,12 @@ pub(crate) fn assemble_impl(
     }
     if let Some(wc) = &item.generics.where_clause {
         let p = sync_trait_application(wc.predicates.to_token_stream(), &trait_args)?;
+        preds.push(apply_mapping(p, m));
+    }
+    // Bounds of stripped slot-named params (see the item-params loop above) —
+    // synced like the other predicates (`X<>` fills with the trait args).
+    for p in &param_bound_preds {
+        let p = sync_trait_application(p.clone(), &trait_args)?;
         preds.push(apply_mapping(p, m));
     }
     let where_clause = if preds.is_empty() { quote!() } else { quote!(where #(#preds),*) };

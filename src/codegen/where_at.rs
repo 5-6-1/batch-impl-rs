@@ -67,9 +67,10 @@ pub(crate) fn resolve_where_at(
 ) -> Result<TokenStream, TokenStream> {
     // Normalize first: every flat spelling (`@N` / `@g_i` / ranges /
     // `@all_fresh`) folds into the self-delimiting carrier `@{...}` — one
-    // representation for the whole scan below, no lookahead arithmetic.
-    let folded = fold_flat_refs(&pred.clone().into_iter().collect::<Vec<_>>());
-    let tokens = folded;
+    // representation for the whole scan below, no lookahead arithmetic. A
+    // malformed reference (non-position token, bad end, empty exclusive
+    // range) errors here with the type-position diagnostic.
+    let tokens = fold_flat_refs(&pred.clone().into_iter().collect::<Vec<_>>())?;
     let fresh_sorted = &ctx.names;
     let mut out = vec![];
     let mut i = 0;

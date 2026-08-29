@@ -39,6 +39,23 @@
   merges *every* template instead of silently keeping only the last; the
   slots from all templates are bound in the body (the attribute entry
   already merged — the impl entry now shares the same path).
+- **A bare `impl <trait-object>` target reports a targeted error** —
+  `impl Fn() -> u8` / `impl dyn Fn() -> u8` / `impl Iterator + Clone` in a
+  spec is not a shape template (the pre-0.9.5 target spelling never rendered
+  valid Rust and, since the bare-`impl` collection, silently produced an
+  empty target type). The error guides to the working spellings: `dyn
+  Fn() -> u8` for the trait-object type, `impl{...}` for a template.
+- **The impl entry tolerates a slot-named generic on the impl block** —
+  `impl<T> Mk for Wrapper<T>` with template slot `T` no longer emits rustc
+  E0207: the redundant parameter is stripped and its bounds become where
+  predicates (`impl<T: Clone>` → `where u8: Clone`).
+- **A body-less bare `where` no longer swallows the next spec** —
+  `#[batch_impl(u8 where u8: Copy, isize)]` is two specs again (`,` is the
+  spec-list separator); `where A: Clone, B: Copy` still scans on (both
+  chunks are predicates).
+- **An empty exclusive range in a where predicate errors** — `where{@2..2:
+  Clone}` reports "empty exclusive range" like the type positions instead of
+  leaking a raw `@..` into the rendered clause.
 
 ## 0.9.7 (2026-08-29)
 

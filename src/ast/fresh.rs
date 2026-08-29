@@ -20,7 +20,7 @@
 
 use proc_macro2::{TokenStream, TokenTree};
 
-use crate::util::{Op, read_op, tokens_to_string};
+use crate::util::{Op, compile_error_str, read_op, tokens_to_string};
 
 /// Mints the **declaration carrier** of generator fresh `(group g, position
 /// i)`: the same self-delimiting `@{g_i}` form a reference carries. The
@@ -226,10 +226,12 @@ fn is_macro_generated_carrier(tokens: &[TokenTree], i: usize) -> bool {
 /// `@all_fresh`, normalized to `@{0..}`) become `@` + Brace groups. Existing
 /// carriers pass through untouched, so this is idempotent — the single
 /// normalization point for resolvers that may receive user-spelled input
-/// (where predicates, blanket wrapper clauses). A malformed reference
-/// (non-digit after `@`, malformed end, empty exclusive range) is left
-/// as-is for the caller's validation to report.
-pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
+/// (where predicates, blanket wrapper clauses). A malformed reference reports
+/// the same targeted diagnostics as the type-position path (a non-position
+/// token after `@`, a non-numeric range end, an empty exclusive range) —
+/// the where side must not leak a raw `@` into the rendered clause where the
+/// type side errors.
+pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = Vec::with_capacity(tokens.len());
     let mut i = 0;
     while i < tokens.len() {
@@ -269,9 +271,11 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
             {
                 (Some(l), n)
             } else {
-                out.push(tokens[i].clone());
-                i += 1;
-                continue;
+                return Err(compile_error_str(
+                    "batch-impl: `@` in a type must be followed by a position \
+                     digit (e.g. `@0` or `@0_1`)",
+                    at_span,
+                ));
             };
             // Optional range tail: `..` (open) / `..=M` / `..M`.
             let mut consumed = 2usize;
@@ -293,16 +297,21 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
                             } else if start < e {
                                 Some(FreshEnd::Closed(e - 1))
                             } else {
-                                // empty exclusive range — leave for validation
-                                out.push(tokens[i].clone());
-                                i += 1;
-                                continue;
+                                // empty exclusive range — the same diagnostic
+                                // the type-position path reports
+                                return Err(compile_error_str(
+                                    "batch-impl: empty exclusive range `@{}..{}` \
+                                     (start not below end)",
+                                    at_span,
+                                ));
                             }
                         }
                         Err(_) => {
-                            out.push(tokens[i].clone());
-                            i += 1;
-                            continue;
+                            return Err(compile_error_str(
+                                "batch-impl: a `@N..M` range must end with a \
+                                 number (e.g. `@0..=2`)",
+                                at_span,
+                            ));
                         }
                     },
                     _ => Some(FreshEnd::Open),
@@ -316,10 +325,16 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Vec<TokenTree> {
                 continue;
             }
         }
-        out.push(tokens[i].clone());
-        i += 1;
+        // `@` followed by anything else (a non-`all_fresh` ident, a punct, a
+        // non-Brace group, or nothing) — a malformed reference, reported like
+        // the type-position path instead of leaking the raw `@` through.
+        return Err(compile_error_str(
+            "batch-impl: `@` in a type must be followed by a position digit \
+             (e.g. `@0` or `@0_1`)",
+            at_span,
+        ));
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
