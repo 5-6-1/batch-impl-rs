@@ -112,6 +112,18 @@
   `where A: Clone impl B {..}` collects the fragment into the predicates
   (accepted: fails with a syn/rustc error, never a panic) — noted in
   `where_process`'s module docs.
+- **Self-review pass (re-read with an adversarial eye)** — two finds:
+  - `at_ref_block`'s folded-carrier branch re-derived the carrier's inner
+    spelling with its own `map(to_string).collect()` instead of the single
+    authority `carrier_inner` (same join semantics today, but the copy
+    could drift — the very thing the single-authority rule exists to
+    prevent); now uses `carrier_inner`.
+  - the direct form's `leaves.into_iter().next().unwrap()` (guarded by a
+    len check, but an `unwrap` on a proc-macro input path violates the
+    no-panic spirit); now an `if let` with the same error. ~20 further
+    index/arithmetic/recursion points audited and found sound (cursor
+    slices, range-end arithmetic, blanket deref chains, repeat drivers,
+    cartesian caps).
 
 - **Typestate preprocessing pipeline** (`preprocess/stream.rs`) — `Stream<S>`
   wraps the token vector in a state named after the **invariant** it

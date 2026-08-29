@@ -138,13 +138,11 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
     match cursor.peek() {
         // Folded carrier: `@{...}` — parse the group's inner spelling.
         Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}] => {
-            let inner = g
-                .stream()
-                .into_iter()
-                .collect::<Vec<_>>()
-                .iter()
-                .map(|t| t.to_string())
-                .collect::<String>();
+            // The single authority for the carrier's inner spelling
+            // (`carrier_inner` — the token-to-string join must not be
+            // re-derived; this branch folds a carrier that earlier passes
+            // emitted, so the same join keeps the round-trip exact).
+            let inner = crate::ast::fresh::carrier_inner(g);
             if let Some(r) = FreshRef::parse(&inner) {
                 cursor.bump();
                 return TyFresh(r).to_ty().with_span(at_span);

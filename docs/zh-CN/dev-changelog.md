@@ -22,6 +22,9 @@
 - **`resolve_target_predicates` 递归进组**（评审）——wrapper where 谓词里 `Vec<@trait>` 泄漏 `@trait`（同文件 `has_at0` 本就递归）。组内现在也替换 trait 路径。
 - **`match_ty` 删除 varseg 死防御**（评审）——裸 ident 臂的 `is_varseg_type`（varseg 标记必为 `Type::Array`，绝不进 `Type::Path`）与数组臂的第二次 `is_varseg_array`（臂顶已 return）都是不可达代码，删除。
 - **裸 where × 裸 impl 边界不对称记录在案**（评审）——where 收集器的边界只有 `impl{...}`；混写 `where A: Clone impl B {..}` 会把片段收进谓词（可接受：以 syn/rustc 错误呈现，绝不 panic）——记入 `where_process` 模块文档。
+- **自审 pass（以攻击性视角重读）**——两处发现：
+  - `at_ref_block` 的 folded-carrier 分支用自己的 `map(to_string).collect()` 重新拼载体内部拼写，而非单一权威 `carrier_inner`（当前 join 语义相同，但副本可能漂移——正是单一权威规则要防的）；改用 `carrier_inner`。
+  - direct form 的 `leaves.into_iter().next().unwrap()`（有 len 检查守卫，但 proc-macro 输入路径上的 unwrap 违背 no-panic 精神）；改为 `if let` + 同款错误。另审计约 20 处索引/算术/递归点均判定安全（cursor 切片、range 端点算术、blanket deref 链、repeat 驱动、cartesian 上限）。
 - **类型态预处理管线**（`preprocess/stream.rs`）——`Stream<S>` 把 token
   向量包在以**不变量**命名的状态里（`Raw → Marked → ConstsDone → Paired
   → DirectivesResolved → WhereDone → Ready`），每个 pass 只作为"可消费它

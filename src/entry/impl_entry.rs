@@ -309,7 +309,16 @@ fn expand_direct_form(
         ));
     }
     let mut fresh_decls = vec![];
-    let leaf = hoist_type_params(leaves.into_iter().next().unwrap(), &mut fresh_decls);
+    // len == 1 verified above; the `if let` keeps the no-panic promise
+    // instead of an (unreachable) unwrap.
+    let Some(leaf) = leaves.into_iter().next() else {
+        return Err(compile_error_str(
+            "batch-impl: the direct form takes exactly one type after \
+             the generic declaration (e.g. `<T> Box<T>`)",
+            Span::call_site(),
+        ));
+    };
+    let leaf = hoist_type_params(leaf, &mut fresh_decls);
     let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
     let fresh_ctx = FreshCtx::new(&decl_names, &used);
     let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
