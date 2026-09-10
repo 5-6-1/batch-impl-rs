@@ -17,7 +17,7 @@
 //! definitions at the top level are never scanned.
 use proc_macro2::{Group, TokenStream, TokenTree};
 
-use crate::util::{MAX_NEST_DEPTH, depth_err, is_impl_template, is_punct_at};
+use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_impl_template, is_punct_at};
 
 /// Replaces every `ident@..` in `impl{...}` templates with a placeholder.
 pub(crate) fn mark_varseg(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
@@ -84,21 +84,30 @@ pub(crate) fn mark_template(
         return Err(depth_err(tokens, ""));
     }
     let out = mark_template_impl(tokens, depth)?;
-    // Postcondition canary: `mark_template`'s contract is to consume every
+    // Postcondition: `mark_template`'s contract is to consume every
     // `ident@..` inside the template — its output must contain none. This
     // guard lives **here** (the consumer's output), not at `expand_consts`'s
     // input, because only here is the `ident@..` shape unambiguous: an open
     // constant range (`@..u128`) has its `@` preceded by `<`/`,`/`(` — never
     // an ident — while a true segment is `ident @ ..`; at `expand_consts`'s
     // input the same shape is a legal error path (`A@..` reports "range
-    // constant must name endpoint") and must not panic. A mis-ordered or
-    // partial marking therefore surfaces here as a loud debug panic, and
-    // fuzz's direct calls are covered (they pass through this function).
-    debug_assert!(
-        !contains_unmarked_segment(&out),
-        "mark_template: output still contains an unmarked `ident@..` \
-         (variadic-segment marking failed to consume it)"
-    );
+    // constant must name endpoint").
+    //
+    // It reports instead of asserting: a panic inside a proc macro is a
+    // compiler ICE, and the no-panic promise is unconditional. The invariant
+    // is structural (the loop consumes every shape, and no transformation can
+    // create one — swept exhaustively in the test module), so this branch is
+    // unreachable for user input; keeping it a diagnostic rather than a
+    // `debug_assert!` means a future regression degrades to a clear error in
+    // every build profile instead of a user-visible panic in debug ones.
+    if let Some(left) = first_unmarked_segment(&out) {
+        let span = left.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
+        return Err(compile_error_str(
+            "batch-impl: internal error: variadic-segment marking left an \
+             unmarked `ident@..` (please report this spelling)",
+            span,
+        ));
+    }
     Ok(out)
 }
 
@@ -123,7 +132,34 @@ fn contains_unmarked_segment(tokens: &[TokenTree]) -> bool {
     (0..tokens.len().saturating_sub(3)).any(|i| unmarked_segment_at(tokens, i).is_some())
 }
 
+/// The first surviving `ident@..` **anywhere** in `tokens`, groups included —
+/// the postcondition's detector. The contract is "the output contains none",
+/// so the scan must recurse: a partial marking that skipped a nested group
+/// would otherwise slip past a top-level-only test. Returns the offending
+/// slice (for the diagnostic's span).
+fn first_unmarked_segment(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
+    if contains_unmarked_segment(tokens) {
+        return Some(tokens.to_vec());
+    }
+    for t in tokens {
+        if let TokenTree::Group(g) = t
+            && let Some(found) = first_unmarked_segment(&g.stream().into_iter().collect::<Vec<_>>())
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
 /// The marking loop (see [`mark_template`]); recurses into groups.
+///
+/// **Every** group is entered — unlike the outer [`mark_varseg_at`] pass there
+/// is no `ident![...]` / `#[...]` passthrough exemption here: inside an
+/// `impl{...}` template the whole content is DSL territory (the template is
+/// matched structurally, so a rewritten macro body can only become a shape
+/// mismatch, never silent corruption). The postcondition's
+/// `first_unmarked_segment` scan recurses the same way — the two must stay in
+/// step, or a legal input could report a residue.
 fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
@@ -230,10 +266,107 @@ fn is_unit_len(expr: &syn::Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proc_macro2::{Group, Ident, Literal, Punct, Spacing, TokenStream};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::str::FromStr;
 
     fn mark(s: &str) -> String {
         let v = s.parse::<TokenStream>().unwrap().into_iter().collect::<Vec<_>>();
         mark_varseg(&v).unwrap().into_iter().collect::<TokenStream>().to_string()
+    }
+
+    /// Recursive residue test — the canary's contract ("the output contains
+    /// no `ident@..`") checked at **every** level, not just the top. Uses the
+    /// production detector (single authority for the shape).
+    fn residue(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
+        first_unmarked_segment(tokens)
+    }
+
+    fn seg_tokens() -> Vec<TokenTree> {
+        vec![
+            Ident::new("A", proc_macro2::Span::call_site()).into(),
+            Punct::new('@', Spacing::Alone).into(),
+            Punct::new('.', Spacing::Alone).into(),
+            Punct::new('.', Spacing::Alone).into(),
+        ]
+    }
+
+    /// The residue postcondition (`mark_template`) must **never** fire on any
+    /// input: it used to be a `debug_assert!` — a false positive was a
+    /// user-visible compiler panic in debug builds (proc macros usually build
+    /// debug) — and is now a diagnostic, where a false positive would still be
+    /// a defect (a legal spelling rejected as an internal error). The
+    /// invariant is structural (the loop consumes every `ident@..`; no
+    /// transformation can create one), so this sweeps **every** sequence up
+    /// to length 6 over an alphabet that covers the shape's token kinds,
+    /// separators, and nested groups — then randomizes longer sequences.
+    #[test]
+    fn postcondition_canary_never_fires() {
+        let alpha: Vec<TokenTree> = vec![
+            Ident::new("A", proc_macro2::Span::call_site()).into(),
+            Ident::new("B", proc_macro2::Span::call_site()).into(),
+            Punct::new('@', Spacing::Alone).into(),
+            Punct::new('.', Spacing::Alone).into(),
+            Punct::new(',', Spacing::Alone).into(),
+            Literal::from_str("0").unwrap().into(),
+            Group::new(delimiter![()], seg_tokens().into_iter().collect()).into(),
+            Group::new(delimiter![{}], seg_tokens().into_iter().collect()).into(),
+        ];
+        let silent = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut failures: Vec<String> = vec![];
+        let mut check = |seq: &[TokenTree]| {
+            let outcome = catch_unwind(AssertUnwindSafe(|| mark_template(seq, 0)));
+            match outcome {
+                // A panic anywhere must not exist in this path.
+                Err(_) => failures.push(format!("PANIC on {seq:?}")),
+                Ok(Ok(out)) => {
+                    if let Some(left) = residue(&out) {
+                        failures.push(format!("RESIDUE {left:?} from {seq:?}"));
+                    }
+                }
+                // The internal-error diagnostic must be unreachable: reaching
+                // it means the invariant broke and a user would get an error
+                // instead of an expansion.
+                Ok(Err(e)) => {
+                    if e.to_string().contains("internal error") {
+                        failures.push(format!("CANARY FIRED on {seq:?}"));
+                    }
+                }
+            }
+        };
+        // Exhaustive: every sequence of length 0..=6 (8^6 + ... ≈ 300k).
+        for len in 0..=6usize {
+            let total = alpha.len().pow(len as u32);
+            for n in 0..total {
+                let mut idx = n;
+                let mut seq = Vec::with_capacity(len);
+                for _ in 0..len {
+                    seq.push(alpha[idx % alpha.len()].clone());
+                    idx /= alpha.len();
+                }
+                check(&seq);
+            }
+        }
+        // Randomized longer sequences (xorshift — deterministic, no deps):
+        // overlapping and repeated shapes beyond the exhaustive length.
+        let mut state = 0x2545_F491_4F6C_DD1Du64;
+        for _ in 0..20_000 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let len = (state % 24) as usize;
+            let mut seq = Vec::with_capacity(len);
+            for _ in 0..len {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                seq.push(alpha[(state % alpha.len() as u64) as usize].clone());
+            }
+            check(&seq);
+        }
+        std::panic::set_hook(silent);
+        assert!(failures.is_empty(), "residue canary fired: {failures:#?}");
     }
 
     #[test]

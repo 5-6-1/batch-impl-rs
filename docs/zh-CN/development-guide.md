@@ -63,9 +63,18 @@ cargo doc --no-deps                    # 零警告
 - **类型态管线**（`src/preprocess/stream.rs`）：预处理顺序由类型系统强制，
   不是注释。新增 pass 必须在 `Stream<S>` 状态链内改——改到 `Paired` 之前的
   中间态，或尾部分叉（`expand_tokens` / `reject_directives` / `where_process`）。
-  自由函数保持 `pub(crate)` 供 fuzz 直调（fuzz 按设计绕过链），
-  `expand_consts` 入口的金丝雀 `debug_assert!` 不许删。状态按**不变量**命名，
-  不按 pass 命名；只有建立新不变量的转换才配一个状态位。
+  自由函数保持 `pub(crate)` 供 fuzz 直调（fuzz 按设计绕过链）。状态按**不变量**
+  命名，不按 pass 命名；只有建立新不变量的转换才配一个状态位。
+- **生产代码零 panic 构造**：`unwrap` / `expect` / `panic!` / `unreachable!` /
+  `debug_assert!` / `assert!` 不得出现在 `#[cfg(test)]` 模块与测试专用文件
+  （`testing/`、`*_tests.rs`、`*_worker.rs`）之外——proc macro 里的 panic 就是
+  编译器 ICE，no-panic 承诺是无条件的。用 `.get()` 系访问器、`let else`、
+  扫描派生索引，以及 `Cursor` 的**位置不变量**（`pos <= len`——`bump` /
+  `advance` 都夹取，故 `slice_since` / `take_segment` / `take_rest` 自身无需
+  边界守卫）。内部不变量检查一律**报诊断**而非断言：变长段残留后置条件
+  （`preprocess/varseg.rs`）与 range 长度检查（`apply/apply_tuple.rs`）在违反时
+  返回错误。回归守卫：`varseg::tests::postcondition_canary_never_fires`
+  （≤6 token 穷举 + 随机长序列）、`scan::tests::cursor_position_never_exceeds_len`。
 - **单权威哲学**：每个跨模块判定收编到一处——`util/punct_ops.rs::read_op`
   （运算符形状）、`util/diagnostic.rs::compile_error_str`（错误构造）、
   `util/scan.rs::is_impl_template`（`impl{...}` 判别）、
@@ -117,7 +126,9 @@ cargo doc --no-deps                    # 零警告
   （按功能域分模块，每模块 <350 行，由 `tests/dsl.rs` 挂载）。
 - UI 快照（trybuild）在 `tests/ui/`；黄金展开快照在 `tests/golden/`。
 - fuzz（`src/testing/fuzz.rs`）直调单 pass、容忍乱序输入——它是类型态链外
-  的第二层防线，金丝雀断言与之配套，改动 pass 时保持。
+  的第二层防线；词表要覆盖每个 pass 的入口关键词（历史教训：词表缺 `impl`
+  时 `impl{...}` 模板上的变长段标记 pass 从未被随机覆盖），内部不变量检查
+  与穷举回归测试配套，改动 pass 时保持。
 
 ## 9. 打包卫生
 

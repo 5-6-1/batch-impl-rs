@@ -17,6 +17,13 @@ use crate::util::read_op;
 ///
 /// The core data structure of the parse layer: every DSL parsing function advances around
 /// the cursor, with a "scan to a stop token, take a slice, recurse" consumption model.
+///
+/// **Position invariant**: `pos` never exceeds `tokens.len()` — [`Cursor::bump`]
+/// and [`Cursor::advance`] both clamp. Every slicing helper
+/// ([`slice_since`](Cursor::slice_since) / [`take_segment`](Cursor::take_segment)
+/// / [`take_rest`](Cursor::take_rest)) relies on it and therefore needs no
+/// bounds guard of its own; an unclamped `bump` would turn a stray extra
+/// advance into a slicing panic (a compiler ICE inside a proc macro).
 pub(crate) struct Cursor<'a> {
     tokens: &'a [TokenTree],
     pos: usize,
@@ -60,9 +67,10 @@ impl<'a> Cursor<'a> {
         self.peek_group_at(0, delim)
     }
 
-    /// Advance by `n` tokens (clamped to the end).
+    /// Advance by `n` tokens (clamped to the end, saturating — a huge `n`
+    /// cannot overflow the addition).
     pub(crate) fn advance(&mut self, n: usize) {
-        self.pos = (self.pos + n).min(self.tokens.len());
+        self.pos = self.pos.saturating_add(n).min(self.tokens.len());
     }
 
     /// The `n` tokens starting at absolute index `start` (independent of the
@@ -93,8 +101,11 @@ impl<'a> Cursor<'a> {
         is_single_colon(self.tokens, self.pos)
     }
 
+    /// Advance by one token — clamped to the end (the position invariant: an
+    /// unguarded extra call at the end must not move `pos` past `len`, or the
+    /// slicing helpers below would panic).
     pub(crate) fn bump(&mut self) {
-        self.pos += 1;
+        self.pos = (self.pos + 1).min(self.tokens.len());
     }
 
     pub(crate) fn pos(&self) -> usize {
@@ -234,4 +245,53 @@ pub(crate) fn is_single_colon(tokens: &[TokenTree], index: usize) -> bool {
 /// Check whether the token sequence contains the given top-level punctuation
 pub(crate) fn contains_punct(tokens: &[TokenTree], punctuation: char) -> bool {
     tokens.iter().any(|token| is_punct(token, punctuation))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn toks(s: &str) -> Vec<TokenTree> {
+        s.parse::<proc_macro2::TokenStream>().unwrap().into_iter().collect()
+    }
+
+    /// The position invariant every slicing helper relies on: `pos` stays
+    /// `<= len` no matter how the cursor is driven, so `slice_since` /
+    /// `take_segment` / `take_rest` cannot panic (a proc-macro panic would be
+    /// a compiler ICE). Locks both clamps: `bump` and a saturating `advance`.
+    #[test]
+    fn cursor_position_never_exceeds_len() {
+        let ts = toks("a b");
+        let mut c = Cursor::new(&ts);
+        c.advance(usize::MAX);
+        assert_eq!(c.pos(), ts.len());
+        assert!(c.at_end());
+        c.bump();
+        assert_eq!(c.pos(), ts.len(), "bump past the end must clamp");
+        // Slicing in the clamped-past-the-end state is safe.
+        assert!(c.take_rest().is_empty());
+        assert_eq!(c.slice_since(0).len(), ts.len());
+        assert!(c.take_segment(&[';']).is_empty());
+
+        // A stray extra advance mid-slice cannot skip the bounds check either.
+        let mut c = Cursor::new(&ts);
+        c.advance(1);
+        assert_eq!(c.slice_since(0).len(), 1);
+        c.advance(1);
+        c.bump();
+        c.bump();
+        assert_eq!(c.pos(), ts.len());
+        assert_eq!(c.slice_at(0, usize::MAX).len(), ts.len());
+
+        // Empty input: every operation is a no-op, nothing panics.
+        let mut empty = Cursor::new(&[]);
+        assert!(empty.at_end());
+        assert!(empty.take_rest().is_empty());
+        assert!(empty.slice_since(0).is_empty());
+        assert_eq!(empty.slice_at(0, 3).len(), 0);
+        assert!(empty.peek().is_none());
+        assert!(empty.peek_at(2).is_none());
+        empty.bump();
+        assert_eq!(empty.pos(), 0);
+    }
 }

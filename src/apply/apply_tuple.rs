@@ -34,7 +34,17 @@ pub(crate) fn map_range(
     } else {
         (start..end).collect::<Vec<_>>()
     };
-    debug_assert_eq!(ns.len(), len);
+    // The count is exact by construction (the empty check above guarantees
+    // `end >= start`, and `check_expand_limit` rejects the only overflowing
+    // case — `0..=usize::MAX` — before the range allocates). It reports
+    // instead of `debug_assert!`-ing: a panic inside a proc macro is a
+    // compiler ICE, and the no-panic promise is unconditional.
+    if ns.len() != len {
+        return err_ty_at(
+            "batch-impl: internal error: range length mismatch (please report this spelling)",
+            span,
+        );
+    }
     TyArray(ns.into_iter().map(f).collect()).into()
 }
 

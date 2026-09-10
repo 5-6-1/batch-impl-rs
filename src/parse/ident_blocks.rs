@@ -200,7 +200,10 @@ pub(crate) fn dyn_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
     let inner = crate::parse::chain::parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
     let mut bounds = vec![];
     while cursor.is_punct('+') {
-        let mut ts = cursor.peek().unwrap().to_token_stream();
+        // `is_punct` guarantees the peek — extracted rather than unwrapped
+        // (a panic in a proc macro is a compiler ICE).
+        let Some(plus) = cursor.peek() else { break };
+        let mut ts = plus.to_token_stream();
         cursor.bump();
         if let Some(t) = cursor.peek()
             && (starts_block(t) || matches!(t, TokenTree::Punct(p) if p.as_char() == '+'))
@@ -245,18 +248,24 @@ pub(crate) fn plain_ident_block(cursor: &mut Cursor, id: Ident, trait_name: Opti
                 let Some(TokenTree::Ident(seg)) = cursor.peek_at(2) else {
                     break;
                 };
+                // The `::` operator dictionary guarantees both colons; they
+                // are extracted rather than unwrapped (no-panic promise).
+                let (Some(first), Some(second)) = (cursor.peek(), cursor.peek_at(1)) else {
+                    break;
+                };
                 let seg = seg.clone();
-                tokens.push(cursor.peek().unwrap().clone());
-                tokens.push(cursor.peek_at(1).unwrap().clone());
+                tokens.push(first.clone());
+                tokens.push(second.clone());
                 tokens.push(TokenTree::Ident(seg));
                 cursor.advance(3);
             }
             // `ident!(...)` macro call — passthrough
-            Some(TokenTree::Punct(p))
-                if p.as_char() == '!' && matches!(cursor.peek_at(1), Some(TokenTree::Group(_))) =>
-            {
+            Some(TokenTree::Punct(p)) if p.as_char() == '!' => {
+                let Some(TokenTree::Group(g)) = cursor.peek_at(1) else {
+                    break;
+                };
                 tokens.push(TokenTree::Punct(p.clone()));
-                tokens.push(cursor.peek_at(1).unwrap().clone());
+                tokens.push(TokenTree::Group(g.clone()));
                 cursor.advance(2);
                 break;
             }

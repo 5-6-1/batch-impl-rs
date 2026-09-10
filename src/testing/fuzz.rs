@@ -45,6 +45,12 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         Just(Tok::Ident("delegate")),
         Just(Tok::Ident("name")),
         Just(Tok::Ident("all")),
+        // The `impl` keyword: makes `impl{...}` templates reachable, so the
+        // variadic-segment marking pass (`mark_varseg` → `mark_template`,
+        // whose postcondition reports a residue instead of panicking) is
+        // actually exercised by the random corpus — without this ident the
+        // pass was never entered and the residue guard had no fuzz coverage.
+        Just(Tok::Ident("impl")),
         // Constant-system words: built-in families / range endpoints / the
         // `@trait` marker / blanket's `@Cow` — the `@` punct below can now
         // reach the constant expansion, range, and lifetime paths.

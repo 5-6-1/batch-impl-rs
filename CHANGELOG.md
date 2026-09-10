@@ -20,6 +20,14 @@
   `#blanket` with a `Self` inside a group (`(Self, u8)` — now caught and
   guided like a bare `Self`), and an extreme `@N` cursor literal in a repeat
   block no longer panic; each reports a targeted error.
+- **No panicking paths remain** — the macro's production code contains no
+  `unwrap` / `expect` / `panic!` / `unreachable!` / `debug_assert!` /
+  `assert!` (an assert or panic inside a proc macro is a compiler ICE).
+  Internal invariant checks report a targeted error instead: the
+  variadic-segment residue check (`mark_template`, proven unreachable by an
+  exhaustive input sweep) and the range-length check. The `Cursor` position
+  invariant (`bump` / `advance` clamp to the end) makes the parse layer's
+  slicing structurally panic-free.
 - **`<constant: Clone>` duplicate declarations keep both bounds** — a type
   param merely *named* `constant` is no longer mistaken for a `const`
   parameter; duplicate bounds merge into where predicates as documented.

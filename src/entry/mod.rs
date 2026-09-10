@@ -281,8 +281,10 @@ pub(crate) fn expand_batch_trait(
                     if cursor.is_single_colon() {
                         break;
                     } else {
-                        cursor.bump();
-                        cursor.bump();
+                        // `::` — consume both colons; `advance` clamps, so a
+                        // dangling joint `:` cannot move the cursor past the
+                        // end (the `slice_since` below relies on `pos <= len`).
+                        cursor.advance(2);
                     }
                 }
                 _ => cursor.bump(),

@@ -76,11 +76,10 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                             && matches!(op, crate::util::Op::DotDot | crate::util::Op::DotDotEq)
                         {
                             let inclusive = matches!(op, crate::util::Op::DotDotEq);
-                            let mut consumed = 2 + match op {
-                                crate::util::Op::DotDot => 2,
-                                crate::util::Op::DotDotEq => 3,
-                                _ => unreachable!("matched above"),
-                            };
+                            // The guard above admits only `..` / `..=`; the
+                            // width is read without an `unreachable!` — a
+                            // panic inside a proc macro is a compiler ICE.
+                            let mut consumed = 2 + if inclusive { 3 } else { 2 };
                             // closed `@N..M` / `@N..=M`: an end literal.
                             // `@N..M` (exclusive) normalizes to the inclusive
                             // protocol (`..=M-1`), matching the where-predicate

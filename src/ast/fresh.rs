@@ -283,11 +283,10 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Tok
                 && matches!(op, Op::DotDot | Op::DotDotEq)
             {
                 let inclusive = matches!(op, Op::DotDotEq);
-                consumed = 2 + match op {
-                    Op::DotDot => 2,
-                    Op::DotDotEq => 3,
-                    _ => unreachable!("matched above"),
-                };
+                // The guard above admits only `..` / `..=`; the width is read
+                // without an `unreachable!` — a panic inside a proc macro is a
+                // compiler ICE.
+                consumed = 2 + if inclusive { 3 } else { 2 };
                 match tokens.get(i + consumed) {
                     Some(TokenTree::Literal(el)) => match el.to_string().parse::<usize>() {
                         Ok(e) => {

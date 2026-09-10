@@ -23,14 +23,60 @@
   (`expand_consts` reports "range constant `@..` must name the family's
   maximum endpoint"), and `Box @..u128` is an open constant range — the
   canary panicked on both in debug builds (proc macros usually build debug).
-  Moved to the consumer's output: `mark_template` now asserts its own
+  Moved to the consumer's output: `mark_template` now **checks** its own
   postcondition ("output contains no unmarked `ident@..`"), where the shape
   is unambiguous (an open range's `@` is preceded by `<`/`,`/`(`, never an
   ident). The marking loop and the canary share one segment-shape predicate
-  (`contains_unmarked_segment`). Regression guard: new UI fixture
+  (`unmarked_segment_at`). Regression guard: new UI fixture
   `tests/ui/at_open_range_bare.rs` locks the user error. The `angle_collect`
   canary remains impossible (pairing output and real transparent groups are
   both `Delimiter::None`).
+- **Residue check hardened: verified unreachable, never panicking** — the
+  relocated postcondition was a `debug_assert!`, i.e. a user-facing compiler
+  ICE if it ever fired (dependencies of a debug build carry
+  `debug_assertions`). Two changes: (1) the detector now **recurses into
+  groups** (`first_unmarked_segment`) so it actually matches its documented
+  contract ("the output contains no `ident@..`", not "none at the top
+  level"); (2) a violation **returns a diagnostic** in every build profile
+  instead of asserting. `varseg::tests::postcondition_canary_never_fires`
+  proves the branch unreachable: every token sequence up to length 6 over the
+  segment's own alphabet (ident / `@` / `.` / `,` / literal / nested groups —
+  ≈300k inputs) plus 20k randomized longer sequences, each checked for a
+  panic, for a returned residue diagnostic, and for residue at **every**
+  nesting level. The invariant is structural: the loop consumes every
+  `ident@..`, no shape can start inside a consumed 4-token window (`@`, `.`,
+  `.` are not idents), and no transformation can mint one.
+- **The fuzz vocabulary never reached the marking pass** — `impl` was absent
+  from the random ident pool, so `impl{...}` templates (and therefore
+  `mark_varseg` → `mark_template`, the residue check's only hot caller) were
+  never generated; the pass had zero random coverage while the fuzz claimed
+  to cover the pipeline. Added, so the guard is exercised by the 256-case
+  corpora.
+- **No panic constructs left in production code** (audit after the residue
+  finding) — a panic inside a proc macro is a compiler ICE, so the
+  production paths now contain no `unwrap` / `expect` / `panic!` /
+  `unreachable!` / `debug_assert!` / `assert!` (all remaining occurrences are
+  `#[cfg(test)]` / test-helper files). Concretely:
+  - `apply/apply_tuple.rs` — the range-length `debug_assert_eq!` reports an
+    internal-error diagnostic instead (the length is exact by construction:
+    the empty check guarantees `end >= start` and `check_expand_limit`
+    rejects the only overflowing case before the range allocates);
+  - `parse/ident_blocks.rs` — four guarded `.unwrap()`s (the `+` bound head,
+    the two `::` colons, the macro-call group) became `let else`
+    extractions;
+  - `ast/fresh.rs` / `parse/mod.rs` — the two `_ => unreachable!("matched
+    above")` operator-width arms read the width from the `inclusive` flag
+    the guard already established;
+  - `util/scan.rs` — `Cursor::bump` now **clamps** and `advance` saturates,
+    establishing the documented position invariant (`pos <= len`) that
+    `slice_since` / `take_segment` / `take_rest` slice on without a guard
+    (they were `&tokens[pos..]`, a panic away from an overshooting advance);
+    regression test `cursor_position_never_exceeds_len`;
+  - `entry/mod.rs` — the `batch_trait!` trait-path scan's `bump(); bump()`
+    became `advance(2)` (clamped). Its "cursor at the second colon of `::`"
+    pre-condition, the only way two bumps could overshoot, is unreachable
+    (a `:` token always takes the colon arm, which consumes the pair) — but
+    the invariant is now structural rather than argued.
 - **impl entry reuses the shared attachment splitter** (multi-template
   merge unification) — `expand_leaf` collected only the *last* `impl{...}`
   shape template (a `WithImpl` overwrite bug) while the attribute entry

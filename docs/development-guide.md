@@ -80,9 +80,22 @@ expansion snapshots (only for intentional render changes).
   intermediate state before `Paired`, or on one of the tail branches
   (`expand_tokens` / `reject_directives` / `where_process`). The free
   functions stay `pub(crate)` for fuzz to call directly (fuzz deliberately
-  bypasses the chain); do not remove the `expand_consts` canary
-  `debug_assert!`. Name states after **invariants**, not passes; only a
+  bypasses the chain). Name states after **invariants**, not passes; only a
   transition that establishes a new invariant deserves a state.
+- **No panic constructs in production code**: `unwrap` / `expect` / `panic!`
+  / `unreachable!` / `debug_assert!` / `assert!` must not appear outside
+  `#[cfg(test)]` modules and the test-only helpers (`testing/`, `*_tests.rs`,
+  `*_worker.rs`) — a panic inside a proc macro is a compiler ICE, and the
+  no-panic promise is unconditional. Use `.get()`-style accessors, `let
+  else`, scan-derived indices, and `Cursor`'s **position invariant**
+  (`pos <= len` — `bump` / `advance` both clamp, so `slice_since` /
+  `take_segment` / `take_rest` need no bounds guard of their own).
+  Internal-invariant checks **report a diagnostic** instead of asserting:
+  the variadic-segment residue postcondition (`preprocess/varseg.rs`) and the
+  range-length check (`apply/apply_tuple.rs`) return an error on a violation.
+  Regression guards: `varseg::tests::postcondition_canary_never_fires`
+  (exhaustive ≤6-token sweep + randomized longer sequences) and
+  `scan::tests::cursor_position_never_exceeds_len`.
 - **Single-authority philosophy**: cross-module predicates are collected in
   one place — `util/punct_ops.rs::read_op` (operator shapes),
   `util/diagnostic.rs::compile_error_str` (error construction),
@@ -154,7 +167,11 @@ review against them:
   `tests/golden/`.
 - Fuzz (`src/testing/fuzz.rs`) calls passes directly and tolerates
   out-of-order input — it is the second line of defense outside the typestate
-  chain, paired with the canary assertions; keep both when touching passes.
+  chain. Its vocabulary must reach every pass's entry keyword (lesson: with no
+  `impl` ident in the vocabulary, the variadic-segment marking pass behind
+  `impl{...}` templates had no random coverage at all); internal-invariant
+  checks and the exhaustive regression tests are kept in step when touching
+  passes.
 
 ## 9. Packaging Hygiene
 
