@@ -897,6 +897,51 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Second review, round 5: the documentation half (F5 / F7a / F7b / F7e / F7g)** —
+  four of the review's five doc claims were confirmed in substance, one was
+  refuted; each is now either fixed or recorded as measured.
+  - **F5 — the freeze clause gains its exception** (the narrative half of the claim
+    was refuted: `v0.9.7` is tagged, `HEAD` is 16 commits past it, and the `@N..M`
+    unification commit `34af276` is **not** in the tag, so `## Unreleased` is the
+    correct home per the release flow). What remains true is that the README
+    promised "any change to existing semantics is a deliberate breaking release"
+    while that same bullet changed one: both READMEs now state the exception —
+    a position that *contradicts* the documented behaviour is a bug, and fixing it
+    is a normal release whose changelog names the spelling that changed; a change
+    to the surface itself stays breaking.
+  - **F7a — `_` is the group/position separator, not Rust's digit separator**: the
+    tutorial (`§` the `@` addressing table) now says that `@1_000` reads as
+    `@1_0` (the literal is split at its first `_`, and `"1_000".parse::<usize>()`
+    never succeeds) and that `@1000` is the flat index. Documented rather than
+    rejected — rejecting would change accepted input, which is exactly what the
+    freeze clause above is about.
+  - **F7b — the "known boundary asymmetry" paragraph was wrong about the
+    mechanism.** Measured: through the entries `impl_process` (pipeline step 1)
+    consumes the bare fragment into an inert `impl{...}` attachment, so
+    `where T: Clone impl B { fn m() {} }` reaches the parse layer as
+    `where T: Clone` with the fragment's `{…}` as the generated impl's **body** —
+    nothing entry-visible changes, and the earlier "collects the whole fragment
+    into the predicates" was only ever true of a direct caller, where the region
+    stops at that brace (`impl B` rides into the predicates). The module doc now
+    says exactly that, and the direct-call case is locked by
+    `preprocess::where_process::tests::bare_where_region_ends_at_a_fragment_brace`.
+  - **F7e — the UI snapshots' platform scope is now stated where developers look**:
+    the claim's CI half is exact (only `test-stable` names `--test ui`; MSRV and
+    Windows omit the target, which their comments explain), but the trailing "a
+    Windows developer sees drift" was **refuted** — the reviewer's own machine ran
+    all 104 fixtures green on rustc 1.98. The development guide now carries the
+    caveat (regenerate on Linux stable; a stale `.stderr` elsewhere is not a
+    regression signal).
+  - **F7g — the README's expansion numbers are a measured range, not a single
+    figure**: nine runs of `cargo test --lib perf -- --nocapture` measured
+    0.10–0.20 ms/impl at the 1024-impl ceiling (105–209 ms; the slow end overlapped
+    another cargo job) and 0.6–2.6 ms for the 4-impl spec, so both READMEs now
+    quote the ranges, name the command and say the test only asserts an
+    order-of-magnitude bound. (The review's own 0.1 ms / 1.15 ms are the fast end
+    of the same band, not a refutation of the old "~0.2 ms".)
+  - **Evidence**: lib **160** (the new where_process test), features **295**,
+    UI 101 + 3, doctests 93, fmt/clippy/doc clean; `doc_consistency` (EN/zh tree +
+    path guard) green after the README/tutorial/guide edits.
 - **Second review, round 4: the stale `allow` and the missing reason** (F7d) — of the
   eight production `#[allow(…)]` sites in `src/`, two carried
   `clippy::too_many_arguments` with no explanation: `entry/mod.rs`'s `run_pipeline`

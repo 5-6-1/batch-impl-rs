@@ -467,6 +467,12 @@ becomes several names and a `where` tail is copied per fresh.
 
 > **Power-user tier**: `@g_i` / `@all_fresh` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. The whole DSL surface is frozen since 0.7.2 (see README); these notations will not change semantics again.
 
+> **The `_` in a reference is the group/position separator**, not Rust's digit
+> separator: `@1_0` is group 1, position 0 — and `@1_000` is read the same way
+> (group 1, position 0), because the literal is split at its first `_` (`@1000`
+> without a separator is the flat position 1000). Write `@1000` when you mean a
+> flat index.
+
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(()2 where @0..=1: Clone)]   // range sugar: @0..=1 = @0, @1

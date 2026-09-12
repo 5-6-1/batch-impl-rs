@@ -12,15 +12,20 @@
 //! keyword with **no** trailing code block is legal (the region rides into a
 //! body-less suffix).
 //!
-//! **Known boundary asymmetry**: the where collector's boundary is only the
-//! `impl{...}` **attachment** form (`is_impl_template`) — a bare
-//! `impl A<B> {body}` (0.8.2's un-collected spelling) is NOT a boundary, so
-//! `where A: Clone impl B {..}` collects the whole `impl B {..}` fragment
-//! into the where predicates (a confusing downstream diagnostic). The two
-//! bare-keyword syntaxes (0.8.2 bare `impl` + bare `where`) predate each
-//! other's boundary rules; the interaction is accepted (the fragment fails
-//! with a syn/rustc error, never a panic) but not worth special-casing — a
-//! mixed spelling is a typo-level rarity.
+//! **Boundary asymmetry, and who can see it**: the where collector's boundary is
+//! only the `impl{...}` **attachment** form (`is_impl_template`) — a bare
+//! `impl A<B> {body}` (0.8.2's un-collected spelling) is not one. Through the
+//! entries this is unobservable: `impl_process` runs **first** and turns such a
+//! fragment into an `impl{...}` attachment, so
+//! `where T: Clone impl B { fn m() {} }` reaches the parse layer as
+//! `where T: Clone` with the fragment's `{ fn m() {} }` as the generated impl's
+//! **body** (measured; the attachment is inert against a direct-form target).
+//! Only a **direct caller** on un-collected tokens (fuzz's deliberate
+//! out-of-order calls) sees the asymmetry — and there the region simply runs to
+//! the fragment's `{`, a `{...}` group being a boundary like any other, so what
+//! rides into the predicates is `impl B`, not the whole fragment. Either way it
+//! is a typo-level rarity that ends in a downstream error, never a panic, and
+//! there is nothing entry-visible to lock.
 //!
 //! Shared by all three entries (`#[batch_impl]` / `#[batch_impl_only]` /
 //! `batch_trait!`) and the impl entry; the parse layer need not know about the
@@ -482,6 +487,21 @@ mod tests {
         assert_eq!(
             run_where("u8 where A : Clone , Vec < A , B > : Clone"),
             "u8 where { A : Clone , Vec < A , B > : Clone }"
+        );
+    }
+
+    /// The documented boundary asymmetry, at the only level it exists: a **direct
+    /// caller** that has not run `impl_process` (fuzz's out-of-order calls) sees
+    /// the region run to the fragment's `{` — that brace is a `{...}` group, i.e.
+    /// a boundary like any other, so `impl B` rides into the predicates and the
+    /// brace becomes the body. Through the entries `impl_process` consumes the
+    /// fragment first (see the module docs), which is why nothing entry-visible
+    /// changes here.
+    #[test]
+    fn bare_where_region_ends_at_a_fragment_brace() {
+        assert_eq!(
+            run_where("u8 where A : Clone impl B { fn m() {} }"),
+            "u8 where { A : Clone impl B } { fn m () { } }"
         );
     }
 }

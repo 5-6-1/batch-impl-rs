@@ -38,6 +38,8 @@ cargo doc --no-deps                    # 零警告
 
 快照更新：`BLESS=1 cargo test --lib golden` 重写黄金快照（渲染层有意变更时）。
 
+**UI 快照在 CI 里只在 Linux stable 跑。** `tests/ui/*.stderr` 锁的是 rustc 诊断措辞的原文，而它会随工具链与平台漂移：只有 `test-stable`（ubuntu + stable）跑 `--test ui`，MSRV 与 Windows 两个 job 跑的是 `cargo test --lib --test dsl --test no_panic --test doc_consistency`（刻意不点 UI target）。因此其他平台上的过期 `.stderr` **不是**回归信号——在 Linux stable 上用 `TRYBUILD=overwrite cargo test --test ui` 重新生成，新 fixture 也在那里加。这道网是真的，但作用域限定在平台上；套件里没有别的东西依赖它。
+
 ## 3. 发布流程（先 GitHub + CI 通过，再 crates.io）
 
 1. **Unreleased 占位**：开发期间在四处 changelog 顶部维护 `## Unreleased`

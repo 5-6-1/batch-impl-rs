@@ -47,6 +47,16 @@ cargo doc --no-deps                    # zero warnings
 Snapshot updates: `BLESS=1 cargo test --lib golden` rewrites the golden
 expansion snapshots (only for intentional render changes).
 
+**UI snapshots are Linux-stable-only in CI.** `tests/ui/*.stderr` lock rustc's
+exact diagnostic wording, which drifts across toolchains and platforms: the
+`test-stable` job (ubuntu, stable) is the only one that runs `--test ui`, while
+the MSRV and Windows jobs run `cargo test --lib --test dsl --test no_panic --test
+doc_consistency` (they deliberately omit the UI target). A stale `.stderr` on
+another platform is therefore *not* a regression signal — regenerate with
+`TRYBUILD=overwrite cargo test --test ui` on Linux stable, and add new fixtures
+there. The guard is real but platform-scoped; nothing else in the suite depends
+on it.
+
 ## 3. Release Flow (GitHub + CI green first, then crates.io)
 
 1. **Unreleased placeholder**: during development, maintain `## Unreleased`

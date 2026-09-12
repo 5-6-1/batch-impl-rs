@@ -56,7 +56,7 @@ trait TupleTrait {}
 
 ## 展开开销
 
-DSL 是过程宏——工作在编译期发生，不在运行时。作者机器实测（stable Rust，`cargo test --lib perf`）：顶到展开上限的 1024 个 impl 的 spec（`(u8, u16, u32, u64).5` 笛卡尔元组幂）展开约 **0.2 ms/impl**；典型的 4 个 impl 的 spec 约 2.5 ms。测量走的是 attr 入口同一条管线（proc-macro2 层；不含 rustc 自身的类型检查）。
+DSL 是过程宏——工作在编译期发生，不在运行时。用 `cargo test --lib perf -- --nocapture` 实测（stable Rust、作者机器、9 轮）：顶到展开上限的 1024 个 impl 的 spec（`(u8, u16, u32, u64).5` 笛卡尔元组幂）**0.10–0.20 ms/impl**（合计 105–209 ms，区间宽度是机器负载），典型的 4 个 impl 的 spec **0.6–2.6 ms**。该测试每次运行都会打印这两个数字，只断言一个宽松的数量级界限，所以请当作快照而非契约。测量走的是 attr 入口同一条管线（proc-macro2 层；不含 rustc 自身的类型检查）。
 
 ## 心智模型
 
@@ -146,6 +146,8 @@ trait Describe2 { fn describe(&self) -> String; }
 新常量 / 新工具）、诊断精化与文档。任何对既有语义的改动都是刻意的破坏性发布
 （`@N` 的稳定性承诺自此推广到整个语法面）。`@g_i` / `@all_fresh` / `@N..M`
 属 power-user tier（见 tutorial §6.4），新手从 `@u*` / `@all_methods` / `@0` 起步。
+
+只有一个例外，写在这里是因为它发生过：**与文档化行为相矛盾**的位置是 bug，修它属于常规发布——changelog 会写明哪个拼写的含义变了、现在是什么（例：`@N..M` 在类型位置改为排除端点，从而与 where 谓词路径一致）。而对**语法面本身**的改动——文档并未暗示的删除、改名或改义——仍然是刻意的破坏性发布。
 
 ## 下一步
 

@@ -54,9 +54,12 @@ development.
 ## Expansion cost
 
 The DSL is a proc macro — the work happens at compile time, not runtime.
-Measured on the author's machine (stable Rust, `cargo test --lib perf`):
-a 1024-impl spec at the expansion ceiling (`(u8, u16, u32, u64).5` Cartesian
-tuple power) expands in **~0.2 ms/impl**; a typical 4-impl spec is ~2.5 ms.
+Measured with `cargo test --lib perf -- --nocapture` (stable Rust, author's
+machine, 9 runs): a 1024-impl spec at the expansion ceiling
+(`(u8, u16, u32, u64).5` Cartesian tuple power) expands in **0.10–0.20 ms/impl**
+(105–209 ms total, the spread is machine load), and a typical 4-impl spec in
+**0.6–2.6 ms**. The test prints both numbers on every run and only asserts a loose
+order-of-magnitude bound, so treat the ranges as a snapshot, not a contract.
 The measurement runs the same pipeline the attribute entry uses, at
 proc-macro2 level (rustc's own type-checking is not included).
 
@@ -150,6 +153,8 @@ trait Describe2 { fn describe(&self) -> String; }
 ## Syntax-freeze commitment (0.7.2)
 
 The semantics of every existing token are **final** — `.`/space, `[]`/`()`/`<>`, `where`, the `#` directives, the `@` constants, and the splat will not change behavior again. Future releases only **add** (new directives / constants / tools), refine diagnostics, and polish docs; any change to existing semantics is a deliberate breaking release (the `@N` stability commitment, now extended to the whole surface). `@g_i` / `@all_fresh` / `@N..M` are power-user tier (tutorial §6.4) — start from `@u*` / `@all_methods` / `@0`.
+
+One exception, written down because it has happened: a position that **contradicts the documented behaviour** is a bug, and fixing it is a normal release — the changelog names the spelling that changed and what it means now (example: `@N..M` became end-exclusive in type positions so that all positions agree with the where-predicate path). A change to the *surface* itself — dropping, renaming, or re-meaning a token in a way the docs do not already imply — stays a deliberate breaking release.
 
 ## Next steps
 
