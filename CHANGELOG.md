@@ -202,6 +202,11 @@
   silently discarded the binding, generating an impl without the associated type.
   It now reports "an associated-type binding belongs to the outermost `<>`
   declaration" and names the spelling that works.
+- **A generated fresh generic no longer takes over a name written in a bound** —
+  the impl generic's inline bound and the predicates inherited from the trait
+  definition are part of the collision set the generated display names (`P0`,
+  `P1`, …) must avoid, so `<T: BoundTr<P0>> …` keeps referring to your `P0` type
+  (the fresh becomes `P0A`) instead of silently shadowing it.
 
 ## 0.9.7 (2026-08-29)
 

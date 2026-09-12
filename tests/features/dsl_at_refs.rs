@@ -1,6 +1,7 @@
 //! dsl.rs `@N` / `@g_i` / `@all_fresh` / `@N..M` position-reference tests:
 //! document-order numbering, per-impl sweeping, group-position references,
-//! references inside the target type, and the batch where-references.
+//! references inside the target type, the batch where-references, and the
+//! collision set the generated fresh **display names** must respect.
 //! (split from the former single-file `tests/dsl.rs`)
 
 use batch_impl::batch_impl;
@@ -138,4 +139,45 @@ fn at_refs_in_target_type() {
     check_num::<(u8, u16, Box<u8>)>();
     fn check_group<T: AtGroupInType>() {}
     check_group::<(u8, u16, Box<u16>)>();
+}
+
+// ============================================================
+// The fresh display names must not shadow what the impl *writes* — inline bounds
+// and inherited trait predicates included. The bound below names the user's
+// `P0` type, so the fresh the generator mints (`().1`) has to escape (`P0A`);
+// `BoundTr<P0>` is implemented for `u8` alone, so instantiating the generated
+// impl proves the bound still means the user's type (F3 of the second review
+// round: the bound was outside the collision set, and the fresh silently took
+// the name over).
+// ============================================================
+struct P0;
+
+trait BoundTr<T> {}
+impl BoundTr<P0> for u8 {}
+
+#[batch_impl(<T: BoundTr<P0>> BoundCollision<T> (T, ().1))]
+trait BoundCollision<T> {}
+
+// The same for a predicate **inherited** from the trait definition (`T:
+// BoundTr2<P0>` is merged onto the impl generic's bound before the collision set
+// is built).
+trait BoundTr2<T> {}
+impl BoundTr2<P0> for u16 {}
+
+#[batch_impl(<T> InhCollision<T> (T, ().1))]
+trait InhCollision<T>
+where
+    T: BoundTr2<P0>,
+{
+}
+
+#[test]
+fn user_idents_in_bounds_join_the_fresh_collision_set() {
+    // The generator mints one fresh inside a 1-tuple (`(T, ().1)` →
+    // `(T, (P0A,))`); `u8: BoundTr<P0>` holds, so the *escaped* display name is
+    // what makes these calls resolvable.
+    fn check_bound<T: BoundCollision<u8>>() {}
+    check_bound::<(u8, (u8,))>();
+    fn check_inherited<T: InhCollision<u16>>() {}
+    check_inherited::<(u16, (u16,))>();
 }

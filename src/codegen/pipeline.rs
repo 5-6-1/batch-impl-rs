@@ -66,17 +66,35 @@ pub(crate) fn generate_parts(
         .map(|(n, _)| ParamKind::bare_name(n))
         .collect::<Vec<TokenStream>>();
 
+    let trait_args = parts.trait_generic_names.clone();
+    let mut errs = vec![];
+    // Inherited trait bounds run **before** the collision set is built: an
+    // inherited predicate or inline bound may name a fresh display name literally
+    // (the trait's own `where T: Tr<P0>`), and a fresh that shadows it would
+    // silently change what the predicate means (F3 of the second review round).
+    // Running it here also keeps the later stages (`sync_impl_parts`, where
+    // resolution) reading exactly the predicates they read before.
+    inherit_trait_bounds(&mut parts, trait_bounds, &trait_args);
+
     // The collision set display names must skip: every ident the impl
-    // already writes (user params, target type, trait args, predicates,
-    // body, attrs, associated types) — one source list, shared with the impl
-    // entry (`codegen::fresh_naming::used_ident_set`). Template placeholders are
-    // excluded — the shape mapping rewrites them away before output, so
-    // counting them would shift numbering the rendered impl never shows. The
-    // target stream is kept for the later reference resolution (one
+    // already writes (user params, **their inline bounds**, target type, trait
+    // args, predicates, body, attrs, associated types) — one source list, shared
+    // with the impl entry (`codegen::fresh_naming::used_ident_set`). Template
+    // placeholders are excluded — the shape mapping rewrites them away before
+    // output, so counting them would shift numbering the rendered impl never
+    // shows. The target stream is kept for the later reference resolution (one
     // `to_token_stream` per impl instead of two).
     let target_stream = parts.target_type.to_token_stream();
     let plain_impl_names =
         impl_name_streams.iter().filter(|n| decl_fresh_pos(n).is_none()).collect::<Vec<_>>();
+    // Bounds are surfaces in their own right: `<T: Tr<P0>>` names `P0`, and the
+    // impl entry has always counted the whole item (bounds included).
+    let bound_streams = parts
+        .impl_generics
+        .iter()
+        .filter_map(|(_, b)| b.as_ref())
+        .map(|b| b.to_token_stream())
+        .collect::<Vec<_>>();
     let mut surfaces = vec![&target_stream];
     surfaces.extend(parts.trait_generic_names.iter());
     surfaces.extend(parts.where_clauses.iter());
@@ -86,17 +104,15 @@ pub(crate) fn generate_parts(
     surfaces.extend(parts.attrs.iter());
     surfaces.extend(parts.associated_types.iter().map(|(_, v)| v));
     surfaces.extend(plain_impl_names);
+    surfaces.extend(bound_streams.iter());
     let used = used_ident_set(&surfaces);
 
     // The per-impl macro-meta context: fresh declarations sorted by
     // (group, position), each assigned its final display name — shared by
-    // every `@` consumer from here on (inheritance / sync / where resolution
-    // / range re-opening / repeat drivers / render).
+    // every `@` consumer from here on (sync / where resolution / range
+    // re-opening / repeat drivers / render).
     let fresh_ctx = FreshCtx::new(&impl_name_streams, &used);
-    let trait_args = parts.trait_generic_names.clone();
 
-    let mut errs = vec![];
-    inherit_trait_bounds(&mut parts, trait_bounds, &trait_args);
     // `X<>` (empty angle brackets) → `X<spec args>` — where predicates,
     // `impl{...}` templates and impl-generic bounds fill unconditionally; a
     // **switch template** (`impl{@trait<>}` / `impl{Tr<>}`) additionally

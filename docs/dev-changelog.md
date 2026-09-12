@@ -897,6 +897,30 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Second review, round 3: the collision set now covers the impl's own bounds and
+  inherited predicates** (F3) — the attribute entry built the "names the impl
+  already writes" set from the target, trait args, where clauses, body, attrs,
+  associated types and the impl generics' *names* — but not their **bounds**, and
+  `inherit_trait_bounds` ran *after* the set was built. Measured with
+  `batch_preview!`: `#[batch_impl(<T: BoundTr<P0>> BoundCollision<T> (T, ().1))]`
+  rendered `impl<T: BoundTr<P0>, P0> … for (T, (P0,))` — the user's `P0` type
+  inside the bound was shadowed by the generated fresh, so the predicate silently
+  changed meaning (the impl entry had always counted the whole item, and the
+  architecture calls that asymmetry a defect).
+  - **Fix**: the bounds join the surface list (`impl_generics`' `Option<Ty>`
+    bounds, turned into streams **after** `hoist_bound_fresh`), and
+    `inherit_trait_bounds` moved **above** the set's construction — so the
+    inherited inline bound and the inherited predicates are surfaces too. The
+    later stages (`sync_impl_parts`, where resolution) still read exactly the
+    predicates they read before; only the naming input grew.
+  - **Evidence**: falsified before it was trusted — with the bound surfaces
+    removed, the new test fails with `u8: BoundTr<u8>` / `u16: BoundTr2<u16>`
+    (the predicate pointed at the fresh); with the fix, both generated impls read
+    `P0A` for the fresh and keep `P0` in the bound. Locked by
+    `dsl_at_refs::user_idents_in_bounds_join_the_fresh_collision_set` (both the
+    inline-bound and the inherited-predicate case). The 9 goldens and every other
+    test pass **without** `BLESS` — the change shifts no rendering. Totals: lib
+    **159**, features **295**, UI 101 + 3, doctests 93.
 - **Second review, round 2: a nested declaration's bindings are reported, not dropped**
   (F7c) — the review called it a theoretical gap; it is reachable and silent.
   `codegen/extract.rs::hoist_type_params` collected a `WithType` node's **params**
