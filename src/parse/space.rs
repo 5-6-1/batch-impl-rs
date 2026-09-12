@@ -117,7 +117,12 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
                     QualifiedHead::Projection(head_ty.into(), trait_),
                 ));
             }
-            crate::parse::generic::parse_angle_bracket_contents(&args, ctx, true).to_ty()
+            crate::parse::generic::parse_angle_bracket_contents(
+                &args,
+                ctx,
+                crate::parse::generic::ArgsPosition::Declaration,
+            )
+            .to_ty()
         }
         // `&` / `&mut` / `&'a` / `&'a mut`
         TokenTree::Punct(p) if p.as_char() == '&' => reference_block(cursor, ctx),

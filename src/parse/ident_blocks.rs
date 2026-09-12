@@ -412,10 +412,16 @@ fn plain_ident_path(cursor: &mut Cursor, mut tokens: Vec<TokenTree>, ctx: Ctx<'_
         let is_trait_head = matches!(base_tokens.clone().into_iter().next(),
             Some(TokenTree::Ident(i)) if ctx.trait_name.is_some_and(|tn| tn == &i));
         // Bindings/bounds in the args are valid on a trait path
-        // (`Conv<Item = u32> X`), in a generic declaration, **and in a bound
-        // position** (`T: Iterator<Item = u8>` / `dyn Iterator<Item = u8>`) —
-        // a plain type's args are a plain type list.
-        let params = parse_angle_bracket_contents(&args, ctx, is_trait_head || ctx.bound);
+        // (`Conv<Item = u32> X`) **and in a bound position**
+        // (`T: Iterator<Item = u8>` / `dyn Iterator<Item = u8>`) — a plain
+        // type's args are a plain type list. The position, not the shape of the
+        // list, is what decides (see `parse::generic::ArgsPosition`).
+        let position = if is_trait_head || ctx.bound {
+            crate::parse::generic::ArgsPosition::TraitPath
+        } else {
+            crate::parse::generic::ArgsPosition::PlainType
+        };
+        let params = parse_angle_bracket_contents(&args, ctx, position);
         let head = if is_trait_head {
             // trait head with args (`Tr<A>`) — apply turns it into the impl
             QualifiedHead::Type(Box::new(TyTrait(base_tokens, params).to_ty()))

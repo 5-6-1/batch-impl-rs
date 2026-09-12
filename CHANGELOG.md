@@ -194,14 +194,15 @@
   message — and a half-built impl was emitted next to it. They now report the
   DSL's own error, and the empty-range message names the numbers
   (``empty exclusive range `@2..1` ``) instead of printing a literal `@{}..{}`.
-- **An associated-type binding on a nested `<>` declaration is reported, not
-  dropped** — the outermost declaration's bindings become the impl's associated
-  types (`#[batch_impl(<Item = u8> Held)]` → `impl Tr for Held { type Item = u8; }`,
-  now covered by a test), but the same declaration written *inside* a type
-  (`(<Item = u8> Held,)`, `Vec<(<Item = u8> Held,)>`) hoisted its parameters and
-  silently discarded the binding, generating an impl without the associated type.
-  It now reports "an associated-type binding belongs to the outermost `<>`
-  declaration" and names the spelling that works.
+- **An associated-type binding in a `<>` declaration block is reported, with the
+  spelling that works** — a declaration block declares *parameters*, so
+  `<Item = u8> Held` now reports "an associated-type binding belongs on the trait
+  application — write `Trait<Item = u8> Target`" (the nested `(<Item = u8> Held,)`
+  used to drop the binding silently, and the outermost form honoured it — neither
+  was a spelling the DSL models). Write the binding on the trait application:
+  `#[batch_impl(AssocOnTrait<Item = u8> Held)]` → `impl AssocOnTrait for Held
+  { type Item = u8; }`, hoisted into the body because `impl Trait<Item = u8> for X`
+  is `E0229` in Rust.
 - **A generated fresh generic no longer takes over a name written in a bound** —
   the impl generic's inline bound and the predicates inherited from the trait
   definition are part of the collision set the generated display names (`P0`,

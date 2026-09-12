@@ -33,12 +33,7 @@ pub(crate) fn generate_parts(
 
     // hoist nested `WithType` (fresh generics) out of the target type, preventing `<A>` leaks
     let mut nested_params = vec![];
-    parts.target_type = match hoist_type_params(parts.target_type, &mut nested_params) {
-        Ok(t) => t,
-        // A nested `<…>` declaration carrying associated-type bindings has no
-        // rendering; reported instead of dropped.
-        Err(e) => return e,
-    };
+    parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
 
     // hoist fresh generics out of impl-generic **bounds** (`<T: Fn.().2>` →

@@ -7,7 +7,6 @@ use quote::{ToTokens, quote};
 
 use crate::ast::*;
 use crate::parse::split_at_depth0;
-use crate::util::compile_error_str;
 
 /// Recursively extracts all parts an impl block needs from `Ty`.
 ///
@@ -229,25 +228,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
 /// Collects the params of `WithType(<A>, T)` into `out` (for the impl generics) and
 /// replaces that node with its inner `T`. Every other variant recurses through
 /// [`Ty::map_children`] — the single traversal authority, parameter lists included.
-///
-/// A **nested** declaration carrying associated-type bindings is an error, not a
-/// silent drop: bindings are target metadata (`<Item = u8> Held` declares `Held`'s
-/// associated type, consumed by `extract_impl_parts` from the outermost
-/// declaration), and a nested one has no rendering — hoisting used to discard it,
-/// so `(<Item = u8> Held,)` generated `impl … for (Held,)` with no
-/// `type Item = u8;` and no diagnostic (F7c of the second review round).
-pub(crate) fn hoist_type_params(
-    ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>,
-) -> Result<Ty, TokenStream> {
-    if let Some(e) = nested_binding_error(&ty) {
-        return Err(e);
-    }
-    Ok(hoist_rec(ty, out))
-}
-
-/// The recursive worker of [`hoist_type_params`] (the check above runs once, at
-/// the entry, so the recursion itself cannot fail).
-fn hoist_rec(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
+pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
     match ty.kind {
         // Generic-declaration wrapper: hoist the declaration outward (params
         // are added to `out`, not to the rebuilt node). A structured fresh
@@ -288,45 +269,13 @@ fn hoist_rec(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>) -> Ty {
                     out.push((name.to_token_stream(), bound.map(|b| *b)));
                 }
             }
-            hoist_rec(*wt.1, out)
+            hoist_type_params(*wt.1, out)
         }
         // All other variants — including `Generic` (the params are children
         // of the node since `map_children` descends into parameter lists) —
         // recurse into children uniformly.
-        other => Ty { span: ty.span, kind: other }.map_children(&mut |c| hoist_rec(c, out)),
+        other => Ty { span: ty.span, kind: other }.map_children(&mut |c| hoist_type_params(c, out)),
     }
-}
-
-/// The first **nested** `<>` declaration carrying associated-type bindings, as a
-/// diagnostic — `None` when the target type has none.
-///
-/// The traversal composes on [`Ty::map_children`] (the single walk authority) and
-/// collects instead of unwinding, the same shape as the driver's `collect_errors`;
-/// only the **children** are inspected, which is what exempts the outermost
-/// declaration (whose bindings are the impl's associated types).
-fn nested_binding_error(ty: &Ty) -> Option<TokenStream> {
-    let mut found = None;
-    collect_nested_bindings(ty, &mut found);
-    found
-}
-
-fn collect_nested_bindings(ty: &Ty, out: &mut Option<TokenStream>) {
-    ty.clone().map_children(&mut |child| {
-        if out.is_none()
-            && let TyKind::WithType(wt) = &child.kind
-            && let Some((name, _)) = wt.0.bindings.first()
-        {
-            *out = Some(compile_error_str(
-                "batch-impl: an associated-type binding belongs to the outermost `<>` declaration \
-                 (write `<Item = u8> Foo<…>`, not `(<Item = u8> Foo<…>,)`)",
-                name.span,
-            ));
-        }
-        if out.is_none() {
-            collect_nested_bindings(&child, out);
-        }
-        child
-    });
 }
 
 /// Substitute each trait generic param with its concrete arg in the impl body

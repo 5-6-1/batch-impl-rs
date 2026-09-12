@@ -1198,11 +1198,16 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Generic rename breaks inheritance**: renaming a trait generic param = explicit error, never silent
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
 - **Empty range** (`@u16..u8`): "no impls generated for empty range"
-- **`=`/`:` in concrete-type args**: bindings/bounds belong to a trait path, a
-  generic declaration **or a bound** — the bound position (`T: Iterator<Item = u8>`,
-  and the same inside `dyn` / `impl Trait` / `for<'a>`) is the one the DSL only
-  learned later; anywhere else a targeted error (`Assoc<Item = u32>` with a struct
-  reports "binding args are only valid on a trait path … in a bound")
+- **`=`/`:` in concrete-type args**: bounds and bindings belong to a trait path
+  (`Conv<Item = u32> X`) and to a **bound position** (`T: Iterator<Item = u8>`, the
+  same inside `dyn` / `for<'a>`); anywhere else a targeted error
+  (`Assoc<Item = u32>` with a struct reports "binding args are only valid on a
+  trait path … or in a bound")
+- **An associated-type binding in a `<>` declaration block**: a declaration
+  declares *parameters*, so `<Item = u8> Target` reports "an associated-type
+  binding belongs on the trait application — write `Trait<Item = u8> Target`".
+  The trait-application spelling is the one that works (its binding is hoisted into
+  the impl body, since `impl Trait<Item = u8> for X` is `E0229` in Rust)
 - **Stray `;`/`=`/`@`/`#`/`-` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic; a lone `-` is the retired operator — the exclusion lives only in directive lists)
 - **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `fn(A) B`)
 - **Blanket method takes/returns bare `Self`**: `#blanket` cannot delegate a

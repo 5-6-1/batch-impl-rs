@@ -1,0 +1,11 @@
+error: batch-impl: an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`, not `<Item = u8> Target` (a `<>` block declares parameters)
+  --> tests/ui/declaration_binding.rs:11:20
+   |
+11 | #[batch_impl(<Item = u8> RootHeld)]
+   |                    ^
+
+error: batch-impl: an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`, not `<Item = u8> Target` (a `<>` block declares parameters)
+  --> tests/ui/declaration_binding.rs:20:21
+   |
+20 | #[batch_impl((<Item = u8> NestedHeld,))]
+   |                     ^

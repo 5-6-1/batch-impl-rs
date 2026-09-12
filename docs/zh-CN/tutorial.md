@@ -1093,7 +1093,8 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **泛型改名不继承**：trait 泛型参数改名 = 明确报错，绝不静默
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
 - **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
-- **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径、泛型声明**或 bound 位置**——bound 位置（`T: Iterator<Item = u8>`，`dyn` / `impl Trait` / `for<'a>` 内同理）是 DSL 后来才支持的；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … in a bound"）
+- **具体类型实参遇 `=`/`:`**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）与 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … or in a bound"）
+- **`<>` 声明块里的关联类型 binding**：声明块声明的是**参数**，因此 `<Item = u8> Target` 报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"。可用的写法是 trait 应用那种（它的 binding 会被提升进 impl body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`）
 - **类型位置的 `;`/`=`/`@`/`#`/`-` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断；孤 `-` 是已退役运算符——排除语义仅存于指令列表）
 - **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `fn(A) B`）
 - **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型

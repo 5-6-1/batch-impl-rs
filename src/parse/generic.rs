@@ -40,16 +40,38 @@ fn find_colon_at_depth0(tokens: &[TokenTree]) -> Option<usize> {
     scan_stop(tokens, &[':']).filter(|&index| is_single_colon(tokens, index))
 }
 
+/// Where an angle-bracket list sits — the **single authority** for what its
+/// chunks may contain. Bounds and associated-type bindings are *not* valid in the
+/// same positions, and the answer is the position, not the shape of the list:
+///
+/// * [`ArgsPosition::TraitPath`] — a trait application (`Conv<Item = u32> X`) or a
+///   **bound** (`T: Iterator<Item = u8>`, `dyn …`, `for<'a> …`): bounds and
+///   bindings both belong;
+/// * [`ArgsPosition::Declaration`] — a generic-declaration block
+///   (`<T: Clone, Item = u8> Foo`): bounds are the declaration's own, a binding
+///   declares nothing — it is reported and pointed at the trait-application
+///   spelling (`Trait<Item = u8> Foo`);
+/// * [`ArgsPosition::PlainType`] — a plain type's argument list (`Vec<u8>`):
+///   neither is valid.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArgsPosition {
+    TraitPath,
+    Declaration,
+    PlainType,
+}
+
 /// Parse `<T: Clone, U, Item=V>` contents: parameter list + associated-type bindings
 pub(crate) fn parse_angle_bracket_contents(
-    tokens: &[TokenTree], ctx: Ctx<'_>, allow_special: bool,
+    tokens: &[TokenTree], ctx: Ctx<'_>, position: ArgsPosition,
 ) -> TyTypeParam {
     // `allow_special`: bindings (`Item = u32`) and bounds (`T: Clone`) are
-    // valid on a trait path (`Conv<Item = u32> X`), in a generic declaration
-    // (`<T: Clone> Foo`) and in a **bound** position (`T: Iterator<Item = u8>`
-    // / `dyn Iterator<Item = u8>`) — a concrete type's args are a plain
-    // type list, so `=`/`:` there is a usage error (previously the bound was
-    // silently dropped and a struct binding rendered invalid code).
+    // valid on a trait path (`Conv<Item = u32> X`) and in a **bound** position
+    // (`T: Iterator<Item = u8>` / `dyn Iterator<Item = u8>`) — a concrete
+    // type's args are a plain type list, so `=`/`:` there is a usage error
+    // (previously the bound was silently dropped and a struct binding rendered
+    // invalid code). A generic **declaration** allows bounds but not bindings
+    // (see [`ArgsPosition`]).
+    let allow_special = position != ArgsPosition::PlainType;
     //
     // The recursion into a chunk is a **plain** one: the chunks are types
     // (binding values / args), so the bound flag must not leak into them.
@@ -71,7 +93,22 @@ pub(crate) fn parse_angle_bracket_contents(
         // A resolution error yields a `compile_error!` token stream that
         // surfaces when the impl header is rendered.
         if let Some(eq) = scan_stop(chunk, &['=']) {
-            if allow_special {
+            if position == ArgsPosition::Declaration {
+                // A declaration block declares **parameters**; an associated-type
+                // binding there declares nothing (it used to be honoured as the
+                // impl's associated type, which is a spelling the maintainer never
+                // modelled — the binding belongs on the trait application). Report
+                // with the spelling that works instead of inventing one.
+                params.push((
+                    Box::new(err_ty_at(
+                        "batch-impl: an associated-type binding belongs on the trait \
+                         application — write `Trait<Item = u8> Target`, not \
+                         `<Item = u8> Target` (a `<>` block declares parameters)",
+                        span_at(chunk, eq),
+                    )),
+                    None,
+                ));
+            } else if allow_special {
                 let name = slice_upto(chunk, eq);
                 let name_ty = TyPrimitive(name.iter().cloned().collect()).to_ty();
                 let value = match resolve_at_refs(slice_from(chunk, eq + 1)) {
@@ -110,7 +147,7 @@ pub(crate) fn parse_angle_bracket_contents(
                 params.push((
                     Box::new(
                         TyPrimitive(compile_error_ty(
-                            "batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`), in a generic declaration or in a bound (`T: Iterator<Item = u8>`) — a concrete type's args are a plain type list",
+                            "batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a bound (`T: Iterator<Item = u8>`) — a concrete type's args are a plain type list",
                             span_at(chunk, eq),
                         ))
                         .to_ty(),

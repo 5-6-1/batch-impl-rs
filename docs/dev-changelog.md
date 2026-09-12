@@ -897,6 +897,41 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Maintainer correction: an associated-type binding belongs on the *trait
+  application*, not in a declaration block** — rounds 2's positive case was wrong.
+  It locked `#[batch_impl(<Item = u8> Held)]` (a `<>` declaration block carrying only
+  bindings) as the way to specify an impl's associated type, and the maintainer's
+  model is `#[batch_impl(B3<Item = u8> Held)]` — the binding written on the **trait
+  application**. Measured: that spelling already works and is the only one that
+  *should* (`B3<Item = u8> Held` → `impl B3 for Held { type Item = u8; }`; the
+  binding is hoisted into the body because the trait-ref form
+  `impl B3<Item = u8> for Held` is **E0229** in Rust — verified with rustc). The
+  declaration route produced the identical output for `<Item = u8> Held` and
+  `<T, Item = u8> B5<T> Holder<T>` — i.e. an **accidental** second surface that the
+  docs never described.
+  - **Fix, and a simpler one than round 2's**: what an angle-bracket chunk may
+    contain is a property of the **position**, so `parse_angle_bracket_contents` now
+    takes `parse::generic::ArgsPosition { TraitPath, Declaration, PlainType }`
+    instead of an `allow_special: bool` (the two `space.rs` / `ident_blocks.rs` call
+    sites are the only ones). `Declaration` keeps bounds (`<T: Clone> Foo`) and
+    reports a binding with the spelling that works:
+    "an associated-type binding belongs on the trait application — write
+    `Trait<Item = u8> Target`, not `<Item = u8> Target` (a `<>` block declares
+    parameters)". Both the outer and the **nested** position hit it, at parse time.
+  - **Round 2's machinery is gone with it**: the parse gate is stricter and earlier
+    than the codegen check, so `hoist_type_params` is back to `-> Ty` (no
+    `nested_binding_error` traversal, no `Result` on three call sites). The
+    "in a generic declaration" clause also left the two sibling messages (the
+    concrete-binding diagnostic and its bound twin), and the tutorial/architecture
+    text follows.
+  - **Locks rewritten**: the positive case is now
+    `dsl_bound_bindings::an_associated_type_binding_on_the_trait_application_is_honoured`
+    (`AssocOnTrait<Item = u8> AssocHeld`), the negative is
+    `tests/ui/declaration_binding.rs` (**both** positions, one snapshot, span on the
+    `=`), and `tests/ui/nested_binding_declaration.rs` is deleted as superseded.
+  - **Evidence**: lib **160**, features **295**, UI **101 + 3**, doctests 93,
+    fmt/clippy/doc clean; `concrete_binding.stderr` re-blessed for the reworded
+    message, and the 9 goldens pass without `BLESS` (no rendering moved).
 - **Second review, round 6: the published crate carries only what the build reads**
   (F6) — the review measured 379 files in `cargo package --list`, including the
   zh-CN mirrors (447 KB), both dev-changelogs (275 KB + 241 KB) and the whole
@@ -1015,6 +1050,13 @@
     (`dsl_bound_bindings::declaration_binding_becomes_the_associated_type`, which
     names the impl through `DeclBinding<Item = u8>`), and the rejection is the new
     `tests/ui/nested_binding_declaration.rs`.
+  - **Superseded** (see the maintainer-correction entry above): the *positive* case
+    this round locked was the wrong spelling — an associated-type binding belongs on
+    the **trait application** (`B3<Item = u8> Held`), not in a declaration block.
+    The `Result` signature and the `nested_binding_error` walk were removed again
+    when the rule moved to `parse::generic::ArgsPosition`, which rejects the
+    declaration spelling at parse time (outer and nested alike); the fixture above
+    was replaced by `tests/ui/declaration_binding.rs`.
   - **Evidence**: lib **159**, features **294**, UI **101 + 3**, doctests 93,
     fmt/clippy clean.
 - **Second review, round 1: one authority for the `@`-reference diagnostics** — the

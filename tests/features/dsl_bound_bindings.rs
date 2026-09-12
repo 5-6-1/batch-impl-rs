@@ -1,18 +1,16 @@
 //! Associated-type bindings in the positions that are legal Rust —
 //! `<T: Iterator<Item = u8>>`, `dyn Iterator<Item = u8>`,
-//! `for<'a> Iterator<Item = u8>`, their nested forms, and a **generic
-//! declaration** block whose binding becomes the impl's associated type
-//! (`<Item = u8> Held` → `impl DeclBinding for Held { type Item = u8; }`).
-//! Every one of these is valid Rust, and every one used to be rejected with the
-//! concrete-type diagnostic ("binding args … are only valid on a trait path …"),
-//! because "is this head a trait?" was answered by the annotated trait's name
-//! alone.
+//! `for<'a> Iterator<Item = u8>`, their nested forms, and the **trait
+//! application** (`AssocOnTrait<Item = u8> Target`, whose binding is hoisted into
+//! the impl body because `impl Trait<Item = u8> for X` is `E0229`). Every one of
+//! these is valid Rust, and every one used to be rejected with the concrete-type
+//! diagnostic ("binding args … are only valid on a trait path …"), because "is
+//! this head a trait?" was answered by the annotated trait's name alone.
 //!
 //! The tests' value is the compile itself: the DSL's own grammar is rendered
 //! back into the impl header, so a wrong acceptance would be a rustc error
-//! rather than a silently dropped binding. Bindings belong to the **outermost**
-//! declaration (a nested one is reported, not dropped —
-//! `tests/ui/nested_binding_declaration.rs`).
+//! rather than a silently dropped binding. A binding in a **generic-declaration
+//! block** declares nothing and is reported (`tests/ui/declaration_binding.rs`).
 
 use batch_impl::batch_impl;
 
@@ -49,24 +47,27 @@ trait BoundedEntry {
     fn tag(&self) -> &'static str;
 }
 
-// A **declaration block's** binding is the impl's associated type (not a bound):
-// `<Item = u8> DeclBindingHeld` → `impl DeclBinding for DeclBindingHeld { type Item = u8; }`.
-// The binding is consumed from the outermost declaration; a nested one has no
-// rendering and is a targeted error (F7c of the second review round: it used to
-// be dropped silently, leaving an impl without its `type Item`).
-struct DeclBindingHeld;
+// An associated-type binding written on the **trait application** is honoured:
+// `AssocOnTrait<Item = u8> AssocHeld` → `impl AssocOnTrait for AssocHeld { type Item = u8; }`.
+// The body form is the only legal rendering — `impl AssocOnTrait<Item = u8> for
+// AssocHeld` is `E0229` in Rust (measured) — so the binding is hoisted out of the
+// trait's arguments into the impl body. This is the spelling the DSL models;
+// writing the binding in a generic-declaration block (`<Item = u8> AssocHeld`) is
+// reported instead (`tests/ui/declaration_binding.rs`), because a declaration
+// block declares parameters and a binding there declares nothing.
+struct AssocHeld;
 
-#[batch_impl(<Item = u8> DeclBindingHeld)]
-trait DeclBinding {
+#[batch_impl(AssocOnTrait<Item = u8> AssocHeld)]
+trait AssocOnTrait {
     type Item;
 }
 
 #[test]
-fn declaration_binding_becomes_the_associated_type() {
+fn an_associated_type_binding_on_the_trait_application_is_honoured() {
     // `Item = u8` in the bound proves the binding reached the generated impl —
     // a dropped binding would fail to compile (E0046 on `type Item`).
-    fn need<T: DeclBinding<Item = u8>>() {}
-    need::<DeclBindingHeld>();
+    fn need<T: AssocOnTrait<Item = u8>>() {}
+    need::<AssocHeld>();
 }
 
 #[test]

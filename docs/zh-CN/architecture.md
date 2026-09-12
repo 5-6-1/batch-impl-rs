@@ -280,17 +280,20 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
   四个递归入口（`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`）一律不进入，
   判定收敛在 `scan::bracket_is_passthrough`（0.5.7 曾因一处守卫缺失误展开
   `#[...]` 内的 `#name` 指令）。
-- **泛型实参的域分裂**：binding（`Item = u32`）与 bound（`T: Clone`）只属
-  trait 路径（`Conv<Item = u32> X`）、泛型声明（`<T: Clone> Foo`）与 **bound 位置**
-  （`T: Iterator<Item = u8>` / `dyn Iterator<Item = u8>` / `for<'a> …`）——具体
-  类型的实参是纯类型列表，遇 `=`/`:` 报定向错误（`parse_angle_bracket_contents`
-  的 `allow_special` 门控；此前 bound 被静默丢弃、struct binding 渲染非法代码）。
+- **泛型实参的域分裂，由 `ArgsPosition` 决定**：尖括号块里允许什么，是**位置**的属性，
+  不是列表形状的属性——`parse::generic::ArgsPosition` 命名了三种：**trait 应用**
+  （`Conv<Item = u32> X`）与 **bound**（`T: Iterator<Item = u8>` / `dyn …` /
+  `for<'a> …`）同时接受 bound 与 binding；**泛型声明**（`<T: Clone> Foo`）接受 bound，
+  而那里的 binding 什么都不声明，因此报错并给出 trait 应用的写法
+  （`Trait<Item = u8> Target`）；纯类型的实参（`Vec<u8>`）两者都不接受。前两种之外
+  的 `=` 报定向错误（此前 bound 被静默丢弃、struct binding 渲染非法代码）。
 - **唯一的解析环境上下文**：解析器唯一的状态是 `parse::Ctx { trait_name, bound }`
   （`Copy`），从 `parse_item` 逐层按值传到 ident 块。`trait_name` 回答"这个裸头是不是
-  被实现的 trait"（决定 `TyTrait` 还是 `TyGeneric`）；`bound` 回答"这条路径能否带关联类型
-  绑定"——由 bound 解析器设置（`parse_bound_expr`、`dyn_block`、`for_block`），进入嵌套
-  实参列表时再清掉（那些块是类型）。两者**分开**才能让 `Vec<Item = u8>` 继续报错而
-  `<T: Iterator<Item = u8>>` 可解析：该标志只放宽实参门控，绝不参与头的分类。
+  被实现的 trait"（决定 `TyTrait` 还是 `TyGeneric`）；`bound` 回答"这条路径是否处于
+  bound 位置"——由 bound 解析器设置（`parse_bound_expr`、`dyn_block`、`for_block`），
+  进入嵌套实参列表时再清掉（那些块是类型）。两者**分开**才能让 `Vec<Item = u8>` 继续
+  报错而 `<T: Iterator<Item = u8>>` 可解析：该标志只放宽实参门控，绝不参与头的分类；
+  而**门控本身**就是上面的位置枚举。
 - **开头的 `::` 是块，单个 `:` 不是**：因此 `starts_block` 读的是游标（它要查
   复合运算符字典）而不是单个 token，`parse_block` 多出一条全局路径分支，把头部交给
   唯一的 ident 路径解析器（`plain_ident_path`）。token 级检查无法区分这两者，而
