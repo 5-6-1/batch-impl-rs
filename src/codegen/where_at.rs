@@ -6,8 +6,10 @@ use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 
 use super::FreshCtx;
 use super::{at_group_out_of_range, at_num_out_of_range};
-use crate::ast::fresh_protocol::{FreshEnd, FreshRef, carrier_inner_at, fold_flat_refs};
-use crate::util::{compile_err, compile_error_str, slice_from, slice_window};
+use crate::ast::fresh_protocol::{
+    AtRefError, FreshEnd, FreshRef, carrier_inner_at, fold_flat_refs,
+};
+use crate::util::{compile_err, slice_from, slice_window};
 
 /// Macro-meta position references in where predicates: `@N` → the N-th fresh
 /// generic in document order (the impl's fresh declarations sorted by
@@ -77,13 +79,8 @@ pub(crate) fn resolve_where_at(
     while let Some(cur) = tokens.get(i) {
         if let Some(inner) = carrier_inner_at(&tokens, i) {
             let at_span = cur.span();
-            let r = FreshRef::parse(&inner).ok_or_else(|| {
-                compile_error_str(
-                    "batch-impl: `@{...}` must hold a position reference \
-                     (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`)",
-                    at_span,
-                )
-            })?;
+            let r = FreshRef::parse(&inner)
+                .ok_or_else(|| AtRefError::position_reference(at_span).into_stream())?;
             match r.end {
                 FreshEnd::Single => {
                     // Document-order index (flat) or exact group position.

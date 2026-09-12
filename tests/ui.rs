@@ -91,6 +91,10 @@ fn ui() {
     // layer instead of leaking the reserved an internal reserved ident name via E0412
     t.compile_fail("tests/ui/at_num_in_type.rs");
     t.compile_fail("tests/ui/at_group_in_type.rs");
+    // an empty exclusive range **inside angle arguments** must reach the error
+    // channel: the macro's message (with its numbers) instead of a type-position
+    // `compile_error!(…);` rustc reports as `expected one of `,` or `>``
+    t.compile_fail("tests/ui/at_empty_range_in_angle.rs");
 
     // batch_preview!: expansion rendered through the diagnostic channel +
     // the preview-only associativity-miswrite note (the compiler path never

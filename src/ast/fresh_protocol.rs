@@ -140,6 +140,85 @@ pub(crate) fn fresh_ref_tokens(r: FreshRef, span: proc_macro2::Span) -> TokenStr
     carrier_tokens(r.spell(), span)
 }
 
+/// One **input error of an `@` position reference**, encoded once and rendered
+/// into whichever channel the reporting site sits in.
+///
+/// The same handful of mistakes are diagnosed from four places — the
+/// type-position block parser, the token-domain folder, the `resolve_at_refs`
+/// rewrite and the `@{...}` resolvers — and before this type each site spelled
+/// its own message: the four families had drifted into 3 / 3 / 4 / 2 copies, one
+/// copy had lost its `format!` arguments (the user saw a literal `@{}..{}`), and
+/// the type-position sites wrapped an **item-form** `compile_error!(…);` into a
+/// *type*, so rustc reported `expected one of ',' or '>'` and the macro's own
+/// message never appeared (second review round, F1/F2/F4).
+///
+/// One construction site, two renderings: [`Self::into_ty`] for a type position
+/// (a real error node, so the entry's error channel aggregates it and no
+/// half-built impl is emitted) and [`Self::into_stream`] for callers that return
+/// `Err` to the entry. The spellings below are deliberate: each has been the
+/// user-visible wording of its situation since 0.9.x, and the UI snapshots pin
+/// them — this type converges them without rewriting them.
+pub(crate) struct AtRefError {
+    message: String,
+    span: proc_macro2::Span,
+}
+
+impl AtRefError {
+    /// `@` with no position digit after it (`@` at the end of a type).
+    pub(crate) fn position_digit(span: proc_macro2::Span) -> Self {
+        Self::new(
+            "batch-impl: `@` in a type must be followed by a position digit \
+             (e.g. `@0` or `@0_1`)",
+            span,
+        )
+    }
+
+    /// A token follows the `@` but it is not a position digit (`@foo`, `@((u8))`).
+    pub(crate) fn not_a_position_digit(span: proc_macro2::Span) -> Self {
+        Self::new("batch-impl: `@` in a type must be a position digit (e.g. `@0` or `@0_1`)", span)
+    }
+
+    /// `@N..M` whose end is not a number (`@0..x`).
+    pub(crate) fn range_end_not_a_number(span: proc_macro2::Span) -> Self {
+        Self::new("batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)", span)
+    }
+
+    /// `@N..M` with `N >= M` — the inclusive protocol cannot represent it, and
+    /// the message **names the numbers** (the pre-convergence copy printed a
+    /// literal `@{}..{}`).
+    pub(crate) fn empty_exclusive_range(start: usize, end: usize, span: proc_macro2::Span) -> Self {
+        Self::new(
+            &format!("batch-impl: empty exclusive range `@{start}..{end}` (start not below end)"),
+            span,
+        )
+    }
+
+    /// A `@{...}` carrier whose content is not a position reference
+    /// (`@{foo}`, `@{}`).
+    pub(crate) fn position_reference(span: proc_macro2::Span) -> Self {
+        Self::new(
+            "batch-impl: `@{...}` must hold a position reference \
+             (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`)",
+            span,
+        )
+    }
+
+    fn new(message: &str, span: proc_macro2::Span) -> Self {
+        Self { message: message.to_string(), span }
+    }
+
+    /// The type-position rendering: an error node (`TyKind::Error`), which the
+    /// entry's error aggregator collects and emits on the error channel.
+    pub(crate) fn into_ty(self) -> crate::ast::Ty {
+        crate::apply::err_ty_at(&self.message, self.span)
+    }
+
+    /// The item-form rendering (`::core::compile_error!(…);`) for `Err` returns.
+    pub(crate) fn into_stream(self) -> TokenStream {
+        compile_error_str(&self.message, self.span)
+    }
+}
+
 /// Whether `tokens[i]` opens a **carrier** (`@` punct + Brace group) — the
 /// atomic token shape shared by declarations and references. Every walker
 /// that must not touch carriers passes them through behind this single
@@ -271,11 +350,7 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Tok
             {
                 (Some(l), n)
             } else {
-                return Err(compile_error_str(
-                    "batch-impl: `@` in a type must be followed by a position \
-                     digit (e.g. `@0` or `@0_1`)",
-                    at_span,
-                ));
+                return Err(AtRefError::position_digit(at_span).into_stream());
             };
             // Optional range tail: `..` (open) / `..=M` / `..M`.
             let mut consumed = 2usize;
@@ -297,20 +372,14 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Tok
                                 Some(FreshEnd::Closed(e - 1))
                             } else {
                                 // empty exclusive range — the same diagnostic
-                                // the type-position path reports
-                                return Err(compile_error_str(
-                                    "batch-impl: empty exclusive range `@{}..{}` \
-                                     (start not below end)",
-                                    at_span,
-                                ));
+                                // the type-position path reports (F1: the
+                                // numbers are formatted in, not left as `{}`)
+                                return Err(AtRefError::empty_exclusive_range(start, e, at_span)
+                                    .into_stream());
                             }
                         }
                         Err(_) => {
-                            return Err(compile_error_str(
-                                "batch-impl: a `@N..M` range must end with a \
-                                 number (e.g. `@0..=2`)",
-                                at_span,
-                            ));
+                            return Err(AtRefError::range_end_not_a_number(at_span).into_stream());
                         }
                     },
                     _ => Some(FreshEnd::Open),
@@ -327,11 +396,7 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Tok
         // `@` followed by anything else (a non-`all_fresh` ident, a punct, a
         // non-Brace group, or nothing) — a malformed reference, reported like
         // the type-position path instead of leaking the raw `@` through.
-        return Err(compile_error_str(
-            "batch-impl: `@` in a type must be followed by a position digit \
-             (e.g. `@0` or `@0_1`)",
-            at_span,
-        ));
+        return Err(AtRefError::position_digit(at_span).into_stream());
     }
     Ok(out)
 }

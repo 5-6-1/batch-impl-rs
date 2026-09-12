@@ -897,6 +897,35 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Second review, round 1: one authority for the `@`-reference diagnostics** — the
+  four message families of the `@` position references had drifted into 3 / 3 / 4 /
+  2 copies across four files (the review's F1/F2/F4, whose census was verified
+  exactly). Converged and repaired:
+  - **One construction site, two channels.** `ast/fresh_protocol.rs::AtRefError`
+    owns the spellings *and* the renderings: `into_ty()` builds a real error node
+    (`TyKind::Error`) for a type position, `into_stream()` the item-form
+    `compile_error!(…);` for an `Err` return. The block parser, the token folder
+    (`fold_flat_refs`), the carrier resolver (`resolve_at_refs`, whose error type is
+    now `AtRefError` rather than a pre-rendered stream) and `codegen/where_at.rs`
+    all go through it, so a wording can no longer exist twice.
+  - **F1 — the message names the numbers.** All three copies printed a literal
+    `@{}..{}`: the `format!` arguments were missing from a format-shaped string.
+    The blessed `tests/ui/where_empty_exclusive_range.stderr` had pinned that defect
+    as expected output; it now reads `` `@2..2` ``.
+  - **F2 — the angle-argument path reports its own error.** `parse/generic.rs`
+    wrapped `resolve_at_refs`'s item-form error stream into a *primitive type*, so
+    `Box<@2..1>` / `Box<@1.5>` / `Box<@1u8>` reached rustc as
+    `Box<::core::compile_error!("…");>` and the user saw
+    `` expected one of `,` or `>`, found `;` `` — the macro's own message never
+    appeared, and per `entry/driver.rs`'s contract a half-built impl was emitted
+    next to the syntax error. Both sites now use `into_ty()`, so the driver
+    aggregates the error and emits it alone. Locked by the new
+    `tests/ui/at_empty_range_in_angle.rs` (the macro's message, pointing at the `@`,
+    one error, no cascade).
+  - **Evidence**: of the 102 UI snapshots exactly one changed
+    (`where_empty_exclusive_range` — the F1 text), which is itself the check that
+    the convergence preserved every other wording; lib **159**, features **293**,
+    fmt/clippy clean.
 - **Second review round: the guard's own detectors, and two P3 findings closed** — an
   independent re-review confirmed all four F1/F2/F4/F5 fixes against the real entry
   points and probed the *risk surface* that fix opened (an unclosed `<` swallowing the

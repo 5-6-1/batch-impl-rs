@@ -186,6 +186,14 @@
   allowed in a `::`-tail", which described a different mistake. A tail that simply
   ends now reports "`::` must be followed by a path segment (write `Foo::Assoc`)";
   a genuine DSL token in the tail keeps the old wording.
+- **A malformed `@` reference reports itself, whatever position it sits in** — an
+  empty exclusive range inside angle arguments (`#[batch_impl(Box<@2..1>)]`), a
+  non-integer position reference (`Box<@1.5>`, `Box<@1u8>`) or a range end that is
+  not a number reached rustc as a type-position `compile_error!(…);`, so the error
+  surfaced as `` expected one of `,` or `>`, found `;` `` instead of the macro's
+  message — and a half-built impl was emitted next to it. They now report the
+  DSL's own error, and the empty-range message names the numbers
+  (``empty exclusive range `@2..1` ``) instead of printing a literal `@{}..{}`.
 
 ## 0.9.7 (2026-08-29)
 

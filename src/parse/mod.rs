@@ -39,10 +39,10 @@ pub(crate) use generic::split_at_depth0;
 pub(crate) use ident_blocks::split_projection;
 pub(crate) use space::*;
 
-use proc_macro2::{Group, Ident, TokenStream, TokenTree};
+use proc_macro2::{Group, Ident, TokenTree};
 
 use crate::ast::*;
-use crate::util::{Cursor, compile_error_str};
+use crate::util::Cursor;
 
 /// The parse layer's one piece of ambient state, carried down the whole
 /// type-recursion by value (it is `Copy`).
@@ -90,7 +90,14 @@ impl<'a> Ctx<'a> {
 /// raw `@0`). Recurses into groups; every reference folds into the
 /// self-delimiting carrier form (`@` + Brace group) that the parse layer and
 /// the codegen resolvers both recognize; `@` followed by a non-digit errors.
-pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
+///
+/// The error is an [`AtRefError`] — the *message*, not a rendered stream — so
+/// the consumer can pick the channel its position needs: a type position takes
+/// `into_ty()` (an error node the entry aggregates, so no half-built impl is
+/// emitted) and the recursion here takes `into_stream()`.
+pub(crate) fn resolve_at_refs(
+    tokens: &[TokenTree],
+) -> Result<Vec<TokenTree>, crate::ast::fresh_protocol::AtRefError> {
     let mut out = Vec::with_capacity(tokens.len());
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
@@ -132,19 +139,15 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                             let end = match tokens.get(i + consumed) {
                                 Some(TokenTree::Literal(el)) => {
                                     let Some(e) = el.to_string().parse::<usize>().ok() else {
-                                        return Err(compile_error_str(
-                                            "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
-                                            at_span,
-                                        ));
+                                        return Err(AtRefError::range_end_not_a_number(at_span));
                                     };
                                     consumed += 1;
                                     if inclusive || start < e {
                                         FreshEnd::Closed(if inclusive { e } else { e - 1 })
                                     } else {
                                         // empty exclusive range (`@2..1`)
-                                        return Err(compile_error_str(
-                                            "batch-impl: empty exclusive range `@{}..{}` (start not below end)",
-                                            at_span,
+                                        return Err(AtRefError::empty_exclusive_range(
+                                            start, e, at_span,
                                         ));
                                     }
                                 }
@@ -155,28 +158,22 @@ pub(crate) fn resolve_at_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, To
                             i += consumed;
                             continue;
                         }
-                        let r = parse_single_ref_token(&lit_str).ok_or_else(|| {
-                            compile_error_str(
-                                "batch-impl: `@` in a type must be followed by a \
-                                 position digit (e.g. `@0` or `@0_1`)",
-                                at_span,
-                            )
-                        })?;
+                        let r = parse_single_ref_token(&lit_str)
+                            .ok_or_else(|| AtRefError::position_digit(at_span))?;
                         out.extend(fresh_ref_tokens(r, at_span));
                         i += 2;
                     }
                     _ => {
-                        return Err(compile_error_str(
-                            "batch-impl: `@` in a type must be a position digit (e.g. `@0` or `@0_1`)",
-                            at_span,
-                        ));
+                        return Err(AtRefError::not_a_position_digit(at_span));
                     }
                 }
             }
             TokenTree::Group(g) => {
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
-                let mut new_g =
-                    Group::new(g.delimiter(), resolve_at_refs(&inner)?.into_iter().collect());
+                // The recursion keeps this function's own error type; only the
+                // outermost caller chooses which channel renders it.
+                let folded = resolve_at_refs(&inner)?;
+                let mut new_g = Group::new(g.delimiter(), folded.into_iter().collect());
                 new_g.set_span(g.span());
                 out.push(TokenTree::Group(new_g));
                 i += 1;

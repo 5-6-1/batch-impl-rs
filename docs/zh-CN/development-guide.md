@@ -98,6 +98,8 @@ cargo doc --no-deps                    # 零警告
   `util/scan.rs::is_impl_template`（`impl{...}` 判别）、
   `entry/impl_entry.rs::chunks_to_streams`（where 块切分）、
   `ast/fresh_protocol.rs::is_carrier_at`（载体识别）、
+  `ast/fresh_protocol.rs::AtRefError`（`@` 位置引用的诊断——每种情形一处拼写，
+  由调用方选择渲染进类型通道还是 item 通道：`into_ty()` / `into_stream()`）、
   `ast/param_kind.rs::ParamKind`（参数种类——类型 / const / 生命周期——
   以及随之的 `const` 关键字剥离）。发现重复判定 → 收编，不新开副本。
 - **语法冻结（0.7.2 起）**：既有 token 语义 final，新版本只做**加法**

@@ -152,11 +152,7 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
                 cursor.bump();
                 return TyFresh(r).to_ty().with_span(at_span);
             }
-            err_ty_at(
-                "batch-impl: `@{...}` must hold a position reference \
-                 (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`)",
-                at_span,
-            )
+            AtRefError::position_reference(at_span).into_ty()
         }
         Some(TokenTree::Literal(lit)) => {
             let lit_str = lit.to_string();
@@ -178,21 +174,16 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
                 // resolution (`FreshRef::Closed` is always inclusive).
                 let end = if let Some(TokenTree::Literal(el)) = cursor.peek() {
                     let Some(e) = el.to_string().parse::<usize>().ok() else {
-                        return err_ty_at(
-                            "batch-impl: a `@N..M` range must end with a number (e.g. `@0..=2`)",
-                            at_span,
-                        );
+                        return AtRefError::range_end_not_a_number(at_span).into_ty();
                     };
                     cursor.bump();
                     if inclusive || start < e {
                         FreshEnd::Closed(if inclusive { e } else { e - 1 })
                     } else {
                         // empty exclusive range (`@2..1`) — a typo; the closed
-                        // form cannot represent it.
-                        return err_ty_at(
-                            "batch-impl: empty exclusive range `@{}..{}` (start not below end)",
-                            at_span,
-                        );
+                        // form cannot represent it. The message names the
+                        // numbers (F1 of the second review round).
+                        return AtRefError::empty_exclusive_range(start, e, at_span).into_ty();
                     }
                 } else {
                     FreshEnd::Open
@@ -205,17 +196,10 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
                     cursor.bump();
                     TyFresh(fresh).to_ty().with_span(at_span)
                 }
-                None => err_ty_at(
-                    "batch-impl: `@` in a type must be followed by a position \
-                     digit (e.g. `@0` or `@0_1`)",
-                    at_span,
-                ),
+                None => AtRefError::position_digit(at_span).into_ty(),
             }
         }
-        _ => err_ty_at(
-            "batch-impl: `@` in a type must be a position digit (e.g. `@0` or `@0_1`)",
-            at_span,
-        ),
+        _ => AtRefError::not_a_position_digit(at_span).into_ty(),
     }
 }
 

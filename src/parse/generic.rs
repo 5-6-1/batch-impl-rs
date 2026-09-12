@@ -98,7 +98,12 @@ pub(crate) fn parse_angle_bracket_contents(
                             _ => parsed,
                         }
                     }
-                    Err(e) => TyPrimitive(e).to_ty(),
+                    // A malformed `@` reference is an **error node**, not a
+                    // primitive carrying an item-form `compile_error!(…);`: in a
+                    // type position the `;` is a syntax error, so rustc reported
+                    // `expected one of ',' or '>'` and the macro's own message
+                    // never appeared (second review round, F2).
+                    Err(e) => e.into_ty(),
                 };
                 bindings.push((Box::new(name_ty), Box::new(value)));
             } else {
@@ -149,7 +154,8 @@ pub(crate) fn parse_angle_bracket_contents(
         } else {
             let name = match resolve_at_refs(chunk) {
                 Ok(v) => parse_item(&mut Cursor::new(&v), Op::Space, ctx).unwrap_or_else(empty),
-                Err(e) => TyPrimitive(e).to_ty(),
+                // Same channel rule as the binding case above (`F2`).
+                Err(e) => e.into_ty(),
             };
             params.push((Box::new(name), None));
         }

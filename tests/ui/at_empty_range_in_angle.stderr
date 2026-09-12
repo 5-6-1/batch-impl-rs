@@ -1,0 +1,5 @@
+error: batch-impl: empty exclusive range `@2..1` (start not below end)
+ --> tests/ui/at_empty_range_in_angle.rs:7:18
+  |
+7 | #[batch_impl(Box<@2..1>)]
+  |                  ^

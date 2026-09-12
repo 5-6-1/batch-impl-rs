@@ -149,6 +149,9 @@ expansion snapshots (only for intentional render changes).
   `util/scan.rs::is_impl_template` (`impl{...}` discrimination),
   `entry/impl_entry.rs::chunks_to_streams` (where-chunk splitting),
   `ast/fresh_protocol.rs::is_carrier_at` (carrier recognition),
+  `ast/fresh_protocol.rs::AtRefError` (the `@` position-reference diagnostics —
+  one spelling per situation, rendered into the type or the item channel by the
+  caller: `into_ty()` / `into_stream()`),
   `ast/param_kind.rs::ParamKind` (parameter kind — type / const / lifetime —
   and the `const`-keyword stripping that goes with it). On finding a
   duplicate predicate, consolidate — never fork another copy.
