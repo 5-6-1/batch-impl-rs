@@ -1,6 +1,6 @@
 //! `@N..` / `@N..M` range-reference expansion at the token level: a fresh
 //! reference in its self-delimiting carrier form (`@` + Brace group holding
-//! the spelled reference — see [`crate::ast::fresh::FreshRef`]) in a rendered
+//! the spelled reference — see [`crate::ast::fresh_protocol::FreshRef`]) in a rendered
 //! type expands into the impl's fresh names — one position becomes several
 //! (`Wrapper<@{0..}>` → `Wrapper<P0, P1, P2>`). The parse layer carries the
 //! reference structurally (`TyKind::Fresh`) and renders it to the carrier;
@@ -15,10 +15,10 @@
 use proc_macro2::{Group, Span, TokenStream, TokenTree};
 
 use crate::ast::MAX_EXPAND;
-use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner_at};
+use crate::ast::fresh_protocol::{FreshEnd, FreshRef, carrier_inner_at};
 use crate::codegen::FreshCtx;
 use crate::parse::split_at_depth0;
-use crate::util::compile_error_str;
+use crate::util::{compile_error_str, slice_upto, slice_window};
 
 /// Number of entries a range covers within its slice scope; a closed range
 /// out of bounds errors, an open range past the end contributes zero.
@@ -81,7 +81,7 @@ fn range_entries<'a>(r: &FreshRef, ctx: &'a FreshCtx) -> Result<Vec<&'a TokenStr
     if count == 0 {
         return Ok(vec![]);
     }
-    Ok(slice[r.start..r.start + count].iter().map(|(_, _, n)| n).collect())
+    Ok(slice_window(slice, r.start, count).iter().map(|(_, _, n)| n).collect())
 }
 
 /// Expands every fresh reference (carrier form `@{...}`) in `tokens` against
@@ -109,7 +109,7 @@ pub(crate) fn expand_range_decls(
 ) -> Result<(), TokenStream> {
     let declared = impl_generics
         .iter()
-        .map(|(n, _)| crate::codegen::generics::bare_param_name(n).to_string())
+        .map(|(n, _)| crate::ast::ParamKind::bare_name(n).to_string())
         .collect::<std::collections::HashSet<_>>();
     let mut out = vec![];
     for (name, bound) in impl_generics.iter() {
@@ -131,7 +131,7 @@ pub(crate) fn expand_range_decls(
 
 /// The display spelling of a resolved name stream (a single ident).
 pub(super) fn bare_display(n: &TokenStream) -> String {
-    crate::codegen::generics::bare_param_name(n).to_string()
+    crate::ast::ParamKind::bare_name(n).to_string()
 }
 
 /// Recognizes a declaration entry that is a bare fresh-ref carrier:
@@ -151,7 +151,7 @@ pub(super) fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
     // The trailing chunk may be empty (a legal trailing comma) — exclude it
     // from the orphan check, not from the output.
     let trimmed = if chunks.last().is_some_and(|c| c.is_empty()) {
-        chunks[..chunks.len() - 1].to_vec()
+        slice_upto(&chunks, chunks.len().saturating_sub(1)).to_vec()
     } else {
         chunks
     };
@@ -191,11 +191,11 @@ fn expand_at(
     }
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         // A fresh-reference carrier: `@` + Brace group. A single position
         // splices one name; a range splices the covered names comma-separated.
-        if let Some(inner) = crate::ast::fresh::carrier_inner_at(tokens, i) {
-            let at_span = tokens[i].span();
+        if let Some(inner) = crate::ast::fresh_protocol::carrier_inner_at(tokens, i) {
+            let at_span = cur.span();
             let r = match FreshRef::parse(&inner) {
                 Some(r) => r,
                 None => {
@@ -222,10 +222,10 @@ fn expand_at(
             i += 2;
             continue;
         }
-        match &tokens[i] {
+        match cur {
             TokenTree::Group(g) => {
                 if depth + 1 > crate::util::MAX_NEST_DEPTH {
-                    return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
+                    return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
                 }
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
                 // Empty-tuple folding applies **only to a tuple whose top
@@ -234,7 +234,8 @@ fn expand_at(
                 // ordinary paren (`(expr,)`, `(A)`) never reaches the fold,
                 // so its commas — including flat `<...>` inside an element —
                 // are never re-joined.
-                let has_range_ref = inner.windows(2).any(|w| is_fresh_carrier_pair(&w[0], &w[1]));
+                let has_range_ref =
+                    inner.windows(2).any(|w| matches!(w, [a, b] if is_fresh_carrier_pair(a, b)));
                 let foldable = g.delimiter() == delimiter![()] && has_range_ref;
                 let expanded = expand_at(&inner, ctx, depth + 1)?.into_iter().collect::<Vec<_>>();
                 // Empty-tuple folding: a range that re-opened to zero entries

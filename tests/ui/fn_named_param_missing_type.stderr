@@ -1,0 +1,5 @@
+error: batch-impl: named parameter `x:` is missing a type (write `x: u8`)
+ --> tests/ui/fn_named_param_missing_type.rs:5:17
+  |
+5 | #[batch_impl(fn(x:) -> u8)]
+  |                 ^

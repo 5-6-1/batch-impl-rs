@@ -2,7 +2,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use std::cell::Cell;
 
-use crate::ast::fresh::FreshRef;
+use crate::ast::fresh_protocol::FreshRef;
+use crate::ast::param_kind::ParamKind;
 
 #[derive(Clone, Debug)]
 /// `[...,]`
@@ -93,15 +94,42 @@ impl TyTypeParam {
     }
 
     /// Whether this `<>` block is a **generic declaration** rather than a
-    /// plain type-argument list: any param carries a bound (`T: Clone` /
-    /// `const N: usize`) — a declaration can never be a type argument (Rust
-    /// has no `Trait<T: Bound>` syntax), so apply hoists it out.
+    /// plain type-argument list: any param carries a bound (`T: Clone`) or is
+    /// a const parameter (`const N: usize`) — a declaration can never be a
+    /// type argument (Rust has no `Trait<T: Bound>` syntax), so apply hoists it
+    /// out. The const test is the **shape** ([`ParamKind::of_name`]), never a
+    /// name prefix: a type merely named `constant` is an ordinary argument and
+    /// must stay one.
     pub(crate) fn is_declaration(&self) -> bool {
         self.params
             .iter()
-            .any(|(n, b)| b.is_some() || n.to_token_stream().to_string().starts_with("const"))
+            .any(|(n, b)| b.is_some() || ParamKind::of_name(&n.to_token_stream()).is_const())
     }
 }
+
+/// A **qualified** type: a head whose path continues after `::` — `Foo<T>::Assoc`
+/// and `Foo::<u8>::Assoc` (a plain type head) or `<T as Tr>::Assoc` (a
+/// qualified-self head). `angle_collect` pairs every `<...>` into a group, so a
+/// `::` after a group had nowhere to attach; this variant is that attachment.
+///
+/// `tail` holds the `::`-separated segments **flat and verbatim** (`Assoc`,
+/// `Item<u8>`, `More`): they are plain Rust path continuations, never DSL text,
+/// so nothing re-parses them and nothing applies to them. Rendering is exact;
+/// shape matching matches the head structurally and the tail token-by-token.
+#[derive(Clone, Debug)]
+pub(crate) struct TyQualified(pub(crate) QualifiedHead, pub(crate) Vec<TokenStream>);
+
+/// The head of a [`TyQualified`].
+#[derive(Clone, Debug)]
+pub(crate) enum QualifiedHead {
+    /// A parsed type head (`Foo<T>`, `std::vec::Vec<u8>`) — its own `<>` args
+    /// were folded in by the ordinary path parse.
+    Type(Box<Ty>),
+    /// A qualified-self head: `<ty as trait_>` (`trait_` is a flat path, with
+    /// its own args if it had any).
+    Projection(Box<Ty>, TokenStream),
+}
+
 #[derive(Clone, Debug)]
 /// `{...}` — a code block attached to a type
 pub(crate) struct TyCodeBlock(pub(crate) TokenStream);
@@ -237,7 +265,7 @@ pub(crate) struct TyImplTemplate(pub(crate) TokenStream);
 /// `@{...}` — a macro-meta position reference (`@N` / `@g_i` / ranges),
 /// carried **structurally** through the Ty tree (a leaf for every traversal:
 /// apply / expand / dispatch treat it as an atom) and rendered to the
-/// self-delimiting token form `@{inner}` (`crate::ast::fresh::FreshRef::spell`)
+/// self-delimiting token form `@{inner}` (`crate::ast::fresh_protocol::FreshRef::spell`)
 /// so the token-level resolvers can find it unambiguously — no reserved
 /// placeholder ident is ever minted for a reference.
 pub(crate) struct TyFresh(pub(crate) FreshRef);
@@ -283,6 +311,7 @@ pub(crate) enum TyKind {
     Generic(TyGeneric),
     Trait(TyTrait),
     TypeParam(TyTypeParam),
+    Qualified(TyQualified),
     Fn(TyFn),
     WithPrefix(TyWithPrefix),
     WithDyn(TyWithDyn),

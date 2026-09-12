@@ -2,15 +2,17 @@
 //!
 //! Provides matching and parsing of `<...>` generic parameters plus related helpers.
 
-use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Spacing, TokenTree};
 
 use quote::quote;
 
 use crate::apply::err_ty_at;
 use crate::ast::*;
-use crate::parse::parse_item;
 use crate::parse::resolve_at_refs;
-use crate::util::{Cursor, compile_error_ty, is_single_colon, scan_stop};
+use crate::parse::{Ctx, parse_item};
+use crate::util::{
+    Cursor, compile_error_ty, is_single_colon, scan_stop, slice_from, slice_upto, span_at,
+};
 
 // ============================================================
 // Angle brackets and generic parameters
@@ -26,8 +28,8 @@ pub(crate) fn split_at_depth0(tokens: &[TokenTree], separator: char) -> Vec<&[To
     let mut chunks = vec![];
     let mut rest = tokens;
     while let Some(index) = scan_stop(rest, &[separator]) {
-        chunks.push(&rest[..index]);
-        rest = &rest[index + 1..];
+        chunks.push(slice_upto(rest, index));
+        rest = slice_from(rest, index + 1);
     }
     chunks.push(rest);
     chunks
@@ -40,13 +42,18 @@ fn find_colon_at_depth0(tokens: &[TokenTree]) -> Option<usize> {
 
 /// Parse `<T: Clone, U, Item=V>` contents: parameter list + associated-type bindings
 pub(crate) fn parse_angle_bracket_contents(
-    tokens: &[TokenTree], trait_name: Option<&Ident>, allow_special: bool,
+    tokens: &[TokenTree], ctx: Ctx<'_>, allow_special: bool,
 ) -> TyTypeParam {
     // `allow_special`: bindings (`Item = u32`) and bounds (`T: Clone`) are
-    // valid only on a trait path (`Conv<Item = u32> X`) or in a generic
-    // declaration (`<T: Clone> Foo`) — a concrete type's args are a plain
+    // valid on a trait path (`Conv<Item = u32> X`), in a generic declaration
+    // (`<T: Clone> Foo`) and in a **bound** position (`T: Iterator<Item = u8>`
+    // / `dyn Iterator<Item = u8>`) — a concrete type's args are a plain
     // type list, so `=`/`:` there is a usage error (previously the bound was
     // silently dropped and a struct binding rendered invalid code).
+    //
+    // The recursion into a chunk is a **plain** one: the chunks are types
+    // (binding values / args), so the bound flag must not leak into them.
+    let ctx = ctx.plain();
     let mut params = vec![];
     let mut bindings = vec![];
     for chunk in split_at_depth0(tokens, ',') {
@@ -65,16 +72,17 @@ pub(crate) fn parse_angle_bracket_contents(
         // surfaces when the impl header is rendered.
         if let Some(eq) = scan_stop(chunk, &['=']) {
             if allow_special {
-                let name_ty = TyPrimitive(chunk[..eq].iter().cloned().collect()).to_ty();
-                let value = match resolve_at_refs(&chunk[eq + 1..]) {
+                let name = slice_upto(chunk, eq);
+                let name_ty = TyPrimitive(name.iter().cloned().collect()).to_ty();
+                let value = match resolve_at_refs(slice_from(chunk, eq + 1)) {
                     Ok(v) if v.is_empty() => TyPrimitive(compile_error_ty(
                         "batch-impl: binding `Item =` missing a value (write `Item = u32`)",
-                        chunk[eq].span(),
+                        span_at(chunk, eq),
                     ))
                     .to_ty(),
                     Ok(v) => {
-                        let parsed = parse_item(&mut Cursor::new(&v), Op::Space, trait_name)
-                            .unwrap_or_else(empty);
+                        let parsed =
+                            parse_item(&mut Cursor::new(&v), Op::Space, ctx).unwrap_or_else(empty);
                         // A binding takes exactly **one** type — a splat is a
                         // parameter-position list with no flattening target in
                         // a binding (same ruling as a bare splat as a
@@ -97,8 +105,8 @@ pub(crate) fn parse_angle_bracket_contents(
                 params.push((
                     Box::new(
                         TyPrimitive(compile_error_ty(
-                            "batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a generic declaration — a concrete type's args are a plain type list",
-                            chunk[eq].span(),
+                            "batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`), in a generic declaration or in a bound (`T: Iterator<Item = u8>`) — a concrete type's args are a plain type list",
+                            span_at(chunk, eq),
                         ))
                         .to_ty(),
                     ),
@@ -109,21 +117,20 @@ pub(crate) fn parse_angle_bracket_contents(
             if allow_special {
                 params.push((
                     Box::new(
-                        TyPrimitive(chunk[..colon].iter().cloned().collect::<TokenStream>())
-                            .to_ty(),
+                        TyPrimitive(slice_upto(chunk, colon).iter().cloned().collect()).to_ty(),
                     ),
-                    Some(Box::new(if chunk[colon + 1..].is_empty() {
+                    Some(Box::new(if slice_from(chunk, colon + 1).is_empty() {
                         TyPrimitive(compile_error_ty(
                             "batch-impl: bound `T:` missing a bound (write `T: Clone`)",
-                            chunk[colon].span(),
+                            span_at(chunk, colon),
                         ))
                         .to_ty()
                     } else {
                         // A bound is a `+`-chain (`Clone + Send + 'a`) — the
                         // bound operator is not a space application.
                         crate::parse::space::parse_bound_expr(
-                            &mut Cursor::new(&chunk[colon + 1..]),
-                            trait_name,
+                            &mut Cursor::new(slice_from(chunk, colon + 1)),
+                            ctx,
                         )
                     })),
                 ));
@@ -131,8 +138,8 @@ pub(crate) fn parse_angle_bracket_contents(
                 params.push((
                     Box::new(
                         TyPrimitive(compile_error_ty(
-                            "batch-impl: bound args (`T: Clone`) are only valid on a trait path or in a generic declaration (`<T: Clone> Foo`) — a concrete type's args are a plain type list",
-                            chunk[colon].span(),
+                            "batch-impl: bound args (`T: Clone`) are only valid on a trait path, in a generic declaration (`<T: Clone> Foo`) or in a bound — a concrete type's args are a plain type list",
+                            span_at(chunk, colon),
                         ))
                         .to_ty(),
                     ),
@@ -141,9 +148,7 @@ pub(crate) fn parse_angle_bracket_contents(
             }
         } else {
             let name = match resolve_at_refs(chunk) {
-                Ok(v) => {
-                    parse_item(&mut Cursor::new(&v), Op::Space, trait_name).unwrap_or_else(empty)
-                }
+                Ok(v) => parse_item(&mut Cursor::new(&v), Op::Space, ctx).unwrap_or_else(empty),
                 Err(e) => TyPrimitive(e).to_ty(),
             };
             params.push((Box::new(name), None));
@@ -240,7 +245,7 @@ fn validate_range(tokens: &[TokenTree]) -> Option<Ty> {
     if tokens.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '.')) {
         return Some(err_ty_at(
             "batch-impl: a range (`..`/`..=`) in a type position needs integer endpoints (e.g. `0..=3`)",
-            tokens[0].span(),
+            span_at(tokens, 0),
         ));
     }
     None

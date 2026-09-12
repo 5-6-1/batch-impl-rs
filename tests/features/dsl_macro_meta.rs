@@ -212,3 +212,29 @@ fn review_fixes_locked() {
     assert_eq!(b.gm(), 9); // B2: @u* expands inside macro-variable None groups
     assert_eq!(r.gm(), 9);
 }
+
+// ============================================================
+// 37. Review fix lock: `@trait` inside a *group* in a #blanket wrapper where
+// ============================================================
+// `resolve_target_predicates` must recurse into groups — a top-level-only scan
+// left the raw `@trait` in the predicate, which the codegen where resolver then
+// rejected ("`@` in a type must be followed by a position digit"). `dyn @trait`
+// is the group form that stays legal after substitution (a bare trait path in
+// type position is E0782 in edition 2024).
+#[batch_impl(#blanket(@all_methods){Box where{Box<dyn @trait>: Sized}})]
+trait BlanketGroupAtTrait {
+    fn bgt(&self) -> u32;
+}
+
+// The delegation target: `Box<T>` forwards to `T`, so the inner type needs its
+// own impl (hand-written — a second `#[batch_impl]` would re-emit the trait).
+impl BlanketGroupAtTrait for u8 {
+    fn bgt(&self) -> u32 {
+        7
+    }
+}
+
+#[test]
+fn blanket_wrapper_where_group_at_trait() {
+    assert_eq!(Box::new(0u8).bgt(), 7);
+}

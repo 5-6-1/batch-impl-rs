@@ -65,10 +65,10 @@ fn expand_fresh_from(s: &str, start: usize, n: usize) -> Result<String, String> 
         segs: &[],
         map: &Default::default(),
         fresh: &crate::codegen::FreshCtx::new(&fresh_names(n), &Default::default()),
-        binding: Some(crate::ast::fresh::FreshRef {
+        binding: Some(crate::ast::fresh_protocol::FreshRef {
             group: None,
             start,
-            end: crate::ast::fresh::FreshEnd::Open,
+            end: crate::ast::fresh_protocol::FreshEnd::Open,
         }),
         budget: Cell::new(MAX_REPEAT_TOKENS),
     };
@@ -77,7 +77,7 @@ fn expand_fresh_from(s: &str, start: usize, n: usize) -> Result<String, String> 
 
 fn fresh_names(n: usize) -> Vec<TokenStream> {
     // Declaration carriers `@{0_i}` — the identity form the ctx parses.
-    (0..n).map(|i| crate::ast::fresh::fresh_decl_tokens(0, i)).collect()
+    (0..n).map(|i| crate::ast::fresh_protocol::fresh_decl_tokens(0, i)).collect()
 }
 
 #[test]
@@ -136,6 +136,17 @@ fn fresh_name_cursor_bad_inner() {
 #[test]
 fn fresh_name_out_of_range() {
     assert!(expand_fresh("@(@{5},)..", 3).is_err());
+}
+
+#[test]
+fn fresh_name_cursor_saturates_at_usize_max() {
+    // A `usize::MAX` position literal must saturate when the per-round cursor
+    // advances (`n + round`) — a debug-build overflow would panic inside the
+    // proc macro, i.e. an ICE — and report the reference as out of range like
+    // any other past-the-end position. Both the fixed (`@{N}`) and the cursor
+    // (`@{@N}`) spellings are covered.
+    assert!(expand_fresh("@(@{18446744073709551615},)..", 3).is_err());
+    assert!(expand_fresh("@(@{@18446744073709551615},)..", 3).is_err());
 }
 
 #[test]

@@ -58,6 +58,7 @@ impl_from_for_ty! {
     TyGeneric => Generic,
     TyTrait => Trait,
     TyTypeParam => TypeParam,
+    TyQualified => Qualified,
     TyFn => Fn,
     TyWithPrefix => WithPrefix,
     TyWithDyn => WithDyn,

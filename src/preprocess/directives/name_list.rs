@@ -37,8 +37,8 @@ fn parse_name_tokens(
     let mut exclude = vec![];
     let mut prev_was_comma = true; // Start is treated as "just passed a comma", to catch a leading comma
     let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        match cur {
             TokenTree::Ident(id) => {
                 keep.push(Ident::new(&id.to_string(), id.span()));
                 prev_was_comma = false;
@@ -68,7 +68,8 @@ fn parse_name_tokens(
             // `-name` / `-[a,b]` / `-@all` (@all expands to a Bracket group
             // and takes the group branch): exclusion
             TokenTree::Punct(p) if p.as_char() == '-' => {
-                let (ids, consumed) = parse_minus_target(&tokens[i + 1..], trait_def, what)?;
+                let (ids, consumed) =
+                    parse_minus_target(crate::util::slice_from(tokens, i + 1), trait_def, what)?;
                 exclude.extend(ids);
                 i += 1 + consumed;
                 prev_was_comma = false;
@@ -81,7 +82,7 @@ fn parse_name_tokens(
                     "batch-impl: in {}, expected an identifier, comma, `[...]` \
                      list, or `-` exclusion, got `{}`",
                     what,
-                    tokens[i]
+                    cur
                 ));
             }
         }

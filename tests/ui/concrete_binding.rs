@@ -1,7 +1,7 @@
 use batch_impl::batch_impl;
 
-// Bindings (`Item = u32`) are only valid on a trait path or in a generic
-// declaration — a concrete type's args are a plain type list.
+// Bindings (`Item = u32`) are only valid on a trait path, in a generic
+// declaration or in a bound — a concrete type's args are a plain type list.
 struct Assoc<T> {
     v: T,
 }

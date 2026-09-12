@@ -7,7 +7,7 @@ use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use std::collections::HashSet;
 
-use super::fresh::FreshCtx;
+use super::fresh_naming::FreshCtx;
 use crate::ast::{FreshEnd, FreshRef, Ty, carrier_inner_at};
 use crate::util::compile_error_str;
 pub(crate) fn at_num_out_of_range(n: usize, fresh_count: usize, span: Span) -> TokenStream {
@@ -62,9 +62,9 @@ fn collect_dangling(
     let v = tokens.into_iter().collect::<Vec<_>>();
     let mut errs = vec![];
     let mut i = 0;
-    while i < v.len() {
+    while let Some(cur) = v.get(i) {
         if let Some(inner) = carrier_inner_at(&v, i) {
-            let span = match &v[i] {
+            let span = match cur {
                 TokenTree::Punct(p) => p.span(),
                 _ => Span::call_site(),
             };
@@ -75,7 +75,7 @@ fn collect_dangling(
             continue;
         }
         // Declarations themselves are validated by construction; recurse.
-        if let TokenTree::Group(g) = &v[i] {
+        if let TokenTree::Group(g) = cur {
             errs.extend(collect_dangling(g.stream(), declared, fresh_count));
         }
         i += 1;
@@ -141,7 +141,7 @@ fn validate_ref(
 mod tests {
     use super::*;
     use crate::ast::TyFresh;
-    use crate::ast::fresh::{fresh_decl_tokens, fresh_ref_tokens};
+    use crate::ast::fresh_protocol::{fresh_decl_tokens, fresh_ref_tokens};
     use quote::quote;
 
     fn decl(g: usize, i: usize) -> TokenStream {

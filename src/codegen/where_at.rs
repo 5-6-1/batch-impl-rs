@@ -6,8 +6,8 @@ use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 
 use super::FreshCtx;
 use super::{at_group_out_of_range, at_num_out_of_range};
-use crate::ast::fresh::{FreshEnd, FreshRef, carrier_inner_at, fold_flat_refs};
-use crate::util::{compile_err, compile_error_str};
+use crate::ast::fresh_protocol::{FreshEnd, FreshRef, carrier_inner_at, fold_flat_refs};
+use crate::util::{compile_err, compile_error_str, slice_from, slice_window};
 
 /// Macro-meta position references in where predicates: `@N` → the N-th fresh
 /// generic in document order (the impl's fresh declarations sorted by
@@ -74,9 +74,9 @@ pub(crate) fn resolve_where_at(
     let fresh_sorted = &ctx.names;
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         if let Some(inner) = carrier_inner_at(&tokens, i) {
-            let at_span = tokens[i].span();
+            let at_span = cur.span();
             let r = FreshRef::parse(&inner).ok_or_else(|| {
                 compile_error_str(
                     "batch-impl: `@{...}` must hold a position reference \
@@ -114,20 +114,20 @@ pub(crate) fn resolve_where_at(
                         None => fresh_sorted,
                     };
                     let count = crate::codegen::range_refs::range_count(&r, slice.len(), at_span)?;
-                    let tail = resolve_tail(&tokens[i + 2..], ctx)?;
+                    let tail = resolve_tail(slice_from(&tokens, i + 2), ctx)?;
                     // count == 0 (open range past the end): contribute
                     // nothing — never slice `slice[r.start..]` (the index can
                     // exceed the scope length and panic; the same guard
                     // `range_refs::range_entries` carries).
                     if count > 0 {
-                        emit_fresh_predicates(&mut out, &slice[r.start..r.start + count], &tail);
+                        emit_fresh_predicates(&mut out, slice_window(slice, r.start, count), &tail);
                     }
                     i = tokens.len();
                     continue;
                 }
             }
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             // Recurse into groups (`Module<..., Scalar = @{0}::Scalar>` — the
             // angle group is paired by angle_collect; a reference inside is a
             // value reference that must resolve like the top level).
@@ -138,7 +138,7 @@ pub(crate) fn resolve_where_at(
             out.push(TokenTree::Group(ng));
             i += 1;
         } else {
-            out.push(tokens[i].clone());
+            out.push(cur.clone());
             i += 1;
         }
     }

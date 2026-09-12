@@ -5,7 +5,7 @@
 mod tests {
     use super::super::range_refs::{expand_range_decls, expand_range_refs};
     use super::super::*;
-    use crate::ast::fresh::FreshRef;
+    use crate::ast::fresh_protocol::FreshRef;
     use proc_macro2::TokenStream;
 
     fn fresh_ctx() -> FreshCtx {

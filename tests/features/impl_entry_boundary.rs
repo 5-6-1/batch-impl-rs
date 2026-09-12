@@ -113,3 +113,42 @@ fn impl_entry_zero_slot_template() {
     let v = vec![1u8];
     assert_eq!(v.n5(), 1);
 }
+
+// ------------------------------------------------------------
+// 6. Empty spec list: the attribute derives nothing, so it is a **no-op** and
+//    the original block is emitted unchanged. The bare form, the empty-parens
+//    form and a separators-only list all count as empty. (Before the guard the
+//    impl was withheld and nothing replaced it: the file still compiled, so
+//    only the `tag` calls below can tell the difference.)
+// ------------------------------------------------------------
+#[batch_impl]
+impl BndMk6 for u8 {
+    fn tag(&self) -> u32 {
+        7
+    }
+}
+
+#[batch_impl()]
+impl BndMk6 for u16 {
+    fn tag(&self) -> u32 {
+        9
+    }
+}
+
+#[batch_impl(;)]
+impl BndMk6 for u32 {
+    fn tag(&self) -> u32 {
+        11
+    }
+}
+
+trait BndMk6 {
+    fn tag(&self) -> u32;
+}
+
+#[test]
+fn impl_entry_empty_spec_list_is_a_no_op() {
+    assert_eq!(0u8.tag(), 7);
+    assert_eq!(0u16.tag(), 9);
+    assert_eq!(0u32.tag(), 11);
+}

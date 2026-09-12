@@ -1,0 +1,5 @@
+error: batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`)
+ --> tests/ui/global_path_no_ident.rs:5:14
+  |
+5 | #[batch_impl(::<u8>)]
+  |              ^

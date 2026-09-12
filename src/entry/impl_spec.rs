@@ -8,24 +8,40 @@ use quote::{ToTokens, quote};
 use std::cell::Cell;
 use syn::ItemImpl;
 
-use crate::ast::{Op, Ty};
+use crate::ast::{Op, Ty, TyPrimitive};
 use crate::codegen::FreshCtx;
 use crate::codegen::{
-    MAX_REPEAT_TOKENS, Mapping, RepeatCtx, VarSeg, apply_mapping, expand_repeat_blocks,
+    ImplParts, MAX_REPEAT_TOKENS, Mapping, RepeatCtx, VarSeg, apply_mapping, expand_repeat_blocks,
     sync_trait_application,
 };
 use crate::entry::driver::collect_spec_leaves;
-use crate::util::{Cursor, compile_error_str, is_punct_at, is_single_colon};
+use crate::util::{Cursor, compile_error_str, is_punct_at, is_single_colon, slice_from};
 
-/// Assembles one generated impl: generics (attr new-generic-decl first, then
-/// the hoisted fresh names, then the impl's own params — a param whose name
-/// is a shape-template **slot** is a substitution target, not a declaration:
-/// the mapping already rewrote every occurrence, so declaring it again would
-/// emit rustc E0207; it is stripped, and its bounds become where predicates
-/// on the substituted type, `impl<T: Clone>` → `where u8: Clone`), trait path
-/// (**`None` for an inherent impl** — the `for` section is omitted and the
-/// rewritten self type stands alone), merged where clause, rewritten body.
+/// Builds the `ImplParts` for one generated impl and hands it to the shared
+/// renderer (`codegen::render_impl`) — the same renderer the attribute entry uses,
+/// so the impl block is spelled in exactly one place. What this function owns is
+/// the entry's own input mapping:
+///
+/// - generics (attr new-generic-decl first, then the hoisted fresh names, then
+///   the impl's own params — a param whose name is a shape-template **slot** is a
+///   substitution target, not a declaration: the mapping already rewrote every
+///   occurrence, so declaring it again would emit rustc E0207; it is stripped,
+///   and its bounds become where predicates on the substituted type,
+///   `impl<T: Clone>` → `where u8: Clone`);
+/// - the trait path (**`None` for an inherent impl** — the renderer omits the
+///   `for` section and the rewritten self type stands alone);
+/// - the where predicates (synced for `X<>`, mapped) and the rewritten body;
+/// - the item's own attributes (`#[cfg]` / `#[allow]` / `#[doc]`, …): the
+///   attribute entry inherits the spec's attachments, and the impl entry used to
+///   drop the item's silently — a `#[cfg]` there meant the generated impls
+///   existed unconditionally.
+///
 /// `m` is the slot mapping (empty for the direct form / empty matrix).
+// clippy's 7-argument threshold is not useful here: each parameter is one
+// distinct input of the entry's mapping (the item, its trait path, the attr
+// declaration, the hoisted fresh names, the where predicates, the shape mapping,
+// the template segments, the mapped for-type), and grouping them into a struct
+// would only move the list.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble_impl(
     item: &ItemImpl, trait_path: Option<&syn::Path>, new_gen: Option<&TokenStream>,
@@ -35,16 +51,11 @@ pub(crate) fn assemble_impl(
     let slot_names: std::collections::HashSet<&str> =
         m.slots().iter().map(|(n, _)| n.as_str()).collect();
     let mut item_params = vec![];
+    let mut item_param_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut param_bound_preds: Vec<TokenStream> = vec![];
     for p in &item.generics.params {
-        let name = match p {
-            syn::GenericParam::Type(tp) => Some(&tp.ident),
-            syn::GenericParam::Const(cp) => Some(&cp.ident),
-            syn::GenericParam::Lifetime(_) => None,
-        };
-        if let Some(name) = name
-            && slot_names.contains(&name.to_string().as_str())
-        {
+        let name = crate::ast::name_of_generic_param(p);
+        if slot_names.contains(name.as_str()) {
             // The slot mapping replaced every occurrence of the name (the
             // for-Type / where predicates / body are rewritten) — keeping
             // the declaration would be an unconstrained param (E0207). Its
@@ -55,29 +66,36 @@ pub(crate) fn assemble_impl(
             if let syn::GenericParam::Type(tp) = p
                 && !tp.bounds.is_empty()
             {
+                let ident = &tp.ident;
                 let bounds = &tp.bounds;
-                param_bound_preds.push(quote!(#name: #bounds));
+                param_bound_preds.push(quote!(#ident: #bounds));
             }
             continue;
         }
+        // The names are needed to reconcile the attr's own generic decl with
+        // what the block already declares ([`reconcile_new_gen`]).
+        item_param_names.insert(name);
         item_params.push(p.to_token_stream());
     }
     // Generics: the attr new-generic-decl first, then the hoisted fresh names
     // (`P0, P1, ...` from a generator in the target), then the impl's own
-    // params.
+    // params. The attr's declaration is reconciled with the item's params (and
+    // with the slot names) in **this one place** — one authority for "which
+    // generics does the impl end up declaring", so neither entry form has to
+    // re-derive it (F4 of the review pass: the direct form used to emit
+    // `impl<T>` twice, `E0403`).
     let mut all_params = Vec::with_capacity(
         new_gen.map_or(0, |n| n.clone().into_iter().count())
             + fresh_names.len()
             + item_params.len(),
     );
-    if let Some(ng) = new_gen
-        && !ng.clone().into_iter().next().is_none()
-    {
-        all_params.push(ng.clone());
+    if let Some(ng) = new_gen {
+        let (decl, dropped) = reconcile_new_gen(ng, &item_param_names, &slot_names);
+        all_params.extend(decl);
+        param_bound_preds.extend(dropped);
     }
     all_params.extend(fresh_names.iter().cloned());
     all_params.extend(item_params);
-    let gen_tokens = if all_params.is_empty() { quote!() } else { quote!(<#(#all_params),*>) };
     // `X<>` sync: every `X<>` in the where predicates fills with the impl's
     // trait args (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
     // `Marker<Additive, Multiplicative>`). The body is not synced: it is
@@ -108,23 +126,132 @@ pub(crate) fn assemble_impl(
         let p = sync_trait_application(p.clone(), &trait_args)?;
         preds.push(apply_mapping(p, m));
     }
-    let where_clause = if preds.is_empty() { quote!() } else { quote!(where #(#preds),*) };
     let items = item
         .items
         .iter()
         .map(|it| apply_mapping(it.to_token_stream(), m))
         .map(|it| expand_fresh_marks(it, fresh_names, template_segs, m))
         .collect::<Result<Vec<_>, _>>()?;
-    let unsafe_kw = if item.unsafety.is_some() { quote!(unsafe) } else { quote!() };
-    let head = match trait_path {
-        Some(p) => quote!(impl #gen_tokens #p for #for_ty),
-        None => quote!(impl #gen_tokens #for_ty),
+    // **The one renderer.** Both front-ends hand `render_impl` an `ImplParts`;
+    // this entry's inputs stay token-level, so it fills the parts it has: the
+    // generic params verbatim (`(param, None)` — their bounds ride inside the
+    // param tokens, and the `<...>` joining rule lives in the renderer), the
+    // whole body as one stream (associated-type items included), the item's own
+    // attributes, the `unsafe` flag, and a target that stays the opaque
+    // `TyPrimitive` catch-all: the renderer emits the caller's `target_tokens`,
+    // so nothing reads it (a future consumer would parse it *then*, at the point
+    // that has a reason to). The trait path is verbatim user Rust, so it carries
+    // no `@N..` placeholders and travels as the whole path.
+    let attrs = item.attrs.iter().map(|a| a.to_token_stream()).collect::<Vec<_>>();
+    let body =
+        if items.is_empty() { None } else { Some(items.into_iter().collect::<TokenStream>()) };
+    let parts = ImplParts {
+        impl_generics: all_params.into_iter().map(|p| (p, None)).collect(),
+        trait_generic_names: vec![],
+        associated_types: vec![],
+        target_type: TyPrimitive(for_ty.clone()).to_ty(),
+        body,
+        attrs,
+        is_unsafe_impl: item.unsafety.is_some(),
+        where_clauses: vec![],
+        impl_templates: vec![],
+        fresh_binding: None,
+        body_at: false,
     };
-    Ok(quote! {
-        #unsafe_kw #head #where_clause {
-            #(#items)*
+    let trait_tokens = trait_path.map(|p| trait_path_with_mapped_args(p, m));
+    Ok(crate::codegen::render_impl(
+        parts,
+        preds,
+        for_ty,
+        trait_tokens.as_ref(),
+        false,
+        &Mapping::default(),
+        None,
+    ))
+}
+
+/// Reconciles the attr's `new-generic-decl` with the params the impl block
+/// already declares, and with the names the slot mapping replaced.
+///
+/// One authority for "which generics does the impl end up declaring": the item's
+/// own params win (the for-Type / body / trait path reference them), a name that
+/// is already declared — or that the mapping replaced — is **not** declared a
+/// second time (rustc would report `E0403`), and the dropped declaration's bounds
+/// move into a where predicate so nothing is silently lost
+/// (`#[batch_impl(<T: Clone> Box<T>)] impl<T> Box<T>` keeps `T: Clone` as
+/// `where T: Clone`).
+///
+/// Returns the declarations to keep and the predicates for the dropped ones. An
+/// unparsable declaration is kept verbatim (the shape parser owns that input).
+fn reconcile_new_gen(
+    new_gen: &TokenStream, item_param_names: &std::collections::HashSet<String>,
+    slot_names: &std::collections::HashSet<&str>,
+) -> (Vec<TokenStream>, Vec<TokenStream>) {
+    // The decl is one angle group's *contents* (`<T: Clone>` → `T: Clone`), so it
+    // reads as a `Generics` body once re-wrapped.
+    let Ok(generics) = syn::parse2::<syn::Generics>(quote!(< #new_gen >)) else {
+        return (vec![new_gen.clone()], vec![]);
+    };
+    let mut kept = vec![];
+    let mut dropped = vec![];
+    for p in generics.params {
+        let name = crate::ast::name_of_generic_param(&p);
+        // A name matches a slot exactly: the slot set holds bare type/const
+        // names, and a lifetime's spelling (`'a`) is never one of them — a
+        // lifetime ident is not a slot position (`apply_mapping` leaves it
+        // alone), so treating `'a` as the slot `a` would drop a declaration that
+        // is still used (E0261).
+        let already = item_param_names.contains(&name) || slot_names.contains(name.as_str());
+        if already {
+            if let syn::GenericParam::Type(tp) = &p
+                && !tp.bounds.is_empty()
+            {
+                let (ident, bounds) = (&tp.ident, &tp.bounds);
+                dropped.push(quote!(#ident: #bounds));
+            }
+            continue;
         }
-    })
+        kept.push(p.to_token_stream());
+    }
+    (kept, dropped)
+}
+
+/// The trait path with the slot mapping applied to its **angle arguments**.
+///
+/// The path's own idents are left alone (a slot that happens to share the trait's
+/// last segment name must not rename the trait reference), while an argument that
+/// names a slot is substituted: `#[batch_impl(Wrapper<T> : [Box, Rc].u8)] impl<T>
+/// PartialEq<T> for Wrapper<T>` strips the parameter, so leaving `T` in the trait
+/// argument would reach the compiler unresolved (`E0425` — F2 of the review
+/// pass; only the for-Type / where / body were mapped). Parenthesised arguments
+/// (`Fn(..)` sugar) and a mapping with no slots are passed through untouched, so
+/// every impl that never used a slot renders byte-identically.
+fn trait_path_with_mapped_args(path: &syn::Path, m: &Mapping) -> TokenStream {
+    if m.slots().is_empty() {
+        return path.to_token_stream();
+    }
+    let mut out = TokenStream::new();
+    if path.leading_colon.is_some() {
+        out.extend(quote!(::));
+    }
+    for (i, seg) in path.segments.iter().enumerate() {
+        if i > 0 {
+            out.extend(quote!(::));
+        }
+        out.extend(seg.ident.to_token_stream());
+        match &seg.arguments {
+            syn::PathArguments::AngleBracketed(ab) => {
+                let mapped = ab.args.iter().map(|a| apply_mapping(a.to_token_stream(), m));
+                if ab.colon2_token.is_some() {
+                    out.extend(quote!(::));
+                }
+                out.extend(quote!(< #(#mapped),* >));
+            }
+            syn::PathArguments::Parenthesized(p) => out.extend(p.to_token_stream()),
+            syn::PathArguments::None => {}
+        }
+    }
+    out
 }
 
 /// Expands `fresh!(...)` markers in the item body: the group's content is
@@ -141,14 +268,14 @@ fn expand_fresh_marks(
     let v = tokens.into_iter().collect::<Vec<_>>();
     let mut out = vec![];
     let mut i = 0;
-    while i < v.len() {
+    while let Some(cur) = v.get(i) {
         // `fresh ! ( ... )` — the marker.
-        if let TokenTree::Ident(id) = &v[i]
+        if let TokenTree::Ident(id) = cur
             && id == "fresh"
             && matches!(v.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '!')
         {
             let Some(g) = crate::util::group_at(&v, i + 2, delimiter![()]) else {
-                out.push(v[i].clone());
+                out.push(cur.clone());
                 i += 1;
                 continue;
             };
@@ -158,7 +285,7 @@ fn expand_fresh_marks(
             continue;
         }
         // Recurse into every other group (attributes, tuple literals, ...).
-        if let TokenTree::Group(g) = &v[i] {
+        if let TokenTree::Group(g) = cur {
             let inner = expand_fresh_marks(g.stream(), fresh_names, template_segs, m)?;
             let mut ng = Group::new(g.delimiter(), inner);
             ng.set_span(g.span());
@@ -166,7 +293,7 @@ fn expand_fresh_marks(
             i += 1;
             continue;
         }
-        out.push(v[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     Ok(out.into_iter().collect())
@@ -219,7 +346,7 @@ fn collect_fresh_segment(
     tokens: &[TokenTree], fresh_names: &[TokenStream], segs: &mut Vec<VarSeg>, map: &mut Mapping,
 ) -> Result<(), TokenStream> {
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         if is_punct_at(tokens, i, '@')
             && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
             && !matches!(tokens.get(i + 2), Some(TokenTree::Group(_)))
@@ -243,7 +370,7 @@ fn collect_fresh_segment(
                 }
             }
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             collect_fresh_segment(
                 &g.stream().into_iter().collect::<Vec<_>>(),
                 fresh_names,
@@ -281,11 +408,12 @@ pub(crate) fn peel_where(spec: &[TokenTree]) -> (Vec<TokenTree>, Vec<TokenTree>)
     let mut preds = vec![];
     let mut i = 0;
     while i < colon {
-        if let TokenTree::Ident(id) = &spec[i]
+        let Some(cur) = spec.get(i) else { break };
+        if let TokenTree::Ident(id) = cur
             && *id == "where"
         {
             let Some(g) = crate::util::group_at(spec, i + 1, delimiter![{}]) else {
-                out.push(spec[i].clone());
+                out.push(cur.clone());
                 i += 1;
                 continue;
             };
@@ -299,10 +427,10 @@ pub(crate) fn peel_where(spec: &[TokenTree]) -> (Vec<TokenTree>, Vec<TokenTree>)
             i += 2;
             continue;
         }
-        out.push(spec[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
-    out.extend(spec[colon..].iter().cloned());
+    out.extend(slice_from(spec, colon).iter().cloned());
     (out, preds)
 }
 
@@ -315,10 +443,20 @@ pub(crate) fn find_shape_colon(spec: &[TokenTree]) -> Option<usize> {
 
 /// `new-generic-decl?` at the head: a `delimiter![<>]` group. Returns (decl
 /// contents, rest).
+///
+/// A leading angle group that is a **qualified-self head** (`<T as Tr>` — a
+/// depth-0 `as`, the same discriminator the parse layer uses) is **not** a
+/// declaration: `<T as Tr>::Assoc` is a projection type, and swallowing its head
+/// as the new-generic decl would leave a dangling `::Assoc` for the matrix
+/// parser ("the direct form takes exactly one type").
 pub(crate) fn split_new_gen(tokens: &[TokenTree]) -> (Option<TokenStream>, Vec<TokenTree>) {
     match tokens.first() {
-        Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>] => {
-            (Some(g.stream()), tokens[1..].to_vec())
+        Some(TokenTree::Group(g))
+            if g.delimiter() == delimiter![<>]
+                && crate::parse::split_projection(&g.stream().into_iter().collect::<Vec<_>>())
+                    .is_none() =>
+        {
+            (Some(g.stream()), slice_from(tokens, 1).to_vec())
         }
         _ => (None, tokens.to_vec()),
     }

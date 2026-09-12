@@ -66,3 +66,47 @@ fn componentization() {
     check_e(Box::new(0u8));
     assert_eq!(<Box<u8> as ComposeE>::extra(), 7);
 }
+
+// ------------------------------------------------------------
+// The bare and braced spellings of one template are the **same template**
+// (documented as token-equivalent): `impl Template {body}` ≡
+// `impl{Template} {body}`. Regression (F1 of the review pass): the bare-region
+// collector runs **before** `angle_collect`, so a `+` inside a flat angle
+// argument list (`Box<dyn Fn() + Send>`) was read as a top-level bound chain and
+// the bare spelling was diagnosed as an `impl <trait-object>` target, while the
+// braced spelling collected. Both must generate the same impl.
+// ------------------------------------------------------------
+#[batch_impl(Box<dyn Fn() + Send> impl Box<dyn Fn() + Send> { fn tag(&self) -> u8 { 0 } })]
+trait BareTemplateTraitEq {
+    fn tag(&self) -> u8;
+}
+
+#[batch_impl(Box<dyn Fn() + Send> impl{Box<dyn Fn() + Send>} { fn tag(&self) -> u8 { 0 } })]
+trait BracedTemplateTraitEq {
+    fn tag(&self) -> u8;
+}
+
+// The same root makes a `{...}` inside a flat angle list (`W<{ 1 }>`) a
+// const-generic argument rather than the impl body (F5): both spellings again.
+#[batch_impl(W<{ 1 }> impl W<{ 1 }> { fn tag(&self) -> u8 { 0 } })]
+trait BareBraceArgEq {
+    fn tag(&self) -> u8;
+}
+
+#[batch_impl(W<{ 1 }> impl{W<{ 1 }>} { fn tag(&self) -> u8 { 0 } })]
+trait BracedBraceArgEq {
+    fn tag(&self) -> u8;
+}
+
+struct W<const N: usize>;
+
+#[test]
+fn bare_and_braced_templates_are_the_same_template() {
+    // Fully qualified: the receiver implements two of the four `tag` traits, so
+    // method syntax would be ambiguous.
+    let f: Box<dyn Fn() + Send> = Box::new(|| {});
+    assert_eq!(<Box<dyn Fn() + Send> as BareTemplateTraitEq>::tag(&f), 0);
+    assert_eq!(<Box<dyn Fn() + Send> as BracedTemplateTraitEq>::tag(&f), 0);
+    assert_eq!(<W<1> as BareBraceArgEq>::tag(&W::<1>), 0);
+    assert_eq!(<W<1> as BracedBraceArgEq>::tag(&W::<1>), 0);
+}

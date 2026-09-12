@@ -39,7 +39,9 @@
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
-use crate::util::{bracket_is_passthrough, compile_error_str, is_impl_template, is_punct};
+use crate::util::{
+    bracket_is_passthrough, compile_error_str, is_impl_template, is_punct, slice_from,
+};
 
 /// Bare `where` preprocessing: `where predicates {body}` →
 /// `where{predicates} {body}` (the legacy suffix).
@@ -108,16 +110,16 @@ fn kw_process(
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         // Bare `kw`: a directly following {group} is the legacy `kw{...}`,
         // skipped as-is; otherwise rewrite into kw{region}.
-        if let TokenTree::Ident(ident) = &tokens[i]
+        if let TokenTree::Ident(ident) = cur
             && ident == kw
             && !matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
                 if g.delimiter() == delimiter![{}])
         {
             let Some((region, rest_index)) =
-                scan_body_boundary(&tokens[i + 1..], is_boundary, comma_boundary)
+                scan_body_boundary(slice_from(tokens, i + 1), is_boundary, comma_boundary)
             else {
                 return Err(compile_error_str(
                     if kw == "where" {
@@ -125,16 +127,16 @@ fn kw_process(
                     } else {
                         "batch-impl: `impl` is missing a template or code block {...}"
                     },
-                    tokens[i].span(),
+                    cur.span(),
                 ));
             };
             if let Some(v) = validate_region {
-                v(&region, tokens[i].span())?;
+                v(&region, cur.span())?;
             }
             result.push(ident.clone().into());
             result.push(Group::new(delimiter![{}], region.into_iter().collect()).into());
             i += 1 + rest_index;
-        } else if let TokenTree::Group(g) = &tokens[i]
+        } else if let TokenTree::Group(g) = cur
             && g.delimiter() == delimiter!([])
             // `ident![...]` macro bodies and `#[...]` attributes passthrough,
             // no recursion
@@ -145,11 +147,61 @@ fn kw_process(
             result.push(Group::new(delimiter![[]], vt.into_iter().collect()).into());
             i += 1
         } else {
-            result.push(tokens[i].clone());
+            result.push(cur.clone());
             i += 1;
         };
     }
     Ok(result)
+}
+
+/// The **flat** angle-bracket depth while walking a bare-keyword region.
+///
+/// Stage invariant, measured rather than assumed: this module serves **both**
+/// bare-keyword passes, and they sit on opposite sides of `angle_collect`.
+/// `impl_process` is the pipeline's first step (`impl_process → mark_varseg →
+/// expand_consts → angle_collect`, `preprocess/stream.rs`), so the bare-`impl`
+/// region it collects holds **flat** `<...>` — their extent cannot be read off a
+/// group boundary. `where_process` runs *after* pairing (`Paired` /
+/// `DirectivesResolved`): a user-written predicate therefore already carries an
+/// opaque `<...>` group, while text a directive emitted after pairing — and any
+/// direct caller (fuzz, unit tests) — can still be flat.
+///
+/// Answering every region question through this one authority is what keeps the
+/// pass's behaviour independent of which state handed it the tokens. Three
+/// decisions inside a region need that depth:
+///
+/// * a `+` inside an angle argument list is not a top-level bound chain
+///   (`impl Box<dyn Fn() + Send>` is a shape template, not an `impl Trait`
+///   target — F1 of the review pass);
+/// * a `{...}` inside one is a const-generic argument, not the impl body
+///   (`impl W<{ 1 }> { body }` — F5);
+/// * a `,` inside one is an argument separator, not a spec/predicate separator.
+///
+/// `->` is one operator (its `>` closes nothing); a `>` at depth 0 is left alone
+/// (it belongs to whatever construct surrounds the region).
+#[derive(Default)]
+struct FlatAngleDepth(usize);
+
+impl FlatAngleDepth {
+    /// Whether the walk is currently **outside** every flat angle list — the only
+    /// state in which a region boundary may be recognized.
+    fn at_top(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// Folds the token at `index` into the depth.
+    fn fold(&mut self, tokens: &[TokenTree], index: usize) {
+        // The `>` of a `->` closes nothing (the operator dictionary owns that
+        // question — a spaced `- >` is not an arrow).
+        if crate::util::is_arrow(tokens, index) {
+            return;
+        }
+        match tokens.get(index) {
+            Some(TokenTree::Punct(p)) if p.as_char() == '<' => self.0 += 1,
+            Some(TokenTree::Punct(p)) if p.as_char() == '>' => self.0 = self.0.saturating_sub(1),
+            _ => {}
+        }
+    }
 }
 
 /// The region boundary = the first `{...}` group (excluding `ident!{...}`
@@ -162,42 +214,53 @@ fn kw_process(
 /// `where A: Clone` ≡ `where A: Clone {}`). Returns the **raw** region and
 /// the index of the boundary token — the caller wraps the group so it can
 /// validate the region first (the impl-Trait diagnostic).
+///
+/// Every boundary is recognized only **outside** the region's flat angle lists
+/// ([`FlatAngleDepth`]) — a `<...>` may still be flat here (always in the
+/// bare-`impl` collection, which runs before `angle_collect`), and its contents
+/// are a *type*, not region structure.
 fn scan_body_boundary(
     tokens: &[TokenTree], is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
     comma_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
 ) -> Option<(Vec<TokenTree>, usize)> {
     let mut j = 0;
     let mut result = vec![];
-    while j < tokens.len() {
-        match &tokens[j] {
+    let mut depth = FlatAngleDepth::default();
+    while let Some(cur) = tokens.get(j) {
+        match cur {
             // A `{...}` group is a body boundary — **unless** it is a
             // `@{...}` carrier (the previous token is `@`), which belongs to
-            // the region (e.g. the `@{}` body-slot switch).
+            // the region (e.g. the `{}` body-slot switch), or it sits inside a
+            // flat angle list (a const-generic argument).
             TokenTree::Group(g)
-                if g.delimiter() == delimiter![{}]
+                if depth.at_top()
+                    && g.delimiter() == delimiter![{}]
                     && !is_macro_body(tokens, j)
                     && !matches!(result.last(), Some(TokenTree::Punct(p)) if p.as_char() == '@') =>
             {
                 return (result, j).into();
             }
-            TokenTree::Ident(w) if w == "where" => {
+            TokenTree::Ident(w) if depth.at_top() && w == "where" => {
                 return (result, j).into();
             }
-            TokenTree::Ident(_) if is_boundary(tokens, j) => {
+            TokenTree::Ident(_) if depth.at_top() && is_boundary(tokens, j) => {
                 return (result, j).into();
             }
             // `;` ends the region; the `;` itself stays in the stream (spec
             // separator / segment boundary).
-            TokenTree::Punct(p) if p.as_char() == ';' => {
+            TokenTree::Punct(p) if depth.at_top() && p.as_char() == ';' => {
                 return (result, j).into();
             }
             // `,` ends the region when the caller's comma rule says so; the
             // `,` stays in the stream (the attr entry's spec-list separator).
-            TokenTree::Punct(p) if p.as_char() == ',' && comma_boundary(tokens, j) => {
+            TokenTree::Punct(p)
+                if depth.at_top() && p.as_char() == ',' && comma_boundary(tokens, j) =>
+            {
                 return (result, j).into();
             }
-            _ => result.push(tokens[j].clone()),
+            _ => result.push(cur.clone()),
         }
+        depth.fold(tokens, j);
         j += 1;
     }
     // End of the stream: the region ends with the spec. A bare `kw` needs
@@ -218,23 +281,34 @@ fn scan_body_boundary(
 /// spec). The chunk ends at the next depth-0 `,` or any region boundary (a
 /// `{...}` body — unless an `@{...}` carrier — an ident `where`, an
 /// `impl{...}` attachment, a `;`, or the stream end).
+///
+/// Depth-aware for the same reason the region boundary is ([`FlatAngleDepth`]):
+/// the chunk is a *type* expression until its `:`, so an angle argument list
+/// inside it (`Vec<A, B>: Clone` — the `:` sits after the angles) must not be
+/// read as the chunk's end. Three decisions answer the same "is this token
+/// region structure?" question and all three ask it through one authority.
 fn chunk_is_predicate(tokens: &[TokenTree], start: usize) -> bool {
     let mut k = start;
-    while k < tokens.len() {
-        match &tokens[k] {
-            TokenTree::Punct(p) if p.as_char() == ',' => return false,
-            TokenTree::Punct(p) if p.as_char() == ':' => return true,
-            TokenTree::Group(g)
-                if g.delimiter() == delimiter![{}]
-                    && !is_macro_body(tokens, k)
-                    && !matches!(tokens.get(k - 1), Some(TokenTree::Punct(p)) if p.as_char() == '@') =>
-            {
-                return false;
+    let mut depth = FlatAngleDepth::default();
+    while let Some(cur) = tokens.get(k) {
+        if depth.at_top() {
+            match cur {
+                TokenTree::Punct(p) if p.as_char() == ',' => return false,
+                TokenTree::Punct(p) if p.as_char() == ':' => return true,
+                TokenTree::Group(g)
+                    if g.delimiter() == delimiter![{}]
+                        && !is_macro_body(tokens, k)
+                        && !matches!(tokens.get(k - 1), Some(TokenTree::Punct(p)) if p.as_char() == '@') =>
+                {
+                    return false;
+                }
+                TokenTree::Ident(w) if w == "where" => return false,
+                TokenTree::Punct(p) if p.as_char() == ';' => return false,
+                _ => {}
             }
-            TokenTree::Ident(w) if w == "where" => return false,
-            TokenTree::Punct(p) if p.as_char() == ';' => return false,
-            _ => k += 1,
         }
+        depth.fold(tokens, k);
+        k += 1;
     }
     false
 }
@@ -242,7 +316,13 @@ fn chunk_is_predicate(tokens: &[TokenTree], start: usize) -> bool {
 /// Whether the collected bare-`impl` region is an impl-Trait **target type**
 /// (the pre-0.9.5 parse-layer spelling `impl Fn() -> u8` / `impl dyn
 /// Fn() -> u8` / `impl Iterator + Clone`), which a shape template can never
-/// be: an fn-family head, a `dyn`/`for` head, or a depth-0 `+` bound chain.
+/// be: an fn-family head, a `dyn`/`for` head, or a **top-level** `+` bound chain.
+///
+/// The `+` test is depth-aware ([`FlatAngleDepth`]): at this pass the angles are
+/// still flat, so `impl Box<dyn Fn() + Send>` — a *type* with a trait-object
+/// argument, the same template the braced spelling `impl{Box<dyn Fn() + Send>}`
+/// gives — must not be read as a `+`-joined bound chain (that was F1 of the
+/// review pass: the two spellings are one template, so they must agree).
 fn region_is_impl_trait(region: &[TokenTree]) -> bool {
     let head_is_trait_object = matches!(region.first(),
     Some(TokenTree::Ident(id))
@@ -250,14 +330,25 @@ fn region_is_impl_trait(region: &[TokenTree]) -> bool {
             id.to_string().as_str(),
             "Fn" | "FnMut" | "FnOnce" | "AsyncFn" | "AsyncFnMut" | "AsyncFnOnce" | "dyn" | "for"
         ));
-    head_is_trait_object
-        || region.iter().any(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '+'))
+    if head_is_trait_object {
+        return true;
+    }
+    let mut depth = FlatAngleDepth::default();
+    let mut has_top_plus = false;
+    for (i, t) in region.iter().enumerate() {
+        if depth.at_top() && matches!(t, TokenTree::Punct(p) if p.as_char() == '+') {
+            has_top_plus = true;
+            break;
+        }
+        depth.fold(region, i);
+    }
+    has_top_plus
 }
 
 fn is_macro_body(tokens: &[TokenTree], index: usize) -> bool {
     index >= 2
-        && is_punct(&tokens[index - 1], '!')
-        && matches!(&tokens[index - 2], TokenTree::Ident(_))
+        && matches!(tokens.get(index - 1), Some(t) if is_punct(t, '!'))
+        && matches!(tokens.get(index - 2), Some(TokenTree::Ident(_)))
 }
 
 #[cfg(test)]
@@ -350,6 +441,47 @@ mod tests {
         assert_eq!(
             run_where("usize where A : Clone , B : Copy { fn m() {} }"),
             "usize where { A : Clone , B : Copy } { fn m () { } }"
+        );
+    }
+
+    /// Regression (F1 of the review pass): this pass runs **before**
+    /// `angle_collect`, so `<...>` is still flat here — a `+` inside an angle
+    /// argument list is part of a *type*, not a top-level bound chain. The bare
+    /// spelling `impl Box<dyn Fn() + Send>` is the same template as the braced
+    /// `impl{Box<dyn Fn() + Send>}`, which always collected.
+    #[test]
+    fn bare_impl_with_a_trait_object_argument_collects() {
+        assert_eq!(
+            run_impl("impl Box<dyn Fn() + Send> { fn m() {} }"),
+            "impl { Box < dyn Fn () + Send > } { fn m () { } }"
+        );
+        // …while a real top-level `+` bound chain is still not a template.
+        let err = run_impl_err("impl Iterator + Clone { fn m() {} }");
+        assert!(err.contains("not supported"), "got: {err}");
+    }
+
+    /// Regression (F5, same root): a `{...}` **inside** a flat angle list is a
+    /// const-generic argument, not the impl body — the region must keep scanning
+    /// to the matching `>` (and the body is the `{...}` after it).
+    #[test]
+    fn bare_impl_brace_argument_is_not_the_body() {
+        assert_eq!(run_impl("impl W<{ 1 }> { fn m() {} }"), "impl { W < { 1 } > } { fn m () { } }");
+        // The same holds for a `,` inside a flat angle list in a `where` region:
+        // it separates arguments, not predicates or specs.
+        assert_eq!(run_where("u8 where T : Trait2 < A , B >"), "u8 where { T : Trait2 < A , B > }");
+    }
+
+    /// The comma rule's chunk scan asks the same flat-angle question as the
+    /// region boundary, through the same authority. A *user* predicate reaches
+    /// `where_process` already paired (an opaque `<...>` group), so this locks
+    /// the state a direct caller or a directive's post-pairing output hands the
+    /// pass: there the `,` inside `Vec<A, B>` must not split the region — the
+    /// `:` that makes the chunk a predicate sits **after** its arguments.
+    #[test]
+    fn bare_where_comma_inside_an_angle_list_is_not_a_spec_boundary() {
+        assert_eq!(
+            run_where("u8 where A : Clone , Vec < A , B > : Clone"),
+            "u8 where { A : Clone , Vec < A , B > : Clone }"
         );
     }
 }

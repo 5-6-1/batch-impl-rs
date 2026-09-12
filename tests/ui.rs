@@ -63,6 +63,9 @@ fn ui() {
 
     // combined expansion count exceeds the limit
     t.compile_fail("tests/ui/expand_limit.rs");
+    // bound-generator distribution: two arity ranges whose Cartesian product
+    // is past the limit — reported, not rendered as an illegal `T: [A, B, ...]`
+    t.compile_fail("tests/ui/bound_gen_over_limit.rs");
 
     // bare where new syntax missing a code block
     t.compile_fail("tests/ui/where_missing_body.rs");
@@ -124,6 +127,9 @@ fn ui() {
     // declarations are their only valid homes)
     t.compile_fail("tests/ui/concrete_binding.rs");
     t.compile_fail("tests/ui/concrete_bound.rs");
+    // a type *named* `constant` in an argument list is not a const parameter
+    // (`<constant>` = `Vec<constant>`) — the name-prefix check must not apply
+    t.pass("tests/ui/constant_named_type_arg.rs");
 
     // `;` / stray `=` / leftover `@` / `#` in a type position: the fallback
     // primitive validates instead of rendering invalid Rust
@@ -186,6 +192,16 @@ fn ui() {
     // a declared driver must not conflict with inner references
     t.compile_fail("tests/ui/impl_shape_repeat_cursor_multi.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_driver_conflict.rs");
+    // a fresh-binding switch whose range covers no fresh (`@2..1` / `@2..=1`)
+    // binds nothing: targeted error, not a silent re-open and not the
+    // shape-template path's misleading "DSL operators" message
+    t.compile_fail("tests/ui/impl_shape_repeat_invalid_switch.rs");
+    // a `::`-tail is plain Rust path text: a DSL token inside a segment is
+    // reported, not leaked as `Assoc<@0>` for rustc to choke on
+    t.compile_fail("tests/ui/qualified_tail_dsl_token.rs");
+    // the same error from the *closed* branch (`@2..=1` is only rejected after
+    // the range is built, not while normalizing `..M` to `..=M-1`)
+    t.compile_fail("tests/ui/impl_shape_repeat_invalid_switch_closed.rs");
     // `X<>` (empty brackets) fills with the spec's trait args on any ident;
     // body sync needs a template carrying `Tr<>`
     t.compile_fail("tests/ui/impl_trait_sync_body_negative.rs");
@@ -202,6 +218,20 @@ fn ui() {
     // declarations or references)
     t.compile_fail("tests/ui/lifetime_as_operand.rs");
 
+    // the fn-type family: a named parameter is valid only in a `fn(x: u8)`
+    // pointer type (the `Fn(x: u8)` sugar rejects it, like rustc), and a name
+    // without a type is reported instead of rendered
+    t.compile_fail("tests/ui/fn_sugar_named_param.rs");
+    t.compile_fail("tests/ui/fn_named_param_missing_type.rs");
+
+    // a leading `::` opens a global path — it needs a path segment ident
+    t.compile_fail("tests/ui/global_path_no_ident.rs");
+
+    // the return expression of an `extern "C" fn` passthrough: a `#` that cannot
+    // open a block used to spin the token fold forever (no allocation growth, so
+    // the fuzz allocation guard could not catch it) — now a diagnostic
+    t.compile_fail("tests/ui/extern_fn_stray_hash.rs");
+
     // the impl entry (ItemImpl): banned `#` / non-type direct form
     t.compile_fail("tests/ui/implentry_hash_banned.rs");
     t.compile_fail("tests/ui/implentry_at_num_banned.rs");
@@ -209,4 +239,8 @@ fn ui() {
 
     // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");
+
+    // an empty attribute derives nothing, so the impl entry emits the original
+    // block unchanged (the `need` calls in the fixture fail if it is swallowed)
+    t.pass("tests/ui/pass/impl_entry_empty_attribute.rs");
 }

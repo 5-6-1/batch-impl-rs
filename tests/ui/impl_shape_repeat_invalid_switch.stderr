@@ -1,0 +1,7 @@
+error: batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M`
+ --> tests/ui/impl_shape_repeat_invalid_switch.rs:7:1
+  |
+7 | #[batch_impl(().2 impl{@2..1} { fn n(&self) -> usize { 0 } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

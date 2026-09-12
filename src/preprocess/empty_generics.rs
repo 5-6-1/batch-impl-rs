@@ -11,7 +11,7 @@ use quote::quote;
 use syn::ItemTrait;
 
 use crate::analyze::TraitBounds;
-use crate::util::scan_stop;
+use crate::util::{scan_stop, slice_from, slice_upto};
 
 /// Whether the args are "binding-only" (`Item = T, K = U`: every top-level
 /// comma segment contains `=`). Only binding-only args allow the
@@ -22,10 +22,10 @@ fn args_all_bindings(args: &[TokenTree]) -> bool {
     let mut rest = args;
     while let Some(idx) = scan_stop(rest, &[',']) {
         // Segment must contain a top-level `=` (binding)
-        if scan_stop(&rest[..idx], &['=']).is_none() {
+        if scan_stop(slice_upto(rest, idx), &['=']).is_none() {
             return false;
         }
-        rest = &rest[idx + 1..];
+        rest = slice_from(rest, idx + 1);
     }
     scan_stop(rest, &['=']).is_some()
 }
@@ -78,8 +78,8 @@ pub(crate) fn expand_empty_trait_generics(
     let formals = render_formals(trait_def, trait_bounds);
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        match cur {
             // `Ident` + angle group (pairing output of `angle_collect`) —
             // expanded only at top level: empty args (`A<>`) or
             // **binding-only args** (`A<Item=T>`) → positional args copy the
@@ -90,7 +90,7 @@ pub(crate) fn expand_empty_trait_generics(
                 let group = match tokens.get(i + 1) {
                     Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>] => g,
                     _ => {
-                        out.push(tokens[i].clone());
+                        out.push(cur.clone());
                         i += 1;
                         continue;
                     }
@@ -112,12 +112,12 @@ pub(crate) fn expand_empty_trait_generics(
                     out.push(proc_macro2::Group::new(delimiter![<>], args_ts).into());
                     i += 2;
                 } else {
-                    out.push(tokens[i].clone());
+                    out.push(cur.clone());
                     i += 1;
                 }
             }
             _ => {
-                out.push(tokens[i].clone());
+                out.push(cur.clone());
                 i += 1;
             }
         }

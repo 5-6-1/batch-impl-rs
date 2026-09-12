@@ -8,7 +8,7 @@ use quote::quote;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
-use crate::codegen::fresh::{collect_used_idents, display_name};
+use crate::codegen::fresh_naming::{collect_used_idents, display_name};
 use crate::util::compile_error_str;
 
 /// Detects the top-level macro form: a `WithCode` chain ending in a
@@ -84,12 +84,12 @@ pub(crate) fn rewrite_macro_input(mac: TokenStream, spec: TokenStream) -> TokenS
     let mut out = Vec::with_capacity(tokens.len() + 1);
     let mut inserted = false;
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         if !inserted
-            && matches!(&tokens[i], TokenTree::Punct(p) if p.as_char() == '!')
+            && matches!(cur, TokenTree::Punct(p) if p.as_char() == '!')
             && let Some(TokenTree::Group(g)) = tokens.get(i + 1)
         {
-            out.push(tokens[i].clone()); // `!`
+            out.push(cur.clone()); // `!`
             // The spec body becomes the first *group* of the macro input
             // (`{spec}`) — the 4-segment protocol expects a Brace group.
             let spec_group = Group::new(delimiter![{}], spec.clone());
@@ -103,7 +103,7 @@ pub(crate) fn rewrite_macro_input(mac: TokenStream, spec: TokenStream) -> TokenS
             i += 2;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     out.into_iter().collect()
@@ -129,7 +129,7 @@ pub(crate) fn finalize_fresh_names(tokens: TokenStream) -> TokenStream {
 /// are atomic and hold no nested carriers — not descended).
 fn collect_carriers(v: &[TokenTree], groups: &mut Vec<(usize, usize)>) {
     let mut i = 0;
-    while i < v.len() {
+    while let Some(cur) = v.get(i) {
         if let Some(inner) = carrier_inner_at(v, i) {
             if let Some(FreshRef { group: Some(gp), start, end: FreshEnd::Single }) =
                 FreshRef::parse(&inner)
@@ -137,7 +137,7 @@ fn collect_carriers(v: &[TokenTree], groups: &mut Vec<(usize, usize)>) {
                 groups.push((gp, start));
             }
             i += 2;
-        } else if let TokenTree::Group(g) = &v[i] {
+        } else if let TokenTree::Group(g) = cur {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             collect_carriers(&inner, groups);
             i += 1;
@@ -150,9 +150,9 @@ fn collect_carriers(v: &[TokenTree], groups: &mut Vec<(usize, usize)>) {
 fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) -> Vec<TokenTree> {
     let mut out = vec![];
     let mut i = 0;
-    while i < v.len() {
-        if let Some(inner) = carrier_inner_at(&v, i) {
-            let name = FreshRef::parse(&inner)
+    while let Some(cur) = v.get(i) {
+        if let Some(g) = carrier_group_at(&v, i) {
+            let name = FreshRef::parse(&carrier_inner(g))
                 .and_then(|r| match r {
                     FreshRef { group: Some(gp), start, end: FreshEnd::Single } => {
                         map.get(&(gp, start)).cloned()
@@ -160,18 +160,18 @@ fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) ->
                     _ => None,
                 })
                 .map(|n| {
-                    let id = Ident::new(&n, v[i].span());
+                    let id = Ident::new(&n, cur.span());
                     TokenTree::Ident(id)
                 });
             match name {
                 Some(id) => out.push(id),
                 None => {
-                    out.push(v[i].clone());
-                    out.push(v[i + 1].clone());
+                    out.push(cur.clone());
+                    out.push(TokenTree::Group(g.clone()));
                 }
             }
             i += 2;
-        } else if let TokenTree::Group(g) = &v[i] {
+        } else if let TokenTree::Group(g) = cur {
             let inner = g.stream().into_iter().collect();
             let mut ng =
                 Group::new(g.delimiter(), rewrite_carriers(inner, map).into_iter().collect());
@@ -179,7 +179,7 @@ fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) ->
             out.push(TokenTree::Group(ng));
             i += 1;
         } else {
-            out.push(v[i].clone());
+            out.push(cur.clone());
             i += 1;
         }
     }
@@ -189,7 +189,7 @@ fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::fresh::FreshCtx;
+    use crate::codegen::fresh_naming::FreshCtx;
 
     fn decl(g: usize, i: usize) -> TokenStream {
         fresh_decl_tokens(g, i)

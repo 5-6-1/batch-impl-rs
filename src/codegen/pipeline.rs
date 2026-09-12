@@ -4,7 +4,6 @@
 
 use proc_macro2::TokenStream;
 use std::cell::Cell;
-use std::collections::HashSet;
 
 use crate::ast::*;
 use crate::util::compile_error_str;
@@ -56,36 +55,33 @@ pub(crate) fn generate_parts(
     // to match trait args and where-predicate refs). Shared by bound
     // inheritance and where-predicate resolution. Fresh declarations are
     // still their identity carriers at this point.
-    let impl_name_streams =
-        parts.impl_generics.iter().map(|(n, _)| bare_param_name(n)).collect::<Vec<TokenStream>>();
+    let impl_name_streams = parts
+        .impl_generics
+        .iter()
+        .map(|(n, _)| ParamKind::bare_name(n))
+        .collect::<Vec<TokenStream>>();
 
     // The collision set display names must skip: every ident the impl
     // already writes (user params, target type, trait args, predicates,
-    // body, attrs, associated types). Template placeholders are excluded —
-    // the shape mapping rewrites them away before output, so counting them
-    // would shift numbering the rendered impl never shows.
-    let mut used = HashSet::new();
-    collect_used_idents(&parts.target_type.to_token_stream(), &mut used);
-    for ts in &parts.trait_generic_names {
-        collect_used_idents(ts, &mut used);
-    }
-    for p in &parts.where_clauses {
-        collect_used_idents(p, &mut used);
-    }
+    // body, attrs, associated types) — one source list, shared with the impl
+    // entry (`codegen::fresh_naming::used_ident_set`). Template placeholders are
+    // excluded — the shape mapping rewrites them away before output, so
+    // counting them would shift numbering the rendered impl never shows. The
+    // target stream is kept for the later reference resolution (one
+    // `to_token_stream` per impl instead of two).
+    let target_stream = parts.target_type.to_token_stream();
+    let plain_impl_names =
+        impl_name_streams.iter().filter(|n| decl_fresh_pos(n).is_none()).collect::<Vec<_>>();
+    let mut surfaces = vec![&target_stream];
+    surfaces.extend(parts.trait_generic_names.iter());
+    surfaces.extend(parts.where_clauses.iter());
     if let Some(b) = &parts.body {
-        collect_used_idents(b, &mut used);
+        surfaces.push(b);
     }
-    for a in &parts.attrs {
-        collect_used_idents(a, &mut used);
-    }
-    for (_, v) in &parts.associated_types {
-        collect_used_idents(v, &mut used);
-    }
-    for n in &impl_name_streams {
-        if decl_fresh_pos(n).is_none() {
-            collect_used_idents(n, &mut used);
-        }
-    }
+    surfaces.extend(parts.attrs.iter());
+    surfaces.extend(parts.associated_types.iter().map(|(_, v)| v));
+    surfaces.extend(plain_impl_names);
+    let used = used_ident_set(&surfaces);
 
     // The per-impl macro-meta context: fresh declarations sorted by
     // (group, position), each assigned its final display name — shared by
@@ -152,11 +148,10 @@ pub(crate) fn generate_parts(
     // The target type's references resolve now: its tokens must be valid
     // Rust before the shape kernel syn-parses them, and the resolvers emit
     // final names — nothing downstream renames idents anymore.
-    let target_tokens =
-        match range_refs::expand_range_refs(parts.target_type.to_token_stream(), &fresh_ctx) {
-            Ok(t) => t,
-            Err(e) => return e,
-        };
+    let target_tokens = match range_refs::expand_range_refs(target_stream, &fresh_ctx) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
     // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
     // rewrites (where predicates + body here; the target type at render,
@@ -237,9 +232,9 @@ pub(crate) fn generate_parts(
         parts,
         where_resolved,
         target_tokens,
-        trait_name,
+        Some(trait_name),
         is_unsafe_trait,
         &shape_map,
-        &fresh_ctx,
+        Some(&fresh_ctx),
     )
 }

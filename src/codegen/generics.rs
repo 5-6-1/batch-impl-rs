@@ -4,11 +4,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 
 use crate::TraitBounds;
-use crate::ast::{Ty, TyPrimitive};
+use crate::ast::{ParamKind, Ty, TyPrimitive};
 use crate::codegen::extract::ImplParts;
 
 /// Inherits trait-level constraints onto the generated impl — by
@@ -45,17 +45,17 @@ pub(crate) fn inherit_trait_bounds(
     // positional arg names; a non-generic arg degrades to a where predicate.
     for (tp, arg) in trait_bounds.params.iter().zip(trait_args.iter()) {
         let Some(b) = &tp.bound else { continue };
-        if tp.name.starts_with('\'') {
+        if tp.kind.is_lifetime() {
             // a lifetime parameter itself takes no inline bound here
             // (`'a: 'b` outlives declarations are out of scope)
             continue;
         }
-        let arg_ident = bare_param_name(arg).to_string();
+        let arg_ident = ParamKind::bare_name(arg).to_string();
         let arg_is_bare = arg.to_string() == arg_ident;
         let slot = parts
             .impl_generics
             .iter_mut()
-            .find(|(n, _)| arg_is_bare && bare_param_name(n).to_string() == arg_ident);
+            .find(|(n, _)| arg_is_bare && ParamKind::bare_name(n).to_string() == arg_ident);
         let substituted = substitute(b);
         match slot {
             Some((_, slot_bound)) if slot_bound.is_none() => {
@@ -73,27 +73,8 @@ pub(crate) fn inherit_trait_bounds(
     // and append. (The old name-equality ref-check is gone — substitution
     // removes every trait param name, and any *other* undeclared ident is
     // rustc's E0412 to report.)
-    for (pred, _refs) in &trait_bounds.extra_predicates {
+    for pred in &trait_bounds.extra_predicates {
         parts.where_clauses.push(substitute(pred));
-    }
-}
-
-/// Renders an impl generic name with the `const` keyword stripped (the parse
-/// layer keeps `const` so `const N: usize` renders correctly; the bare name is
-/// used for trait-arg matching and where-predicate references). Names are
-/// always a single ident or the `const` ident pair; the fallback arm keeps the
-/// token stream as-is so this helper can never panic (defensive — unreachable
-/// in practice, kept to uphold the no-panic promise).
-pub(crate) fn bare_param_name(name: &TokenStream) -> TokenStream {
-    let mut tokens = name.clone().into_iter();
-    match (tokens.next(), tokens.next()) {
-        (Some(TokenTree::Ident(id)), None) => quote!(#id),
-        (Some(TokenTree::Ident(kw)), Some(TokenTree::Ident(id)))
-            if kw == "const" && tokens.next().is_none() =>
-        {
-            quote!(#id)
-        }
-        _ => name.clone(),
     }
 }
 
@@ -110,24 +91,18 @@ pub(crate) fn bare_param_name(name: &TokenStream) -> TokenStream {
 pub(crate) fn merge_dup_params(parts: &mut ImplParts) {
     let mut counts = HashMap::new();
     for (name, _) in &parts.impl_generics {
-        *counts.entry(bare_param_name(name).to_string()).or_insert(0usize) += 1;
+        *counts.entry(ParamKind::bare_name(name).to_string()).or_insert(0usize) += 1;
     }
     let mut merged = Vec::new();
     let mut extra_where = Vec::new();
     let mut seen = HashSet::new();
     for (name, bound) in std::mem::take(&mut parts.impl_generics) {
-        // `const N` — the const-param shape (two idents, first is `const`).
-        // A name that merely *starts with* "const" (`constant`) is an
-        // ordinary type param and must not take the const branch (whose
-        // duplicate handling drops the later bound entirely).
-        let is_const = {
-            let mut it = name.clone().into_iter();
-            matches!(
-                (it.next(), it.next()),
-                (Some(TokenTree::Ident(kw)), Some(TokenTree::Ident(_))) if kw == "const"
-            )
-        };
-        let key = bare_param_name(&name).to_string();
+        // `const N` — the const-param shape, from the shared authority
+        // (`ast::ParamKind`). A name that merely *starts with* "const"
+        // (`constant`) is an ordinary type param and must not take the const
+        // branch (whose duplicate handling drops the later bound entirely).
+        let is_const = ParamKind::of_name(&name).is_const();
+        let key = ParamKind::bare_name(&name).to_string();
         if counts.get(&key).copied().unwrap_or(0) > 1 {
             // duplicate name: bare single declaration (or the first full
             // const declaration), every bound moved into a where predicate

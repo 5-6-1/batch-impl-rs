@@ -1,6 +1,6 @@
 use batch_impl::batch_impl;
 
-// `@N` position references are banned on the ItemImpl entry.
+// `@N` needs fresh generics: no generator in this spec → `@0` is out of range.
 #[batch_impl(W : Box<@0>)]
 impl BadAtN for W {
     fn mk() -> W {

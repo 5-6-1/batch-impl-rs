@@ -41,21 +41,19 @@ use crate::util::compile_error_str;
 pub(crate) fn reject_directives(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        match cur {
             // `#` directives are banned; `#[...]` attributes pass through.
             TokenTree::Punct(p) if p.as_char() == '#' => {
-                if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-                    if g.delimiter() == delimiter![[]])
-                {
-                    out.push(tokens[i].clone());
-                    out.push(tokens[i + 1].clone());
+                if let Some(g) = crate::util::group_at(tokens, i + 1, delimiter![[]]) {
+                    out.push(cur.clone());
+                    out.push(TokenTree::Group(g.clone()));
                     i += 2;
                 } else {
                     return Err(compile_error_str(
                         "batch-impl: `#` directives are not supported on the ItemImpl entry \
                          (write the impl body directly)",
-                        tokens[i].span(),
+                        cur.span(),
                     ));
                 }
             }
@@ -67,7 +65,7 @@ pub(crate) fn reject_directives(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, 
                 i += 1;
             }
             _ => {
-                out.push(tokens[i].clone());
+                out.push(cur.clone());
                 i += 1;
             }
         }

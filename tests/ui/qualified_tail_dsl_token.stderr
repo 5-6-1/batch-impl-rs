@@ -1,0 +1,5 @@
+error: batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…`) are not allowed there
+ --> tests/ui/qualified_tail_dsl_token.rs:8:39
+  |
+8 | #[batch_impl(Holder<<u8 as Tr>::Assoc<@0>>)]
+  |                                       ^

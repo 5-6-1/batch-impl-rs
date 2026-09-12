@@ -14,7 +14,7 @@ use quote::quote;
 
 use crate::ast::{Ty, TyBoundList, TyGeneric, TyKind, TyPrimitive, TyTrait, TyTypeParam};
 use crate::codegen::extract::ImplParts;
-use crate::util::is_punct_at;
+use crate::util::{is_punct_at, slice_from};
 
 /// `X<>` sync across an [`ImplParts`]: where predicates, `impl{...}`
 /// templates and impl-generic bounds fill unconditionally; a **switch
@@ -100,11 +100,11 @@ fn sync_at(
     }
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         // `Ident` + an empty `<>` (paired group or flat `< >`) — extract the
         // ident and the advance distance in one step (the check and the
         // destructure share the same match, so they cannot drift).
-        let ident_angle = match &tokens[i] {
+        let ident_angle = match cur {
             TokenTree::Ident(id) if empty_angle_at(tokens, i + 1) => {
                 // 2 tokens for a paired group, 3 for flat `< >`.
                 let adv =
@@ -124,9 +124,9 @@ fn sync_at(
             i += adv;
             continue;
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             if depth + 1 > crate::util::MAX_NEST_DEPTH {
-                return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
+                return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let synced = sync_at(&inner, args, depth + 1)?;
@@ -136,7 +136,7 @@ fn sync_at(
             i += 1;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     Ok(out)
@@ -160,7 +160,7 @@ pub(crate) fn is_switch_template(tokens: &[TokenTree], trait_ident: &Ident) -> b
         return false;
     }
     // the ident must be followed by an empty `<>` pair (flat or group)
-    match &tokens[idx + 1..] {
+    match slice_from(tokens, idx + 1) {
         [TokenTree::Punct(lt), TokenTree::Punct(gt)] => lt.as_char() == '<' && gt.as_char() == '>',
         [TokenTree::Group(g)] => g.delimiter() == delimiter![<>] && g.stream().is_empty(),
         _ => false,

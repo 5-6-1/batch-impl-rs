@@ -92,8 +92,8 @@ pub(crate) fn expand_tokens(
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
-    while i < tokens.len() {
-        if is_punct(&tokens[i], '#')
+    while let Some(cur) = tokens.get(i) {
+        if is_punct(cur, '#')
             && let Some(TokenTree::Ident(name)) = tokens.get(i + 1)
         {
             let (out, consumed) = expand_directive(name, tokens, i, trait_def, trait_full_path)?;
@@ -103,7 +103,7 @@ pub(crate) fn expand_tokens(
         }
         // Only `[...]` is expanded recursively (`ident![...]` / `#[...]`
         // passthrough, aligned with the angle_collect guard)
-        if let TokenTree::Group(g) = &tokens[i]
+        if let TokenTree::Group(g) = cur
             && g.delimiter() == delimiter![[]]
             && !bracket_is_passthrough(tokens, i)
         {
@@ -115,7 +115,7 @@ pub(crate) fn expand_tokens(
             let new_group = Group::new(g.delimiter(), inner.into_iter().collect());
             result.push(new_group.into());
         } else {
-            result.push(tokens[i].clone());
+            result.push(cur.clone());
         }
         i += 1;
     }

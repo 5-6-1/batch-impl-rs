@@ -9,22 +9,28 @@
 //! range re-opens against that impl's own fresh list at render (each
 //! distributed impl sweeps its names independently).
 
+use proc_macro2::TokenStream;
+
 use crate::ast::TyKind;
 use crate::codegen::extract::ImplParts;
-use crate::util::cartesian;
+use crate::util::{cartesian, compile_error_str};
 
 /// Splits `parts` into one `ImplParts` per bound-array element (the Cartesian
 /// product when several bounds are ranges). With no array bounds, returns the
-/// single input unchanged. An over-limit product falls back to the single
-/// input: the render layer reports the size against [`crate::ast::MAX_EXPAND`]
-/// instead of silently truncating.
-pub(crate) fn distribute_bound_arrays(parts: ImplParts) -> Vec<ImplParts> {
-    let array_at = |i: usize| match &parts.impl_generics[i].1 {
-        Some(t) if matches!(&t.kind, TyKind::Array(_)) => match &t.kind {
+/// single input unchanged. An over-limit product is an `Err` carrying the
+/// diagnostic: the whole expansion is replaced by the message instead of
+/// emitting a malformed impl. Neither alternative is acceptable — falling back
+/// to the single input renders the array bound as `T: [A, B, ...]` (an illegal
+/// bound rustc reports confusingly), and placing the diagnostic *inside* the
+/// bound position is worse: the item-form `compile_error!` carries a trailing
+/// `;`, a syntax error that buries the message under parser fallout.
+pub(crate) fn distribute_bound_arrays(parts: ImplParts) -> Result<Vec<ImplParts>, TokenStream> {
+    let array_at = |i: usize| match parts.impl_generics.get(i).and_then(|(_, b)| b.as_ref()) {
+        Some(t) => match &t.kind {
             TyKind::Array(a) => Some(a.0.clone()),
             _ => None,
         },
-        _ => None,
+        None => None,
     };
     // Collect (position, elements) in one pass — no `.is_some()` filter
     // followed by a second `array_at(i).unwrap()` (check + extraction in
@@ -33,7 +39,7 @@ pub(crate) fn distribute_bound_arrays(parts: ImplParts) -> Vec<ImplParts> {
         .filter_map(|i| array_at(i).map(|elems| (i, elems)))
         .collect();
     if dims.is_empty() {
-        return vec![parts];
+        return Ok(vec![parts]);
     }
     let positions: Vec<usize> = dims.iter().map(|(i, _)| *i).collect();
     let combos = match cartesian(
@@ -41,38 +47,35 @@ pub(crate) fn distribute_bound_arrays(parts: ImplParts) -> Vec<ImplParts> {
         crate::ast::MAX_EXPAND,
     ) {
         Ok(c) => c,
-        Err(_) => {
-            // Over-limit product: do NOT fall back to the single input — the
-            // array bound would render as `T: [A, B, ...]` (an illegal bound
-            // rustc reports with a confusing error; the render layer has no
-            // size check). Emit a targeted diagnostic instead, through the
-            // error-bound channel the driver aggregates.
-            let mut p = parts;
-            let total = positions
-                .iter()
-                .map(|&i| match &p.impl_generics[i].1 {
-                    Some(t) if matches!(&t.kind, TyKind::Array(_)) => {
-                        if let TyKind::Array(a) = &t.kind { a.0.len() } else { 0 }
-                    }
-                    _ => 0,
-                })
-                .product::<usize>();
-            p.impl_generics[positions[0]].1 = Some(crate::apply::err_ty(&format!(
-                "batch-impl: bound-generator distribution expands to {total} \
-                     impls (limit {}); reduce the range sizes",
-                crate::ast::MAX_EXPAND,
-            )));
-            return vec![p];
+        // `cartesian` rejects before allocating and reports the would-be
+        // product, which is exactly the count the diagnostic needs.
+        Err(size) => {
+            let span = positions
+                .first()
+                .and_then(|&i| parts.impl_generics.get(i))
+                .and_then(|(_, b)| b.as_ref())
+                .map_or_else(proc_macro2::Span::call_site, |b| b.span);
+            return Err(compile_error_str(
+                &format!(
+                    "batch-impl: bound-generator distribution expands to {size} impls \
+                     (limit {}); reduce the range sizes",
+                    crate::ast::MAX_EXPAND
+                ),
+                span,
+            ));
         }
     };
-    combos
+    Ok(combos
         .into_iter()
         .map(|combo| {
             let mut p = parts.clone();
             for (&i, elem) in positions.iter().zip(combo) {
-                p.impl_generics[i].1 = Some(elem);
+                let Some(slot) = p.impl_generics.get_mut(i) else {
+                    continue;
+                };
+                slot.1 = Some(elem);
             }
             p
         })
-        .collect()
+        .collect())
 }

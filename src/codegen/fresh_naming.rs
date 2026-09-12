@@ -7,14 +7,14 @@
 //! `range_refs` / shape / repeat) resolves against these display names, so
 //! nothing internal ever reaches rendered output unnamed. User-written params
 //! do not participate (`@N` exists exactly because fresh names are
-//! unknowable). The naming protocol itself lives in `crate::ast::fresh`.
+//! unknowable). The naming protocol itself lives in `crate::ast::fresh_protocol`.
 
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::quote;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::ast::Ty;
-use crate::ast::fresh::decl_fresh_pos;
+use crate::ast::fresh_protocol::decl_fresh_pos;
 use crate::util::compile_error_str;
 
 /// The per-impl macro-meta context: fresh declarations sorted by
@@ -37,15 +37,11 @@ impl FreshCtx {
         let mut fresh = decl_names.iter().filter_map(decl_fresh_pos).collect::<Vec<_>>();
         fresh.sort_unstable();
         fresh.dedup();
-        let display = fresh
-            .iter()
-            .enumerate()
-            .map(|(k, &gi)| (gi, display_name(k, used)))
-            .collect::<HashMap<_, _>>();
         let names = fresh
             .into_iter()
-            .map(|gi| {
-                let id = Ident::new(&display[&gi], Span::call_site());
+            .enumerate()
+            .map(|(k, gi)| {
+                let id = Ident::new(&display_name(k, used), Span::call_site());
                 (gi.0, gi.1, quote!(#id))
             })
             .collect();
@@ -68,11 +64,11 @@ impl FreshCtx {
                 span,
             )
         })?;
-        let end = self.names[start..]
+        let end = crate::util::slice_from(&self.names, start)
             .iter()
             .position(|&(g, _, _)| g != group)
             .map_or(self.names.len(), |p| start + p);
-        Ok(&self.names[start..end])
+        Ok(crate::util::slice_between(&self.names, start, end))
     }
 }
 
@@ -118,6 +114,26 @@ pub(crate) fn collect_used_idents(tokens: &TokenStream, used: &mut HashSet<Strin
             _ => {}
         }
     }
+}
+
+/// Feeds several surfaces into one collision set — the **single source-list
+/// authority** for every display-name minting path. When each entry collected
+/// an ad-hoc list of its own, the impl entry missed the matrix leaf and the
+/// spec's where predicates that the attribute entry counted, so a fresh
+/// display name could shadow a user ident appearing only there (the `R1`
+/// drift class: two front-ends must agree on what "already used" means).
+pub(crate) fn collect_used_surfaces(surfaces: &[&TokenStream], used: &mut HashSet<String>) {
+    for s in surfaces {
+        collect_used_idents(s, used);
+    }
+}
+
+/// The collision set of [`collect_used_surfaces`], freshly built — the
+/// constructor form for callers that own the whole list.
+pub(crate) fn used_ident_set(surfaces: &[&TokenStream]) -> HashSet<String> {
+    let mut used = HashSet::new();
+    collect_used_surfaces(surfaces, &mut used);
+    used
 }
 
 /// Renames every declaration carrier in the impl-generic list to its display

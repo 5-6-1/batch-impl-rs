@@ -14,15 +14,16 @@
 
 use crate::apply::err_ty_at;
 use crate::ast::*;
+use crate::parse::Ctx;
 use crate::parse::parse_primitive;
 use crate::parse::space::{cursor_is_dotdot, parse_block, starts_block};
 use crate::util::{Cursor, MAX_NEST_DEPTH};
-use proc_macro2::{Ident, TokenTree};
+use proc_macro2::TokenTree;
 
-pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>) -> Option<Ty> {
+pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, ctx: Ctx<'_>) -> Option<Ty> {
     match level {
         Op::Semi | Op::Comma => loop {
-            if let Some(item) = parse_operand(cursor, level, trait_name) {
+            if let Some(item) = parse_operand(cursor, level, ctx) {
                 return item.into();
             }
             if cursor.is_punct(',') {
@@ -44,9 +45,9 @@ pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, trait_name: Option<&Ide
                 return None;
             }
         },
-        Op::Space => parse_space_chain(cursor, trait_name),
-        Op::Dot => parse_dot_chain(cursor, trait_name),
-        Op::Prim => parse_primitive(cursor.take_rest(), trait_name).into(),
+        Op::Space => parse_space_chain(cursor, ctx),
+        Op::Dot => parse_dot_chain(cursor, ctx),
+        Op::Prim => parse_primitive(cursor.take_rest(), ctx).into(),
     }
 }
 
@@ -57,8 +58,8 @@ pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, trait_name: Option<&Ide
 ///
 /// Empty input returns `None` (legal termination of the enclosing list); a
 /// leading `.` is a missing-operand error.
-pub(crate) fn parse_space_chain(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Option<Ty> {
-    let Some(mut left) = parse_dot_chain(cursor, trait_name) else {
+pub(crate) fn parse_space_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
+    let Some(mut left) = parse_dot_chain(cursor, ctx) else {
         if cursor.is_punct('.') {
             return Some(err_ty_at(
                 "batch-impl: missing operand before `.` (e.g. `T.U`)",
@@ -80,10 +81,10 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, trait_name: Option<&Ident>)
     };
     let mut count = 1;
     while let Some(t) = cursor.peek() {
-        if !starts_block(t) {
+        if !starts_block(cursor) {
             return Some(chain_boundary_error(t));
         }
-        let Some(right) = parse_dot_chain(cursor, trait_name) else {
+        let Some(right) = parse_dot_chain(cursor, ctx) else {
             return Some(err_ty_at(
                 "batch-impl: missing operand after the space application",
                 t.span(),
@@ -107,22 +108,20 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, trait_name: Option<&Ident>)
 
 /// The `.`-chain: blocks folded right with `apply` —
 /// `Box.u8 u16` = `(Box<u8>) u16` (`.` binds tighter than the space).
-pub(crate) fn parse_dot_chain(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Option<Ty> {
+pub(crate) fn parse_dot_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
     let mut depth = 0;
-    parse_dot_inner(cursor, trait_name, &mut depth)
+    parse_dot_inner(cursor, ctx, &mut depth)
 }
 
 /// The `.`-chain worker: `depth` counts the operands across recursion (the
 /// right-assoc fold nests one level per `.`), capped at `MAX_NEST_DEPTH`.
-fn parse_dot_inner(
-    cursor: &mut Cursor, trait_name: Option<&Ident>, depth: &mut usize,
-) -> Option<Ty> {
-    let mut left = parse_block(cursor, trait_name)?;
+fn parse_dot_inner(cursor: &mut Cursor, ctx: Ctx<'_>, depth: &mut usize) -> Option<Ty> {
+    let mut left = parse_block(cursor, ctx)?;
     *depth += 1;
     while cursor.is_punct('.') && !cursor_is_dotdot(cursor) {
         let op_span = cursor.span();
         cursor.bump();
-        let Some(right) = parse_dot_inner(cursor, trait_name, depth) else {
+        let Some(right) = parse_dot_inner(cursor, ctx, depth) else {
             return Some(err_ty_at("batch-impl: missing operand after `.` (e.g. `T.U`)", op_span));
         };
         left = left.apply(right);
@@ -163,10 +162,10 @@ fn chain_boundary_error(t: &TokenTree) -> Ty {
 ///
 /// Operand bounds come from `scan_stop`; the slice inside the bounds is
 /// handed to `parse_item` to recurse at higher precedence.
-fn parse_operand(cursor: &mut Cursor, level: Op, trait_name: Option<&Ident>) -> Option<Ty> {
+fn parse_operand(cursor: &mut Cursor, level: Op, ctx: Ctx<'_>) -> Option<Ty> {
     if cursor.at_end() {
         return None;
     }
     let segment = cursor.take_segment(level.stop_chars());
-    parse_item(&mut Cursor::new(segment), level.next()?, trait_name)
+    parse_item(&mut Cursor::new(segment), level.next()?, ctx)
 }

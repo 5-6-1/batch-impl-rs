@@ -44,7 +44,7 @@ pub(crate) struct RepeatCtx<'a> {
     /// The fresh display names (`@{N}` references).
     pub(crate) fresh: &'a super::FreshCtx,
     /// The `impl{@0..}` switch driving cursor-only blocks.
-    pub(crate) binding: Option<crate::ast::fresh::FreshRef>,
+    pub(crate) binding: Option<crate::ast::fresh_protocol::FreshRef>,
     /// Remaining output budget ([`MAX_REPEAT_TOKENS`]), spent by every block
     /// as it assembles its rounds. Interior-mutable: the expansion walks an
     /// immutable context.
@@ -74,7 +74,7 @@ fn expand_stream(
     }
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         if is_punct_at(tokens, i, '@') {
             // The `@` dispatch, as match-arm if-let guards (1.95): each arm
             // pattern-matches its own precondition, failing over to the next
@@ -100,24 +100,24 @@ fn expand_stream(
                 // directive signature substitution of trait args) is **not**
                 // a repeat block: pass it through for the later range
                 // re-opening pass (`expand_range_refs` in `generate_parts`).
-                _ if crate::ast::fresh::is_carrier_at(tokens, i) => {
-                    out.push(tokens[i].clone());
-                    out.push(tokens[i + 1].clone());
+                _ if let Some(g) = crate::ast::fresh_protocol::carrier_group_at(tokens, i) => {
+                    out.push(cur.clone());
+                    out.push(TokenTree::Group(g.clone()));
                     i += 2;
                 }
                 _ => {
                     return Err(compile_error_str(
                         "batch-impl: `@` inside an impl body must start a repeat block \
                          `@(...)..` (or `@ident(...)..` with the driving segment declared)",
-                        tokens[i].span(),
+                        cur.span(),
                     ));
                 }
             }
             continue;
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             if depth + 1 > MAX_NEST_DEPTH {
-                return Err(depth_err(&tokens[i..i + 1], ""));
+                return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let expanded = expand_stream(&inner, cx, depth + 1)?;
@@ -127,7 +127,7 @@ fn expand_stream(
             i += 1;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     Ok(out)
@@ -189,7 +189,7 @@ fn expand_block(
         // reject.
         None => match inner_len {
             Some(l) => l,
-            None if cx.segs.len() == 1 => cx.segs[0].len,
+            None if cx.segs.len() == 1 => cx.segs.first().map_or(0, |s| s.len),
             None if cx.segs.len() > 1 => {
                 return Err(compile_error_str(
                     "batch-impl: a cursor-only repeat block needs a driving \
@@ -245,11 +245,11 @@ fn parse_repeat_at(
     let body = g.stream().into_iter().collect::<Vec<_>>();
     let mut j = at + 1;
     let mut sep = vec![];
-    while j < tokens.len() {
+    while let Some(cur) = tokens.get(j) {
         if is_punct_at(tokens, j, '.') && is_punct_at(tokens, j + 1, '.') {
             return Some((body, sep, j + 2));
         }
-        sep.push(tokens[j].clone());
+        sep.push(cur.clone());
         j += 1;
     }
     None
@@ -284,7 +284,7 @@ fn expand_nested(
     }
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         // `@ident ( body ) [sep] ..` — declared driver
         if is_punct_at(tokens, i, '@')
             && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
@@ -302,9 +302,9 @@ fn expand_nested(
             i = next;
             continue;
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             if depth + 1 > MAX_NEST_DEPTH {
-                return Err(depth_err(&tokens[i..i + 1], ""));
+                return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let expanded = expand_nested(&inner, cx, depth + 1)?;
@@ -314,7 +314,7 @@ fn expand_nested(
             i += 1;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     Ok(out)

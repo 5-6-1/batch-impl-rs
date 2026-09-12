@@ -148,26 +148,43 @@ pub(crate) fn match_shape(
 /// NOT resolved here — the repeat-block expansion splices their values
 /// directly (`repeat_drivers.rs::substitute` against [`Mapping::seg_value`]),
 /// so no segment spelling ever reaches the body. Recursive (groups descended).
+///
+/// A **lifetime is not a slot position**: `'a` is a quote plus an ident, but
+/// nothing ever binds a lifetime (the shape kernel compares named lifetimes
+/// verbatim — see `match_ty`), so substituting that ident could only turn `'a`
+/// into `'u8` for a slot *named* `a` and leave the impl without its lifetime
+/// (measured: `E0261: use of undeclared lifetime name 'u8`). Both tokens pass
+/// through verbatim.
 pub(crate) fn apply_mapping(tokens: TokenStream, map: &Mapping) -> TokenStream {
     let v = tokens.into_iter().collect::<Vec<_>>();
     let mut out = Vec::with_capacity(v.len());
-    for t in v {
+    let mut i = 0;
+    while let Some(t) = v.get(i) {
         match t {
+            TokenTree::Punct(p) if p.as_char() == '\'' => {
+                out.extend(crate::util::slice_window(&v, i, 2).to_vec());
+                i += 2;
+            }
             TokenTree::Ident(id) => {
                 let s = id.to_string();
                 // User-written fixed slots (`W`, `T`, `A0`).
                 match map.slots.iter().find(|(name, _)| name.as_str() == s) {
                     Some((_, repl)) => out.extend(repl.clone()),
-                    None => out.push(TokenTree::Ident(id)),
+                    None => out.push(TokenTree::Ident(id.clone())),
                 }
+                i += 1;
             }
             TokenTree::Group(g) => {
                 let inner = apply_mapping(g.stream(), map);
                 let mut ng = proc_macro2::Group::new(g.delimiter(), inner);
                 ng.set_span(g.span());
                 out.push(TokenTree::Group(ng));
+                i += 1;
             }
-            other => out.push(other),
+            other => {
+                out.push(other.clone());
+                i += 1;
+            }
         }
     }
     out.into_iter().collect()

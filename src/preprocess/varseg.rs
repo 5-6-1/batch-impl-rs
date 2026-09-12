@@ -15,6 +15,7 @@
 //! `util::is_impl_template`); every other Brace group stays passthrough —
 //! bodies keep their `@` repeat-block markers untouched, and user constant
 //! definitions at the top level are never scanned.
+
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_impl_template, is_punct_at};
@@ -30,7 +31,7 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
     }
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         // `impl{...}` shape template: enter and mark its segments.
         if is_impl_template(tokens, i)
             && let Some(TokenTree::Group(g)) = tokens.get(i + 1)
@@ -40,21 +41,21 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
             let marked = mark_template(&inner, depth + 1)?;
             let mut ng = Group::new(delimiter![{}], marked.into_iter().collect());
             ng.set_span(g.span());
-            out.push(tokens[i].clone());
+            out.push(cur.clone());
             out.push(TokenTree::Group(ng));
             i += 2;
             continue;
         }
         // Paren / Bracket / transparent groups recurse (a template may nest
         // inside a list or a `.` argument); Brace bodies stay passthrough.
-        if let TokenTree::Group(g) = &tokens[i]
+        if let TokenTree::Group(g) = cur
             && g.delimiter() != delimiter![{}]
         {
             if crate::util::bracket_is_passthrough(tokens, i) {
-                out.push(tokens[i].clone());
+                out.push(cur.clone());
             } else {
                 if depth + 1 > MAX_NEST_DEPTH {
-                    return Err(depth_err(&tokens[i..i + 1], ""));
+                    return Err(depth_err(std::slice::from_ref(cur), ""));
                 }
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
                 let mut ng = Group::new(
@@ -67,7 +68,7 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
             i += 1;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     Ok(out)
@@ -163,7 +164,7 @@ fn first_unmarked_segment(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
 fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         // `ident @ ..` — the `..` is two joint/alone `.` puncts; Spacing is
         // irrelevant (a leading segment never follows it). `@u8..u128` is
         // untouched: its `@` is not preceded by an ident. The shape test is
@@ -207,9 +208,9 @@ fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTre
             }
             continue;
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             if depth + 1 > MAX_NEST_DEPTH {
-                return Err(depth_err(&tokens[i..i + 1], ""));
+                return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             // Inner recursion: use the raw impl (the public entry's
@@ -221,7 +222,7 @@ fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTre
             i += 1;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     Ok(out)
@@ -253,8 +254,8 @@ pub(crate) fn varseg_prefix(tp: &syn::Type) -> Option<String> {
     if !p.qself.is_none() || p.path.segments.len() != 1 {
         return None;
     }
-    matches!(p.path.segments[0].arguments, syn::PathArguments::None)
-        .then(|| p.path.segments[0].ident.to_string())
+    let seg = p.path.segments.first()?;
+    matches!(seg.arguments, syn::PathArguments::None).then(|| seg.ident.to_string())
 }
 
 /// Whether an expression is an empty tuple literal — `()`, the marker's

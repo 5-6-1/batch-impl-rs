@@ -33,8 +33,8 @@ fn check_value_refs_at(
         return Err(crate::util::depth_err(tokens, " in a constant value"));
     }
     let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        match cur {
             TokenTree::Punct(p) if p.as_char() == '@' => {
                 // Open-left range family (`@..u128`): the endpoint after the
                 // dots must be a legal width; consumes through the endpoint.
@@ -67,7 +67,7 @@ fn check_value_refs_at(
                     return Err(compile_error_str(
                         "batch-impl: inside a constant value, `@` must be followed \
                      by a constant name (e.g. `@u*`, `@u8..u128`)",
-                        tokens[i].span(),
+                        cur.span(),
                     ));
                 };
                 let name_str = name.to_string();
@@ -103,7 +103,10 @@ fn check_value_refs_at(
                 // Guard before materializing the group's stream (same
                 // rationale as expand_consts_at).
                 if depth + 1 > crate::util::MAX_NEST_DEPTH {
-                    return Err(crate::util::depth_err(&tokens[i..i + 1], " in a constant value"));
+                    return Err(crate::util::depth_err(
+                        std::slice::from_ref(cur),
+                        " in a constant value",
+                    ));
                 }
                 check_value_refs_at(
                     &g.stream().into_iter().collect::<Vec<_>>(),

@@ -63,14 +63,39 @@ pub(crate) const MAX_EXPAND: usize = 1024;
 /// (the second fuzz-OOM root cause). Implemented over [`Ty::map_children`],
 /// the single traversal authority.
 pub(crate) fn count_leaves(ty: &Ty) -> usize {
-    fn go(ty: &Ty, total: &mut usize) {
+    // One clone of the root; every descendant is then **moved** through
+    // `map_children` rather than cloned again at each level. The earlier
+    // version cloned the remaining subtree at every node, which is
+    // O(nodes × depth) allocations on a deep tree — and this counter sits on
+    // the growth path it exists to guard.
+    fn go(ty: Ty, total: &mut usize) -> Ty {
         *total += 1;
-        ty.clone().map_children(&mut |c| {
-            go(&c, total);
-            c
-        });
+        ty.map_children(&mut |child| go(child, total))
     }
     let mut total = 0usize;
-    go(ty, &mut total);
+    let _ = go(ty.clone(), &mut total);
     total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{TyArray, TyNum};
+
+    /// The mass counter counts **every descendant**, not just array elements — the property
+    /// the composed array×range guard (and the fuzz-OOM fix behind it) rests on.
+    #[test]
+    fn the_mass_counter_counts_descendants_and_is_stable() {
+        let nested = TyArray(vec![
+            TyNum(0).to_ty(),
+            TyArray(vec![TyNum(1).to_ty(), TyNum(2).to_ty()]).to_ty(),
+        ])
+        .to_ty();
+        // outer array + num + inner array + num + num
+        assert_eq!(count_leaves(&nested), 5);
+        // Idempotent: the traversal rebuilds the tree through `map_children`, so a
+        // move-based rewrite that lost a node would show up on the second call.
+        assert_eq!(count_leaves(&nested), 5);
+        assert_eq!(count_leaves(&TyNum(7).to_ty()), 1);
+    }
 }

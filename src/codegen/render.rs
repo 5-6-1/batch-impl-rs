@@ -48,20 +48,25 @@ pub(crate) fn collect_shape_mapping(
 }
 
 /// Renders the final `impl<...> Trait<...> for Target where ... { ... }`
-/// block from the extracted parts (bounds inherited, `@` refs resolved).
-/// `target_tokens` is the target type with its fresh references already
-/// resolved to display names (resolved in `generate_parts`, before the shape
-/// kernel needs valid-Rust leaf tokens); the shape-template slot mapping was
-/// applied to the where predicates and body by the caller — the target gets
-/// the mapping here, where the final tokens are in hand. `fresh_ctx` feeds
-/// the `@N..` range-placeholder expansion of the trait args (a range in a
-/// trait arg re-opens into the fresh list).
+/// block from the extracted parts (bounds inherited, `@` refs resolved) — the
+/// **one renderer** both front-ends go through. `target_tokens` is the target
+/// type with its fresh references already resolved to display names (resolved in
+/// `generate_parts`, before the shape kernel needs valid-Rust leaf tokens); the
+/// shape-template slot mapping was applied to the where predicates and body by
+/// the caller — the target gets the mapping here, where the final tokens are in
+/// hand.
+///
+/// `trait_name` is `None` for an **inherent** impl (the `for` section is
+/// omitted), which only the impl entry can produce. `fresh_ctx` is `None` when
+/// there is nothing to re-open: it feeds the `@N..` range-placeholder expansion
+/// of the trait args, and the impl entry's trait path is verbatim user Rust, so
+/// it has no placeholders.
 pub(crate) fn render_impl(
     parts: ImplParts, where_resolved: Vec<TokenStream>, target_tokens: TokenStream,
-    trait_name: &TokenStream, is_unsafe_trait: bool, shape_map: &Mapping, fresh_ctx: &FreshCtx,
+    trait_name: Option<&TokenStream>, is_unsafe_trait: bool, shape_map: &Mapping,
+    fresh_ctx: Option<&FreshCtx>,
 ) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
-    let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
 
     // impl generic params (with bounds)
     let impl_gen = if parts.impl_generics.is_empty() {
@@ -78,6 +83,16 @@ pub(crate) fn render_impl(
     // trait generic params (names only) — `@N..` placeholders re-open here
     let mut trait_gen = quote!();
     if !parts.trait_generic_names.is_empty() {
+        let Some(fresh_ctx) = fresh_ctx else {
+            // Only the attribute entry has placeholders, and it always passes a
+            // context; reaching this means the invariant broke, so report instead
+            // of dropping the args silently.
+            return crate::util::compile_error_str(
+                "batch-impl: internal error: trait-arg placeholders without a fresh context \
+                 (please report this spelling)",
+                proc_macro2::Span::call_site(),
+            );
+        };
         let mut names = vec![];
         for n in &parts.trait_generic_names {
             match crate::codegen::range_refs::expand_range_refs(n.clone(), fresh_ctx) {
@@ -130,10 +145,34 @@ pub(crate) fn render_impl(
     // Every internal name was resolved before this point: fresh declarations
     // carry their display names, references resolved against them — no
     // final renaming pass exists.
+    let head = match trait_name {
+        Some(t) => quote!(impl #impl_gen #t #trait_gen for #target),
+        // Inherent impl (impl entry only): no `for` section.
+        None => quote!(impl #impl_gen #target),
+    };
+    render_impl_block(&attrs, is_unsafe, head, where_clause, &body_tokens)
+}
+
+/// The impl block's **textual skeleton** — the one place that knows how a
+/// generated impl is spelled: attributes, the `unsafe` keyword, the head, the
+/// where clause and the body, in that order. `render_impl` (the attribute entry,
+/// which types its inputs as `ImplParts`) and `assemble_impl` (the impl entry,
+/// whose inputs stay token-level) both call it, so a rule about any of those
+/// slots is written once instead of once per front-end — the attribute bug that
+/// had to be fixed twice is what this exists to prevent.
+///
+/// `head` is the caller's business (`impl<…> Trait<…> for Target`, or the
+/// inherent form without `for`), because that is exactly where the two entries'
+/// input models differ.
+pub(crate) fn render_impl_block(
+    attrs: &[TokenStream], is_unsafe: bool, head: TokenStream, where_clause: TokenStream,
+    body: &[TokenStream],
+) -> TokenStream {
+    let unsafe_kw = if is_unsafe { quote!(unsafe) } else { quote!() };
     quote! {
         #(#attrs)*
-        #unsafe_kw impl #impl_gen #trait_name #trait_gen for #target #where_clause {
-            #(#body_tokens)*
+        #unsafe_kw #head #where_clause {
+            #(#body)*
         }
     }
 }

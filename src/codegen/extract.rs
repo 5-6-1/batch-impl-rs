@@ -34,7 +34,7 @@ pub(crate) struct ImplParts {
     /// the impl's fresh generics in the range's scope — enabling fresh-driven
     /// cursor-only blocks and `@{N}` name references. `None` when no switch
     /// template is present (fresh-driven body modification is then off).
-    pub(crate) fresh_binding: Option<crate::ast::fresh::FreshRef>,
+    pub(crate) fresh_binding: Option<crate::ast::fresh_protocol::FreshRef>,
     /// Whether the **`@{N}` body-slot switch** (`impl{@{}}`) is present: the
     /// body's `@{N}` fresh-position carriers are legal only with this
     /// declaration (the "declare what you use" rule — see the switch docs).
@@ -334,7 +334,7 @@ pub(crate) fn split_impl_attachments(tokens: &TokenStream) -> Vec<TokenStream> {
 /// `@0..=M` — the same literal forms the type position folds). Returns the
 /// binding range; `None` for any ordinary shape template.
 fn parse_fresh_switch(tokens: &TokenStream) -> Option<FreshRef> {
-    use crate::ast::fresh::{FreshEnd, FreshRef};
+    use crate::ast::fresh_protocol::{FreshEnd, FreshRef};
     let v = tokens.clone().into_iter().collect::<Vec<_>>();
     let [
         TokenTree::Punct(at),
@@ -391,12 +391,12 @@ fn parse_fresh_switch(tokens: &TokenStream) -> Option<FreshRef> {
 /// `@2..=1`). The caller detects it and reports a targeted error. Uses
 /// `start = usize::MAX` — no valid switch (always `start <= end`) collides.
 fn invalid_switch() -> FreshRef {
-    use crate::ast::fresh::{FreshEnd, FreshRef};
+    use crate::ast::fresh_protocol::{FreshEnd, FreshRef};
     FreshRef { group: None, start: usize::MAX, end: FreshEnd::Closed(0) }
 }
 
 /// Whether a parsed switch is the invalid sentinel (an inverted/empty range).
-fn is_invalid_switch(r: &crate::ast::fresh::FreshRef) -> bool {
+fn is_invalid_switch(r: &crate::ast::fresh_protocol::FreshRef) -> bool {
     r.group.is_none() && r.start == usize::MAX
 }
 

@@ -120,14 +120,14 @@ pub(crate) fn parse_blanket_wrappers(
                         return Err(compile_error_str(
                             "batch-impl: after #blanket `:` must come a number \
                              (e.g. `Box.Arc:2`)",
-                            current[i].span(),
+                            crate::util::span_at(&current, i),
                         ));
                     }
                 }
                 break;
             }
         }
-        let ty_tokens = &current[..ty_end];
+        let ty_tokens = crate::util::slice_upto(&current, ty_end);
         // Trailing `@?` suffix (like `:N`): declares the fresh generic
         // `?Sized` for this wrapper. Stripped before the type matching.
         let (ty_tokens, is_unsized) = match ty_tokens {
@@ -171,13 +171,13 @@ pub(crate) fn parse_blanket_wrappers(
                     "batch-impl: #blanket does not support `*const`/`*mut` \
                      wrappers (deref is unsafe, cannot delegate); write \
                      #delegate by hand",
-                    ty_tokens[0].span(),
+                    crate::util::span_at(ty_tokens, 0),
                 ))
             }
             [TokenTree::Ident(id)] if id == "self" => Err(compile_error_str(
                 "batch-impl: #blanket does not support `self` wrappers \
                  (delegation is meaningless); write #delegate by hand",
-                ty_tokens[0].span(),
+                crate::util::span_at(ty_tokens, 0),
             )),
             _ => {
                 let ty = ty_tokens.iter().cloned().collect();

@@ -3,9 +3,9 @@
 //! traversal stay under the per-file budget.
 
 use crate::ast::types::{
-    Ty, TyArray, TyBoundList, TyFn, TyGeneric, TyGroup, TyKind, TyParams, TyPrimitiveArray,
-    TyTrait, TyTuple, TyTypeParam, TyWithAttr, TyWithCode, TyWithDyn, TyWithFor, TyWithImpl,
-    TyWithPrefix, TyWithTrait, TyWithType, TyWithWhere,
+    QualifiedHead, Ty, TyArray, TyBoundList, TyFn, TyGeneric, TyGroup, TyKind, TyParams,
+    TyPrimitiveArray, TyQualified, TyTrait, TyTuple, TyTypeParam, TyWithAttr, TyWithCode,
+    TyWithDyn, TyWithFor, TyWithImpl, TyWithPrefix, TyWithTrait, TyWithType, TyWithWhere,
 };
 
 pub(crate) enum Expand {
@@ -178,6 +178,17 @@ impl Ty {
                 TyWithTrait(TyTrait(wt.0.0, map_type_param(wt.0.1, f)), f(*wt.1).into())
                     .to_ty()
                     .with_span(span)
+            }
+            // A qualified type: the head is a child, the `::`-tail is verbatim
+            // tokens (no `Ty` inside it by construction).
+            TyKind::Qualified(q) => {
+                let head = match q.0 {
+                    QualifiedHead::Type(t) => QualifiedHead::Type(f(*t).into()),
+                    QualifiedHead::Projection(ty, trait_) => {
+                        QualifiedHead::Projection(f(*ty).into(), trait_)
+                    }
+                };
+                TyQualified(head, q.1).to_ty().with_span(span)
             }
             TyKind::WithCode(wc) => {
                 TyWithCode(wc.0.map(|e| f(*e).into()), wc.1).to_ty().with_span(span)

@@ -12,6 +12,7 @@
 
 use crate::apply::err_ty_at;
 use crate::ast::*;
+use crate::parse::Ctx;
 use crate::parse::generic::{empty, split_at_depth0};
 use crate::parse::parse_atom::parse_range;
 use crate::parse::parse_item;
@@ -56,7 +57,7 @@ pub(crate) fn cursor_lifetime(cursor: &Cursor) -> Option<Ident> {
 /// `&` block family: `&` / `&mut` / `&'a` / `&'a mut` — the prefix never
 /// swallows the target type (`&mut u8` = `&mut` + `u8`), except a lifetime
 /// reference which is one block (`&'a mut u8` — a bare `&'a` is not a type).
-pub(crate) fn reference_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
+pub(crate) fn reference_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
     cursor.bump(); // `&`
     let mut is_mut = peek_ident_at(cursor, 0, "mut");
     if is_mut {
@@ -74,8 +75,10 @@ pub(crate) fn reference_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -
     };
     if let Some(lt) = lifetime {
         // `&'a u8` / `&'a mut u8` — one block: swallow the target type and
-        // render the whole reference as a passthrough.
-        let ty = parse_block(cursor, trait_name).unwrap_or_else(empty);
+        // render the whole reference as a passthrough. The target is a
+        // **sub-type position** (`T: &'a Vec<Item = u8>`), so the bound flag
+        // stops here.
+        let ty = parse_block(cursor, ctx.plain()).unwrap_or_else(empty);
         let mut ts =
             TokenStream::from(TokenTree::Punct(proc_macro2::Punct::new('&', Spacing::Alone)));
         ts.extend(lifetime_tokens(&lt));
@@ -110,7 +113,9 @@ pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
             let elems = split_at_depth0(&inner, ',')
                 .iter()
                 .filter(|c| !c.is_empty())
-                .map(|c| parse_item(&mut Cursor::new(c), Op::Space, None).unwrap_or_else(empty))
+                .map(|c| {
+                    parse_item(&mut Cursor::new(c), Op::Space, Ctx::default()).unwrap_or_else(empty)
+                })
                 .collect::<Vec<_>>();
             if g.delimiter() == delimiter![[]] {
                 TySplat::Array(TyArray(elems)).to_ty()
@@ -142,7 +147,7 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
             // (`carrier_inner` — the token-to-string join must not be
             // re-derived; this branch folds a carrier that earlier passes
             // emitted, so the same join keeps the round-trip exact).
-            let inner = crate::ast::fresh::carrier_inner(g);
+            let inner = crate::ast::fresh_protocol::carrier_inner(g);
             if let Some(r) = FreshRef::parse(&inner) {
                 cursor.bump();
                 return TyFresh(r).to_ty().with_span(at_span);
@@ -216,7 +221,7 @@ pub(crate) fn at_ref_block(cursor: &mut Cursor) -> Ty {
 
 /// Parses a single-position reference literal: `N` → flat, `g_i` → grouped.
 fn parse_single_ref(lit: &str) -> Option<FreshRef> {
-    use crate::ast::fresh::{FreshEnd, FreshRef};
+    use crate::ast::fresh_protocol::{FreshEnd, FreshRef};
     if let Ok(n) = lit.parse::<usize>() {
         return Some(FreshRef { group: None, start: n, end: FreshEnd::Single });
     }

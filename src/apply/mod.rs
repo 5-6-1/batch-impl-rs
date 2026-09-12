@@ -1,7 +1,7 @@
 //! Apply layer: the `Apply` trait and operator semantics for each `Ty` variant.
 
 pub(crate) mod apply_tuple;
-pub(crate) mod splat;
+pub(crate) mod splat_apply;
 
 // The [`Apply`] trait defines the binary operation `A.apply(B)`: `.` (right-assoc) /
 // space (left-assoc).
@@ -34,18 +34,38 @@ pub(crate) fn err_ty_at(msg: &str, span: Span) -> Ty {
 }
 
 /// Expansion-count check: returns a `compile_error!` signal when `len` exceeds [`MAX_EXPAND`].
-/// Used where expansion can blow up exponentially: `.N` / Cartesian products / ranges
+/// Used where expansion can blow up exponentially: `.N` / Cartesian products / ranges.
+/// The number is an **impl count** — the other guarded quantity is expansion *mass*, which
+/// has its own check below and must not share this wording.
 pub(crate) fn check_expand_limit(what: &str, len: usize) -> Option<Ty> {
     (len > MAX_EXPAND).then(|| expand_limit_err(what, len))
 }
 
 /// The over-limit diagnostic itself — split out so the `cartesian` callers
 /// can render the same message from the `Err` size without going through
-/// the `Option` check (single wording authority).
+/// the `Option` check (the single wording authority for impl counts).
 pub(crate) fn expand_limit_err(what: &str, len: usize) -> Ty {
     err_ty(&format!(
-        "batch-impl: `{}` expands to {} items (limit {}); likely exponential/range/Cartesian typo",
+        "batch-impl: `{}` expands to {} impls (limit {}); likely exponential/range/Cartesian typo",
         what, len, MAX_EXPAND
+    ))
+}
+
+/// Expansion-**mass** check: the same cap applied to how many `Ty` nodes a chain accumulates
+/// ([`count_leaves`]) rather than to how many impls it yields. The two quantities differ — a
+/// chain can stay under the impl cap while multiplying its mass at every nesting level (the
+/// composed array×range path that used to OOM the fuzzer) — so they do not share a message:
+/// reporting an internal node count as "impls" would put a false number in front of the user.
+pub(crate) fn check_expand_mass(what: &str, mass: usize) -> Option<Ty> {
+    (mass > MAX_EXPAND).then(|| expand_mass_err(what, mass))
+}
+
+/// The mass diagnostic (see [`check_expand_mass`]).
+pub(crate) fn expand_mass_err(what: &str, mass: usize) -> Ty {
+    err_ty(&format!(
+        "batch-impl: `{}` reaches an expansion mass of {} nodes (limit {}); \
+         likely exponential/range/Cartesian typo",
+        what, mass, MAX_EXPAND
     ))
 }
 
@@ -80,19 +100,22 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             TyKind::Array(arr) => {
                 let result =
                     arr.0.into_iter().map(|e| self.clone().apply(e, span)).collect::<Vec<Ty>>();
-                if let Some(e) = check_expand_limit(
-                    "list chain expansion",
-                    result.iter().map(count_leaves).sum(),
-                ) {
+                if let Some(e) =
+                    check_expand_mass("list chain expansion", result.iter().map(count_leaves).sum())
+                {
                     return e;
                 }
                 TyArray(result).to_ty().with_span(span)
             }
-            // Right-operand splat: kept as a whole — `T.*(A,B,...)` becomes
-            // `T<*(A,B,...)>` with the splat as one generic arg; expansion
-            // happens only in the codegen postprocess (`expand_splats`), not
-            // here (splat survival principle: parse/apply/expand never
-            // flatten `*()` / `*[]`, so nested structures stay intact).
+            // Group transparency: a paren group (`TyGroup`) is unwrapped and
+            // the inner type applied instead.
+            //
+            // Note: there is deliberately **no** right-operand `Splat` arm — a
+            // right-operand splat falls through to `apply_help` as one whole
+            // argument, so `T.*(A,B,...)` becomes `T<*(A,B,...)>`; flattening
+            // happens only in the codegen postprocess (`expand_splat_elems`).
+            // That is the splat-survival principle: parse/apply/expand never
+            // flatten `*()` / `*[]`, so nested structures stay intact.
             TyKind::Group(g) => self.apply(*g.0, span),
             TyKind::WithCode(wc) => match wc.0 {
                 Some(inner) => {
@@ -177,7 +200,7 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
                 // ×range-len per level with no cap ever firing — the one
                 // multiplication point the list-chain check cannot see.
                 if let Ty { kind: TyKind::Array(arr), .. } = &mapped
-                    && let Some(e) = check_expand_limit(
+                    && let Some(e) = check_expand_mass(
                         "range chain expansion",
                         arr.0.iter().map(count_leaves).sum(),
                     )
@@ -247,6 +270,15 @@ impl Apply for TyKind {
             TyKind::Num(n) => n.apply_help(o, span),
             TyKind::Range(r) => r.apply_help(o, span),
             TyKind::Fresh(f) => f.apply_help(o, span),
+            // A qualified type (`Foo<T>::Assoc`, `<T as Tr>::Assoc`) is a path, not
+            // a head that takes arguments: `Foo<T>::Assoc u8` has no defined
+            // meaning (the tail belongs to the path), so it is reported rather
+            // than given an invented spelling.
+            TyKind::Qualified(_) => err_ty_at(
+                "batch-impl: a qualified type (`Foo<T>::Assoc` / `<T as Tr>::Assoc`) cannot \
+                 be an apply operand — write it as a whole type argument",
+                span,
+            ),
             // A lifetime is not an apply operand: it belongs in bounds
             // (`T: 'a`), generic declarations (`<'a>`) or references
             // (`&'a T`) — all of which parse it as a leaf, never as an
@@ -337,5 +369,36 @@ impl Apply for TyArray {
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         let result = self.0.into_iter().map(|e| e.apply(o.clone())).collect();
         TyArray(result).to_ty().with_span(span)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::ToTokens;
+
+    /// The two over-limit diagnostics measure **different quantities**, so they must not
+    /// share a wording: an impl count labelled "mass", or an internal node count labelled
+    /// "impls", is a false number in the one message the user reads. The split exists
+    /// because the released changelog described the mass guard as reporting "impls" while
+    /// the code printed "items" for both.
+    #[test]
+    fn the_two_over_limit_diagnostics_name_their_own_unit() {
+        let impls = expand_limit_err("tuple .2000", 2000).to_token_stream().to_string();
+        assert!(impls.contains("2000 impls"), "{impls}");
+        assert!(!impls.contains("mass"), "{impls}");
+        let mass = expand_mass_err("range chain expansion", 2000).to_token_stream().to_string();
+        assert!(mass.contains("mass of 2000 nodes"), "{mass}");
+        assert!(!mass.contains("impls"), "{mass}");
+    }
+
+    /// Both checks fire strictly **above** the documented cap — the boundary the composed
+    /// array×range fix (and the fuzz-OOM regression) depends on.
+    #[test]
+    fn both_checks_fire_only_above_the_cap() {
+        assert!(check_expand_mass("m", MAX_EXPAND).is_none());
+        assert!(check_expand_mass("m", MAX_EXPAND + 1).is_some());
+        assert!(check_expand_limit("n", MAX_EXPAND).is_none());
+        assert!(check_expand_limit("n", MAX_EXPAND + 1).is_some());
     }
 }

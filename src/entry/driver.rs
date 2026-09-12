@@ -6,7 +6,7 @@ use crate::TraitBounds;
 use crate::apply::err_ty;
 use crate::ast::{Expand, MAX_EXPAND, Op, Ty, TyKind, reset_fresh_counter};
 use crate::codegen::generate_impl;
-use crate::parse::parse_item;
+use crate::parse::{Ctx, parse_item};
 use crate::util::Cursor;
 
 /// Shared driver: parse impl-specs from the cursor, expand parallel lists, and generate
@@ -76,7 +76,7 @@ pub(crate) fn collect_spec_leaves(
     if cursor.is_punct(',') {
         tys.push(err_ty("batch-impl: spec list cannot start with `,`"));
     }
-    while let Some(ty) = parse_item(cursor, top_level, trait_last_ident) {
+    while let Some(ty) = parse_item(cursor, top_level, Ctx::new(trait_last_ident)) {
         // Fresh-generator group ids are DSL-local: reset per spec so `@g_i`
         // (future) and the codegen sweep never depend on spec position.
         reset_fresh_counter();

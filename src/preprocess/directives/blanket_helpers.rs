@@ -94,8 +94,8 @@ pub(crate) fn resolve_target_predicates(
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
-    while i < preds.len() {
-        match &preds[i] {
+    while let Some(cur) = preds.get(i) {
+        match cur {
             TokenTree::Punct(p) if p.as_char() == '@' => match preds.get(i + 1) {
                 Some(TokenTree::Ident(id)) if id == "trait" => {
                     out.extend(trait_full_path.clone());
@@ -103,7 +103,7 @@ pub(crate) fn resolve_target_predicates(
                 }
                 // `@0` / `@N`: keep as-is for codegen; other forms error
                 Some(TokenTree::Literal(lit)) if lit.to_string().parse::<usize>().is_ok() => {
-                    out.push(preds[i].clone());
+                    out.push(cur.clone());
                     out.push(TokenTree::Literal(lit.clone()));
                     i += 2;
                 }
@@ -111,7 +111,7 @@ pub(crate) fn resolve_target_predicates(
                     return Err(compile_error_str(
                         "batch-impl: in #blanket wrapper where, `@` must be \
                          followed by a position digit (e.g. `@0`) or `@trait`",
-                        preds[i].span(),
+                        cur.span(),
                     ));
                 }
             },
@@ -120,7 +120,7 @@ pub(crate) fn resolve_target_predicates(
                 // predicate must substitute the trait path inside the group
                 // too (a top-level-only scan would leak `@trait` into the
                 // output — same recursion the sibling `has_at0` performs).
-                if let TokenTree::Group(g) = &preds[i] {
+                if let TokenTree::Group(g) = cur {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     let resolved = resolve_target_predicates(&inner, trait_full_path)?;
                     let mut ng = Group::new(g.delimiter(), resolved.into_iter().collect());
@@ -128,7 +128,7 @@ pub(crate) fn resolve_target_predicates(
                     out.push(TokenTree::Group(ng));
                     i += 1;
                 } else {
-                    out.push(preds[i].clone());
+                    out.push(cur.clone());
                     i += 1;
                 }
             }

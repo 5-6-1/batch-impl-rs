@@ -1,0 +1,5 @@
+error: batch-impl: the `Fn(…)` trait sugar does not support named parameters (`Fn(x: u8)`) — remove the name (a named parameter is only valid in a `fn(x: u8)` pointer type)
+ --> tests/ui/fn_sugar_named_param.rs:7:25
+  |
+7 | #[batch_impl(Box<dyn Fn(x: u8) -> u8>)]
+  |                         ^

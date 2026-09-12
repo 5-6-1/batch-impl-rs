@@ -1,9 +1,10 @@
 use crate::apply::{err_ty, err_ty_at};
 use crate::ast::*;
+use crate::parse::Ctx;
 use crate::parse::generic::empty;
 use crate::parse::parse_item;
 use crate::util::{Cursor, contains_punct};
-use proc_macro2::{Ident, TokenStream, TokenTree};
+use proc_macro2::{TokenStream, TokenTree};
 
 /// `N..M` / `N..=M` range parsing
 pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
@@ -12,11 +13,11 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     // `1 . . 4` or `1.. =4` stays `..` + plain tokens and fails below,
     // exactly like the historical Spacing checks).
     let (inclusive, rest) = match crate::util::read_op(tokens, 1) {
-        Some((crate::util::Op::DotDot, _)) => (false, &tokens[3..]),
-        Some((crate::util::Op::DotDotEq, _)) => (true, &tokens[4..]),
+        Some((crate::util::Op::DotDot, _)) => (false, crate::util::slice_from(tokens, 3)),
+        Some((crate::util::Op::DotDotEq, _)) => (true, crate::util::slice_from(tokens, 4)),
         _ => return None,
     };
-    let span = tokens[0].span();
+    let span = crate::util::span_at(tokens, 0);
     let start = match start.to_string().parse::<usize>() {
         Ok(n) => n,
         Err(_) => {
@@ -56,8 +57,15 @@ fn lone_splat(contents: &[TokenTree]) -> bool {
     )
 }
 
-/// `{...}` code block
-pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>) -> Ty {
+/// `(...)` / `[...]` / `{...}` group block. Where the group's elements are
+/// separate **sub-type positions** (a tuple's elements, an array's element) the
+/// bound flag is cleared — a bound element's head may carry bindings
+/// (`T: Iterator<Item = u8>`), the types inside it may not. A **comma-less**
+/// `(...)` is *not* such a container: in a bound position Rust reads it as a
+/// parenthesized bound (`dyn (Iterator<Item = u8>)` and
+/// `T: (Iterator<Item = u8>)` both compile), so the ambient position passes
+/// through and the group stays transparent.
+pub(crate) fn parse_group(group: &proc_macro2::Group, ctx: Ctx<'_>) -> Ty {
     let contents = group.stream().into_iter().collect::<Vec<_>>();
     match group.delimiter() {
         delimiter![()] => {
@@ -72,7 +80,7 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
                 // Splat elements are KEPT (splat survival: parse never
                 // flattens `*()`/`*[]` — `(a, *(b,c))` stays a tuple with a
                 // splat element; codegen expands it into `(a, b, c)`).
-                TyTuple(parse_list(&contents, Op::Comma, trait_name))
+                TyTuple(parse_list(&contents, Op::Comma, ctx.plain()))
                     .to_ty()
                     .with_span(group.span())
             } else if matches!(contents.as_slice(), [TokenTree::Group(g)]
@@ -85,11 +93,11 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
                 err_ty_at(
                     "batch-impl: a generic declaration `<...>` inside `(...)` needs \
                      the trailing-comma tuple form `(<T: Bound>,).N`",
-                    contents[0].span(),
+                    crate::util::span_at(&contents, 0),
                 )
             } else {
-                let inner = parse_item(&mut Cursor::new(&contents), Op::Space, trait_name)
-                    .unwrap_or_else(empty);
+                let inner =
+                    parse_item(&mut Cursor::new(&contents), Op::Space, ctx).unwrap_or_else(empty);
                 // `(@0..)` — a **range reference** in a comma-less paren:
                 // the trailing comma is optional for range tuples (the
                 // arity-1 impl must render a real 1-tuple `(P0,)`, not a
@@ -102,7 +110,7 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, trait_name: Option<&Ident>
                 }
             }
         }
-        delimiter![[]] => parse_array_group(&contents, group.span(), trait_name),
+        delimiter![[]] => parse_array_group(&contents, group.span(), ctx.plain()),
         delimiter![{}] => {
             TyWithCode(None, TyCodeBlock(group.stream())).to_ty().with_span(group.span())
         }
@@ -131,17 +139,15 @@ fn is_range_fresh(ty: &Ty) -> bool {
 /// one element — the splat survives and expands at consumption (spec-list /
 /// dispatch), so `[*(a,b)]` ≡ `[*(a,b),]`; `[*(A),*(B)].2` repeats each
 /// element (`[*(A,A),*(B,B)]`) instead of flattening to bare types.
-fn parse_array_group(
-    contents: &[TokenTree], span: proc_macro2::Span, trait_name: Option<&Ident>,
-) -> Ty {
+fn parse_array_group(contents: &[TokenTree], span: proc_macro2::Span, ctx: Ctx<'_>) -> Ty {
     if contains_punct(contents, ',') || lone_splat(contents) {
-        let flat = parse_list(contents, Op::Comma, trait_name);
+        let flat = parse_list(contents, Op::Comma, ctx);
         TyArray(flat).to_ty().with_span(span)
     } else if contents.is_empty() {
         TyPrimitiveArray(None, None).to_ty().with_span(span)
     } else {
         let mut cursor = Cursor::new(contents);
-        let element = parse_item(&mut cursor, Op::Semi, trait_name).unwrap_or_else(empty);
+        let element = parse_item(&mut cursor, Op::Semi, ctx).unwrap_or_else(empty);
         if cursor.is_punct(';') {
             cursor.bump();
             let length_tokens = cursor.take_rest();
@@ -164,13 +170,13 @@ fn parse_array_group(
 }
 
 /// Parse a list by looping at the given level (stops when `parse_item` returns None)
-pub(crate) fn parse_list(tokens: &[TokenTree], level: Op, trait_name: Option<&Ident>) -> Vec<Ty> {
+pub(crate) fn parse_list(tokens: &[TokenTree], level: Op, ctx: Ctx<'_>) -> Vec<Ty> {
     let mut cursor = Cursor::new(tokens);
     let mut items = vec![];
     // Leading comma (`[,A]` / `(,A)`): a list starting with `,` is a typo
     if cursor.is_punct(',') {
         items.push(err_ty("batch-impl: a list cannot start with `,`"));
     }
-    items.extend(std::iter::from_fn(|| parse_item(&mut cursor, level, trait_name)));
+    items.extend(std::iter::from_fn(|| parse_item(&mut cursor, level, ctx)));
     items
 }

@@ -15,12 +15,12 @@
 //! 1. `extract` — `Ty` → [`ImplParts`]: dismantle metadata (`extract_impl_parts`),
 //!    substitute trait params in directive bodies (`substitute_trait_generics`),
 //!    hoist nested fresh generics (`hoist_type_params`);
-//! 2. `splat` — splat expansion on the Ty structure (`expand_splat_elems`), the
+//! 2. `splat_expand` — splat expansion on the Ty structure (`expand_splat_elems`), the
 //!    deferred flattening of `*()` / `*[]` (they survive parse/apply/expand as
 //!    whole units and expand here, one code path for every position);
 //! 3. `generics` — impl-generic concerns: same-name declaration merging
 //!    (`merge_dup_params`), trait-bound inheritance (`inherit_trait_bounds`),
-//!    impl-name normalization (`bare_param_name`);
+//!    impl-name normalization (`ParamKind::bare_name`);
 //! 4. `sync` — `X<>` (empty trait brackets) → the spec's trait application,
 //!    with the switch-template body opt-in (`impl{Tr<>}`);
 //! 5. `where_at` — where-predicate macro-meta replacement (`@N` → impl generic
@@ -31,13 +31,13 @@
 //! 7. `render` — the final `impl<...>` block assembly (`render_impl` +
 //!    `collect_shape_mapping`).
 //!
-//! `top_level` handles the top-level macro form (`{! ...}`); `fresh` the
+//! `top_level` handles the top-level macro form (`{! ...}`); `fresh_naming` the
 //! fresh-generic naming context and validation. Tests live beside their
 //! concern (`repeat_tests`, `where_at_tests`).
 
 mod bound_gen;
 mod extract;
-mod fresh;
+mod fresh_naming;
 mod generics;
 mod match_ty;
 mod pipeline;
@@ -49,7 +49,7 @@ mod repeat_drivers;
 #[cfg(test)]
 mod repeat_tests;
 mod shape;
-mod splat;
+mod splat_expand;
 mod sync;
 mod top_level;
 mod validate;
@@ -58,13 +58,14 @@ mod where_at;
 mod where_at_tests;
 
 pub(crate) use extract::*;
-pub(crate) use fresh::*;
+pub(crate) use fresh_naming::*;
 pub(crate) use generics::*;
 pub(crate) use pipeline::generate_parts;
 pub(crate) use range_refs::*;
+pub(crate) use render::render_impl;
 pub(crate) use repeat::*;
 pub(crate) use shape::*;
-pub(crate) use splat::*;
+pub(crate) use splat_expand::*;
 pub(crate) use sync::*;
 pub(crate) use top_level::*;
 pub(crate) use validate::*;
@@ -154,6 +155,18 @@ pub(crate) fn generate_impl(
         return e.0;
     }
     let parts = extract_impl_parts(ty);
+    // A **codegen-minted** error rides in the target-type slot — the only
+    // error channel `extract_impl_parts` has (today: an `impl{...}`
+    // attachment classification failure, e.g. an invalid fresh-binding
+    // switch). It replaces the impl with the diagnostic instead of rendering
+    // inside the `for` position: `err_ty` emits the item form, whose trailing
+    // `;` is a syntax error in a type position, so the message would be buried
+    // under "expected `{}`, found `;`" plus the unconstrained-parameter
+    // fallout. Errors minted earlier (parse/apply) never reach here — the
+    // driver's `collect_errors` already reported them.
+    if let Ty { kind: TyKind::Error(e), .. } = &parts.target_type {
+        return e.0.clone();
+    }
 
     // Bound-generator distribution: a generator **range** inside an
     // impl-generic bound (`<T: Fn.().0..4 R>`) expands to a `TyArray` at the
@@ -162,7 +175,13 @@ pub(crate) fn generate_impl(
     // every other generics concern so the distributed impls flow through the
     // pipeline independently (fresh hoisting, `@0..` re-opening, sweeping).
     let mut out = TokenStream::new();
-    for parts in bound_gen::distribute_bound_arrays(parts) {
+    let distributed = match bound_gen::distribute_bound_arrays(parts) {
+        Ok(distributed) => distributed,
+        // Over-limit distribution: the diagnostic replaces the expansion (it
+        // cannot ride in the bound position — see `bound_gen`).
+        Err(e) => return e,
+    };
+    for parts in distributed {
         out.extend(generate_parts(
             parts,
             trait_name,

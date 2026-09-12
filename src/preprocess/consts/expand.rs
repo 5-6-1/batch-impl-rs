@@ -10,7 +10,9 @@ use proc_macro2::{TokenStream, TokenTree};
 
 use crate::preprocess::consts::ctx::ConstCtx;
 use crate::preprocess::{builtin_named, builtin_range_open, render_list, split_range_endpoint};
-use crate::util::{compile_err, compile_err_at, compile_error_str, is_joint_punct_at, is_punct_at};
+use crate::util::{
+    compile_err, compile_err_at, compile_error_str, is_joint_punct_at, is_punct_at, span_at,
+};
 
 /// Recognizes and expands an `@` constant reference at `tokens[0]`; returns
 /// `Some((expanded output, tokens consumed))`; `None` keeps it as-is
@@ -63,7 +65,7 @@ pub(crate) fn try_expand_at(
         return Err(compile_error_str(
             "batch-impl: `@` must be followed by a constant name (e.g. `@u*`, \
              `@u8..u128`)",
-            tokens[0].span(),
+            span_at(tokens, 0),
         ));
     };
     let name_str = name.to_string();
@@ -89,7 +91,7 @@ pub(crate) fn try_expand_at(
                  definition with `;`)"
             }
         };
-        return Err(compile_error_str(msg, tokens[0].span()));
+        return Err(compile_error_str(msg, span_at(tokens, 0)));
     }
     // Range family: `@` Ident `..` Ident (`..` is Joint '.' + any '.';
     // optional `=`). Endpoint resolution: an ident right after the dots
@@ -101,9 +103,9 @@ pub(crate) fn try_expand_at(
     // separated for the `=` half (the second dot of `..` lexes `Alone`
     // either way).
     if is_joint_punct_at(tokens, 2, '.') && is_punct_at(tokens, 3, '.') {
-        let dots_end = tokens[3].span();
+        let dots_end = span_at(tokens, 3);
         let eq_adj = matches!(tokens.get(4), Some(TokenTree::Punct(eq)) if eq.as_char() == '=')
-            && crate::util::spans_adjacent(dots_end, tokens[4].span());
+            && crate::util::spans_adjacent(dots_end, span_at(tokens, 4));
         let endpoint: Option<(usize, String)> = if eq_adj {
             tokens.get(5).and_then(|t| match t {
                 TokenTree::Ident(end) => Some((5, end.to_string())),
@@ -249,7 +251,7 @@ pub(crate) fn try_expand_at(
                 return Ok(None);
             }
             Err(compile_err_at!(
-                tokens[0].span(),
+                span_at(tokens, 0),
                 "batch-impl: unknown @ constant `@{}`; built-ins: `@u*` `@i*` `@f*` \
              `@num` `@scalar` and ranges `@u8..u128` `@..u128` `@u16..`{}",
                 lookup,

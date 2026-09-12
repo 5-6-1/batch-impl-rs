@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, TokenTree};
 
-use crate::util::is_punct;
+use crate::util::{is_punct, slice_between, slice_from};
 
 /// Detect a `# Path :` path prefix at the start of attr.
 ///
@@ -20,10 +20,10 @@ pub(crate) fn try_parse_path_prefix(
     if tokens.len() < 5 {
         return None;
     }
-    if !is_punct(&tokens[0], '#') {
+    if !matches!(tokens.first(), Some(t) if is_punct(t, '#')) {
         return None;
     }
-    if !matches!(&tokens[1], TokenTree::Ident(_)) {
+    if !matches!(tokens.get(1), Some(TokenTree::Ident(_))) {
         return None;
     }
     // State machine:
@@ -44,8 +44,8 @@ pub(crate) fn try_parse_path_prefix(
             }
             // Single `:` terminator — accepted only after at least one `::`
             Some((crate::util::Op::Colon, _)) if saw_double_colon && expect_sep => {
-                let path = tokens[1..i].to_vec();
-                let rest = tokens[i + 1..].to_vec();
+                let path = slice_between(tokens, 1, i).to_vec();
+                let rest = slice_from(tokens, i + 1).to_vec();
                 return (path, last_ident, rest).into();
             }
             // Expected Ident (right after `::`)

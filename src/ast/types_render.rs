@@ -121,6 +121,23 @@ impl ToTokens for Ty {
             }
             TyKind::Fn(f) => render_fn(f),
             TyKind::TypeParam(tp) => params_to_tokens_no_base(tp),
+            // `Head::seg::seg` — the head renders itself (`<ty as trait_>` for a
+            // projection), then each tail segment verbatim (`Assoc`, `Item<u8>`).
+            // The tail is stored flat, so this is a byte-exact re-emission.
+            TyKind::Qualified(q) => {
+                let mut ts = match &q.0 {
+                    QualifiedHead::Type(t) => t.to_token_stream(),
+                    QualifiedHead::Projection(ty, trait_) => {
+                        let ty = ty.to_token_stream();
+                        quote!(< #ty as #trait_ >)
+                    }
+                };
+                for seg in &q.1 {
+                    ts.extend(quote!(::));
+                    ts.extend(seg.clone());
+                }
+                ts
+            }
             TyKind::WithAttr(w) => {
                 let stream = &w.0.0;
                 render_optional(w.1.as_deref(), quote!(#[#stream]), false)

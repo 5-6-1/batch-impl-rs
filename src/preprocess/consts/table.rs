@@ -26,7 +26,7 @@ use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::preprocess::consts::ctx::{ConstCtx, UserConsts};
-use crate::util::{bracket_is_passthrough, compile_err, is_impl_template, is_punct};
+use crate::util::{bracket_is_passthrough, compile_err, is_impl_template, is_punct, slice_from};
 
 /// Built-in name families: `@name` → list of type identifiers.
 pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
@@ -80,18 +80,18 @@ fn expand_consts_at(
     }
     let mut result = vec![];
     let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        match cur {
             TokenTree::Group(g)
                 if g.delimiter() == delimiter![()]
                     || g.delimiter() == delimiter![[]]
                     || g.delimiter() == delimiter![none] =>
             {
-                expand_group(g, tokens, i, ctx, depth, &mut result)?;
+                expand_group(g, tokens, i, cur, ctx, depth, &mut result)?;
                 i += 1;
             }
             TokenTree::Punct(p) if p.as_char() == '@' => {
-                i += expand_at(tokens, i, ctx, depth, &mut result)?;
+                i += expand_at(tokens, i, cur, ctx, depth, &mut result)?;
             }
             // `where{...}` predicate suffix / `impl{...}` shape template: a
             // Brace group right after the ident is a DSL structure (not a
@@ -107,16 +107,16 @@ fn expand_consts_at(
                 {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     let expanded = expand_consts_at(&inner, ctx, depth + 1)?.into_iter().collect();
-                    result.push(tokens[i].clone());
+                    result.push(cur.clone());
                     result.push(Group::new(delimiter![{}], expanded).into());
                     i += 2;
                 } else {
-                    result.push(tokens[i].clone());
+                    result.push(cur.clone());
                     i += 1;
                 }
             }
             _ => {
-                result.push(tokens[i].clone());
+                result.push(cur.clone());
                 i += 1;
             }
         }
@@ -131,15 +131,15 @@ fn expand_consts_at(
 /// arguments and plain tuples / angle groups still recurse (their previous
 /// token is an Ident, not `!`/`#`).
 fn expand_group(
-    g: &proc_macro2::Group, tokens: &[TokenTree], i: usize, ctx: ConstCtx, depth: usize,
-    result: &mut Vec<TokenTree>,
+    g: &proc_macro2::Group, tokens: &[TokenTree], i: usize, cur: &TokenTree, ctx: ConstCtx,
+    depth: usize, result: &mut Vec<TokenTree>,
 ) -> Result<(), TokenStream> {
     if bracket_is_passthrough(tokens, i) {
-        result.push(tokens[i].clone());
+        result.push(cur.clone());
         return Ok(());
     }
     if depth + 1 > crate::util::MAX_NEST_DEPTH {
-        return Err(crate::util::depth_err(&tokens[i..i + 1], ""));
+        return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
     }
     let inner = g.stream().into_iter().collect::<Vec<_>>();
     result.push(
@@ -154,14 +154,15 @@ fn expand_group(
 /// passes through untouched; anything else goes to [`try_expand_at`]. Returns
 /// how many tokens were consumed at `i`.
 fn expand_at(
-    tokens: &[TokenTree], i: usize, ctx: ConstCtx, depth: usize, result: &mut Vec<TokenTree>,
+    tokens: &[TokenTree], i: usize, cur: &TokenTree, ctx: ConstCtx, depth: usize,
+    result: &mut Vec<TokenTree>,
 ) -> Result<usize, TokenStream> {
-    if crate::ast::fresh::is_carrier_at(tokens, i) {
-        result.push(tokens[i].clone());
-        result.push(tokens[i + 1].clone());
+    if let Some(g) = crate::ast::fresh_protocol::carrier_group_at(tokens, i) {
+        result.push(cur.clone());
+        result.push(TokenTree::Group(g.clone()));
         return Ok(2);
     }
-    match crate::preprocess::try_expand_at(&tokens[i..], ctx)? {
+    match crate::preprocess::try_expand_at(slice_from(tokens, i), ctx)? {
         // Lazy expansion: user constant values store tokens as-is (may
         // contain nested `@` references and DSL operations); after splicing,
         // expand recursively (circular refs are already intercepted at
@@ -176,7 +177,7 @@ fn expand_at(
         // expands to itself → hit again → infinite recursion; `@N` is
         // resolved by codegen where the impl generic list is known).
         None => {
-            result.push(tokens[i].clone());
+            result.push(cur.clone());
             Ok(1)
         }
     }
@@ -233,8 +234,8 @@ pub(crate) fn collect_user_consts(
         // Value: up to the depth-0 `;`
         let mut j = i + 3;
         let mut end = None;
-        while j < tokens.len() {
-            if is_punct(&tokens[j], ';') {
+        while let Some(cur) = tokens.get(j) {
+            if is_punct(cur, ';') {
                 end = Some(j);
                 break;
             }
@@ -247,12 +248,18 @@ pub(crate) fn collect_user_consts(
                 name_str
             ));
         };
-        let value = tokens[i + 3..end].to_vec();
+        let Some(value) = tokens.get(i + 3..end) else {
+            return Err(compile_err!(
+                "batch-impl: internal error — the constant definition's value \
+                 range is inconsistent (please report this spelling)"
+            ));
+        };
+        let value = value.to_vec();
         // Value is arbitrary tokens (lazy expansion); reference visibility is
         // validated in `check_value_refs`
         crate::preprocess::check_value_refs(&value, &table, &name_str)?;
         table.insert(name_str, value);
         i = end + 1;
     }
-    Ok((tokens[i..].to_vec(), table))
+    Ok((slice_from(tokens, i).to_vec(), table))
 }

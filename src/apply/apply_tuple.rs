@@ -26,7 +26,7 @@ pub(crate) fn map_range(
     // `end - start` cannot overflow (both are usize and end >= start); the
     // inclusive tail `+ 1` can — saturate first, the limit check rejects it.
     let len = if inclusive { end.saturating_sub(start).saturating_add(1) } else { end - start };
-    if let Some(e) = check_expand_limit(&format!("range `{}..{}{}`", start, end, end_mark), len) {
+    if let Some(e) = check_expand_limit(&format!("range {}..{}{}", start, end, end_mark), len) {
         return e;
     }
     let ns = if inclusive {
@@ -51,7 +51,7 @@ pub(crate) fn map_range(
 /// `(...,).N`: expands the tuple to length N (empty / single / multi-element handled separately)
 /// `N` above [`MAX_EXPAND`] is a typo diagnostic (covers `().N` / `(T,).N`).
 fn tuple_pow(mut elems: Vec<Ty>, n: usize) -> Ty {
-    if let Some(e) = check_expand_limit(&format!("tuple `.{}`", n), n) {
+    if let Some(e) = check_expand_limit(&format!("tuple .{}", n), n) {
         return e;
     }
     match elems.len() {
@@ -82,14 +82,22 @@ fn pow_single(template: Ty, n: usize) -> Ty {
     let template_span = template.span;
     if let TyKind::TypeParam(tp) = template.kind.clone() {
         // From `(<Bound>).N`: exactly one unbound param (guaranteed by parse_angle_bracket_contents)
-        if tp.params.len() != 1 || tp.params[0].1.is_some() {
+        if tp.params.len() != 1 || tp.params.first().is_some_and(|(_, b)| b.is_some()) {
             return err_ty(
                 "batch-impl: unexpected bound parameter in (<Trait>)⁁; this is an internal error",
             );
         }
         let g = take_group();
         let params = fresh_params(g, n);
-        let bound_ty = *tp.params[0].0.clone();
+        let bound_ty = match tp.params.first() {
+            Some((name, _)) => *name.clone(),
+            None => {
+                return err_ty(
+                    "batch-impl: internal error — the `(<Trait>)⁁` declaration has \
+                     no parameter",
+                );
+            }
+        };
         return TyTypeParam {
             params: params
                 .clone()

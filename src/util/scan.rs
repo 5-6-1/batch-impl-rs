@@ -76,8 +76,7 @@ impl<'a> Cursor<'a> {
     /// The `n` tokens starting at absolute index `start` (independent of the
     /// cursor position — used to collect a block's token extent).
     pub(crate) fn slice_at(&self, start: usize, n: usize) -> &'a [TokenTree] {
-        let end = start.saturating_add(n).min(self.tokens.len());
-        &self.tokens[start.min(self.tokens.len())..end]
+        slice_window(self.tokens, start, n)
     }
 
     pub(crate) fn is_punct(&self, ch: char) -> bool {
@@ -114,23 +113,23 @@ impl<'a> Cursor<'a> {
 
     /// Take the slice from start to the current position
     pub(crate) fn slice_since(&self, start: usize) -> &'a [TokenTree] {
-        &self.tokens[start..self.pos]
+        slice_window(self.tokens, start, self.pos.saturating_sub(start))
     }
 
     /// Take the slice up to the next depth-0 stop token (the stop token stays in the
     /// cursor, unconsumed)
     pub(crate) fn take_segment(&mut self, stop: &[char]) -> &'a [TokenTree] {
         let tokens = self.tokens;
-        let rest = &tokens[self.pos..];
+        let rest = slice_from(tokens, self.pos);
         let end = scan_stop(rest, stop).unwrap_or(rest.len());
         self.pos += end;
-        &rest[..end]
+        slice_upto(rest, end)
     }
 
     /// Take everything remaining
     pub(crate) fn take_rest(&mut self) -> &'a [TokenTree] {
         let tokens = self.tokens;
-        let rest = &tokens[self.pos..];
+        let rest = slice_from(tokens, self.pos);
         self.pos = tokens.len();
         rest
     }
@@ -173,6 +172,46 @@ pub(crate) fn tokens_to_string(ts: &[TokenTree]) -> String {
     ts.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("")
 }
 
+/// The span of `tokens[index]`, or the call site when a scan-derived index is
+/// out of range — the panic-free replacement for `tokens[index].span()` in the
+/// indexing ratchet (R2-B). An out-of-range index means a caller's scan
+/// invariant broke; falling back to the call site keeps the diagnostic
+/// instead of turning it into a compiler ICE.
+pub(crate) fn span_at(tokens: &[TokenTree], index: usize) -> proc_macro2::Span {
+    tokens.get(index).map_or_else(proc_macro2::Span::call_site, |t| t.span())
+}
+
+/// The tail `tokens[start..]` — the single policy for "a scan reached the end":
+/// an out-of-range start yields an empty slice, never a panic (the indexing
+/// ratchet's R2-B replacement for `&tokens[start..]`). Generic over the element
+/// type so the same policy serves token slices and token-slice lists.
+pub(crate) fn slice_from<T>(tokens: &[T], start: usize) -> &[T] {
+    tokens.get(start..).unwrap_or_default()
+}
+
+/// The prefix `tokens[..end]`, **clamped**: an `end` past the end yields the
+/// whole slice (a prefix cannot be "more than everything").
+pub(crate) fn slice_upto<T>(tokens: &[T], end: usize) -> &[T] {
+    tokens.get(..end.min(tokens.len())).unwrap_or_default()
+}
+
+/// The slice `tokens[start..end]`, **clamped** on both ends — the panic-free
+/// form of `&tokens[start..end]` for a scan-delimited interior (e.g. the tokens
+/// between a paired `<` and its `>`).
+pub(crate) fn slice_between<T>(tokens: &[T], start: usize, end: usize) -> &[T] {
+    slice_window(tokens, start, end.saturating_sub(start))
+}
+
+/// Up to `n` tokens from `start`, **clamped** to the end — the panic-free form
+/// of `tokens[start..min(start + n, len)]` (a lookahead window that may
+/// overrun). `get(..n)` alone is *not* a clamp: it returns `None` for
+/// `n > len`, which would silently yield an empty window (`scan::tests::`
+/// `cursor_position_never_exceeds_len` pins `slice_at(0, usize::MAX)`).
+pub(crate) fn slice_window<T>(tokens: &[T], start: usize, n: usize) -> &[T] {
+    let rest = slice_from(tokens, start);
+    rest.get(..n.min(rest.len())).unwrap_or_default()
+}
+
 /// Whether `tokens[index]` is the given punctuation (bounds-safe).
 pub(crate) fn is_punct_at(tokens: &[TokenTree], index: usize, ch: char) -> bool {
     tokens.get(index).is_some_and(|t| is_punct(t, ch))
@@ -204,7 +243,7 @@ pub(crate) fn is_joint_punct_at(tokens: &[TokenTree], index: usize, ch: char) ->
 /// uniformly, to avoid guard drift (0.5.7 mis-expanded `#name` due to a missing `#[...]` guard).
 pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool {
     index > 0
-        && matches!(&tokens[index - 1], TokenTree::Punct(p)
+        && matches!(tokens.get(index - 1), Some(TokenTree::Punct(p))
             if p.as_char() == '!' || p.as_char() == '#')
 }
 

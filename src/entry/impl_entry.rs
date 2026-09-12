@@ -21,6 +21,14 @@
 //! - shape form: `shape-template : new-generic-decl? matrix-source? (where ...)?`
 //! - direct form: `new-generic-decl? for-type (where ...)?`
 //!
+//! An **empty** spec list (`#[batch_impl]` / `#[batch_impl()]`, or a list of
+//! separators only) is a **no-op**: nothing is derived, so the original block is
+//! emitted unchanged. The attribute's contract is a flat-map over its specs, and
+//! the identity of that map is the item itself — which is also the safe failure
+//! mode, since a silently swallowed hand-written impl is invisible (measured:
+//! without the guard, `#[batch_impl] impl Tr for u8 {…}` compiles with no
+//! diagnostic *and* no `impl Tr for u8`).
+//!
 //! `@trait` (→ the impl's trait path) and the built-in `@` constants work on
 //! this entry; generators in the target (`A<()0..=12>`) hoist their fresh
 //! generics onto the impl and `@N..` where selectors resolve against them —
@@ -36,8 +44,8 @@ use syn::ItemImpl;
 use crate::ast::TyKind;
 use crate::ast::reset_fresh_counter;
 use crate::codegen::{
-    FreshCtx, Mapping, apply_mapping, collect_used_idents, expand_range_refs, hoist_type_params,
-    match_shape, resolve_where_predicates,
+    FreshCtx, Mapping, apply_mapping, collect_used_surfaces, expand_range_refs, hoist_type_params,
+    match_shape, resolve_where_predicates, used_ident_set,
 };
 use crate::entry::impl_spec::{
     assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
@@ -62,10 +70,41 @@ fn chunks_to_streams(tokens: &[TokenTree], sep: char) -> Vec<TokenStream> {
 /// Accepts both trait impls (`impl Trait for Type`) and **inherent impls**
 /// (`impl Type` — same spec grammar, no `for` section rendered, `@trait`
 /// banned).
+///
+/// The attribute is a **derivation**: it is a flat-map over its `;`-separated
+/// specs, each of which replaces the original block with the impls it derives
+/// from it (0..N — a matrix leaf each). An **empty** spec list derives nothing,
+/// so it is a no-op: the original block is emitted unchanged rather than
+/// swallowed. That is the identity of the derivation, and it is also the safe
+/// failure mode — a macro-generated or accidentally emptied attribute must not
+/// delete a hand-written impl silently.
+///
+/// **Stacked `#[batch_impl]` attributes are stages of one derivation.** rustc
+/// expands the outermost attribute first and hands it the rest in `item.attrs`;
+/// this entry re-emits them on the impls it derives, so the compiler then expands
+/// the next stage *on those impls*, and so on. The stages therefore run in
+/// **source order** (top → bottom) over the accumulating block: a slot an earlier
+/// stage leaves in place is bound by a later one, which is what makes a *shape
+/// family* (containers that are not the same head) expressible as two stages —
+/// see `tests/features/impl_entry_chain.rs`, which pins the order, the product,
+/// the empty stage and the per-level attributes. Each stage is consumed where it
+/// stands, so the impls that finally reach the compiler carry no `#[batch_impl]`
+/// left, and an attribute between two stages belongs to the **expansion level**
+/// it is written at, which is also what scopes a `#[cfg]` there. The order is the
+/// compiler's, not this entry's state — the tests are the contract for it.
 pub(crate) fn expand_impl_entry(
     attr: TokenStream, item: ItemImpl,
 ) -> Result<TokenStream, TokenStream> {
     let trait_path = item.trait_.as_ref().map(|(path, _)| path.clone());
+
+    let attr_vec = attr.into_iter().collect::<Vec<_>>();
+    // Nothing to derive: hand the item straight back (its own attributes
+    // included — they ride on `item`, the `#[batch_impl(…)]` itself is consumed
+    // by rustc). Separators are not content, so `#[batch_impl(;)]` counts as
+    // empty too.
+    if split_at_depth0(&attr_vec, ';').iter().all(|spec| spec.is_empty()) {
+        return Ok(quote!(#item));
+    }
 
     // ---- preprocessing subset (typestate pipeline, see
     // `preprocess/stream.rs`): bare `impl` collection → variadic-segment
@@ -74,7 +113,6 @@ pub(crate) fn expand_impl_entry(
     // angle pairing → directive rejection (`#` banned on this entry) →
     // bare-`where` rewrite. The stream's states enforce the order; the
     // ItemImpl tail is `Paired → DirectivesResolved → WhereDone` ----
-    let attr_vec = attr.into_iter().collect::<Vec<_>>();
     let trait_path_ts = trait_path.as_ref().map(|p| p.to_token_stream());
     let paired = stream_new(attr_vec)
         .preprocess(ConstCtx::ItemImpl { trait_path: trait_path_ts.as_ref() })?
@@ -125,8 +163,12 @@ fn expand_shape_form(
     // groups). A template may declare variadic segments (`(T@..)` → the
     // `[T; ()]` marker) — matched against generator tuples by the shape
     // kernel.
-    let template_raw =
-        spec[..colon].iter().cloned().collect::<TokenStream>().into_iter().collect::<Vec<_>>();
+    let template_raw = crate::util::slice_upto(spec, colon)
+        .iter()
+        .cloned()
+        .collect::<TokenStream>()
+        .into_iter()
+        .collect::<Vec<_>>();
     let template_marked = crate::preprocess::varseg::mark_template(&template_raw, 0)?;
     let template_tokens = render_angles(template_marked.into_iter().collect::<TokenStream>());
     let template: syn::Type = syn::parse2(template_tokens).map_err(|e| {
@@ -135,15 +177,22 @@ fn expand_shape_form(
             e.span(),
         )
     })?;
-    let (new_gen, matrix) = split_new_gen(&spec[colon + 1..]);
+    let (new_gen, matrix) = split_new_gen(crate::util::slice_from(spec, colon + 1));
     // `used`: fresh display names must not collide with anything the impl
-    // writes (template slots, the new generic decl, the item).
-    let mut used = HashSet::new();
-    collect_used_idents(&item.to_token_stream(), &mut used);
-    collect_used_idents(&template.to_token_stream(), &mut used);
-    if let Some(ng) = &new_gen {
-        collect_used_idents(&ng.to_token_stream(), &mut used);
+    // writes — the item (generics / body / where / associated types), the
+    // template slots, the new generic decl and the spec's where predicates.
+    // One source list, shared with the attribute entry's collision set
+    // (`codegen::fresh_naming::used_ident_set`); the per-leaf extension (the matrix
+    // source is user text too) joins in `expand_leaf` / `expand_direct_form`.
+    let item_ts = item.to_token_stream();
+    let template_ts = template.to_token_stream();
+    let ng_ts = new_gen.as_ref().map(|ng| ng.to_token_stream());
+    let where_ts = where_preds.iter().cloned().collect::<TokenStream>();
+    let mut surfaces = vec![&item_ts, &template_ts, &where_ts];
+    if let Some(ng) = &ng_ts {
+        surfaces.push(ng);
     }
+    let used = used_ident_set(&surfaces);
     if matrix.is_empty() {
         // Empty matrix source → N = 1, the shape itself (no slot mapping;
         // the for-Type is emitted verbatim).
@@ -233,7 +282,12 @@ fn expand_leaf(
     let mut fresh_decls = vec![];
     let leaf = hoist_type_params(leaf, &mut fresh_decls);
     let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
-    let fresh_ctx = FreshCtx::new(&decl_names, used);
+    // The leaf's own idents join the collision set: the matrix source is the
+    // user's text (`Holder<P0>`), so a display name must never shadow it.
+    let mut used = used.clone();
+    let leaf_ts = leaf.to_token_stream();
+    collect_used_surfaces(&[&leaf_ts], &mut used);
+    let fresh_ctx = FreshCtx::new(&decl_names, &used);
     let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
     let leaf_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
     let leaf_span =
@@ -300,11 +354,14 @@ fn expand_direct_form(
     spec: &[TokenTree], where_preds: &[TokenTree], item: &ItemImpl, trait_path: Option<&syn::Path>,
 ) -> Result<TokenStream, TokenStream> {
     let (new_gen, for_tokens) = split_new_gen(spec);
-    let mut used = HashSet::new();
-    collect_used_idents(&item.to_token_stream(), &mut used);
-    if let Some(ng) = &new_gen {
-        collect_used_idents(&ng.to_token_stream(), &mut used);
+    let item_ts = item.to_token_stream();
+    let ng_ts = new_gen.as_ref().map(|ng| ng.to_token_stream());
+    let where_ts = where_preds.iter().cloned().collect::<TokenStream>();
+    let mut surfaces = vec![&item_ts, &where_ts];
+    if let Some(ng) = &ng_ts {
+        surfaces.push(ng);
     }
+    let mut used = used_ident_set(&surfaces);
     let where_chunks = chunks_to_streams(where_preds, ',');
     let leaves = parse_matrix_leaves(&for_tokens.to_vec())?;
     if leaves.len() != 1 {
@@ -326,6 +383,9 @@ fn expand_direct_form(
     };
     let leaf = hoist_type_params(leaf, &mut fresh_decls);
     let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+    // The spec's for-type is user text too — its idents join the set.
+    let leaf_ts = leaf.to_token_stream();
+    collect_used_surfaces(&[&leaf_ts], &mut used);
     let fresh_ctx = FreshCtx::new(&decl_names, &used);
     let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
     let for_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
@@ -341,4 +401,116 @@ fn expand_direct_form(
         &[],
         for_tokens,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Qualified types reach the generated impl. The spec's for-type is user
+    /// text and `<T as Tr>::Assoc` is a projection, so three separate decisions
+    /// must agree on the same `<>`-group discriminator (`split_projection`): the
+    /// block parser must not read `<S as Tr>` as `Vec`'s argument list, the impl
+    /// entry must not read it as the `new-generic-decl`, and neither may treat
+    /// the `::` as the shape colon. Asserted on the rendered impls, because that
+    /// is what the user sees.
+    #[test]
+    fn qualified_types_reach_the_generated_impl() {
+        fn flat(ts: TokenStream) -> String {
+            ts.to_string().chars().filter(|c| !c.is_whitespace()).collect()
+        }
+        let item: ItemImpl = syn::parse_quote!(impl M1 for Vec<u8> { fn one(&self) -> u8 { 1 } });
+        let out = expand_impl_entry("Vec<<S as Tr>::Assoc>".parse().expect("spec parses"), item)
+            .expect("the spec expands");
+        assert_eq!(
+            flat(out),
+            flat(quote!(impl M1 for Vec<<S as Tr>::Assoc> { fn one(&self) -> u8 { 1 } })),
+            "a projection as a generic argument"
+        );
+        let item: ItemImpl = syn::parse_quote!(impl M3 for u16 { fn three(&self) -> u8 { 3 } });
+        let out = expand_impl_entry(
+            "<<S as Tr>::Assoc as Tr>::Assoc".parse().expect("spec parses"),
+            item,
+        )
+        .expect("the spec expands");
+        assert_eq!(
+            flat(out),
+            flat(
+                quote!(impl M3 for <<S as Tr>::Assoc as Tr>::Assoc { fn three(&self) -> u8 { 3 } })
+            ),
+            "a nested projection as the target"
+        );
+        let trait_item: syn::ItemTrait = syn::parse_quote!(
+            trait M2 {
+                fn two(&self) -> u8;
+            }
+        );
+        let out = crate::entry::expand_attr_macro(
+            "M2 <S as Tr>::Assoc { fn two(&self) -> u8 { 2 } }".parse().expect("spec parses"),
+            trait_item,
+            true,
+        )
+        .expect("the spec expands");
+        assert_eq!(
+            flat(out),
+            flat(quote!(
+                trait M2 {
+                    fn two(&self) -> u8;
+                }
+                impl M2 for <S as Tr>::Assoc {
+                    fn two(&self) -> u8 {
+                        2
+                    }
+                }
+            )),
+            "a projection as the target, through the attribute entry"
+        );
+    }
+
+    /// `R1` lock: the spec's own for-type is user text, so its idents must
+    /// join the fresh collision set — the generator's display name has to
+    /// escape (`P0A`) instead of shadowing a user type named `P0`, which is
+    /// what the attribute entry already guaranteed. Before the source list
+    /// was unified, the direct form collected only the item + new-gen and
+    /// emitted `impl<P0> Tr for Holder<P0, (P0,)>` (a silently different
+    /// impl: the generic shadows the user's `P0`).
+    #[test]
+    fn spec_idents_join_the_fresh_collision_set() {
+        let attr: TokenStream = "Holder<P0, ()1>".parse().expect("the spec parses");
+        let item: ItemImpl = syn::parse_quote!(
+            impl Tr for X {
+                fn f(&self) -> u8 {
+                    0
+                }
+            }
+        );
+        let out = expand_impl_entry(attr, item).expect("the spec expands").to_string();
+        assert!(
+            out.contains("P0A"),
+            "the fresh display name must escape the spec's own `P0`:\n{out}"
+        );
+    }
+
+    /// `R1` phase-3 (partial) lock: the impl entry must not swallow the impl
+    /// block's own attributes. `assemble_impl` renders the impl from the parts
+    /// it extracts and used to leave `item.attrs` behind, so `#[cfg]` /
+    /// `#[allow]` / `#[doc]` on the item vanished silently — the generated impl
+    /// then existed unconditionally. The attribute entry has always inherited
+    /// its spec's attachments; this is the impl-entry half of that contract.
+    #[test]
+    fn item_attributes_reach_the_generated_impl() {
+        let attr: TokenStream = "Holder<u8>".parse().expect("the spec parses");
+        let item: ItemImpl = syn::parse_quote!(
+            #[allow(dead_code)]
+            #[doc = "kept"]
+            impl Tr for X {
+                fn f(&self) -> u8 {
+                    0
+                }
+            }
+        );
+        let out = expand_impl_entry(attr, item).expect("the spec expands").to_string();
+        assert!(out.contains("allow"), "the item's `#[allow]` must ride out:\n{out}");
+        assert!(out.contains("kept"), "the item's `#[doc]` must ride out:\n{out}");
+    }
 }

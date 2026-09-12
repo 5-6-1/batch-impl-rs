@@ -50,7 +50,9 @@ pub(crate) fn preprocess_test(input: TokenStream) -> Result<TokenStream, TokenSt
     if body_group.delimiter() != delimiter![{}] {
         return Err(err_at(tokens.get(1).map(|t| t.span()).unwrap_or_else(call_site)));
     }
-    let Ok(trait_item) = syn::parse2(tokens[idx + 2..].iter().cloned().collect()) else {
+    let Ok(trait_item) =
+        syn::parse2(crate::util::slice_from(&tokens, idx + 2).iter().cloned().collect())
+    else {
         return Err(compile_error_str(
             "batch-impl: batch_preprocess_test cannot parse the trait definition",
             call_site(),

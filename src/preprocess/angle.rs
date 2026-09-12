@@ -11,14 +11,14 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::compile_error_str;
-use crate::util::{bracket_is_passthrough, is_arrow};
+use crate::util::{bracket_is_passthrough, is_arrow, slice_between};
 
 /// `true` when `tokens[i]` is a Brace group directly preceded by the `where`
 /// keyword — the `where{...}` predicate suffix (DSL: its content is type
 /// constraints and must be angle-paired), as opposed to a code-block body
 /// (arbitrary Rust, passthrough).
 fn is_where_group(tokens: &[TokenTree], i: usize) -> bool {
-    i >= 1 && matches!(&tokens[i - 1], TokenTree::Ident(id) if id == "where")
+    i >= 1 && matches!(tokens.get(i - 1), Some(TokenTree::Ident(id)) if id == "where")
 }
 
 /// `true` when `tokens[i]` is the Brace group of an `impl{...}` shape
@@ -54,8 +54,8 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
     }
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        match cur {
             // Real None group (macro-variable output): content is DSL tokens, flatten
             TokenTree::Group(g) if g.delimiter() == delimiter![none] => {
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
@@ -67,7 +67,7 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
             // DSL list; `ident![...]` / `#[...]` passthrough (content is arbitrary Rust)
             TokenTree::Group(g) if g.delimiter() != delimiter![{}] => {
                 if bracket_is_passthrough(tokens, i) {
-                    out.push(tokens[i].clone());
+                    out.push(cur.clone());
                 } else {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     let mut new_g = Group::new(
@@ -93,7 +93,7 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
                     new_g.set_span(g.span());
                     out.push(new_g.into());
                 } else {
-                    out.push(tokens[i].clone());
+                    out.push(cur.clone());
                 }
                 i += 1;
             }
@@ -103,10 +103,10 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
                 let Some(close) = find_angle_close(tokens, i) else {
                     return Err(compile_error_str(
                         "batch-impl: unclosed `<` (missing matching `>`)",
-                        tokens[i].span(),
+                        cur.span(),
                     ));
                 };
-                let inner = tokens[i + 1..close].to_vec();
+                let inner = slice_between(tokens, i + 1, close).to_vec();
                 out.push(
                     Group::new(
                         delimiter![<>],
@@ -120,11 +120,11 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
             TokenTree::Punct(p) if p.as_char() == '>' && !is_arrow(tokens, i) => {
                 return Err(compile_error_str(
                     "batch-impl: extra `>` (missing matching `<`)",
-                    tokens[i].span(),
+                    cur.span(),
                 ));
             }
             _ => {
-                out.push(tokens[i].clone());
+                out.push(cur.clone());
                 i += 1;
             }
         }
@@ -170,8 +170,8 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
     let tokens = stream.into_iter().collect::<Vec<_>>();
     let mut out = TokenStream::new();
     let mut i = 0;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        match cur {
             TokenTree::Group(g) if g.delimiter() == delimiter![<>] => {
                 let inner = render_angles(g.stream());
                 out.extend([TokenTree::from(proc_macro2::Punct::new(

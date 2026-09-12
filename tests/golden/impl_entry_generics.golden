@@ -1,7 +1,7 @@
 impl
 Conv
 <
-B
+u8
 >
 for
 Box
@@ -30,7 +30,7 @@ Clone
 impl
 Conv
 <
-B
+u8
 >
 for
 Rc
@@ -59,7 +59,7 @@ Clone
 impl
 Conv
 <
-B
+u16
 >
 for
 Box
@@ -88,7 +88,7 @@ Clone
 impl
 Conv
 <
-B
+u16
 >
 for
 Rc

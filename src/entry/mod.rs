@@ -208,15 +208,15 @@ fn replace_segment_trait(
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
-        if let TokenTree::Punct(p) = &tokens[i]
+    while let Some(cur) = tokens.get(i) {
+        if let TokenTree::Punct(p) = cur
             && p.as_char() == '@'
             && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
             && id == "trait"
         {
             out.extend(trait_full_path.clone());
             i += 2;
-        } else if let TokenTree::Group(g) = &tokens[i] {
+        } else if let TokenTree::Group(g) = cur {
             // Recurse into groups (where{...} predicates and type groups):
             // segment-level `@trait` must reach every DSL structure, not
             // just the top level.
@@ -225,7 +225,7 @@ fn replace_segment_trait(
             out.push(proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect()).into());
             i += 1;
         } else {
-            out.push(tokens[i].clone());
+            out.push(cur.clone());
             i += 1;
         }
     }

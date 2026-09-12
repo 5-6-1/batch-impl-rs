@@ -3,7 +3,7 @@
 //! (the successor of the `-` operator). The space is not a token, so the
 //! chain cuts at **block boundaries**: a block is the smallest
 //! self-contained type fragment (`&` / `&mut` / `*const` / `fn(...)` /
-//! `<...>` / `{...}` / an ident, a group, a number, ...), and the chain
+//! `<...>` / `{...}` / a `::path`, an ident, a group, a number, ...), and the chain
 //! folds blocks with `apply`. The `.` operator is a chain-level operator
 //! too (right-assoc, higher precedence than the space) — see `chain.rs`.
 //!
@@ -14,6 +14,7 @@
 
 use crate::apply::err_ty_at;
 use crate::ast::*;
+use crate::parse::Ctx;
 use crate::parse::blocks::{at_ref_block, literal_block, reference_block, star_block};
 use crate::parse::chain::parse_dot_chain;
 use crate::parse::generic::empty;
@@ -23,14 +24,21 @@ use crate::util::Cursor;
 use proc_macro2::{Ident, Spacing, TokenTree};
 use quote::quote;
 
-/// Whether the token opens a new block: any ident/literal/group or a
-/// block-opening punct (`&` `*` `?` `!` `@` `'` `#`). Operators and
-/// separators (`.` `,` `;` `-` `:` `+` `>` `=`) do not open blocks.
-pub(crate) fn starts_block(t: &TokenTree) -> bool {
-    matches!(t, TokenTree::Ident(_) | TokenTree::Literal(_))
-        || matches!(t, TokenTree::Group(_))
-        || matches!(t, TokenTree::Punct(p)
-            if matches!(p.as_char(), '&' | '*' | '?' | '!' | '@' | '\'' | '#'))
+/// Whether the cursor opens a new block: any ident/literal/group or a
+/// block-opening punct (`&` `*` `?` `!` `@` `'` `#` `::`). Operators and
+/// separators (`.` `,` `;` `-` `:` `+` `>` `=`) do not open blocks — and a
+/// **lone** `:` does not either (only the `::` of a global path, read off the
+/// compound-operator dictionary, starts a block).
+pub(crate) fn starts_block(cursor: &Cursor) -> bool {
+    match cursor.peek() {
+        Some(TokenTree::Ident(_) | TokenTree::Literal(_) | TokenTree::Group(_)) => true,
+        Some(TokenTree::Punct(p)) => match p.as_char() {
+            '&' | '*' | '?' | '!' | '@' | '\'' | '#' => true,
+            ':' => matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _))),
+            _ => false,
+        },
+        None => false,
+    }
 }
 
 /// Whether the cursor sits on the first `.` of a `..` range (a Joint `.`
@@ -62,7 +70,7 @@ pub(crate) fn cursor_at_attachment(cursor: &Cursor) -> bool {
 /// blocks `&mut` and `u8`, folded by the chain) — with two exceptions where
 /// Rust syntax forces the fragment together: lifetime references
 /// (`&'a mut u8`) and the fn family (`fn(u8) -> u8`).
-pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Option<Ty> {
+pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
     let ty = match cursor.peek()? {
         // `#[attr]` — attribute block (the chain applies the next block)
         TokenTree::Punct(p)
@@ -88,17 +96,31 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
         TokenTree::Group(g) if g.delimiter() != delimiter![<>] => {
             let g = g.clone();
             cursor.bump();
-            parse_group(&g, trait_name)
+            parse_group(&g, ctx)
         }
         // `<...>` alone — a generic declaration/args list (TyTypeParam);
-        // whether it is a declaration or args is decided by apply.
+        // whether it is a declaration or args is decided by apply. A `<...>`
+        // **immediately followed by `::`** whose content has a depth-0 `as` is a
+        // qualified-self head instead (`<T as Tr>::Assoc`): the pairing pass made
+        // the group, so the `::`-tail has nowhere else to attach.
         TokenTree::Group(g) => {
             let args = g.stream().into_iter().collect::<Vec<_>>();
             cursor.bump();
-            crate::parse::generic::parse_angle_bracket_contents(&args, trait_name, true).to_ty()
+            if matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _)))
+                && let Some((ty_tokens, trait_)) = crate::parse::split_projection(&args)
+            {
+                let head_ty =
+                    crate::parse::parse_item(&mut Cursor::new(&ty_tokens), Op::Comma, ctx)
+                        .unwrap_or_else(crate::parse::generic::empty);
+                return Some(crate::parse::ident_blocks::qualified_tail(
+                    cursor,
+                    QualifiedHead::Projection(head_ty.into(), trait_),
+                ));
+            }
+            crate::parse::generic::parse_angle_bracket_contents(&args, ctx, true).to_ty()
         }
         // `&` / `&mut` / `&'a` / `&'a mut`
-        TokenTree::Punct(p) if p.as_char() == '&' => reference_block(cursor, trait_name),
+        TokenTree::Punct(p) if p.as_char() == '&' => reference_block(cursor, ctx),
         // `*const` / `*mut` / `*[...]` / `*(...)`
         TokenTree::Punct(p) if p.as_char() == '*' => star_block(cursor),
         // `@N` position reference
@@ -125,19 +147,31 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
         }
         // `?` / `!` prefix puncts — swallow the qualified type (passthrough);
         // an attachment block (`{...}` / `where{...}` / `impl{...}`) belongs
-        // to the impl, not to the prefixed type (`fn(u8) -> ! { body }`).
+        // to the impl, not to the prefixed type (`fn(u8) -> ! { body }`). The
+        // swallowed type is a **sub-type position**, so the bound flag stops
+        // here (`T: ?Vec<Item = u8>` stays a plain arg list).
         TokenTree::Punct(p) if matches!(p.as_char(), '?' | '!') => {
             let p = p.as_char();
             cursor.bump();
             let inner =
-                if cursor_at_attachment(cursor) { None } else { parse_block(cursor, trait_name) }
+                if cursor_at_attachment(cursor) { None } else { parse_block(cursor, ctx.plain()) }
                     .unwrap_or_else(empty);
             let p_tt = TokenTree::Punct(proc_macro2::Punct::new(p, Spacing::Alone));
             TyPrimitive(quote!(#p_tt #inner)).to_ty()
         }
         // numbers / ranges
         TokenTree::Literal(_) => literal_block(cursor),
-        TokenTree::Ident(id) => ident_block(cursor, id.clone(), trait_name),
+        TokenTree::Ident(id) => ident_block(cursor, id.clone(), ctx),
+        // `::path` — a leading `::` makes the path global (`::std::vec::Vec<u8>`):
+        // the `::` is part of the ident block, so the ident parser keeps its
+        // segments / turbofish / args handling. A **lone** `:` is a separator,
+        // not a block start.
+        TokenTree::Punct(p)
+            if p.as_char() == ':'
+                && matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _))) =>
+        {
+            return crate::parse::ident_blocks::global_path_block(cursor, ctx);
+        }
         _ => return None,
     };
     Some(ty)
@@ -145,14 +179,14 @@ pub(crate) fn parse_block(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Op
 
 /// `-> Ret` return expression: blocks folded by the space chain, stopping at
 /// an attachment block.
-pub(crate) fn parse_return_expr(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
-    let mut left = parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+pub(crate) fn parse_return_expr(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
+    let mut left = parse_dot_chain(cursor, ctx).unwrap_or_else(empty);
     while let Some(t) = cursor.peek() {
-        if !starts_block(t) || cursor_at_attachment(cursor) {
+        if !starts_block(cursor) || cursor_at_attachment(cursor) {
             break;
         }
         let pos = cursor.pos();
-        let right = parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+        let right = parse_dot_chain(cursor, ctx).unwrap_or_else(empty);
         // Progress invariant: `starts_block` promises a foldable block, but a
         // malformed follower can leave `parse_block` empty-handed and the
         // cursor unmoved — folding again would spin forever appending empties
@@ -171,13 +205,23 @@ pub(crate) fn parse_return_expr(cursor: &mut Cursor, trait_name: Option<&Ident>)
 /// A trait bound expression (`Clone + IntoIterator + 'a`): blocks folded by
 /// the space chain, then any `+` chain is collected into a passthrough —
 /// `+` is a bound operator, not a space application.
-pub(crate) fn parse_bound_expr(cursor: &mut Cursor, trait_name: Option<&Ident>) -> Ty {
-    let mut left = parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+///
+/// The bound flag covers the **head** of the first element only. A follower of
+/// the space fold is an apply **operand** (`T: Conv Item` folds to `Conv<Item>`),
+/// i.e. a sub-type position, so the flag stops there; the `+` elements are bound
+/// elements again and keep it. (`T: Clone Vec<Item = u8>` is not valid Rust
+/// anyway — rustc reports a parse error at `Vec` — so nothing legal is affected.)
+pub(crate) fn parse_bound_expr(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
+    // A bound is the position where associated-type bindings are legal on
+    // **any** trait path (`T: Iterator<Item = u8>`) — the flag rides the
+    // context down to the ident parser.
+    let ctx = ctx.in_bound();
+    let mut left = parse_dot_chain(cursor, ctx).unwrap_or_else(empty);
     loop {
         match cursor.peek() {
-            Some(t) if starts_block(t) && !cursor_at_attachment(cursor) => {
+            Some(t) if starts_block(cursor) && !cursor_at_attachment(cursor) => {
                 let pos = cursor.pos();
-                let right = parse_dot_chain(cursor, trait_name).unwrap_or_else(empty);
+                let right = parse_dot_chain(cursor, ctx.plain()).unwrap_or_else(empty);
                 // Progress invariant, as in [`parse_return_expr`]: a stalled
                 // block-start must end the chain with a diagnostic, never spin.
                 if cursor.pos() == pos {
@@ -198,11 +242,8 @@ pub(crate) fn parse_bound_expr(cursor: &mut Cursor, trait_name: Option<&Ident>) 
         let mut elems = vec![left];
         while cursor.is_punct('+') {
             cursor.bump();
-            if let Some(t) = cursor.peek()
-                && starts_block(t)
-                && !cursor_at_attachment(cursor)
-            {
-                elems.push(parse_dot_chain(cursor, trait_name).unwrap_or_else(empty));
+            if starts_block(cursor) && !cursor_at_attachment(cursor) {
+                elems.push(parse_dot_chain(cursor, ctx).unwrap_or_else(empty));
             }
         }
         return TyBoundList(elems).to_ty();
@@ -212,16 +253,35 @@ pub(crate) fn parse_bound_expr(cursor: &mut Cursor, trait_name: Option<&Ident>) 
 
 /// Consumes the return expression's blocks (used when only the token extent
 /// matters — `extern "C" fn` / `Fn(...)` passthrough).
-pub(crate) fn parse_return_expr_tokens(cursor: &mut Cursor) {
-    if parse_block(cursor, None).is_none() {
-        return;
-    }
+///
+/// Returns `Some(err)` when a block-start token cannot actually open a block.
+/// This is the **third** fuzz-hang root cause, found by adversarial review: the
+/// loop used to trust `starts_block`, but `#` followed by a non-bracket group is
+/// `starts_block`-true and `parse_block`-none, so the fold spun on an unmoved
+/// cursor. Unlike the two earlier ones it allocates nothing, so the fuzz
+/// `GuardAlloc` could not catch it — the compiler simply hung (measured: a cold
+/// build of the same crate with `extern "C" fn(u8) -> u8` finishes in 47 s,
+/// while `extern "C" fn(u8) -> u8 #(x)` never finished). The stalled token is
+/// **consumed** so the caller cannot re-report it as a chain error.
+pub(crate) fn parse_return_expr_tokens(cursor: &mut Cursor) -> Option<Ty> {
+    // Only the token extent matters here, so the first block's value is dropped.
+    parse_block(cursor, Ctx::default())?;
     loop {
-        match cursor.peek() {
-            Some(t) if starts_block(t) && !cursor_at_attachment(cursor) => {
-                let _ = parse_block(cursor, None);
-            }
-            _ => break,
+        let t = cursor.peek()?;
+        if !starts_block(cursor) || cursor_at_attachment(cursor) {
+            return None;
+        }
+        // The token text and span are copied before the cursor moves — the
+        // message must name the token that stalled, not the one after it.
+        let (text, span) = (t.to_string(), t.span());
+        let pos = cursor.pos();
+        let _ = parse_block(cursor, Ctx::default());
+        if cursor.pos() == pos {
+            cursor.bump();
+            return Some(err_ty_at(
+                &format!("batch-impl: unexpected `{text}` in a type position"),
+                span,
+            ));
         }
     }
 }

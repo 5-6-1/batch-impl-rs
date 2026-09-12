@@ -16,12 +16,16 @@ use crate::codegen::VarSeg;
 pub(super) fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
-        if let TokenTree::Literal(lit) = &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        if let TokenTree::Literal(lit) = cur {
             let s = lit.to_string();
-            if s.ends_with('.')
+            // `strip_suffix` rather than `ends_with('.')` + `s[..s.len() - 1]`: the slice was
+            // the one production member of the indexing/slicing family the crate-level deny
+            // could not see (`clippy::string_slice` is a separate lint), and it also carried a
+            // raw `- 1` whose safety rested on the `ends_with` check.
+            if let Some(stripped) = s.strip_suffix('.')
                 && is_punct_at(&tokens, i + 1, '@')
-                && let Ok(n) = s[..s.len() - 1].parse::<u64>()
+                && let Ok(n) = stripped.parse::<u64>()
             {
                 out.push(TokenTree::Literal(Literal::u64_unsuffixed(n)));
                 out.push(TokenTree::Punct(Punct::new('.', Spacing::Alone)));
@@ -29,7 +33,7 @@ pub(super) fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
                 continue;
             }
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             let inner = fix_literal_at(g.stream().into_iter().collect::<Vec<_>>());
             let mut ng = Group::new(g.delimiter(), inner.into_iter().collect());
             ng.set_span(g.span());
@@ -37,7 +41,7 @@ pub(super) fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
             i += 1;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     out
@@ -54,7 +58,7 @@ pub(crate) fn collect_drivers(
     let mut prefixes = vec![];
     let mut len = None;
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         if is_punct_at(tokens, i, '@') {
             // `@N` index cursors are not segment references either.
             if matches!(tokens.get(i + 1), Some(TokenTree::Literal(_))) {
@@ -74,7 +78,7 @@ pub(crate) fn collect_drivers(
                 return Err(compile_error_str(
                     "batch-impl: `@` inside a repeat block must be followed by a \
                      segment name (`@ident`) or an index (`@N`)",
-                    tokens[i].span(),
+                    cur.span(),
                 ));
             };
             let prefix = id.to_string();
@@ -108,7 +112,7 @@ pub(crate) fn collect_drivers(
             i += 2;
             continue;
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let (p, l) = collect_drivers(&inner, segs)?;
             for p in p {
@@ -122,7 +126,7 @@ pub(crate) fn collect_drivers(
                     return Err(compile_error_str(
                         "batch-impl: repeat block segments have different lengths; all \
                          referenced segments must be equal-length",
-                        tokens[i].span(),
+                        cur.span(),
                     ));
                 }
                 _ => {}
@@ -150,7 +154,7 @@ pub(crate) fn substitute(
     }
     let mut out = vec![];
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         // A fresh-ref carrier (`@{g_i}`) inside a repeat block: `@{N}` is a
         // **fixed fresh-name reference** (the successor of the retired `@@N`
         // spelling — the same `@{...}` shape the body uses, one `@` consumed),
@@ -160,18 +164,18 @@ pub(crate) fn substitute(
         // `(P0::foo(), P1::foo(), P2::foo())`). A **range** carrier
         // (`@{0..}`) passes through untouched for the later range re-opening
         // pass (`expand_range_refs`).
-        if let Some(g) = crate::ast::fresh::carrier_group_at(tokens, i) {
+        if let Some(g) = crate::ast::fresh_protocol::carrier_group_at(tokens, i) {
             let inner_tokens = g.stream().into_iter().collect::<Vec<_>>();
             let index = if is_punct_at(&inner_tokens, 0, '@') {
                 match inner_tokens.as_slice() {
                     [TokenTree::Punct(_), TokenTree::Literal(lit)] => {
                         match lit.to_string().parse::<usize>() {
-                            Ok(n) => n + round,
+                            Ok(n) => n.saturating_add(round),
                             Err(_) => {
                                 return Err(compile_error_str(
                                     "batch-impl: `@{@...}` must be followed by an index \
                                      (`@{@0}`) — the per-round fresh reference",
-                                    tokens[i].span(),
+                                    cur.span(),
                                 ));
                             }
                         }
@@ -180,7 +184,7 @@ pub(crate) fn substitute(
                         return Err(compile_error_str(
                             "batch-impl: `@{@...}` must be followed by an index \
                              (`@{@0}`) — the per-round fresh reference",
-                            tokens[i].span(),
+                            cur.span(),
                         ));
                     }
                 }
@@ -191,8 +195,8 @@ pub(crate) fn substitute(
                     // A range or grouped carrier: pass through for range
                     // re-opening.
                     Err(_) => {
-                        out.push(tokens[i].clone());
-                        out.push(tokens[i + 1].clone());
+                        out.push(cur.clone());
+                        out.push(TokenTree::Group(g.clone()));
                         i += 2;
                         continue;
                     }
@@ -206,7 +210,7 @@ pub(crate) fn substitute(
                         index,
                         cx.fresh.names.len(),
                     ),
-                    tokens[i].span(),
+                    cur.span(),
                 ));
             };
             out.extend(name.clone());
@@ -227,7 +231,11 @@ pub(crate) fn substitute(
                     // Splice the slot's **bound element** directly — the
                     // `$(...)*` semantics: the round's output shows the
                     // actual leaf subtree, no intermediate spelling exists.
-                    let pos = seg.start + round;
+                    // `seg.start` is bounded by the leaf's element count and
+                    // `round` by the segment length — both input-sized, so the
+                    // sum cannot overflow; saturating keeps the whole
+                    // cursor/round family uniform (see the `@N` arm below).
+                    let pos = seg.start.saturating_add(round);
                     let Some(value) = cx.map.seg_value(&prefix, pos) else {
                         return Err(compile_error_str(
                             &format!(
@@ -262,14 +270,14 @@ pub(crate) fn substitute(
                     return Err(compile_error_str(
                         "batch-impl: `@` inside a repeat block must be followed by a \
                          segment name (`@ident`) or an index (`@N`)",
-                        tokens[i].span(),
+                        cur.span(),
                     ));
                 }
             }
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             if depth + 1 > MAX_NEST_DEPTH {
-                return Err(depth_err(&tokens[i..i + 1], ""));
+                return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let substituted = substitute(&inner, cx, round, depth + 1)?;
@@ -279,7 +287,7 @@ pub(crate) fn substitute(
             i += 1;
             continue;
         }
-        out.push(tokens[i].clone());
+        out.push(cur.clone());
         i += 1;
     }
     Ok(out)

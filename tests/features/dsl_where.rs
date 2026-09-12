@@ -220,3 +220,24 @@ fn subst_concrete_single_param() {
     }
     assert_impl::<u8>(&usize::default());
 }
+
+// ============================================================
+// 27. Bare where: a `,` **inside** a predicate's angle arguments is not a
+//     predicate/spec separator
+// ============================================================
+#[derive(Clone)]
+struct CommaPair<A, B>(A, B);
+
+#[batch_impl(
+    <T: Clone> CommaArg<T> Vec<T> where T: Clone, CommaPair<T, T>: Clone
+    { fn first_owned(&self) -> T { self[0].clone() } }
+)]
+trait CommaArg<T> {
+    fn first_owned(&self) -> T;
+}
+
+#[test]
+fn where_predicate_subject_keeps_its_angle_arguments() {
+    let v: Vec<u8> = vec![7];
+    assert_eq!(v.first_owned(), 7u8);
+}

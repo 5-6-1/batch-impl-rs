@@ -194,11 +194,11 @@ fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> Option<proc_macro2::Spa
         return None;
     }
     let mut i = 0;
-    while i < tokens.len() {
+    while let Some(cur) = tokens.get(i) {
         if is_carrier_at(tokens, i) && !is_macro_generated_carrier(tokens, i) {
-            return Some(tokens[i].span());
+            return Some(cur.span());
         }
-        if let TokenTree::Group(g) = &tokens[i] {
+        if let TokenTree::Group(g) = cur {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             if let Some(sp) = carrier_at_any(&inner, depth + 1) {
                 return Some(sp);
@@ -234,19 +234,19 @@ fn is_macro_generated_carrier(tokens: &[TokenTree], i: usize) -> bool {
 pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = Vec::with_capacity(tokens.len());
     let mut i = 0;
-    while i < tokens.len() {
-        let at_span = match &tokens[i] {
+    while let Some(cur) = tokens.get(i) {
+        let at_span = match cur {
             TokenTree::Punct(p) if p.as_char() == '@' => p.span(),
             _ => {
-                out.push(tokens[i].clone());
+                out.push(cur.clone());
                 i += 1;
                 continue;
             }
         };
         // Already a carrier (`@{...}`): keep both tokens verbatim.
-        if is_carrier_at(tokens, i) {
-            out.push(tokens[i].clone());
-            out.push(tokens[i + 1].clone());
+        if let Some(g) = carrier_group_at(tokens, i) {
+            out.push(cur.clone());
+            out.push(TokenTree::Group(g.clone()));
             i += 2;
             continue;
         }

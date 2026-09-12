@@ -10,7 +10,7 @@
 
 use proc_macro2::{TokenStream, TokenTree};
 
-use crate::util::{Op, read_op};
+use crate::util::{Op, read_op, slice_window};
 
 /// Rewrites every map key in `ts` to its replacement. See the module docs
 /// for the path-segment rule.
@@ -27,8 +27,8 @@ fn worker(
     v: &[TokenTree], map: &[(String, TokenStream)], mut in_path: bool, out: &mut TokenStream,
 ) {
     let mut i = 0;
-    while i < v.len() {
-        match &v[i] {
+    while let Some(cur) = v.get(i) {
+        match cur {
             TokenTree::Punct(p) if p.as_char() == '\'' => {
                 // lifetime quote + identifier: renamed lifetimes substitute
                 // too — a map hit replaces BOTH tokens (the value carries
@@ -43,7 +43,7 @@ fn worker(
                         i += 2;
                     }
                     None => {
-                        out.extend(v[i..std::cmp::min(i + 2, v.len())].to_vec());
+                        out.extend(slice_window(v, i, 2).to_vec());
                         i += 2;
                     }
                 }
@@ -57,26 +57,26 @@ fn worker(
                 match read_op(v, i) {
                     Some((Op::ColonColon, _)) => {
                         in_path = true;
-                        out.extend(v[i..i + 2].to_vec());
+                        out.extend(slice_window(v, i, 2).to_vec());
                         i += 2;
                     }
                     _ => {
                         in_path = false;
-                        out.extend(std::iter::once(v[i].clone()));
+                        out.extend(std::iter::once(cur.clone()));
                         i += 1;
                     }
                 }
             }
             TokenTree::Ident(_) if in_path => {
                 // path segment: verbatim; another `::` keeps the path going
-                out.extend(std::iter::once(v[i].clone()));
+                out.extend(std::iter::once(cur.clone()));
                 i += 1;
                 seg_next(&mut in_path, v, i);
             }
             TokenTree::Ident(id) => {
                 match lookup(map, &id.to_string()) {
                     Some(repl) => out.extend(repl.clone()),
-                    None => out.extend(std::iter::once(v[i].clone())),
+                    None => out.extend(std::iter::once(cur.clone())),
                 }
                 i += 1;
                 seg_next(&mut in_path, v, i);
