@@ -239,6 +239,14 @@ review against them:
 
 - Before release, run `cargo package --list` and eyeball the manifest:
   unrelated files (local notes, probes) must not ship.
+- **What the crate ships, and why** (the `exclude` list in `Cargo.toml` carries
+  the same reasoning): the build reads only `README.md`, `docs/tutorial.md` and
+  `src/doc/*.md` through `include_str!`. `docs/zh-CN/`, `docs/dev-changelog.md`
+  and `tests/` are development artifacts and are excluded — together, never
+  separately: `tests/doc_consistency.rs` reads the zh architecture and resolves
+  every path the current-state docs name (including `docs/dev-changelog.md`), so a
+  crate that shipped the tests without those docs would ship a suite that fails.
+  `cargo package` only **builds**, so it would not catch that.
 - Do not commit probe files (`tests/_iso/` is a scratch zone; lesson: it was
   committed twice by accident).
 

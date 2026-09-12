@@ -12,7 +12,27 @@ readme = "README.md"
 keywords = ["macro", "trait", "impl", "batch", "codegen"]
 categories = ["development-tools::procedural-macro-helpers"]
 rust-version = "1.95.0"
-exclude = ["rustfmt.toml", ".github/", "proptest-regressions/", "rust-2024-feature.md"]
+# Excluded from the published `.crate`:
+# - `rustfmt.toml` / `.github/` / `proptest-regressions/`: repo tooling.
+# - `rust-2024-feature.md`: local notes (lesson: it once shipped in every crate).
+# - `docs/zh-CN/` + `docs/dev-changelog.md`: development artifacts (the zh
+#   mirrors and the internal changelog). The build only reads `README.md`,
+#   `docs/tutorial.md` and `src/doc/*.md` via `include_str!`.
+# - `tests/`: the suite is developed here, not shipped. It has to go together
+#   with the docs above — `tests/doc_consistency.rs` reads `docs/zh-CN/…` and
+#   resolves every path the current-state docs name (including
+#   `docs/dev-changelog.md`), so a crate that shipped the tests without those
+#   docs would contain a suite that fails. `cargo package` only *builds*, so it
+#   cannot catch that; excluding both keeps the published crate self-consistent.
+exclude = [
+    "rustfmt.toml",
+    ".github/",
+    "proptest-regressions/",
+    "rust-2024-feature.md",
+    "docs/zh-CN/",
+    "docs/dev-changelog.md",
+    "tests/",
+]
 
 [lib]
 proc-macro = true

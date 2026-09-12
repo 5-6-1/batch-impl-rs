@@ -897,6 +897,24 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Second review, round 6: the published crate carries only what the build reads**
+  (F6) — the review measured 379 files in `cargo package --list`, including the
+  zh-CN mirrors (447 KB), both dev-changelogs (275 KB + 241 KB) and the whole
+  `tests/` tree (272 files, 366 KB), none of which `include_str!` touches (it reads
+  `README.md`, `docs/tutorial.md` and `src/doc/*.md` — verified, 12 sites).
+  - **The review's "free to exclude" was wrong, and the measurement is why this
+    round excludes `tests/` too**: `tests/doc_consistency.rs` reads
+    `docs/zh-CN/architecture.md` and resolves every path the current-state docs
+    name, so a crate that shipped the tests without those docs would ship a suite
+    that fails (measured on a copy: 2 passed → 0 passed / 2 failed with the docs
+    gone). `cargo package` only *builds*, so release would not catch it. Docs and
+    tests therefore leave together.
+  - **Result**: `cargo package --list` is **104 files / 1.1 MiB (316 KiB
+    compressed)**, down from 379; the crate keeps `README.md`, `docs/tutorial.md`,
+    `docs/architecture.md`, `docs/development-guide.md`, `src/doc/*`, `examples/`
+    and `src/`. `cargo package` verification builds the unpacked crate clean, and
+    the `exclude` list in `Cargo.toml` plus the development guide's packaging
+    section now carry the reasoning and the "never separately" rule.
 - **Second review, round 5: the documentation half (F5 / F7a / F7b / F7e / F7g)** —
   four of the review's five doc claims were confirmed in substance, one was
   refuted; each is now either fixed or recorded as measured.

@@ -157,6 +157,7 @@ cargo doc --no-deps                    # 零警告
 ## 9. 打包卫生
 
 - 发布前 `cargo package --list` 人工检查：无关文件（本地笔记、探针）不进包。
+- **包里到底装什么、为什么**（`Cargo.toml` 的 `exclude` 写了同样的理由）：构建只通过 `include_str!` 读 `README.md`、`docs/tutorial.md` 与 `src/doc/*.md`。`docs/zh-CN/`、`docs/dev-changelog.md` 与 `tests/` 是开发产物，一律排除——**必须一起排，不能只排一半**：`tests/doc_consistency.rs` 会读 zh 版 architecture，并解析当前态文档点到的每个路径（含 `docs/dev-changelog.md`），所以"带了 tests 却没带这些文档"的包会内含一个必然失败的测试套件，而 `cargo package` **只 build**、抓不到这一点。
 - 不提交探针文件（`tests/_iso/` 是临时区，历史教训：曾两次误提交）。
 
 ## 10. 边界（不要做的事）
