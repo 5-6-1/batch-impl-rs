@@ -21,16 +21,19 @@ use crate::codegen::extract::ImplParts;
 use crate::util::{is_punct_at, slice_from};
 
 /// `X<>` sync across an [`ImplParts`]: where predicates, `impl{...}`
-/// templates and impl-generic bounds fill unconditionally; a **switch
-/// template** (`impl{@trait<>}` / `impl{Tr<>}` — the empty-bracket spec
-/// trait alone) additionally turns on **body** sync. The switch itself is
-/// consumed (it does not match Self like an ordinary shape template).
-/// Returns `Err` on a sync error (reported by the caller).
+/// templates, impl-generic bounds **and the target type** fill with the spec trait
+/// application's arguments. A **switch template** (`impl{@trait<>}` / `impl{Tr<>}`
+/// — the empty-bracket spec trait alone) additionally turns on **body** sync; the
+/// switch itself is consumed (it does not match Self like an ordinary shape
+/// template). Returns `Err` on a sync error (reported by the caller), and otherwise
+/// the synced **templates** — the caller parses them next
+/// (`render::parse_impl_templates`), because `impl{GenW<>}` is only valid Rust
+/// after this pass.
 pub(crate) fn sync_impl_parts(
     parts: &mut ImplParts, trait_name: &TokenStream,
-) -> Result<(), TokenStream> {
+) -> Result<Vec<TokenStream>, TokenStream> {
     let Some(trait_ident) = trait_last_ident(trait_name) else {
-        return Ok(());
+        return Ok(vec![]);
     };
     let trait_args = parts.trait_generic_names.clone();
     let mut body_sync = false;
@@ -45,7 +48,6 @@ pub(crate) fn sync_impl_parts(
             matched.push(s);
         }
     }
-    parts.impl_templates = matched;
     let mut synced = Vec::with_capacity(parts.where_clauses.len());
     for w in &parts.where_clauses {
         synced.push(sync_trait_application(w.clone(), &trait_args)?);
@@ -74,7 +76,7 @@ pub(crate) fn sync_impl_parts(
     if body_sync && let Some(b) = &mut parts.body {
         *b = sync_trait_application(b.clone(), &trait_args)?;
     }
-    Ok(())
+    Ok(matched)
 }
 
 /// The spec trait's last path-segment ident — the name that marks a

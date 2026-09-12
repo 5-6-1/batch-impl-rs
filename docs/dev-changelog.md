@@ -897,6 +897,30 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **AST structure pass, step 3: the `impl{...}` templates are parsed once, at the
+  point they become Rust** — the payload was syn-parsed *inside* the shape kernel
+  (`collect_shape_mapping` called `render_angles` + `syn::parse2` per template on
+  every render). It cannot be parsed at the AST layer: a template may hold an `X<>`
+  marker (`impl{GenW<>}` — a documented, tested spelling), which is not valid Rust
+  until `sync_impl_parts` fills it. So the parse now sits exactly there:
+  - `sync_impl_parts` **returns** the synced template tokens (it no longer writes
+    them back into `ImplParts`), and `render::parse_impl_templates` parses them into
+    `Vec<syn::Type>`, stored in the new `ImplParts::shape_templates` — the raw
+    `impl_templates` field is what extraction found (switches already removed) and is
+    consumed by the sync. Each field documents its stage: the honest encoding of a
+    value whose type changes once.
+  - `collect_shape_mapping` now takes `&[syn::Type]`: the shape kernel receives
+    types, not tokens, and each template is parsed once per impl instead of once per
+    render.
+  - **Fallout, known and intended**: two snapshots changed
+    (`impl_template_dsl_ops`, `impl_template_range_constant`) — the diagnostic is now
+    the direct "the `impl{...}` template is not a standard Rust type (DSL operators
+    are not allowed inside)" instead of the shape kernel wrapping it as "template
+    cannot destructure the target type (…)". Same span (the attribute call site — the
+    template sits inside a Brace group, so its spans degrade, a documented platform
+    limit), clearer message, one error, no cascade.
+  - **Evidence**: lib **161**, features **298**, UI **103 + 3**, doctests 93, the 9
+    goldens unchanged, fmt/clippy/doc clean.
 - **AST structure pass, step 2: the `for<…>` binder is a parsed lifetime list** —
   `TyWithFor` kept its binder as one opaque `TokenStream` (`for_block` copied the
   `<>` contents verbatim), so `for<u8>` — a type parameter where Rust allows only

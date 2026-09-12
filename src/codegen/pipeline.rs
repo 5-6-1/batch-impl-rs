@@ -113,10 +113,19 @@ pub(crate) fn generate_parts(
     // `impl{...}` templates, impl-generic bounds **and the target type** fill
     // unconditionally (a `dyn … + Marker<>` tail is a structured bound list now,
     // so the sync reaches it); a **switch template** (`impl{@trait<>}` /
-    // `impl{Tr<>}`) additionally turns on **body** sync (see `sync.rs`).
-    if let Err(e) = sync_impl_parts(&mut parts, trait_name) {
-        return e;
-    }
+    // `impl{Tr<>}`) additionally turns on **body** sync (see `sync.rs`). The
+    // synced templates are parsed **here**, right after the sync: an `X<>` marker
+    // inside a template (`impl{GenW<>}`) is not valid Rust before it, so this is
+    // the templates' one parse site (`render::parse_impl_templates`) and the shape
+    // kernel receives types instead of tokens.
+    let synced_templates = match sync_impl_parts(&mut parts, trait_name) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    parts.shape_templates = match render::parse_impl_templates(&synced_templates) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
     // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
     let where_resolved = match resolve_where_predicates(&parts.where_clauses, &fresh_ctx) {
         Ok(ws) => ws,
@@ -181,7 +190,7 @@ pub(crate) fn generate_parts(
     // no-op case. Variadic segments (`ident@..`) additionally drive the
     // body's repeat blocks (`@(...)..`), which expand before the slot
     // mapping rewrites the resulting segment names.
-    let (shape_map, var_segs) = if parts.impl_templates.is_empty() {
+    let (shape_map, var_segs) = if parts.shape_templates.is_empty() {
         (Mapping::default(), Vec::new())
     } else {
         let target_span = target_tokens
@@ -190,7 +199,7 @@ pub(crate) fn generate_parts(
             .next()
             .map(|t| t.span())
             .unwrap_or_else(proc_macro2::Span::call_site);
-        match render::collect_shape_mapping(&target_tokens, &parts.impl_templates) {
+        match render::collect_shape_mapping(&target_tokens, &parts.shape_templates) {
             Ok((m, s)) => (m, s),
             Err(e) => return compile_error_str(&e.message(), target_span),
         }

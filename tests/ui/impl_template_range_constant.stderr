@@ -1,4 +1,4 @@
-error: batch-impl: `impl{...}` template cannot destructure the target type (the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside))
+error: batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)
  --> tests/ui/impl_template_range_constant.rs:9:1
   |
 9 | #[batch_impl(Box u8 impl{Vec<@..u128>})]

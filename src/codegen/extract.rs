@@ -25,10 +25,18 @@ pub(crate) struct ImplParts {
     /// where predicates from a `where{...}` suffix; multiple ones are joined into
     /// `where P1, P2, ...`, elements connected by commas.
     pub(crate) where_clauses: Vec<TokenStream>,
-    /// `impl{...}` shape templates, in attachment order —
-    /// matched against the leaf target type by `codegen::shape::match_shape`,
-    /// the merged slot mapping rewrites the target/where/body.
+    /// `impl{...}` shape templates, in attachment order, **as written** — the raw
+    /// segments extraction found (switches already removed). They are consumed by
+    /// the slot sync (`sync_impl_parts`), which returns them with their `X<>`
+    /// markers filled; only then are they valid Rust, so the parsed form lives in
+    /// [`Self::shape_templates`].
     pub(crate) impl_templates: Vec<TokenStream>,
+    /// The same templates, **parsed** (`render::parse_impl_templates`, run right
+    /// after the sync) — matched against the leaf target type by
+    /// `codegen::shape::match_shape`; the merged slot mapping rewrites the
+    /// target/where/body. An `X<>` marker inside a template (`impl{GenW<>}`) is the
+    /// reason the parse cannot happen earlier.
+    pub(crate) shape_templates: Vec<syn::Type>,
     /// A **fresh-binding switch template** (`impl{@0..}` / `impl{@1..}` /
     /// `impl{@0_0..}`): declares that the body's repeat blocks are driven by
     /// the impl's fresh generics in the range's scope — enabling fresh-driven
@@ -54,6 +62,7 @@ impl ImplParts {
             is_unsafe_impl: false,
             where_clauses: vec![],
             impl_templates: vec![],
+            shape_templates: vec![],
             fresh_binding: None,
             body_at: false,
         }

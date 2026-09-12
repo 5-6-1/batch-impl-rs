@@ -10,16 +10,45 @@ use crate::codegen::FreshCtx;
 use crate::codegen::extract::ImplParts;
 use crate::codegen::shape::{Mapping, ShapeError, VarSeg, match_shape};
 
+/// Parses each `impl{...}` shape template into a `syn::Type` — the templates'
+/// **one** parse site, run right after the slot sync (`sync_impl_parts`), which is
+/// the first moment they are valid Rust: an `X<>` marker inside a template
+/// (`impl{GenW<>}`) is not, and the pairing pass left `<...>` as groups, so
+/// `render_angles` restores the flat form first. Returns the templates in order,
+/// reporting the offender's own span (a DSL operator a template cannot hold is a
+/// property of the template, not of the target).
+pub(crate) fn parse_impl_templates(
+    templates: &[TokenStream],
+) -> Result<Vec<syn::Type>, TokenStream> {
+    templates
+        .iter()
+        .map(|t| {
+            let flat = crate::preprocess::render_angles(t.clone());
+            syn::parse2(flat).map_err(|_| {
+                let span = t
+                    .clone()
+                    .into_iter()
+                    .next()
+                    .map_or_else(proc_macro2::Span::call_site, |tt| tt.span());
+                crate::util::compile_error_str(
+                    "batch-impl: the `impl{...}` template is not a standard Rust type \
+                     (DSL operators are not allowed inside)",
+                    span,
+                )
+            })
+        })
+        .collect()
+}
+
 /// Matches every `impl{...}` template against the leaf target type and
 /// merges the slot mappings (identical re-bindings legal, conflicting ones
-/// error). Both sides must be standard Rust types: the template is
-/// user-written (syn-parsed, with variadic-segment placeholders already in
-/// place), the target is the rendered leaf with its fresh references already
-/// resolved to display names (a carrier is not valid Rust — syn could not
-/// destructure it). Returns the merged mapping and the resolved variadic
-/// segments.
+/// error). Both sides must be standard Rust types: the templates are parsed once
+/// by [`parse_impl_templates`] (after the `X<>` sync), the target is the rendered
+/// leaf with its fresh references already resolved to display names (a carrier is
+/// not valid Rust — syn could not destructure it). Returns the merged mapping and
+/// the resolved variadic segments.
 pub(crate) fn collect_shape_mapping(
-    target_tokens: &TokenStream, templates: &[TokenStream],
+    target_tokens: &TokenStream, templates: &[syn::Type],
 ) -> Result<(Mapping, Vec<VarSeg>), ShapeError> {
     let target = syn::parse2(target_tokens.clone()).map_err(|_| {
         ShapeError::ShapeMismatch(
@@ -29,18 +58,8 @@ pub(crate) fn collect_shape_mapping(
     })?;
     let mut merged = Mapping::default();
     let mut segs = vec![];
-    for t in templates {
-        // The template's `<...>` was angle-paired by `angle_collect`
-        // (`impl{...}` is now entered like `where{...}`), but syn needs flat
-        // `<...>` — restore the pairing before parsing.
-        let flat = crate::preprocess::render_angles(t.clone());
-        let template = syn::parse2(flat).map_err(|_| {
-            ShapeError::ShapeMismatch(
-                "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)"
-                    .into(),
-            )
-        })?;
-        let (m, s) = match_shape(&template, &target)?;
+    for template in templates {
+        let (m, s) = match_shape(template, &target)?;
         merged.merge(m)?;
         segs.extend(s);
     }

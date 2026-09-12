@@ -200,6 +200,12 @@
   parse merged into the trait's own arguments, generating
   `impl<T> Trait<T, T> for Holder<T>` (an impl nobody can compile). Only the head
   expands now, and the target's marker follows the sync rule above.
+- **A DSL operator inside an `impl{...}` template is reported directly** — the
+  shape kernel used to wrap the templates' parse failure as "template cannot
+  destructure the target type (…)", burying the actual message; the templates are
+  now parsed once, right after the `X<>` sync, so the diagnostic reads "the
+  `impl{...}` template is not a standard Rust type (DSL operators are not allowed
+  inside)".
 - **A `+` with no bound after it in a `dyn` list is diagnosed** — `dyn Send +` used
   to emit the bare `+` for rustc to complain about; the DSL now reports "a `+` in a
   `dyn` bound list needs a bound after it".

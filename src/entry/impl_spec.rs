@@ -155,6 +155,7 @@ pub(crate) fn assemble_impl(
         is_unsafe_impl: item.unsafety.is_some(),
         where_clauses: vec![],
         impl_templates: vec![],
+        shape_templates: vec![],
         fresh_binding: None,
         body_at: false,
     };
