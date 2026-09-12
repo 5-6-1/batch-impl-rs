@@ -135,8 +135,8 @@ trait Describe2 { fn describe(&self) -> String; }
 | Tuple generation                                 | `().3`, `(T,).N`, Cartesian product, ranges  | §9 | core |
 | Splat `*` prefix                                | Flatten containers/generators into the enclosing list — in-list splice, `.` right-operand flat append, generic multi-arg; left operand `*[...]` distribute / `*(...)` append | §4 | core |
 | Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | §5 | core |
-| Associated type bindings                         | `Iter<Item=T>` → `type Item = T;`            | §5.3 | core |
-| fn types / unsafe / pointers / attributes        | Full support for type-level modifiers (`unsafe fn` is the fn type; `unsafe.fn` marks the impl unsafe) | §10 | core |
+| Associated type bindings                         | `Iter<Item=T>` → `type Item = T;` — accepted on a trait path, in a declaration **and in a bound** (`T: Iterator<Item = u8>`, `dyn Iterator<Item = u8>`) | §5.3, §5.7 | core |
+| fn types / unsafe / pointers / attributes        | Full support for type-level modifiers (`unsafe fn` is the fn type; `unsafe.fn` marks the impl unsafe), including named parameters (`fn(x: u8) -> u8`) | §5.7, §10 | core |
 | `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` leading `@name=value;` custom sections (lazy expansion, chained references; attribute macros do not support them — write matrices directly) | §6 | advanced |
 | Generic parameter families                     | `@all_type_params` / `@all_const_params` / `@all_lifetimes` — generic declarations copy the trait's formal params (bounds via same-name inheritance) | §6 | advanced |
 | Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..=M`) belong to the macro-meta layer | §6 | advanced |

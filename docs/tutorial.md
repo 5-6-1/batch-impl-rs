@@ -331,6 +331,69 @@ trait B2 {}
 trait Foo<T> {}
 ```
 
+### 5.6 Qualified types: `<T as Tr>::Assoc`
+
+A qualified type picks an associated item through `::`, and every spelling of it
+is accepted: the projection (`<T as Tr>::Assoc`), the qualified path
+(`Foo<T>::Assoc`) and the turbofish (`Foo::<u8>::Assoc`, rendered as
+`Foo<u8>::Assoc`). They work anywhere a type does — as the target, as a generic
+argument, inside a bound, and nested:
+
+```rust
+# use batch_impl::batch_impl;
+trait Tr { type Assoc; }
+struct S;
+impl Tr for S { type Assoc = u8; }
+impl Tr for u8 { type Assoc = u16; }
+struct Holder<T>(T);
+struct Wrap<T>(T);
+
+// target: `impl Q for Holder<<S as Tr>::Assoc>` (= `Holder<u8>`)
+#[batch_impl(Holder<<S as Tr>::Assoc>)]
+trait Q {}
+
+// nested projection as a generic argument:
+// `impl Q2 for Vec<<<S as Tr>::Assoc as Tr>::Assoc>` (= `Vec<u16>`)
+#[batch_impl(Vec<<<S as Tr>::Assoc as Tr>::Assoc>)]
+trait Q2 {}
+
+// inside a bound: `<T: From<<S as Tr>::Assoc>> Q3<T> Wrap<T>`
+#[batch_impl(<T: From<<S as Tr>::Assoc>> Q3<T> Wrap<T>)]
+trait Q3<T> {}
+```
+
+The `::`-tail is **plain Rust path text**: it is never re-parsed, so a DSL token
+inside it (`Holder<T>::Assoc<@0>`) is rejected with a targeted error instead of
+leaking into the generated impl.
+
+### 5.7 Bound positions, global paths and named fn parameters
+
+Three further Rust spellings are accepted:
+
+```rust
+# use batch_impl::batch_impl;
+// Associated-type bindings are legal on **any** trait path in a bound position:
+// `dyn`, `for<'a>` and an inline bound all take them. A plain type's args are
+// still a plain type list (`Vec<Item = u8>` stays a targeted error).
+#[batch_impl(Box<dyn Iterator<Item = u8>>)]
+trait Q4 {}
+
+// A leading `::` makes a path **global** — at the start of a spec, nested in an
+// args list, and before a `::`-tail.
+#[batch_impl(::std::vec::Vec<u8>)]
+trait Q5 {}
+
+// A `fn(...)` **pointer** type may name its parameters. The name stays verbatim
+// and the type after `:` is parsed, so DSL operands work inside it
+// (`fn(v: Box<u8>) -> u8`).
+#[batch_impl(fn(x: u8) -> u8)]
+trait Q6 {}
+```
+
+`Fn(x: u8)` is **not** accepted: rustc itself rejects named parameters in the
+`Trait(...)` sugar ("does not support named parameters"), so the DSL reports
+that rule instead of leaking a confusing `expected type` error.
+
 ## 6. The `@` Constant System (macro-meta layer)
 
 `@` is the DSL's reserved **library-owned constant namespace** — `#` is taken by the directive mechanism, so `@` provides "name and reuse type-matrix entries". It is pure **lexical substitution** (the macro-meta layer): the expanded result enters the pipeline and participates in no in-domain parsing.
@@ -980,10 +1043,65 @@ instead of just a body.**
   `;` separates multiple specs (`W:u8; W:u16`), the single-spec case is the
   common one;
 - `@trait` (→ the impl's trait path) is allowed in generic-decl bounds and
-  where predicates; custom `@` constants, `@N`/`@g_i` refs and `#` directives
-  are rejected on this entry;
+  where predicates; custom `@` constants and `#` directives are rejected on this
+  entry. A generator in the spec hoists fresh generics onto the impl and `@N..`
+  where selectors resolve against them (`@N` with no generator has nothing to
+  refer to and is reported out of range);
 - the impl's own generics / where clause / `unsafe` are preserved; the bare
   where region also ends at a depth-0 `;` or the end of the stream.
+- an **empty** spec list (`#[batch_impl]`, `#[batch_impl()]`, `#[batch_impl(;)]`)
+  is a **no-op**: the attribute only *derives* impls from the block, so with
+  nothing to derive the block is emitted unchanged instead of being withheld.
+- **Stacked attributes are stages of one derivation.** A second (third, …)
+  `#[batch_impl]` above the block is not another spec list: rustc expands the
+  **outermost** attribute first and hands it the rest, this entry re-emits them on
+  the impls it derives, and the compiler then expands the next stage **on those
+  impls** — so the stages run in **source order** (top → bottom) over the
+  **accumulating block**, and a slot one stage leaves in place is bound by the
+  next. The stages compose into a product. An **empty** stage is the identity — a
+  stage you can switch off:
+
+  ```rust
+  # use batch_impl::batch_impl;
+  # struct Pair<A, B>(A, B);
+  # trait Tag { fn tag(&self) -> u32; }
+  #[batch_impl(A : [u8, u16])]      // stage 1 binds `A`
+  #[batch_impl(B : [u32, u64])]     // stage 2 binds the `B` stage 1 left alone
+  impl Tag for Pair<A, B> { fn tag(&self) -> u32 { 0 } }
+  // → impl Tag for Pair<u8,u32> / Pair<u8,u64> / Pair<u16,u32> / Pair<u16,u64>
+  ```
+- **Where an attribute in the stack lands.** A plain attribute written between two
+  stages belongs to the **expansion level** it is written at: it is emitted on the
+  impls that stage derives, and a later stage inherits it from them. That is also
+  what scopes a `#[cfg]` there — a `#[cfg]` at a level gates the impls derived at
+  that level *and every stage below it* (measured: with a mid-stack
+  `#[cfg(any())]`, a later stage that would have failed on those impls never ran).
+  `#[cfg(test)]` below a stage is the always-true form.
+- **Why the order is needed, not just a convention.** A *shape family* —
+  container forms that are not the same head (`Vec<T>`, `[T; 4]`, `Box<[T]>`,
+  `&[T]`) — needs one prototype per family in §8.4's pattern, because a single
+  template cannot match four differently shaped heads. Two stages say it directly:
+  stage 1 introduces the **shape with the element slot left open**, stage 2 fills
+  that slot, and stage 2's substitution reaches *inside* what stage 1 produced
+  (`B` lands in four different positions, one of them behind a reference):
+
+  ```rust
+  # use batch_impl::batch_impl;
+  # trait Elem { fn elem_bytes(&self) -> usize; }
+  #[batch_impl(A : [Vec<B>, [B; 4], Box<[B]>, &'static [B]])]
+  #[batch_impl(B : [u8, u64])]
+  impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
+  // → impl Elem for Vec<u8> / Vec<u64> / [u8; 4] / [u64; 4]
+  //                 / Box<[u8]> / Box<[u64]> / &'static [u8] / &'static [u64]
+  ```
+
+  Swapping the two attributes breaks it: the element gets bound while the block
+  does not mention it yet, and the shape stage then introduces a `B` that nothing
+  binds any more — measured as four `E0425: cannot find type `B`` (one per shape
+  leaf) instead of eight working impls. The stage order is what makes "shape
+  first, element second" expressible at all, and it is the order rustc's attribute
+  expansion gives (outermost first) — locked by
+  `tests/features/impl_entry_chain.rs`.
 
 ## 9. Tuple Generation and Matrices
 
@@ -1074,7 +1192,11 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Generic rename breaks inheritance**: renaming a trait generic param = explicit error, never silent
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
 - **Empty range** (`@u16..u8`): "no impls generated for empty range"
-- **`=`/`:` in concrete-type args**: bindings/bounds are trait-path/declaration-only — targeted error (`Assoc<Item = u32>` with a struct reports "binding args are only valid on a trait path")
+- **`=`/`:` in concrete-type args**: bindings/bounds belong to a trait path, a
+  generic declaration **or a bound** — the bound position (`T: Iterator<Item = u8>`,
+  and the same inside `dyn` / `impl Trait` / `for<'a>`) is the one the DSL only
+  learned later; anywhere else a targeted error (`Assoc<Item = u32>` with a struct
+  reports "binding args are only valid on a trait path … in a bound")
 - **Stray `;`/`=`/`@`/`#`/`-` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic; a lone `-` is the retired operator — the exclusion lives only in directive lists)
 - **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `fn(A) B`)
 - **Blanket method takes/returns bare `Self`**: `#blanket` cannot delegate a

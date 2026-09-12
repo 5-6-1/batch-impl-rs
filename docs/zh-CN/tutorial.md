@@ -339,6 +339,60 @@ trait B2 {}
 trait Foo<T> {}
 ```
 
+### 5.6 限定类型：`<T as Tr>::Assoc`
+
+限定类型通过 `::` 取关联项，三种拼写都支持：限定自身（`<T as Tr>::Assoc`）、带泛型实参的限定路径（`Foo<T>::Assoc`）、turbofish（`Foo::<u8>::Assoc`，渲染为 `Foo<u8>::Assoc`）。它们能出现在任何类型能出现的位置——目标、泛型实参、bound 内，以及嵌套：
+
+```rust
+# use batch_impl::batch_impl;
+trait Tr { type Assoc; }
+struct S;
+impl Tr for S { type Assoc = u8; }
+impl Tr for u8 { type Assoc = u16; }
+struct Holder<T>(T);
+struct Wrap<T>(T);
+
+// 作目标：`impl Q for Holder<<S as Tr>::Assoc>`（= `Holder<u8>`）
+#[batch_impl(Holder<<S as Tr>::Assoc>)]
+trait Q {}
+
+// 嵌套限定作泛型实参：
+// `impl Q2 for Vec<<<S as Tr>::Assoc as Tr>::Assoc>`（= `Vec<u16>`）
+#[batch_impl(Vec<<<S as Tr>::Assoc as Tr>::Assoc>)]
+trait Q2 {}
+
+// bound 内：`<T: From<<S as Tr>::Assoc>> Q3<T> Wrap<T>`
+#[batch_impl(<T: From<<S as Tr>::Assoc>> Q3<T> Wrap<T>)]
+trait Q3<T> {}
+```
+
+`::` 尾巴是**普通 Rust 路径文本**：它绝不重新解析，因此尾巴里的 DSL 记号（`Holder<T>::Assoc<@0>`）会得到定向错误，而不是漏进生成的 impl。
+
+### 5.7 bound 位置、全局路径与 fn 具名参数
+
+另外三种 Rust 拼写同样被接受：
+
+```rust
+# use batch_impl::batch_impl;
+// 关联类型绑定在 bound 位置上对**任何** trait 路径合法：`dyn`、`for<'a>` 与
+// 内联 bound 都能带。普通类型的实参仍是普通类型列表
+// （`Vec<Item = u8>` 仍报定向错误）。
+#[batch_impl(Box<dyn Iterator<Item = u8>>)]
+trait Q4 {}
+
+// 开头的 `::` 让路径成为**全局路径**——可作 spec 起始、可嵌在实参列表里，
+// 也可接 `::` 尾巴。
+#[batch_impl(::std::vec::Vec<u8>)]
+trait Q5 {}
+
+// `fn(...)` **指针**类型可以给参数起名。名字原样保留、`:` 之后的类型照常解析，
+// 因此具名参数内可用 DSL 算子（`fn(v: Box<u8>) -> u8`）。
+#[batch_impl(fn(x: u8) -> u8)]
+trait Q6 {}
+```
+
+`Fn(x: u8)` **不**被接受：rustc 本身就拒绝 `Trait(...)` 语法里的具名参数（"does not support named parameters"），DSL 因此照实报出这条规则，而不是漏出一个令人困惑的 `expected type` 错误。
+
 ## 6. `@` 常量系统（宏元层）
 
 `@` 是 DSL 预留的**库专属常量命名空间**——`#` 被指令机制占用，`@` 提供"命名并复用类型矩阵条目"的能力。它是纯**词法替换**（宏元层）：展开结果进入后续管道，不参与任何域内解析。
@@ -873,9 +927,51 @@ impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
   `<T> Box<T>`（泛型声明 + for-type，N = 1）；`;` 分隔多个 spec（`W:u8; W:u16`），
   单 spec 为常见形态；
 - `@trait`（→ impl 的 trait path）允许在泛型声明 bound 与 where 谓词中；自定义
-  `@` 常量、`@N`/`@g_i` 引用与 `#` 指令在本入口拒绝；
+  `@` 常量与 `#` 指令在本入口拒绝。spec 里的生成器会把 fresh 泛型提升到 impl 上，
+  `@N..` where 选择器据此解析（没有生成器时 `@N` 无可指对象，报越界）；
 - impl 自带的泛型 / where 子句 / `unsafe` 保留；裸 where 谓词区域也以深度 0 `;`
   或（ItemImpl 仅）流末尾终止。
+- **空** spec 列表（`#[batch_impl]`、`#[batch_impl()]`、`#[batch_impl(;)]`）是
+  **无操作**：属性只负责从该块**派生** impl，没有可派生内容时原块被原样发射，而不是被扣下。
+- **属性堆叠是同一次派生的多个 stage。** 块上方的第二个（第三个……）`#[batch_impl]`
+  不是又一份 spec 列表：rustc 先展开**最外层**属性并把其余属性交给它，本入口把它们重新发射到
+  自己派生的 impl 上，编译器随后在**那些 impl 上**展开下一步——于是各步按**源码顺序**
+  （自上而下）作用于**累积中的块**：前一步留在原地的槽位由后一步绑定，各步合成为笛卡尔积。
+  **空** stage 是恒等元——用它可以把某一步关掉：
+
+  ```rust
+  # use batch_impl::batch_impl;
+  # struct Pair<A, B>(A, B);
+  # trait Tag { fn tag(&self) -> u32; }
+  #[batch_impl(A : [u8, u16])]      // stage 1 绑定 `A`
+  #[batch_impl(B : [u32, u64])]     // stage 2 绑定 stage 1 留下的 `B`
+  impl Tag for Pair<A, B> { fn tag(&self) -> u32 { 0 } }
+  // → impl Tag for Pair<u8,u32> / Pair<u8,u64> / Pair<u16,u32> / Pair<u16,u64>
+  ```
+- **栈里属性的落点。** 写在两步之间的普通属性属于它所在的**展开层级**：它被发射到该 stage
+  派生出的 impl 上，后续 stage 再从这些 impl 继承它。`#[cfg]` 的作用域也正由此确定——某一层的
+  `#[cfg]` 会裁掉**该层派生的 impl 以及它下面的所有 stage**（实测：中层 `#[cfg(any())]` 时，
+  下层那个必然报错的 stage 根本没有运行）。某层下面的 `#[cfg(test)]` 即恒真形态。
+- **顺序为什么是必需的，而不只是约定。** 一个 *shape family*——头部形状各不相同的容器形态
+  （`Vec<T>`、`[T; 4]`、`Box<[T]>`、`&[T]`）——在 §8.4 的模式里每族都需要一个 prototype，
+  因为单个模板无法匹配四种不同形状的头部。用两步就能直接表达：第 1 步引入**留着元素槽的
+  形状**，第 2 步填这个槽；而第 2 步的替换会**钻进**第 1 步产出的 token 内部（`B` 落在
+  四个不同位置，其中一个在引用之后）：
+
+  ```rust
+  # use batch_impl::batch_impl;
+  # trait Elem { fn elem_bytes(&self) -> usize; }
+  #[batch_impl(A : [Vec<B>, [B; 4], Box<[B]>, &'static [B]])]
+  #[batch_impl(B : [u8, u64])]
+  impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
+  // → impl Elem for Vec<u8> / Vec<u64> / [u8; 4] / [u64; 4]
+  //                 / Box<[u8]> / Box<[u64]> / &'static [u8] / &'static [u64]
+  ```
+
+  把两条属性对调就会坏掉：元素在块还没提到它时就被绑定，随后形状那一步又引入了一个
+  **没有人再绑定的** `B`——实测是四条 `E0425: cannot find type `B``（每个形状叶子一条），
+  而不是八个可用 impl。正是 stage 顺序让"先形状、后元素"这件事可表达，而这个顺序就是 rustc
+  属性展开给出的顺序（最外层先）——由 `tests/features/impl_entry_chain.rs` 锁定。
 
 ## 9. 元组生成与矩阵
 
@@ -995,7 +1091,7 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **泛型改名不继承**：trait 泛型参数改名 = 明确报错，绝不静默
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
 - **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
-- **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径与泛型声明——定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path"）
+- **具体类型实参遇 `=`/`:`**：binding/bound 只属 trait 路径、泛型声明**或 bound 位置**——bound 位置（`T: Iterator<Item = u8>`，`dyn` / `impl Trait` / `for<'a>` 内同理）是 DSL 后来才支持的；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … in a bound"）
 - **类型位置的 `;`/`=`/`@`/`#`/`-` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断；孤 `-` 是已退役运算符——排除语义仅存于指令列表）
 - **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `fn(A) B`）
 - **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型

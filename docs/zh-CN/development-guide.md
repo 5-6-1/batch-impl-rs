@@ -75,11 +75,31 @@ cargo doc --no-deps                    # 零警告
   （`preprocess/varseg.rs`）与 range 长度检查（`apply/apply_tuple.rs`）在违反时
   返回错误。回归守卫：`varseg::tests::postcondition_canary_never_fires`
   （≤6 token 穷举 + 随机长序列）、`scan::tests::cursor_position_never_exceeds_len`。
+  **强制而非仅承诺**（两条腿，均可证伪——临时违规必须让它失败，已实测）：
+  （1）`src/lib.rs` 带 `#![cfg_attr(not(test), deny(clippy::unwrap_used,
+  clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo,
+  clippy::unimplemented))]`——`not(test)` 作用域刻意给 crate 自身的
+  `#[cfg(test)]` 模块与集成测试 crate 保留 `unwrap`/`assert!`；（2）
+  `tests/no_panic/main.rs` 是源码级的那条腿：用 `syn` 走遍 `src/**/*.rs`（注释与
+  字符串永不误报），报 `assert!` / `debug_assert*!`（clippy 无对应 lint）、
+  `.unwrap()` / `.expect(…)`、以及**宏 token 流内部**铸出的 panic 构造
+  （`quote!(x.unwrap())`——clippy 的 HIR 趟看不到）、**限定形式**
+  （`Option::unwrap(o)`，clippy 的 `unwrap_used` 不抓）、以及**任何位置**静默
+  该家族的 `#[allow(…)]`（item / impl item / 语句 / 表达式 / 文件自身的内层
+  属性 / 嵌在 `#[cfg_attr(…)]` 里的臂 / **宏体内**的属性）与任何一刀切静默
+  （`clippy::all`、`clippy::restriction`——整个家族所属的组——或 `warnings`）
+  ——例外必须是那个守卫文件上的一次编辑，评审看得见。`#[cfg(test)]` 闸门是精确
+  的：只跳过裸谓词，因此 `#[cfg(not(test))]` 的代码与其他生产代码一样被扫描。
+  clippy 那条腿在 `clippy` job 跑；源码守卫搭在每个会执行测试的 job 上（全量 stable job，
+  以及 MSRV 与 Windows 功能 job），并带"走查或跳过集坏掉就失败"的下限。
+  **索引/切片棘轮：已完成，并收编为一行。** 迁移是逐文件进行的（生产代码 **208 → 0**——在棘轮前修订上重测为 207 个 `indexing_slicing` + 1 个 `string_slice`，跨 35 个文件；迁移当时的自计数为 203），每个文件临时带一个文件级 `deny(clippy::indexing_slicing)`；完成时把那些属性（记录该数字时为 24 个）全部替换为 `src/lib.rs` 里的**一行 crate 级 deny**（`cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::string_slice))`，由 `tests/no_panic/main.rs::the_crate_denies_the_panic_and_indexing_families` 断言——重构删掉它就会一次性重开所有落点）。两个 lint 都要点名：它们是**分开**的，只写索引那个时 `&s[..n]`（字符串切片）会漏过去。真正干活的是两个应当复用的转换模式：在循环顶部一次性绑定当前 token（`while let Some(cur) = tokens.get(i)`，随后 `match cur` / `cur.span()` / `cur.clone()`）取代重复索引；把该 token 下传给辅助函数（`expand_group` / `expand_at` 新增 `cur` 参数）取代再读 `tokens[i]`。反复出现的切片惯用法住在 `util/scan.rs`——`span_at` / `slice_from` / `slice_upto` / `slice_window` / `slice_between`（`span_at` 吃 token 切片，其余四个对元素类型泛型），其中钳制的那几个**刻意钳制**（`get(..n)` 不是钳制：`n > len` 时返回 `None`）。该家族的*局部* `#[allow]` 仍属例外：必须登记到 `tests/no_panic/main.rs` 的 `INDEXING_ALLOW_EXCEPTIONS`，评审看得见；绝不使用模块级整体 allow。
 - **单权威哲学**：每个跨模块判定收编到一处——`util/punct_ops.rs::read_op`
   （运算符形状）、`util/diagnostic.rs::compile_error_str`（错误构造）、
   `util/scan.rs::is_impl_template`（`impl{...}` 判别）、
-  `entry/impl_spec.rs::chunks_to_streams`（where 块切分）、
-  `ast/fresh.rs::is_carrier_at`（载体识别）。发现重复判定 → 收编，不新开副本。
+  `entry/impl_entry.rs::chunks_to_streams`（where 块切分）、
+  `ast/fresh_protocol.rs::is_carrier_at`（载体识别）、
+  `ast/param_kind.rs::ParamKind`（参数种类——类型 / const / 生命周期——
+  以及随之的 `const` 关键字剥离）。发现重复判定 → 收编，不新开副本。
 - **语法冻结（0.7.2 起）**：既有 token 语义 final，新版本只做**加法**
   （新指令/常量/工具）、诊断精化、文档。任何语义变更 = 刻意的破坏性发布。
 - **诊断 span**：指向用户可见 token（`err_ty_at` 水位），不用裸 `Span::call_site`
@@ -123,7 +143,7 @@ cargo doc --no-deps                    # 零警告
 ## 8. 测试布局
 
 - 默认内联 `#[cfg(test)]`；数量大或整体性强时迁入 `tests/features/`
-  （按功能域分模块，每模块 <350 行，由 `tests/dsl.rs` 挂载）。
+  （按功能域分模块，每模块 ≤350 行，由 `tests/dsl.rs` 挂载）。
 - UI 快照（trybuild）在 `tests/ui/`；黄金展开快照在 `tests/golden/`。
 - fuzz（`src/testing/fuzz.rs`）直调单 pass、容忍乱序输入——它是类型态链外
   的第二层防线；词表要覆盖每个 pass 的入口关键词（历史教训：词表缺 `impl`

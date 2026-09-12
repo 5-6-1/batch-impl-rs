@@ -127,8 +127,8 @@ trait Describe2 { fn describe(&self) -> String; }
 | 元组生成                             | `().3`、`(T,).N`、笛卡尔积、范围            | §9 | 核心 |
 | splat `*` 前缀                      | 摊平容器/生成器进外层列表——列表内拼接、`.` 右操作数扁平追加、泛型多实参；左操作数 `*[...]` 分配 / `*(...)` 追加 | §4 | 核心 |
 | 泛型自动化                           | `A<>` 照抄、同名继承、trait where 子句继承  | §5 | 核心 |
-| 关联类型绑定                         | `Iter<Item=T>` → `type Item = T;`           | §5.3 | 核心 |
-| fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持（`unsafe fn` 是 fn 类型；`unsafe.fn` 才是 unsafe impl 标记） | §10 | 核心 |
+| 关联类型绑定                         | `Iter<Item=T>` → `type Item = T;`——trait 路径、泛型声明**与 bound 位置**（`T: Iterator<Item = u8>`、`dyn Iterator<Item = u8>`）都可 | §5.3、§5.7 | 核心 |
+| fn 类型 / unsafe / 指针 / 属性       | 类型级修饰符全支持（`unsafe fn` 是 fn 类型；`unsafe.fn` 才是 unsafe impl 标记），含具名参数（`fn(x: u8) -> u8`） | §5.7、§10 | 核心 |
 | `@` 常量                             | 内置族 `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` 系/`@Cow` + `batch_trait!` 前导自定义段 `@name=value;`（懒展开、链式引用；属性宏不支持——矩阵直接写） | §6 | 进阶 |
 | 泛型参数族                           | `@all_type_params` / `@all_const_params` / `@all_lifetimes`——泛型声明照抄 trait 形参（bound 走同名继承） | §6 | 进阶 |
 | 宏元层统一 `@`                       | `#` 只剩指令名，范围选择（`@all` 系，含 required/default 与 receiver 过滤）与位置引用（`@N`/`@g_i`/`@all_fresh`/`@N..=M`）归宏元层 | §6 | 进阶 |

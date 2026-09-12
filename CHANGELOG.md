@@ -27,21 +27,32 @@
   variadic-segment residue check (`mark_template`, proven unreachable by an
   exhaustive input sweep) and the range-length check. The `Cursor` position
   invariant (`bump` / `advance` clamp to the end) makes the parse layer's
-  slicing structurally panic-free.
-- **`<constant: Clone>` duplicate declarations keep both bounds** — a type
-  param merely *named* `constant` is no longer mistaken for a `const`
-  parameter; duplicate bounds merge into where predicates as documented.
+  slicing structurally panic-free. This no longer rests on review alone: a
+  clippy deny family in `lib.rs` plus a source-level guard test
+  (`tests/no_panic/main.rs`, which also rejects silencing the family with
+  `#[allow]`) fail the build if a panic construct reappears.
+- **A type parameter merely *named* `constant` is never a `const` parameter**
+  — the shape check (`const` + ident) now covers both the duplicate-declaration
+  merge (`<constant: Clone> <constant: Copy>`) and the
+  declaration-vs-argument decision: `Vec.<constant>` renders `Vec<constant>`
+  (it used to hoist `<constant>` out as a generic declaration and fail with
+  E0107). Duplicate bounds merge into where predicates as documented.
 - **Open fresh ranges past the end are a no-op everywhere** — `where{@5..:
   Clone}` on a 2-fresh impl contributes zero predicates instead of panicking
   (the where-predicate path had the same index-out-of-bounds gap the type
   path had already fixed).
 - **Invalid fresh-binding switches error** — `impl{@2..1}` / `impl{@2..=1}`
   (a range covering no fresh) report "invalid fresh-binding switch" instead
-  of silently re-opening or falling into the shape-template path.
+  of silently re-opening or falling into the shape-template path. It is the
+  **only** error reported: the message replaces the impl, so no parser
+  fallout (`expected {}, found ;`) or unconstrained-parameter error follows it.
 - **Over-limit bound-generator distribution errors** — a bound-array
   Cartesian product past the expansion cap reports "expands to N impls
   (limit ...)" instead of emitting an illegal `T: [A, B, ...]` bound for
-  rustc to report confusingly.
+  rustc to report confusingly. The diagnostic replaces the expansion (the
+  product is checked before anything is allocated), and it guards the
+  *product*: ranges that each stay under the cap on their own (three 31-arity
+  ranges → 29791 impls) are exactly the case it exists for.
 - **`impl`-entry multi-template merge** — an `impl` entry with several
   shape templates over one matrix (`impl{...} impl{...}`) now keeps and
   merges *every* template instead of silently keeping only the last; the
@@ -64,6 +75,117 @@
 - **An empty exclusive range in a where predicate errors** — `where{@2..2:
   Clone}` reports "empty exclusive range" like the type positions instead of
   leaking a raw `@..` into the rendered clause.
+- **Over-limit errors say what they measured** — an over-limit `.N` / range /
+  Cartesian product still reports "expands to N impls (limit 1024)", while the
+  internal guard for composed array×range chains (the path that used to hang the
+  compiler) now reports "reaches an expansion mass of N nodes (limit 1024)"
+  instead of reusing the impl wording for a number that is not an impl count.
+- **Qualified types are now expressible in specs** — `<T as Tr>::Assoc`,
+  `Foo<T>::Assoc` and `Foo::<u8>::Assoc` (turbofish) parse and render, in the
+  target, as a generic argument, inside a bound and nested
+  (`<<T as Tr>::Assoc as Tr>::Assoc`). They used to report
+  "unexpected `:` after the type", because the angle-bracket pairing pass had
+  already made `<...>` a self-contained group with nowhere for the `::`-tail to
+  attach. Purely additive: every spelling that parsed before renders the same
+  tokens (locked by a test).
+- **An `impl`-entry block's own attributes now reach the generated impls** —
+  `#[cfg]` / `#[allow]` / `#[doc]` written on the `impl` block that carries
+  `#[batch_impl(…)]` were dropped silently, so a `#[cfg(feature = …)]` there
+  produced impls that existed unconditionally. They are emitted ahead of every
+  generated impl, matching the attribute entry, which has always inherited its
+  spec's attachments.
+- **Associated-type bindings now work in bound positions** —
+  `<T: Iterator<Item = u8>>`, `dyn Iterator<Item = u8>`,
+  `Box<dyn Iterator<Item = u8>>`, `for<'a> Iterator<Item = u8>` and
+  `dyn (Iterator<Item = u8>)` are all valid Rust and all used to report the
+  concrete-type error ("binding args (`Item = u32`) are only valid on a trait
+  path …"), because "is this head a trait?" was answered by the annotated
+  trait's name alone. A plain type's args are still a plain type list —
+  `Vec<Item = u8>` keeps its targeted error, whose wording now also names the
+  bound position — and the acceptance stops at the **head** of the bound
+  element: a sub-type position inside it (`T: fn(Vec<Item = u8>)`,
+  `T: (Vec<Item = u8>,)`, `T: &'static Vec<Item = u8>`) keeps the same error.
+  A comma-less `(...)` is exempt on purpose — Rust reads it as a parenthesized
+  bound (`dyn (Iterator<Item = u8>)` compiles).
+- **Global paths (`::std::vec::Vec<u8>`) parse** — the leading `::` opens a
+  block, so it works at the start of a spec, nested in an args list
+  (`Box<::std::vec::Vec<u8>>`) and before a `::`-tail. Before this, a global
+  path was unparseable at the top level and **silently empty** inside an args
+  list (`Box<::std::vec::Vec<u8>>` rendered `Box<>`). A `::` not followed by a
+  path segment identifier is now reported.
+- **Named parameters in `fn(...)` types** — `fn(x: u8) -> u8`, `fn(u8, y: u8)`
+  and `fn(_: u8)` are valid Rust and used to report "unexpected `:` after the
+  type". The name is kept verbatim and the type after `:` is parsed, so DSL
+  operands keep working there (`fn(v: Box<u8>) -> u8`). `Fn(x: u8)` stays an
+  error — rustc's own rule for `Trait(...)` syntax ("does not support named
+  parameters") — now with a message that says so, and a name without a type is
+  reported instead of rendered as `x:`.
+- **A stray `#` in a return type no longer hangs the compiler** — the return
+  expression of an `extern "C" fn` passthrough is consumed by a token fold that
+  trusted "this token can start a block"; a `#` followed by anything but `[...]`
+  (`extern "C" fn(u8) -> u8 #(x)`, a typo for an attribute or a directive) is
+  reported by the block parser as un-openable but was not consumed, so the fold
+  spun forever on an unmoved cursor. It allocates nothing, so the fuzz suite's
+  allocation guard could not catch it: the compiler simply never finished
+  (measured — the same spec with `-> u8` builds in 47 s, the `#(x)` one never
+  did). It now reports "unexpected `#` in a type position" and consumes the
+  token, like the two earlier fold loops.
+- **Stacked `#[batch_impl]` attributes on an `impl` block are stages of one
+  derivation** — rustc expands the outermost attribute first and hands it the
+  rest, and this entry re-emits them on the impls it derives, so the compiler
+  expands the next stage *on those impls*: the stages run in **source order**
+  over the accumulating block, and a slot one stage leaves in place is bound by
+  the next. Stages compose into a product —
+  `#[batch_impl(A : [u8, u16])] #[batch_impl(B : [u32, u64])]` on
+  `impl Tag for Pair<A, B>` gives the four impls `Pair<u8,u32> … Pair<u16,u64>` —
+  which makes a **shape family** (containers that are not the same head:
+  `Vec<T>`, `[T; 4]`, `Box<[T]>`, `&[T]`) expressible in two stages instead of
+  one prototype per family. An **empty** stage is the identity (a stage you can
+  switch off), and a plain attribute between two stages belongs to the expansion
+  level it is written at — a `#[cfg]` there gates that level's impls *and every
+  stage below it* (measured: with a mid-stack `#[cfg(any())]`, a later stage that
+  would have failed on those impls never ran). The order the stages rely on is
+  locked by `tests/features/impl_entry_chain.rs`, including the reversal that
+  breaks the shape-family case (`E0425`).
+- **A `+` inside an angle argument list is no longer read as a bound chain** —
+  the bare-region collector runs *before* angle pairing, so with flat `<...>` it
+  could not tell an argument from a top-level bound: `impl Box<dyn Fn() + Send>
+  { … }` was diagnosed as an `impl <trait-object>` target while the braced
+  spelling `impl{Box<dyn Fn() + Send>}` collected, although the two spellings are
+  one template. The same root made a `{…}` inside a flat angle list (a
+  const-generic argument, `impl W<{ 1 }> { … }`) look like the impl body. Both
+  spellings now agree.
+- **A slot name written in the trait path's arguments is substituted** —
+  `#[batch_impl(Wrapper<T> : [Box, Rc].u8)] impl<T> PartialEq<T> for Wrapper<T>`
+  strips `T` as a slot, so leaving it in `PartialEq<T>` reached the compiler
+  unresolved (`cannot find type T`); only the path's **angle arguments** are
+  mapped, so a slot that shares the trait's own name cannot rename the trait.
+- **The attr's generic declaration and the block's are reconciled** —
+  `#[batch_impl(<T> Box<T>)] impl<T> MkD for Box<T>` used to declare `T` twice
+  (`E0403: the name T is already used for a generic parameter`). The block's
+  declaration wins and the declaration that is dropped contributes its bounds as
+  a where predicate, so `#[batch_impl(<T: Clone> …)] impl<T> …` keeps `T: Clone`.
+- **An empty spec list is a no-op on the impl entry** — `#[batch_impl]` /
+  `#[batch_impl()]` (and a separators-only list, `#[batch_impl(;)]`) on an
+  `impl` block used to **swallow** the block: the impl entry withholds the
+  original by design (the attribute replaces it with the impls it derives from
+  it), so deriving nothing left nothing behind and the item vanished with no
+  diagnostic at all. It now emits the original block unchanged — the identity of
+  the derivation, and the safe failure mode for a macro-generated or
+  accidentally emptied attribute. The attribute entry already behaved that way
+  (an empty list keeps the trait and adds no impls), so both entries now agree.
+- **A lifetime is never a shape slot** — a slot whose name collided with a
+  lifetime (`#[batch_impl(Box<a> : [Box<u8>, Box<u16>])] impl<'a> L<'a> for
+  Box<a>`) substituted the ident *inside* the lifetime and dropped its
+  declaration, so the impl failed with `E0261: use of undeclared lifetime name
+  'u8`. Nothing ever binds a lifetime (named lifetimes compare verbatim in a
+  shape match), so `'a` now passes through untouched and keeps its declaration,
+  while the type position is substituted as before.
+- **A `::` with nothing after it says so** — `#[batch_impl(A::)]` reported
+  "a `::`-tail segment must be an identifier — DSL tokens (`@…` / `#…`) are not
+  allowed in a `::`-tail", which described a different mistake. A tail that simply
+  ends now reports "`::` must be followed by a path segment (write `Foo::Assoc`)";
+  a genuine DSL token in the tail keeps the old wording.
 
 ## 0.9.7 (2026-08-29)
 

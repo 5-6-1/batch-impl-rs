@@ -96,12 +96,61 @@ expansion snapshots (only for intentional render changes).
   Regression guards: `varseg::tests::postcondition_canary_never_fires`
   (exhaustive ≤6-token sweep + randomized longer sequences) and
   `scan::tests::cursor_position_never_exceeds_len`.
+  **Enforced, not merely promised** (two legs, both falsifiable — a temporary
+  violation must fail them, verified): (1) `src/lib.rs` carries
+  `#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used,
+  clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented))]`
+  — the `not(test)` scope deliberately leaves the crate's own `#[cfg(test)]`
+  modules and the integration-test crates their `unwrap`/`assert!`; (2)
+  `tests/no_panic/main.rs` is the source-level leg: a `syn` walk over every
+  `src/**/*.rs` (comments and strings can never false-positive) reporting
+  `assert!` / `debug_assert*!` — which have no clippy lint — plus `.unwrap()`
+  / `.expect(…)`, plus panic constructs minted **inside macro token streams**
+  (`quote!(x.unwrap())`, which clippy's HIR pass cannot see), plus **any**
+  `#[allow(…)]` that silences the family in **any** position (item, impl item,
+  statement, expression, the file's own inner attribute, an arm nested inside
+  `#[cfg_attr(…)]`, or an attribute inside a **macro body**) and any blanket
+  silencer (`clippy::all`, `clippy::restriction` — the group the entire family
+  lives in — or `warnings`): an exception has to be an edit to that
+  guard file, where a reviewer sees it. The `#[cfg(test)]` gate is exact: only
+  the bare predicate is skipped, so `#[cfg(not(test))]` code is scanned like any
+  other production code. The clippy leg runs in the `clippy` job;
+  the source guard runs in every job that executes tests (the full stable job
+  plus the MSRV and Windows functional jobs), with floors that fail when the
+  walk or the skip set breaks.
+  **The indexing/slicing ratchet: done, and collapsed into one line.** The
+  migration ran file by file (**208 → 0** production sites — re-measured on the
+  pre-ratchet revision as 207 `indexing_slicing` + 1 `string_slice` across 35
+  files; the migration's own running count was 203) with each file carrying
+  a temporary file-level `deny(clippy::indexing_slicing)`; the completion
+  replaced those attributes (24 at the point that count was recorded) with **one
+  crate-level line** in
+  `src/lib.rs` (`cfg_attr(not(test), deny(clippy::indexing_slicing,
+  clippy::string_slice))`, asserted by
+  `tests/no_panic/main.rs::the_crate_denies_the_panic_and_indexing_families` — a
+  refactor dropping it re-opens every site at once). Name **both** lints: they
+  are separate, and from `clippy::indexing_slicing` alone `&s[..n]` (string
+  slicing) slips through. Two conversion patterns did the
+  work and are the ones to reuse: bind the current token once at the loop top
+  (`while let Some(cur) = tokens.get(i)`, then `match cur` / `cur.span()` /
+  `cur.clone()`) instead of re-indexing, and pass that token down into helpers
+  (`expand_group` / `expand_at` gained a `cur` parameter) instead of re-reading
+  `tokens[i]`. The recurring slice idioms live in `util/scan.rs` —
+  `span_at` / `slice_from` / `slice_upto` / `slice_window` / `slice_between`
+  (`span_at` takes the token slice; the other four are generic over the element
+  type), the clamping ones **clamping on purpose**
+  (`get(..n)` is not a clamp: it returns `None` for `n > len`). A *local*
+  `#[allow]` of the family remains an exception: it must be added to
+  `INDEXING_ALLOW_EXCEPTIONS` in `tests/no_panic/main.rs`, where a reviewer sees it;
+  never a blanket module-level allow.
 - **Single-authority philosophy**: cross-module predicates are collected in
   one place — `util/punct_ops.rs::read_op` (operator shapes),
   `util/diagnostic.rs::compile_error_str` (error construction),
   `util/scan.rs::is_impl_template` (`impl{...}` discrimination),
-  `entry/impl_spec.rs::chunks_to_streams` (where-chunk splitting),
-  `ast/fresh.rs::is_carrier_at` (carrier recognition). On finding a
+  `entry/impl_entry.rs::chunks_to_streams` (where-chunk splitting),
+  `ast/fresh_protocol.rs::is_carrier_at` (carrier recognition),
+  `ast/param_kind.rs::ParamKind` (parameter kind — type / const / lifetime —
+  and the `const`-keyword stripping that goes with it). On finding a
   duplicate predicate, consolidate — never fork another copy.
 - **Syntax freeze (since 0.7.2)**: the semantics of every existing token are
   final; new releases only **add** (directives / constants / tools), refine
@@ -161,7 +210,7 @@ review against them:
 ## 8. Test Layout
 
 - Default: inline `#[cfg(test)]` modules; move to `tests/features/` when a
-  suite grows large or cohesive (per-feature modules under 350 lines, mounted
+  suite grows large or cohesive (per-feature modules at most 350 lines, mounted
   by `tests/dsl.rs`).
 - UI snapshots (trybuild) live in `tests/ui/`; golden expansion snapshots in
   `tests/golden/`.

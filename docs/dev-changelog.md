@@ -64,7 +64,7 @@
   - `parse/ident_blocks.rs` — four guarded `.unwrap()`s (the `+` bound head,
     the two `::` colons, the macro-call group) became `let else`
     extractions;
-  - `ast/fresh.rs` / `parse/mod.rs` — the two `_ => unreachable!("matched
+  - `ast/fresh_protocol.rs` / `parse/mod.rs` — the two `_ => unreachable!("matched
     above")` operator-width arms read the width from the `inclusive` flag
     the guard already established;
   - `util/scan.rs` — `Cursor::bump` now **clamps** and `advance` saturates,
@@ -163,8 +163,9 @@
   P4) — `name_str.starts_with("const")` misclassified a type param named
   `constant` as a const param, silently dropping its duplicate bound (the
   const branch discards later duplicates; the where-merge branch keeps them).
-  Now detects the `const` + ident two-token shape (via the same
-  `bare_param_name` shape).
+  Now detects the `const` + ident two-token shape (the shared classifier is
+  `ast::ParamKind::of_name` since R4; the old `bare_param_name` /
+  `is_const_param_name` helpers are gone).
 - **`repeat_drivers` cursor `n + round` saturates** (review minor 2) — a
   `@18446744073709551615`-style cursor literal could parse to `usize::MAX`
   and overflow on `+ round` in debug builds; now `saturating_add`.
@@ -235,12 +236,960 @@
   private helper of the impl entry; it is pure token processing (only
   `#[...]` attributes pass through) and now shares the directives module
   with `expand_tokens` (both establish `DirectivesResolved`).
-- **Canary guard on `expand_consts`** — a `debug_assert!` rejects input still
-  containing the `ident @ . .` segment shape (`mark_varseg` must run first),
-  catching mis-ordered direct calls from fuzz (which bypasses the typestate
-  chain by design) as loud debug panics. The `angle_collect` canary is
-  impossible: pairing output and real transparent groups are both
-  `Delimiter::None` (documented in the module).
+
+- **Codegen-minted errors take the error channel, not a rendered slot**
+  (review of the two diagnostics above) — `bound_gen`'s over-limit product and
+  `extract`'s invalid fresh-binding switch were announced as targeted
+  diagnostics, but both placed an error where the *output* renders it: the
+  switch in `parts.target_type`, the distribution in a bound of
+  `impl_generics`. `err_ty` emits the item form (a trailing `;`), so the
+  emitted impl was syntactically invalid — rustc reported
+  ``expected `{}`, found `;` `` and ``macro expansion ignores `{` `` plus the
+  unconstrained-parameter fallout *in addition to* the intended message — and
+  in the bound case the sibling array bounds stayed illegal
+  (`T: [A, B, ...]`). The bound branch was also unreachable with two ranges: a
+  range's **leaf mass** trips the apply-layer chain guard first (32 arities =
+  1055 leaves > 1024), so only a product of three ranges (31³ = 29791) reaches
+  `cartesian`. Now `distribute_bound_arrays` returns
+  `Result<Vec<ImplParts>, TokenStream>` and `generate_impl` replaces the
+  expansion with the diagnostic, next to a check for a codegen-minted error in
+  `parts.target_type` (codegen-minted only — the driver's `collect_errors`
+  already reports parse/apply-stage errors before `generate_impl` runs). Both
+  UI fixtures lock a **single** clean error.
+- **Five Unreleased claims had no regression lock** — the `<constant: Clone>`
+  duplicate (shape-based const detection was code-only), the `usize::MAX`
+  repeat cursor, `@trait` inside a group in a `#blanket` wrapper where, and
+  the two diagnostics above. Locks:
+  `dup_params::constant_named_param_keeps_both_bounds` (the body makes both
+  bounds load-bearing — a nested `require_clone` needs `Clone`, moving
+  `self.0` out of a shared reference needs `Copy`, so dropping either bound
+  stops compiling), `repeat_tests::fresh_name_cursor_saturates_at_usize_max`
+  (fixed and cursor spellings),
+  `dsl_macro_meta::blanket_wrapper_where_group_at_trait` (`Box<dyn @trait>:
+  Sized` — the group form that stays legal after substitution; a bare trait
+  path in type position is E0782 in edition 2024), and
+  `tests/ui/impl_shape_repeat_invalid_switch.rs` +
+  `tests/ui/impl_shape_repeat_invalid_switch_closed.rs` +
+  `tests/ui/bound_gen_over_limit.rs` (94 `compile_fail` + 2 `pass` fixtures).
+- **A whole test module was never mounted** —
+  `tests/features/shape_template_advanced.rs` (4 tests: multi-template merge,
+  body-type rewrite, where coexistence, `batch_impl_only`) was missing from
+  `features/mod.rs`, so its tests silently never ran; they are not duplicated
+  anywhere else. Mounted — the executed `tests/features/` count went
+  266 → 272.
+- **Orphan UI snapshot removed** — `tests/ui/const_def_position.stderr` had no
+  `.rs` fixture; trybuild neither reports nor cleans an orphan.
+- **Stale comments corrected (the code is the authority)** — `bound_gen`'s doc
+  described the removed single-input fallback; `apply`'s splat note sat on the
+  `Group` arm it does not describe (there is deliberately **no** right-operand
+  splat arm — the note now states the survival principle where it belongs);
+  `parse_primitive` was called a "stable entry" although the production chain
+  never selects the `Prim` rung (it is reachable only by a direct
+  `parse_item(Op::Prim)` call); `passthrough_block` still listed the Fn-family
+  callers that became structural in 0.9.3 — its dead `id` parameter is gone.
+- **Architecture doc synced with the code** — the module tree, the test-matrix
+  numbers and the self-contradictions in `docs/architecture.md` (and its
+  zh-CN mirror) now match the sources: the `@`-before-`<>` order is stated
+  once, the typestate diagram agrees with the state table, the canary is
+  described as the `mark_template` postcondition diagnostic it is, and the
+  files that were renamed or absorbed (`parse/space.rs`, `codegen/extract.rs`,
+  `codegen/pipeline.rs`, `preprocess/stream.rs`, …) are listed.
+- **The `constant` misclassification was only half fixed** (found while
+  auditing the locks above) — the "shape-based const detection" change above
+  covered `merge_dup_params`, but `TyTypeParam::is_declaration` (the
+  apply-layer decision that hoists a `<>` block out of an argument list) still
+  tested `name.to_string().starts_with("const")`. A type literally named
+  `constant` used as an argument was therefore hoisted as a declaration:
+  `Vec.<constant>` rendered `impl<constant> … for Vec` and rustc reported
+  E0107. The shape now has **one authority** (`ast::ParamKind::of_name` since R4
+  — the `const` + ident two-token shape; the `ast::is_const_param_name` this
+  entry originally named no longer exists), used by both `is_declaration` and
+  `merge_dup_params`; `tests/ui/constant_named_type_arg.rs` locks it as a
+  `pass` fixture.
+- **The repeat-cursor saturation was only half fixed too** — `repeat_drivers`'
+  `@{@N}` round-advance carried the `saturating_add`, but the sibling cursor
+  path (`@{N}`, the fixed reference) still computed a raw `n + round`: a
+  `usize::MAX` literal would overflow on the second round in a debug-build proc
+  macro (an ICE). Unreachable today (round 0 fails the range check first), but
+  the class is closed rather than argued.
+- **The no-panic promise is now machine-enforced, and its latent classes
+  measured** — two legs, both falsifiable (an injected `Some(1).unwrap()` and
+  an injected `debug_assert!(true)` each failed the leg that owns it, as
+  intended):
+  1. `src/lib.rs` gains `#![cfg_attr(not(test), deny(clippy::unwrap_used,
+     clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo,
+     clippy::unimplemented))]`. The `not(test)` scope is deliberate: the
+     crate's own test modules and the integration-test crates keep their
+     `unwrap`/`assert!` vocabulary, where a panic is the correct failure mode.
+     rustc ignores the `clippy::` tool lints on the non-clippy path (verified
+     with `cargo check --all-targets`).
+  2. `tests/no_panic/main.rs` — a `syn` walk over every `src/**/*.rs` (72
+     production files) reporting `assert!` / `debug_assert*!` (clippy has no
+     lint for them), `.unwrap()` / `.expect(…)`, panic constructs inside macro
+     token streams, and any `#[allow]` that silences the deny family in any
+     position. The `#[cfg(test)]`-declared modules are skipped
+     via the declarations themselves (so the skip set cannot rot), and
+     comments/strings can never false-positive — the earlier text-grep audit
+     produced hits from prose like "needs `unreachable!`". The clippy leg runs
+     in the `clippy` job; the source guard rides along in every job that runs
+     tests (the full stable job, plus `--test no_panic` added to the MSRV and
+     Windows functional jobs).
+  The residual classes are bounded, not waved at: `unwrap_used` and `panic`
+  report **0** in production, while `indexing_slicing` reports **203** and
+  `arithmetic_side_effects` **311** sites. Every **user-literal** arithmetic
+  site is guarded — `@N..M` endpoints are checked against the scope length
+  before any `- 1`, a range's length is computed and capped before anything
+  allocates, and the repeat cursor/round family is saturated (including
+  `repeat_drivers`' `seg.start + round`, the last raw one) — and the remaining
+  counters are bounded by the token-vector length. The indexing/slicing class
+  is to be closed by a per-file `deny(clippy::indexing_slicing)` ratchet, not
+  by a blanket allow.
+- **Indexing/slicing ratchet (R2-B): completed** — production `indexing_slicing`
+  + `string_slice` went **208 → 0** across **35 files**. The baseline was
+  re-measured on the pre-ratchet revision in a `git worktree` with the current
+  toolchain (207 indexing + 1 string slice; the migration's own running count was
+  **203**, so this entry now states both figures and which one is reproducible).
+  Largest first: `repeat_drivers` 16, `consts/table` 13, `parse/generic` 12,
+  `where_process` 11, `codegen/repeat` 11, `varseg` 10, `impl_spec` 10,
+  `angle` 9, `top_level` 9, `match_ty` 7, `range_refs` 7, then
+  `ast/fresh` / `empty_generics` / `util/scan` / `util/subst` at 6, six files at
+  5, four at 4, five at 3, three at 2 and two at 1 — an exhaustive distribution,
+  unlike the earlier "everything else under 5", which the fifteen named counts
+  contradicted (they sum to 138, not 203). The migration carried a *temporary*
+  file-level `deny` while it worked (24 of them at the point that count was
+  recorded — against 35 affected files, a mismatch this entry cannot re-derive
+  and therefore records instead of smoothing over; the whole `directives/`
+  subtree shared one `mod.rs` deny, since an inner attribute covers its module
+  tree). Those attributes were then **collapsed into one crate-level line** in
+  `src/lib.rs`;
+  `tests/no_panic/main.rs::the_crate_denies_the_panic_and_indexing_families` asserts
+  that line, and
+  a probe confirmed the coverage is crate-wide (a fresh `tokens[0]` in a file
+  that never carried an attribute fails the build). The line names
+  `clippy::string_slice` as well as `clippy::indexing_slicing` — the two are
+  separate lints, and the later verification bullet below records how that gap
+  was found. Two
+  conversion patterns did all the work: bind the current token once
+  (`while let Some(cur) = tokens.get(i)`, then `match cur` / `cur.span()` /
+  `cur.clone()`) instead of re-indexing, and pass that token down into the
+  helpers (`expand_group` / `expand_at` gained a `cur` parameter) instead of
+  re-reading `tokens[i]`. The recurring slice idioms became a **shared
+  vocabulary** in `util/scan.rs` — `span_at` (call-site fallback, never a
+  panic), `slice_from`, `slice_upto`, `slice_window` and `slice_between` (all
+  four generic over the element type, so "a list of token slices" obeys the
+  same policy), the clamping ones **clamping on purpose**: `get(..n)` is not a
+  clamp (it returns `None` for
+  `n > len`) — a mistake the helper made on its first draft, caught by
+  `scan::tests::cursor_position_never_exceeds_len` through
+  `slice_at(0, usize::MAX)`. Carriers are re-emitted through the shared
+  `carrier_group_at` recognition now, instead of an `is_carrier_at` +
+  `tokens[i + 1]` re-destructure. The deny keeps earning its keep: it caught
+  one site each in `table.rs` (147) and `varseg.rs` (216), and two
+  differently-indented copies in `empty_generics.rs` that a `replace_all` had
+  missed, plus this round's mis-placed inner attribute in `angle.rs` (an inner
+  attribute must precede every item). The ratchet's surviving half is the crate-level line itself
+  (`tests/no_panic/main.rs::the_crate_denies_the_panic_and_indexing_families`
+  asserts it), plus the rule that a local `#[allow]` of the family is reported
+  unless listed in `INDEXING_ALLOW_EXCEPTIONS` (empty while the migration is
+  clean). An earlier draft of this entry described an `INDEXING_RATCHET` list
+  guarded by a per-file `indexing_ratchet_files_keep_their_deny` test — **no
+  such mechanism was ever written**: once the 24 file attributes were replaced
+  by the crate-level line there is no per-file attribute left to assert, so that
+  line *is* the ratchet's whole contract. Recorded here because the claim sat in
+  this entry for one round and a reviewer would have trusted a lock that did not
+  exist. The deny
+  itself caught a site this manual pass had missed (`table.rs:147`) — which is
+  the point: from here the lint is the checklist, not the review.
+- **R1 phase 1: one collision set for every display-name minting path** — the
+  attr entry collected `used` (the idents fresh display names must avoid) from
+  seven surfaces of its `ImplParts`, while the impl entry's shape form collected
+  three (item + shape template + new-generic decl) and its direct form two — so a display
+  name (`P0`, …) could shadow a user ident appearing only in the **spec**: the
+  direct form rendered `impl<P0> Tr for Holder<P0, (P0,)>` for
+  `#[batch_impl(Holder<P0, ()1>)]` — a silently *different* impl (the generic
+  shadows the user's `P0`), where the attribute entry would have escaped to
+  `P0A`. `codegen/fresh_naming.rs` now owns the source list
+  (`collect_used_surfaces` / `used_ident_set`), all three impl-entry sites feed
+  it, and the two per-leaf sites extend it with the leaf's own tokens (the
+  matrix / for-type source is user text) plus the spec's where predicates. The
+  attr path also reuses a single `target_type.to_token_stream()` instead of
+  two. Locked by
+  `entry::impl_entry::tests::spec_idents_join_the_fresh_collision_set`, whose
+  probe (extension disabled) fails as intended. The top-level macro naming
+  (`top_level::finalize_fresh_names`) stays on the raw collector: its surface
+  is the whole macro-input stream — one surface, so it cannot drift.
+- **R1 phase 2/3 assessed, then deferred with reasons** — the reconnaissance
+  found the two entries **already share the repeat engine**: the impl entry's
+  `impl_spec::expand_fresh_marks` calls `repeat::expand_repeat_blocks` +
+  `repeat_drivers::substitute`, so only the *segment source* and the marker
+  spelling differ (`fresh!(...)` inside an impl body — which has to stay legal
+  Rust — versus the bare `@(...)..` in the attribute entry's spec body), and
+  that difference is legitimate (implicit segments bound to fresh names vs the
+  template's `ident@..`). Phase 3 (one renderer) is the substantive half, and
+  its delta is real: `assemble_impl` would have to build an `ImplParts` for
+  `render_impl`, moving the slot-named-generic stripping, the
+  `sync_trait_application` pass over predicates and the `expand_fresh_marks`
+  body pass upstream — and it would start emitting the item's own attributes,
+  which `assemble_impl` dropped entirely (`#[allow]` / `#[doc]` / `#[cfg]` on
+  the impl entry's impl block was silently lost; that half is fixed below).
+  Landing the whole thing inside the remaining round budget would risk a
+  half-refactor, which is worse than the current two-front-end state, so R1
+  stops at phase 1 (self-contained: one collision-set authority, a fixed
+  shadowing defect, a falsifiable lock) and the budget goes to R4 / R7 / R5 plus
+  the ratchet.
+- **R1 phase 3 (partial): the impl entry no longer drops the impl block's
+  attributes** — the deferral above buried one *defect* among the structural
+  work. `assemble_impl` renders the generated impl from the parts it extracts,
+  so `item.attrs` never rode out: `#[cfg]` / `#[allow]` / `#[doc]` written on an
+  impl-entry impl block vanished silently, and a `#[cfg(feature = …)]` there
+  produced impls that existed unconditionally. The attributes are now emitted
+  ahead of every generated impl, mirroring the attribute entry (which has always
+  inherited its spec's attachments), and the lock is
+  `entry::impl_entry::tests::item_attributes_reach_the_generated_impl` — probed:
+  removing the emission again fails it on the `#[allow]` assertion. Routing
+  `assemble_impl` through `render_impl` stays deferred for the reasons above;
+  what remains of the two-front-end drift is bookkeeping rather than silent
+  loss.
+- **R7: module-name collisions removed** — two name pairs were traps for a
+  rotating reviewer (`fresh.rs` twice and `splat.rs` twice: the parse/apply
+  layer and the codegen layer each had one). `ast/fresh.rs` →
+  `ast/fresh_protocol.rs` (the carrier protocol) and `codegen/fresh.rs` →
+  `codegen/fresh_naming.rs` (`FreshCtx` + the collision set);
+  `apply/splat.rs` → `apply/splat_apply.rs` (the left-operand mirror
+  semantics) and `codegen/splat.rs` → `codegen/splat_expand.rs` (the deferred
+  flattening). Done with `git mv` (history preserved), one batch pass over the
+  29 qualified references — a **single alternation**, so `ast::fresh` →
+  `ast::fresh_protocol` cannot cascade into a second replacement — and the four
+  module declarations by hand. Those four renames are the first thing the new
+  guard below locks.
+- **R5: the architecture doc is now checked, not trusted** — the module tree had
+  drifted exactly the way prose does: 19 `src/` files were named only inside a
+  prose-style parenthetical (`consts/` listed its five files as
+  `(table / expand / ctx / range / value_refs)`, `directives/` as
+  `(dispatch / name_list / …)`) or were missing outright (`analyze/mod.rs`,
+  `util/mod.rs`, `codegen/range_worker.rs`, `codegen/repeat_tests.rs`,
+  `codegen/where_at_tests.rs`), and nothing failed when a file was added,
+  renamed or deleted. New integration guard `tests/doc_consistency.rs` (2 tests,
+  no new dependency, no new dev-dependency): (1)
+  `architecture_module_trees_match_sources` resolves paths through each tree's
+  own indentation and asserts **set equality** with `src/**/*.rs` for **both
+  language mirrors** — a ghost entry, a missing entry and a duplicated entry
+  each fail with their own list, which is the only shape that cannot be
+  satisfied by editing the doc to agree with a mistake; (2)
+  `current_docs_path_references_exist` resolves every file path the
+  current-state docs name (architecture / development-guide / tutorial, EN +
+  zh-CN — ~86 references today, `src/…` as well as module-relative
+  `codegen/repeat.rs` spellings) and exempts the changelogs *and* the
+  architecture version preamble, because history is *supposed* to name files
+  that were later renamed (`ast/fresh.rs` was correct in v0.9.2). The
+  guard found both defects on its first run, and the module tree (EN + zh-CN)
+  was then completed per file: the map now lists all 78 sources, so the count
+  claims around it are the only prose left that a reviewer still has to trust.
+  The guard also joined the MSRV and Windows `cargo test` subsets next to
+  `no_panic`: it costs under 0.1 s, and its tree parsing plus `\` → `/`
+  normalization is exactly the platform-sensitive face those two jobs own.
+- **R4: parameter classification has one home** — the crate answered "what kind
+  of generic parameter is this name?" in four places with three techniques: a
+  `starts_with("const")` name prefix (the 0.9.x bug that mistook a type named
+  `constant` for a const param and silently dropped its duplicate bound), a
+  `const` + ident token-shape test (`ast::is_const_param_name`, plus a second
+  copy of that shape inside the const-keyword stripper), and a
+  `name.starts_with('\'')` string test in codegen. New `ast/param_kind.rs` owns
+  the vocabulary once: `ParamKind::{Type, Const, Lifetime}` with `of_name` (the
+  DSL side — before `syn` looks, the token shape is the only signal there is),
+  `of_generic_param` (the trait-definition side — exact, because the
+  `syn::GenericParam` variant *is* the kind) and `bare_name` (the `const N` → `N`
+  stripping that `bare_param_name` used to do). `TraitParam` now **carries** its
+  kind (`kind: ParamKind`, filled from the syn variant), so codegen's lifetime
+  test no longer reads the name string; `TyTypeParam::is_declaration` and
+  `merge_dup_params` ask `ParamKind::of_name(..).is_const()`; `is_const_param_name`
+  and `bare_param_name` are gone (`ast::is_const_param_name` — the authority the
+  0.9.x entries above describe — is exactly `ParamKind::of_name`: the
+  classification moved, the rule did not). Four unit tests pin the family that
+  bit three times, `constant` among them, and the lock was **probed**:
+  reintroducing the `starts_with("const")` prefix test makes
+  `only_the_const_ident_pair_is_a_const_param` fail on exactly that assertion.
+- **R4 also deleted a dead subsystem** — `analyze/trait_bounds.rs` carried a
+  `syn::visit`-based reference collector (a `Collector` visitor, HRTB shadow
+  tracking, `TraitParam::refs`, and a `Vec<String>` beside every
+  `extra_predicates` entry) whose output nothing read: after positional
+  substitution replaced the name-equality check, codegen bound it as `_refs`. The
+  module doc still claimed codegen "runs a reference check (rename scenarios get
+  guided errors)" — it has not, for several releases. Deleted: `trait_bounds.rs`
+  went 306 → 147 lines (`+30 / −189` in the diff — the rewrite re-adds the parts
+  that survive), and the four files this refactor touched (`trait_bounds.rs`,
+  `codegen/generics.rs`, `ast/types.rs`, `ast/mod.rs`) sum to `+58 / −235`, with
+  the new `ast/param_kind.rs` at 128 lines including its four tests;
+  `extra_predicates` is now `Vec<TokenStream>`, which is what its
+  only consumer always treated it as. Behavior is unchanged by construction — the
+  classifier returns the kinds the shape tests returned (the new lifetime arm
+  only feeds the same skip) — and everything downstream is green.
+- **The expansion-limit diagnostics now name the quantity they measure** — one
+  function (`apply::expand_limit_err`) worded both the impl-count checks (`.N`
+  powers, ranges) and the two **mass** guards (the composed array×range chains
+  behind the fuzz OOM), and it said "items" for both: an internal `Ty`-node count
+  was presented as if it were a number of generated impls — and the 0.9.5 entry
+  above quotes that message as "expands to N impls", which the code never said.
+  The two quantities are now separate authorities with separate sentences:
+  `check_expand_limit` ("expands to N impls") and `check_expand_mass` ("reaches
+  an expansion mass of N nodes"). The split is locked by
+  `apply::tests::the_two_over_limit_diagnostics_name_their_own_unit` (it also
+  fails if the two wordings are unified again) and the boundary test
+  `both_checks_fire_only_above_the_cap`. The `what` strings dropped their inner
+  backticks because the message supplies its own, so the one affected UI snapshot
+  now reads `` `tuple .2000` expands to 2000 impls `` instead of the
+  `` `tuple `.2000`` `` nesting. User-visible (one `expand_limit.stderr`
+  updated); impl counts, caps and behavior are unchanged.
+- **`count_leaves` is linear now** — the mass counter cloned the remaining
+  subtree at every node (`ty.clone().map_children(…)`, O(nodes × depth)
+  allocations) while sitting on the very growth path it guards (the composed
+  chain check runs it once per level, and it is what made the fuzzer's OOM a
+  diagnostic instead of a hang). It now clones the root once and **moves** every
+  descendant through `map_children`; `ast::op::tests` locks the semantics that
+  matter (every descendant counts, and the count is stable across calls, so a
+  move-based rewrite that dropped a node would fail).
+- **Review-driven hardening: the guards now cover what the prose claimed** — an
+  independent read-only review of this whole uncommitted change set (a fresh
+  context, no memory of writing it — the rotating-reviewer principle applied to
+  the assistant itself) returned 14 findings. The first was a **changelog claim
+  about a lock that was never written** (`INDEXING_RATCHET`, corrected above),
+  and most of the rest clustered in the same place: the difference between a
+  guard's real coverage and the sentence describing it.
+  - `tests/no_panic/main.rs` now catches what it said it caught. Panic constructs
+    **inside macro token streams** (`quote!(x.unwrap())`) were invisible to
+    *both* legs — clippy lints HIR, and `syn`'s `visit_token_stream` default is
+    a no-op — so a token-level scan of every macro body was added (shape-exact:
+    an ident followed by `!`, `.` + `unwrap` / `expect` + a `()` group, or a
+    **qualified** `Option::unwrap(o)` / `Result::expect(r, …)`), so `unwrap_or`
+    and prose in string literals stay clean. The qualified spelling is checked at
+    the AST level as well (`visit_expr_call`): it is the same panic path as the
+    method form, and clippy's `unwrap_used` does not catch it. `#[allow(…)]` is now
+    checked in **any** attribute position — the file's own inner attributes,
+    statements, expressions, and the same arms nested inside
+    `#[cfg_attr(…, allow(…))]`, whose conditions are read at token level so a
+    doc string mentioning the spelling cannot match — by moving the check to
+    `visit_attribute`, where
+    syn routes all of them, instead of the item-level hooks that could not see
+    them; `clippy::all` / `warnings` are reported as blanket silencers. Probes:
+    an inner `#![allow(clippy::unwrap_used)]`, a statement
+    `#[allow(clippy::indexing_slicing)]`, a `quote!(x.unwrap())`,
+    `core::option::Option::unwrap(None)` (the qualified form, in code and inside
+    a macro body), an `#![allow(clippy::all)]` and a
+    `#[cfg_attr(all(), allow(clippy::unwrap_used))]` each fail the guard with
+    their own message.
+  - The crate root's **panic-family deny is asserted** too
+    (`the_crate_denies_the_panic_and_indexing_families`, whitespace-normalized
+    so the multi-line attribute stays free to be reformatted). Before, deleting
+    `deny(clippy::unwrap_used, …)` failed no test — the "two legs, both
+    falsifiable" sentence rested on a manual probe that only lived in this file.
+  - Guard floors are real numbers now (70 of 78 sources, 65 of 72 production
+    files, 60 of ~86 checked references) and an **unreadable** production file is
+    a violation rather than a silent skip, so a partial walk cannot pass.
+  - `tests/doc_consistency.rs` checks **both** language trees (the zh-CN tree
+    was never set-checked — EN/zh drift was unguarded in exactly the file whose
+    subject is drift), detects a **duplicated** tree entry, and resolves
+    relative references (`codegen/repeat.rs`) against `src/`, which is how the
+    docs spell module paths. The architecture version preamble and the
+    changelogs stay exempt: history is *supposed* to name modules that were
+    renamed later (`ast/fresh.rs` was correct in v0.9.2), so the check starts at
+    the `## Module Organization` heading. Probes: a ghost zh-CN tree entry, a
+    duplicated EN tree entry and a ghost body reference each fail it.
+  - The remaining findings were documentation defects, all fixed: stale counts
+    (77 → 78 sources, 71 → 72 scanned files, and the per-concern unit-test
+    itemization re-derived from `cargo test --lib -- --list`), the R4 line
+    counts (306 → 147, `+58 / −235` over the four files it touched), a
+    production `//!` doc still naming the pre-R7 modules (`splat`, `fresh` in
+    `codegen/mod.rs`), the development guide's "all generic over the element
+    type" (only four of the five `slice_*` helpers are — `span_at` takes the
+    token slice) and its "both legs run in every CI job" (the clippy/docs jobs
+    run no tests), and two self-contradictions inside this Unreleased section
+    (`bare_param_name` / `ast::is_const_param_name` described as current after
+    R4 deleted them). One review claim was checked and *kept*: `ast/fresh.rs` in
+    the version preamble is history, not drift — rewriting it would have made
+    the record lie in the other direction.
+- **The indexing/slicing family had one member the deny could not see** — a
+  verification pass over this round's own claims probed what the crate-level line
+  actually covers: `v[0]` (indexing) and `&v[..1]` (range slicing) both fire from
+  `deny(clippy::indexing_slicing)`, but `&s[..1]` (string slicing) does **not** —
+  `clippy::string_slice` is a separate lint, so "the class is closed" was one
+  spelling short of true. It is named on the line now, and the single production
+  site it found (`repeat_drivers`' `s[..s.len() - 1]`, whose safety rested on the
+  `ends_with('.')` check in the same `if`) became `s.strip_suffix('.')` — which
+  also removed that `- 1`, the last raw string-length subtraction in the crate.
+  Probe: `&s[..1]` in a production file now fails `cargo clippy --all-targets -- -D
+  warnings`; the guard's `CRATE_INDEXING_DENY` const and its assertion carry the
+  new line, and the architecture / dev-guide / changelog quotes were updated with
+  it.
+- **The crate-level denies were re-probed end to end** — `Some(1).unwrap()`
+  (panic family) and `vec![1u8][0]` (indexing) each fail `cargo clippy
+  --all-targets -- -D warnings` in the current tree, which is what turns the
+  priority-1 claim ("machine-enforced, both legs falsifiable") into a measurement
+  instead of a restatement; the six synthetic-guard probes are listed in the
+  hardening bullet above.
+- **The guard outgrew the per-file budget and was split** — after all of the
+  above, the guard file stood at 553 lines against the tree's ~350-line budget,
+  so it became a directory target: `tests/no_panic/main.rs` (the walk and the two
+  crate-level contracts), `tests/no_panic/guard.rs` (the `syn` visitor, the
+  attribute classification, the `#[cfg(test)]` gate) and
+  `tests/no_panic/tokens.rs` (the token-level scans, which share one property —
+  no `syn` structure to rely on, so every rule matches by token shape): 189 /
+  254 / 140 lines. The target name (`--test no_panic`) and both test names are
+  unchanged, so the CI subsets and every `tests/no_panic/main.rs::…` reference in
+  these docs still resolve.
+- **Second adversarial pass: five ways to silence or skip the guard, closed** — a
+  second independent review (fresh context, this time asked to *attack* the two
+  guards instead of checking the changelog) found that the rewritten guard still
+  had holes, and they were all one family: **silencing** and **skipping**.
+  - `#[allow(clippy::restriction)]` was not in `BLANKET_ALLOWS` — and the whole
+    deny family (`unwrap_used`, `expect_used`, `panic`, `indexing_slicing`,
+    `string_slice`, `todo`, `unimplemented`, `unreachable`) lives in clippy's
+    `restriction` group, so one word revoked the contract silently. Now reported
+    (probe: that attribute on a production item fails the guard).
+  - `is_cfg_test` returned true when *any* nested meta was `test`, so
+    `#[cfg(not(test))]` (production-only code) and `#[cfg(any(test, …))]` items
+    were skipped by the visitor and by the pass-1 module skip. It now accepts
+    **only** the bare `#[cfg(test)]` predicate, so every ambiguous spelling is
+    treated as production and the guard errs toward reporting. (Probe:
+    `#[cfg(not(test))] fn f() { assert!(true); }` fails it now.)
+  - An `#[allow]` **inside a macro body** (`quote!{ #[allow(clippy::unwrap_used)]
+    … }`) was invisible: syn hands a macro tokens, not attribute nodes, so
+    `visit_attribute` never sees it. The token walk now reads `#` + a bracket
+    group and reuses the `cfg_attr` arm scanner. (Probe: reported as "inside a
+    macro token stream".)
+  - `clippy::slicing` was listed in `INDEXING_LINTS` but does not exist in this
+    toolchain (`-W clippy::slicing` reports `unknown lint`; range slicing reports
+    under the `indexing_slicing` id), so the "family of three" was two real lints
+    plus one inert entry that looked like coverage. Dropped.
+  - `tests/doc_consistency.rs` silently dropped every `path.rs::item` and
+    `path.rs:LINE` reference — the dominant spelling in these docs, including the
+    whole new "Two Front-Ends" table — because a candidate had to equal its own
+    path prefix. A `::item` / `:line` suffix is now stripped before resolving (86
+    references checked, up from 56), and the guard's own doc states what it does
+    *not* validate: symbol names, which is why a stale
+    `the_crate_denies_indexing_slicing` could sit in six docs while it was green.
+  - The R2-B baseline is **measured** now instead of asserted: clippy on the
+    pre-ratchet revision (a `git worktree` at HEAD) reports **207
+    `indexing_slicing` + 1 `string_slice` = 208 sites across 35 files**, which is
+    why the entry above carries corrected arithmetic.
+  - Not a defect after all: the transient `at_group_out_of_range` panic was this
+    assistant's own in-flight probe — `core::option::Option::unwrap(None)` sat in
+    `ParamKind::of_name`, which every expansion calls, so trybuild reported
+    "custom attribute panicked … called `Option::unwrap()` on a `None` value". It
+    vanished with the probe; the trail is the probe list in the bullet above.
+- **Qualified types: the DSL gap the impl entry had been hiding** — a user-facing
+  report ("`<...>::T` is a legal type; not supporting it is not acceptable") sent
+  this back to the parser, and a probe showed the gap was wider than the
+  qualified-self form: **anything whose path continues after an angle group**
+  failed. Measured on the current tree before the fix: `Foo::Assoc`,
+  `Self::Item`, `Vec<Foo::Assoc>`, `std::vec::Vec<u8>` all parsed;
+  `<T as Tr>::Assoc`, `Foo<T>::Assoc`, `Foo::<u8>::Assoc`,
+  `Vec<<T as Tr>::Assoc>`, `<<T as Tr>::Assoc as Tr>::Assoc` and
+  `<T as Tr>::Assoc + Send` all rendered
+  `batch-impl: unexpected \`:\` after the type`. The impl entry accepted every
+  one of them, because it never DSL-parses its for-type
+  (`item.self_ty.to_token_stream()` goes to the printer verbatim) — the two
+  front-ends were speaking different type languages, which is also why the R1
+  phase-3 unification has to start here.
+  - **What landed**: `TyKind::Qualified(TyQualified)` with
+    `QualifiedHead::{Type, Projection}` and a **verbatim** `::`-tail; `ToTokens`
+    (flat re-emission, `Projection` rendering `<ty as trait_>`),
+    `map_children` (head recurses, tail rides along), the `apply` arm (a
+    qualified type is not an apply operand — a targeted diagnostic instead of an
+    invented spelling), and the parser: a leading `<...>` group followed by `::`
+    with a **depth-0 `as`** becomes a projection head, a trailing `::seg` chain
+    becomes the tail, `Foo::<u8>` (turbofish) folds onto the angle form
+    (`Foo<u8>` — the same type in type position, and the turbofish spelling was
+    an error before, so nothing existing changes).
+  - **One discriminator, three sites**: `parse::split_projection` answers "is this
+    angle group a qualified-self head?" and is reused by the block parser, the
+    ident-path parser (`M2 <S as Tr>::Assoc` must not read the group as `M2`'s
+    arguments — it produced `M2<S<as, Tr>>::Assoc` before) and the impl entry's
+    `split_new_gen` (`<S as Tr>::Assoc` must not be swallowed as the
+    `new-generic-decl` — it produced "the direct form takes exactly one type").
+  - **Evidence**: 3 new unit tests in `src/parse/mod.rs` +
+    `entry::impl_entry::tests::qualified_types_reach_the_generated_impl`
+    (rendered-impl assertions for both entries, including the nested projection)
+    + a new `tests/features/dsl_qualified.rs` (5 end-to-end tests: projection as
+    a generic argument, as the target through both entries, nested, turbofish,
+    inside a bound). The additive promise is locked by
+    `existing_path_spellings_are_unchanged`, which pins the exact token sequence
+    of the spellings that already worked. Totals moved: 146 → **149** lib tests,
+    272 → **277** feature tests, 44 → **45** feature modules.
+  - **A `::`-tail is not re-parsed, so it is validated instead**: a DSL token in a
+    tail segment (`Foo<T>::Assoc<@0>`) is reported ("a `::`-tail segment is a
+    plain Rust path — DSL tokens are not allowed there") rather than leaking as
+    `Assoc<@0>` for rustc to choke on, and a `::` followed by a non-identifier
+    (`<T as Tr>::@0`) gets its own message **with the `::` consumed**, so the
+    chain's generic "unexpected `:` after the type" cannot overwrite it. Two more
+    goldens pin the rendered output of a qualified type through both entries
+    (`qualified`, `impl_entry_qualified`) and one UI fixture
+    (`qualified_tail_dsl_token`) pins the diagnostic: 7 → **9** goldens, 94 →
+    **95** `compile_fail` fixtures, 149 → **150** lib tests.
+  - **Shape matching learned qualified types**: `match_ty` used to reject a
+    `qself` outright ("qualified paths are not supported in templates"). It now
+    matches **head-structured, tail-verbatim** — the projection type recurses (so
+    the template `<T as Tr>::Assoc` binds `T` against the leaf
+    `<u8 as Tr>::Assoc`), the `as Trait` path and the `::`-tail compare
+    token-by-token, and a `qself` on one side only is a mismatch. The per-segment
+    comparison was extracted into `match_segments` (shared by plain and qualified
+    paths, with a skip offset for the trait-path segment), so the two cannot
+    drift. Locked by `dsl_qualified::qualified_shape_template` plus the 62
+    pre-existing shape-template tests.
+  - One nuance the test found and now documents: a **single-element** matrix is
+    written bare (`<T as Tr>::Assoc : <u8 as Tr>::Assoc`) — `[T]` in a matrix
+    source is an array/slice *type* (one leaf whose syn parse is `[…]<…>`), not a
+    list; the list form needs a comma (`[A, B]`).
+  - **The impl block's skeleton is one function now** (R1 phase 3, first step):
+    `codegen/render.rs::render_impl_block` owns attributes → `unsafe` → head →
+    where clause → body, and both front-ends call it — `render_impl` (attribute
+    entry, `ImplParts`-typed inputs) and `assemble_impl` (impl entry, token-level
+    inputs, its own head). This is the first change that makes the
+    "assembly-stage rule written twice" failure mode unwritable: the dropped
+    impl-entry attributes existed because the skeleton was spelled in two places.
+    Byte-identical by construction and verified that way — the 9 golden snapshots
+    and 95 UI `.stderr` files pass **without** `BLESS`, i.e. no output changed.
+  - **R1 phase 3 delivered: the impl block has one renderer.** `assemble_impl` no
+    longer spells an impl: it builds an `ImplParts` (generic params verbatim as
+    `(tokens, None)` pairs, the body as one stream, the item's attributes, the
+    `unsafe` flag, the trait path or `None` for an inherent impl, and a
+    `target_type` parsed into the type representation when the DSL can express it —
+    otherwise an opaque `TyPrimitive`) and calls the same `render_impl` the
+    attribute entry calls. `render_impl` gained exactly two things to make that
+    possible: an `Option` trait (the inherent form) and an `Option` fresh context
+    (the entry's trait path is verbatim, so it has no `@N..` placeholders — the
+    `None` case reports rather than silently dropping args if that invariant ever
+    breaks). The `<...>` joining rule moved into the renderer with it. Verified
+    **byte-identical**: all 9 golden snapshots, 95 UI `.stderr` files and 278
+    feature tests pass untouched (no `BLESS`), and `regression_consistency`'s
+    two-entry cross-check stays green.
+  - **No milestone item left open**: the DSL gap is closed (above) and the entry
+    unification is delivered. What remains *by design* is that the two entries
+    keep their own input adapters — recorded in architecture's "Two Front-Ends"
+    section together with the reason (nothing today needs to reason about an
+    impl-entry target or its params).
+- **Three Rust type spellings the DSL rejected** (a `syn::Type` coverage audit
+  left three real gaps; the fourth finding was wording only and was deferred).
+  Measured before the fix: `<T: Iterator<Item = u8>>`, `dyn Iterator<Item = u8>`,
+  `Box<dyn Iterator<Item = u8>>`, `dyn (Iterator<Item = u8>)` and
+  `for<'a> Iterator<Item = …>` all rendered the concrete-type diagnostic;
+  `::std::vec::Vec<u8>` returned **no parse**, and inside an args list it was
+  worse than an error — `Box<::std::vec::Vec<u8>>` rendered `Box<>`, silently
+  empty; `fn(x: u8) -> u8` rendered "unexpected `:` after the type".
+  - **One ambient context instead of a bare trait name**: the parser threaded
+    `trait_name: Option<&Ident>` through every level (`parse_item` →
+    `parse_dot_chain` → `parse_block` → `ident_block` → `plain_ident_block`, plus
+    `parse_group` / `parse_list` / `parse_angle_bracket_contents` / `blocks.rs`).
+    It is now `parse::Ctx { trait_name, bound }` — `Copy`, built by `Ctx::new`,
+    adjusted by `in_bound()` / `plain()`. `bound` is the flag the ident parser
+    needed: bindings are legal on **any** trait path in a bound, while "trait
+    head" (which decides `TyTrait` vs `TyGeneric`) is a separate question — so
+    the flag widens only `allow_special` and cannot flip a head's classification.
+  - **Who sets `bound`**: `parse_bound_expr` (an inline `T: …` bound),
+    `dyn_block` (a trait object **is** a bound) and `for_block` (the binder
+    governs a bound). `parse_angle_bracket_contents` clears it for the chunks it
+    recurses into — those are types, not bounds — which is what keeps
+    `Vec<Item = u8>` and `Box<Iterator<Item = u8>>` errors while
+    `<T: Iterator<Item = u8>>` parses.
+  - **`::` opens a block**: `starts_block` now takes the **cursor**, because the
+    answer depends on the operator dictionary — `::` is a block start, a lone `:`
+    is a separator (the `T: Clone` / `fn(x: u8)` boundary behavior depends on
+    that, and a token-level check cannot tell the two apart). `parse_block` gained
+    the arm, and `plain_ident_block` was split so its tail (`plain_ident_path`)
+    can start from an already-consumed `::` prefix — one path parser still owns
+    segments, turbofish, args and qualified tails. A new diagnostic reports a `::`
+    with no segment identifier.
+  - **Named fn parameters are a `fn(...)`-only feature**: `ParamStyle::{Bare,
+    Sugar}` is shared by `fn_block` and `fn_trait_block` (`parse_fn_params` /
+    `parse_fn_param`), and the sugar rejects names because **rustc does** —
+    verified with `rustc` before implementing (`dyn Fn(x: u8) -> u8` is
+    "`Trait(...)` syntax does not support named parameters"). The name is kept
+    verbatim as a `TyPrimitive` prefix and the type after `:` is parsed
+    structurally, so `fn(v: Box<u8>) -> u8` keeps its DSL node.
+  - **The fuzz allocation guard caught the first cut of the sugar branch**: the
+    diagnostic returned without consuming the parameter, the param loop (`while
+    let Some(p) = …`) trusts `Some` to mean progress, and the test binary died at
+    the 256 MiB `GuardAlloc` limit instead of reporting an error. Both new
+    branches now consume the name, its `:` and the segment before reporting.
+  - **Evidence**: 3 new unit tests in `src/parse/mod.rs`
+    (`bindings_are_accepted_in_bound_positions`, `global_paths_parse`,
+    `named_fn_parameters_parse` — each also pins that a **plain** arg list still
+    errors), 3 new feature modules (`dsl_bound_bindings`, `dsl_global_paths`,
+    `dsl_fn_named_params`, 3 end-to-end tests through both front-ends) and 3 new
+    UI fixtures (`fn_sugar_named_param`, `fn_named_param_missing_type`,
+    `global_path_no_ident`). Totals: 151 → **154** lib tests, 279 → **282**
+    feature tests, 45 → **48** feature modules, 95 → **98** `compile_fail`
+    fixtures. Two pre-existing wording fixtures were updated **by hand**
+    (`concrete_binding`, `concrete_bound` — the message now names the bound
+    position as a legal one); they were the only two `.stderr` files that
+    changed in this round, established by running trybuild *without*
+    `TRYBUILD=overwrite` first. The acceptance criterion for the `Ctx`
+    re-threading is the crate's usual one: all 9 golden snapshots (the
+    `.golden` files are untouched) and every UI `.stderr` pass **without**
+    `BLESS` / `TRYBUILD=overwrite`.
+  - **Adjacent, measured, and left open**: a spec-less `#[batch_impl]` (empty
+    attribute) on an **`impl`** block emits no impl and no diagnostic — the impl
+    is withheld and `expand_impl_entry` skips empty specs, so the item silently
+    disappears (the compiling fixture reports "trait has no implementations" and
+    no macro error). The fix (an up-front "the impl entry needs a spec" error) is
+    a behavior change outside this round's scope, so it is reported, not applied.
+- **The stacked-attribute chain: `#[batch_impl]` stages are now an owned fold** —
+  maintainer-driven design round. A second `#[batch_impl]` above an `impl` block
+  used to be left to rustc: the outermost expanded first, its generated impls
+  carried the inner attribute (that is how `item.attrs` works), and rustc expanded
+  it on them. Measured on that setup: a stage that spells its own target **cannot**
+  touch the concrete for-type it receives, so the second stage either rewrote
+  nothing (measured: `SpecW<u8>` existed, the `u16` stage's target never appeared,
+  no error) or duplicated it (two-leaf stage → **E0119**), and the attribute levels
+  between stages were rewritten by nobody. The `;` list stayed what it always was —
+  a *parallel* list of rewrites of one source — so the sequential semantics needed
+  a separate mechanism. Design decisions this round:
+  - **No new syntax at all.** The stage boundary is the attribute boundary, which
+    already exists as a syntactic unit and reads top→bottom in execution order. Two
+    proposals of mine were withdrawn after review: an `|>` chain operator (a new
+    operator is not justified for this) and a `@target` placeholder for "the current
+    for-type" (never designed, and unnecessary: the accumulating *block* is the
+    subject, so a later stage simply binds the slots an earlier one left).
+  - **The order is rustc's, and that is enough — measured, not assumed.** The
+    first implementation *captured* the whole stack in the outermost attribute and
+    folded the stages itself (`expand_chain` + `split_chain` + `parse_impls`, a
+    `syn::File` round trip per stage, plus `assemble_impl`'s per-level
+    `attr_subst_from`). The maintainer then asked the right question — would the
+    compiler's own expansion order already give the same order? — so it was
+    measured: with the capture disabled (`if false && !chain.stages.is_empty()`),
+    **all four real-macro chain tests passed, 288/288**, including the shape-family
+    case. So the capture was removed again: ~120 lines, one re-parse round trip and
+    one rustc-imposed limitation (the leading level could not be distinguished)
+    deleted, and the entry now has **no chain state at all** — rustc expands the
+    outermost attribute first, this entry re-emits the rest on the impls it derives,
+    and the compiler expands the next stage on those. What the capture had bought
+    was only *token rewriting inside level attributes*, which the maintainer ruled
+    out: the level an attribute belongs to is already expressed by the expansion
+    level it sits at (and that is what scopes a `#[cfg]` there — measured: a
+    mid-stack `#[cfg(any())]` meant a later, deliberately failing stage never ran).
+    The unit tests that needed the capture were deleted with it; the feature tests
+    are the contract.
+  - **Acceptance is now end-to-end**: the stage order and the accumulating-block
+    composition are exercised through the real macro, where the compiler continues
+    the chain — the only place the semantics exists.
+  - **Why the order is load-bearing** (the maintainer asked for a case that *needs*
+    it): a **shape family** — container forms that are not the same head
+    (`Vec<T>`, `[T; 4]`, `Box<[T]>`, `&'static [T]`) — needs one prototype per
+    family under §8.4's pattern, since a single template cannot match four
+    differently shaped heads. Two stages express it with bare-slot specs:
+    `A : [Vec<B>, [B; 4], Box<[B]>, &'static [B]]` (the shape, element slot left
+    open) then `B : [u8, u64]` (the element) — stage 2's substitution reaches
+    *inside* the tokens stage 1 produced, so `B` lands in four different positions.
+    Swapping the two attributes is measured to fail with **four
+    `E0425: cannot find type `B``** (one per shape leaf) instead of eight working
+    impls: the element is bound while the block does not mention it, and the shape
+    stage then introduces a `B` nothing binds. Locked by
+    `impl_entry_chain::a_shape_family_crossed_with_an_element_by_two_stages`
+    (8 impls, runtime value assertions) and shown in tutorial §8.5.
+  - **A wrong turn, caught by the suite**: the first version also *forbade* stacking
+    on a **trait** entry ("a trait has no accumulating subject"). The full test run
+    failed on `tests/features/dsl_blanket.rs`: trait-entry stacking is an existing,
+    documented feature (`#blanket` overriding delegation — implement the inner type
+    first, then wrap it), so the diagnostic was reverted immediately. My earlier
+    measurement of `#[batch_impl(u8)] #[batch_impl(u16)] trait T` (two `E0046`s) was
+    a *user error* in that pattern, not evidence that stacking is meaningless there.
+  - **Evidence**: a new `tests/features/impl_entry_chain.rs` (4 end-to-end tests:
+    staged binding with runtime values, an empty stage, a level attribute carried
+    onto the final impls, and the shape-family × element case that justifies the
+    stage order), 49 feature modules / **288** feature tests, **155** lib tests,
+    UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Second review round: the guard's own detectors, and two P3 findings closed** — an
+  independent re-review confirmed all four F1/F2/F4/F5 fixes against the real entry
+  points and probed the *risk surface* that fix opened (an unclosed `<` swallowing the
+  region, angles pairing across a `;` spec boundary, the `where` path's depth being
+  structurally zero after pairing, `saturating_sub` underflow) — no new problem in any
+  of them. Its N1–N5 are handled here.
+  - **N1: the guard's detectors were the one part of it that could fail silently.**
+    The walk was loud (file floors, unreadable files, an empty skip set), but a
+    visitor arm that stopped matching — a `syn` upgrade reshaping a node, a refactor
+    narrowing a `matches!` — would report nothing and the whole guard would pass
+    vacuously, which is the one failure mode its own promise cannot tolerate.
+    `tests/no_panic/selftest.rs` now feeds every arm a synthetic violation plus its
+    near-miss controls (all ten panic macros; both `unwrap` / `expect` spellings; the
+    qualified `Option::unwrap`; the `allow` family on an inner attribute, an item, a
+    statement, a `cfg_attr` arm and all three blanket silencers; the `cfg(test)`
+    gate's exactness; the token scan's macro-body rules). **Falsified before it was
+    trusted**: disabling `visit_expr_method_call` makes the new file fail (`.unwrap()`
+    reported as `[]`) where the old suite stayed green — the guard grew from 2 tests
+    to 6.
+  - **N2: a hand-written index inside a macro body escapes both legs** — clippy's
+    `indexing_slicing` is a HIR lint (it cannot see a `quote!` body), and the token
+    scan looks for panic macros and `unwrap` / `expect` calls, not for `[…]`, which
+    cannot be told apart from an array type (`[u8; 4]`), an array literal or an
+    attribute without a parser. The reviewer found no instance (the indexing census
+    came back empty), so it is a coverage hole rather than a live bug: it is now
+    **recorded** in the scan's module doc, in the architecture row and as a negative
+    control in the self-tests — deliberately not "fixed" with a heuristic that would
+    fire on array types.
+  - **N3: the lifetime namespace — measured, then fixed at the class.** The reviewer
+    called `slot_names.contains(name.trim_start_matches('\''))` a side effect of the
+    mapping's textual substitution. It is worse than that: probing
+    `#[batch_impl(Box<a> : [Box<u8>, Box<u16>])] impl<'a> L<'a> for Box<a>` produced
+    `E0261: use of undeclared lifetime name 'u8` (twice, plus `'u16` twice) —
+    `apply_mapping` substituted the ident *inside* the lifetime, and the
+    reconciliation dropped a declaration that was still used. Nothing ever binds a
+    lifetime (the shape kernel compares named lifetimes verbatim), so the class fix is
+    one branch in each of two places: `apply_mapping` passes a quote-plus-ident
+    through verbatim (`slice_window`), and the reconciliation compares names exactly
+    (a slot set holds bare type/const names, so `'a` was never one of them). Locked by
+    `impl_entry_extras::a_lifetime_named_like_a_slot_is_left_alone` (two impls, both
+    keeping `<'a>`); the temporary probe file was deleted, no `zz_*` file remains.
+  - **N4: the `::`-tail wording now distinguishes the two mistakes.** `A::` reported
+    the DSL-token message ("a `::`-tail segment must be an identifier — DSL tokens
+    (`@…` / `#…`) are not allowed in a `::`-tail"), which describes a token that is
+    not an ident, not a missing one. An empty tail now reports "`::` must be followed
+    by a path segment (write `Foo::Assoc`)" (verified end to end on
+    `#[batch_impl(A::)]`); the DSL-token case keeps its wording. Locked in
+    `parse::tests::qualified_tail_rejects_dsl_tokens`.
+  - **N5 (no action)**: `trait_path_with_mapped_args` passes parenthesised `Fn(..)`
+    arguments through unmapped. Implementing the `Fn` traits needs unstable
+    `fn_traits`, so the position is unreachable on stable — already stated in that
+    function's doc.
+  - **Evidence and counts**: lib **159**, features **293** (50 modules), the no_panic
+    guard **6**, UI 99 + 3, doctests 93, the 9 goldens and every UI snapshot passing
+    without `BLESS` / `TRYBUILD=overwrite`, fmt/clippy/doc clean. The reviewer's own
+    gate run (159 / 292 / 99 + 3 / 93) matched this tree at the revision it read.
+  - **Process point it raised**: the review target is a moving tree (HEAD `72251bd`,
+    ~120 uncommitted paths). The rule stays as agreed — no commit unless the
+    maintainer asks — so a review report should name the revision **and** the state it
+    read, which is what the entries here do.
+- **Conventions/structure pass over the whole Unreleased diff** — two independent
+  read-only audits (one for conventions, one for structure) ran over the working
+  tree (`72251bd` + the diff), and every item below was re-measured here before it
+  was touched. The findings the audits confirmed are recorded with the audit's own
+  wording, not softened.
+  - **The architecture test matrix had drifted** — found by re-counting, not by
+    reading: **155** → **159** unit tests, `preprocess::where_process` 8 → **11**,
+    features **288** → **292**, feature modules **49** → **50**. And
+    `tests/features/impl_entry_basic.rs` was **501** lines, against the 350-line
+    budget the same table asserts (the development guide repeats it): the file was
+    split — sections 1–13b stay, the composed-spec half moves to a new
+    `tests/features/impl_entry_compose.rs`, which carries its own `GenA` fixture so
+    each per-feature module stays self-contained — leaving 267 + 246 lines. The
+    budget is now written as **at most 350** lines, because the re-measurement found
+    `dsl_directives.rs` sitting exactly on it.
+  - **A per-file `deny(clippy::indexing_slicing)` had come back** in
+    `preprocess/varseg.rs` — redundant with the crate-level line in `src/lib.rs`
+    that three docs call the single permitted spelling, and asserted by
+    `no_panic::the_crate_denies_the_panic_and_indexing_families`. Deleted: a
+    per-file copy makes the ratchet's "one crate-level line" claim false.
+  - **`FlatAngleDepth`'s doc claimed a stage that does not exist.** It said
+    `where_process` runs before `angle_collect`; `impl_process` does (it is the
+    pipeline's first step — which is exactly what makes the F1/F5 fixes real), but
+    `where_process` runs **after** pairing. Measured consequence: a user-written
+    predicate (`where T: Clone, CommaPair<T, T>: Clone`) reaches the pass with an
+    opaque `<...>` group — disabling the new gate leaves that spelling green, so the
+    in-angle comma never was a user-visible bug. The depth question only arises for
+    the other states the pass accepts (text a directive emitted after pairing, and
+    any direct caller — fuzz, unit tests), and there the third region decision was
+    depth-blind while the other two were not: `chunk_is_predicate` now shares the
+    same authority (falsified before the fix — the pass split
+    `where A : Clone , Vec < A , B > : Clone` at the in-angle comma and left a
+    dangling spec). The doc now states the real stage relationship.
+  - **`dsl_target_type` deleted** (structure finding): the impl entry parsed its
+    for-type into real `Ty` nodes and stored them in `ImplParts::target_type`, which
+    the renderer never reads — a successful parse and the `TyPrimitive` fallback
+    render identically, so no test could falsify the parse. The field stays (the
+    struct needs one) and is filled with the opaque node; both architecture docs now
+    say why the entry does not parse it.
+  - **One generic-name match had three copies in one function pair** — the slot
+    check, the declared-name set and the attr-decl reconciliation each re-derived
+    "which name does this `syn::GenericParam` declare?", and they had already drifted
+    (one dropped lifetimes; one compared slot names after stripping the apostrophe).
+    `ast::param_kind::name_of_generic_param` is now the one answer, next to the
+    `ParamKind` authority that owns classification (spelling is a different
+    question, and the lifetime keeps its apostrophe).
+  - **The new `util::slice_from` / `slice_upto` helpers were bypassed nine times** in
+    the same working tree that introduced them (`tokens.get(n..).unwrap_or_default()`
+    spelled out inline). All nine call the helper now, as the development guide's
+    "the recurring slice idioms live in `util/scan.rs`" says. `FlatAngleDepth::fold`
+    likewise stopped re-deriving `util::is_arrow` and calls it.
+  - **Docs corrected where they contradicted the code** — the tutorial's error
+    catalogue still called bindings/bounds trait-path/declaration-only (the bound
+    position has been legal since the DSL-gap round: `T: Iterator<Item = u8>`, and
+    the same inside `dyn` / `impl Trait` / `for<'a>`); §8's impl-entry list still
+    called `@N`/`@g_i` rejected there (a generator hoists fresh generics and `@N..`
+    where selectors resolve against them — only `@N` with no generator is out of
+    range, and the `ui` fixture's comment now says that); the development guide's
+    single-authority list pointed `chunks_to_streams` at `entry/impl_spec.rs`
+    instead of `entry/impl_entry.rs`; and the adversarial entry's "the tree **now**
+    holds 101 `tests/ui` `.rs`" now records that round's state instead of reading as
+    today's.
+  - **Evidence**: new locks are `preprocess::where_process::tests::
+    bare_where_comma_inside_an_angle_list_is_not_a_spec_boundary` (failed before the
+    fix with `u8 where { A : Clone } , Vec < A , B > : Clone`, passes after),
+    `features::dsl_where::where_predicate_subject_keeps_its_angle_arguments` (the
+    user spelling — and, with the gate disabled, still green: the counter-control
+    that says which state the gate is for) and `ast::param_kind::tests::
+    syn_generic_params_yield_their_declared_names`. Totals: **159** lib tests,
+    **292** feature tests in **50** modules, UI 99 + 3, doctests 93, the 9 goldens
+    and every UI snapshot passing without `BLESS` / `TRYBUILD=overwrite`,
+    fmt/clippy/doc clean.
+- **Review pass F1/F2/F4/F5: the bare-region pass and the impl entry's generic
+  bookkeeping** — an independent review of `bfec7c0` (the P1–P3 round) found four
+  issues; all four were reproduced and fixed here.
+  - **F1/F5 (one root, P2/P3): the bare-keyword collector runs before angle
+    pairing.** `impl_process` is the pipeline's **first** step
+    (`impl_process → mark_varseg → expand_consts → angle_collect`), so `<...>` is
+    still flat there — but the region scanner and the `impl`-target discriminator
+    both behaved as if angles were opaque groups. Measured:
+    `impl Box<dyn Fn() + Send> { … }` was reported as an `impl <trait-object>`
+    target (the argument's `+` read as a top-level bound chain) while the braced
+    spelling `impl{Box<dyn Fn() + Send>}` collected, and `impl W<{ 1 }> { … }`
+    failed with "unclosed `<`" (the const-generic argument's Brace group taken for
+    the impl body). Fix: one shared `where_process.rs::FlatAngleDepth` — the single
+    authority for that invariant — gates **every** region boundary (`{…}`, `where`,
+    a bare `impl`, `;`, `,`) and the `+` test; its doc comment states the stage
+    invariant the first version had assumed without checking.
+  - **F2 (P2): the trait path's arguments were never mapped.** The slot-param
+    stripping removes the declaration, but `assemble_impl` rendered the trait path
+    verbatim (only the for-Type / where / body went through `apply_mapping`), so a
+    slot written there reached the compiler unresolved (measured: `E0425` where the
+    earlier round had `E0207` — the P2 goal half-done). Fix:
+    `trait_path_with_mapped_args` maps the path's **angle arguments** only (its own
+    idents stay, so a slot sharing the trait's name cannot rename the trait) and
+    returns the path untouched when the mapping is empty, so nothing else
+    rerenders. **A blessed golden pinned the invalid output**:
+    `impl_entry_generics.golden` contained `impl Conv<B> for Box<u8>` with `B` gone
+    — the golden layer is a *text* lock, so it had blessed tokens that cannot
+    compile (the concrete instance of the F3 caveat from the previous review).
+    Re-blessed: four lines, `B` → `u8` / `u16`.
+  - **F4 (P3): the attr's generic declaration was never reconciled with the
+    block's.** `#[batch_impl(<T> Box<T>)] impl<T> MkD for Box<T>` — the natural
+    spelling once the body uses `T` — declared `T` twice (`E0403`), while the shape
+    form had been fixed by P2; the tutorial avoided it by *not* writing `<T>`.
+    Fix: one authority, `impl_spec.rs::reconcile_new_gen`, called from the single
+    place that assembles `all_params`: a name the block already declares (or that
+    the slot mapping replaced) is not declared again, and the dropped declaration's
+    bounds become a where predicate. This is the review's "fix the class, not the
+    instance" suggestion — item-declared vs DSL-declared generics now reconcile in
+    one place, not once per entry form.
+  - **Evidence**: 2 new unit tests in `where_process.rs` (the `+`-in-argument and
+    brace-argument equivalences, alongside the existing top-level `+` negative
+    control), 3 new feature tests
+    (`block_model::bare_and_braced_templates_are_the_same_template`,
+    `impl_entry_extras::a_repeated_generic_declaration_is_reconciled`,
+    `impl_entry_extras::a_slot_in_the_trait_arguments_is_mapped`), the re-blessed
+    golden, **157** lib tests / **291** feature tests, UI 99 + 3, doctests 93,
+    fmt/clippy/doc clean. Two of my probe attempts were wrong before they were
+    right (an empty trait, then a foreign trait in the F2 repro hitting `E0117`) —
+    corrected before drawing conclusions, which is why the outcomes above are the
+    measured ones.
+  - **Process lessons accepted**: (1) a shape discriminator must first establish
+    the pass's **stage and invariant** (F1's lesson — now written into the code);
+    (2) reconcile by *class* in one place rather than per branch (F2/F4);
+    (3) review reports should pin a revision — this round reviewed `72251bd` plus
+    the then-working tree, and the tree has moved since (the rounds above), so the
+    next review should diff against the current `git status`.
+- **Adversarial review round (independent subagent, differential corpus)** — the
+  reviewer built a temporary 24-case corpus (12 pre-existing spellings / 5 newly
+  accepted / 7 diagnostics), compiled it against a `git worktree` at HEAD
+  (`72251bd`) and against the working tree, and diffed the diagnostic streams:
+  **HEAD 16 errors → working tree 10**. The 11 pre-existing spellings produced
+  zero diagnostics in both trees, the only accepted-again cases were the four
+  new ones, and the three retained diagnostics (`Vec<Item = u32>`,
+  `Vec<u8: Clone>`, `<T: Iterator<Vec<Item = u8>>>`) kept their span and
+  category. It independently re-ran every gate (lib 154, features 282, UI
+  98 + 2, doctest 91, fmt/clippy clean) rather than taking the numbers on trust.
+  Findings, all handled in this round — its own end state was lib **155**,
+  features **288**, UI **99 + 3**, doctest **91**; the rounds documented above
+  moved the totals on since — **157** / **291** (the review pass),
+  **159** / **292** (the conventions pass), **293** features (the second review
+  round):
+  - **F1 (medium, self-inflicted)**: the earlier round's claim "orphan UI
+    snapshot removed — `tests/ui/const_def_position.stderr`" was **false in the
+    tree**: the file was still tracked (no `.rs` counterpart exists, and `ui.rs`
+    does not register it), because a `TRYBUILD=overwrite` run deleted it and this
+    round's `git checkout --` restored it. Counting is self-proving: 100 `tests/ui`
+    `.rs` files − 2 `pass` = 98 expected `.stderr`, 99 present (as the reviewer
+    found the tree). `git rm`'d; the changelog claim is true again, and at the end
+    of that round the tree held 101 `tests/ui` `.rs` files against 99 `.stderr`s —
+    99 registered `compile_fail` + 2 `pass` (today's count is 102 `.rs`, 99
+    `.stderr`, 99 + **3** `pass`; the third pass fixture landed in a later round).
+  - **F2 (medium-low, a real leak in the new flag)**: `bound` was cleared only by
+    `parse_angle_bracket_contents`, so it still reached the **sub-type positions**
+    of a bound element (`T: fn(Vec<Item = u8>)`, `T: (Vec<Item = u8>,)`,
+    `T: [Vec<Item = u8>; 1]`, `T: &'static Vec<Item = u8>`, `T: ?Vec<Item = u8>`)
+    — the reviewer proved it by code path, and the probe here confirms the
+    pre-fix render was silently `T: fn(Vec<Item = u8>)` (invalid Rust handed to
+    rustc instead of the DSL's targeted error). Fixed by passing `ctx.plain()`
+    in `fn_block` (params + return), `reference_block`'s lifetime target,
+    `parse_block`'s `?`/`!` inner, and the tuple/array element paths; the six
+    cases are now locked in `bindings_are_accepted_in_bound_positions`. A
+    **comma-less** `(...)` is deliberately exempt: rustc reads it as a
+    parenthesized bound (`fn f<T: (Iterator<Item = u8>)>() {}` and
+    `type X = dyn (Iterator<Item = u8>);` both compile, verified with `rustc`),
+    so the flag passes through there — the first cut of this fix cleared it
+    unconditionally and broke `dyn (Iterator<Item = u8>)`, which the same test
+    caught.
+  - **F5 (pre-existing, and worse than a panic — a hang)**: `parse_return_expr_tokens`
+    was the one fold loop without a progress check. `#` followed by a non-bracket
+    group is `starts_block`-true and `parse_block`-none, so it spun on an unmoved
+    cursor; unlike the two earlier fuzz-hang root causes it **allocates nothing**,
+    so `GuardAlloc` could not catch it. Reachability measured with a control:
+    a cold build of `extern "C" fn(u8) -> u8` finished in **47.53 s**, the same
+    build with `extern "C" fn(u8) -> u8 #(x)` was still running after minutes and
+    had to be killed (its orphaned `cargo`/`rustc` were reaped). It now returns
+    the targeted diagnostic, consumes the stalled token, and replaces the
+    passthrough; locked by `return_tokens_stall_terminates_with_diagnostic` and
+    `tests/ui/extern_fn_stray_hash.rs` (one error, at the `#`, no cascade).
+  - **F3 (recorded, not changed)**: the golden layer is a **text** lock — it
+    proves the rendered token stream did not move, not that it is legal Rust
+    (`tests/golden/nested_apply.golden` pins `impl N for Box<Vec, u8>`, which the
+    reviewer reproduced as identical E0107/E0658 in both trees, i.e. pre-existing).
+    Validity is what `tests/features/*` compile.
+  - **F4 (fixed in passing)**: `tests/ui/constant_named_type_arg.rs` was a `pass`
+    fixture with no assertion, so a silent 0-impl expansion — exactly what the
+    bug behind it produced — would still have passed it. It now also asserts the
+    impl exists (`fn need<T: Held>() {} need::<Vec<constant>>();`).
+  - **The reviewer's residual `bound` leak — closed, not deferred**: the flag
+    still reached the *space-application operand* of a bound element
+    (`T: *const Vec<Item = u8>`, where `*const` is the head and `Vec<…>` its
+    apply operand). Measured before the fix: the DSL's targeted binding message
+    was absent and the generated bound reached rustc, which reported "expected a
+    trait, found type" + E0404. `parse_bound_expr`'s space fold now parses its
+    followers with `ctx.plain()` — the `+` elements keep the flag, they *are*
+    bound elements — and the shape joined the locked rejection list. rustc
+    settles the direction: `T: Clone Vec<Item = u8>` is not even valid syntax
+    ("expected one of `(`, `+`, `,`, `::`, `<`, `=`, or `>`, found `Vec`"), so no
+    legal input changes.
+  - **Not falsified by the reviewer** (recorded honestly): whole-corpus token
+    equivalence (only the 11 spellings + the goldens were covered); that "every
+    hang is caught by `GuardAlloc`" (F5 disproves it); and gap B's *top-level*
+    breakage, which its compile-only corpus cannot see (silent 0 impls look like
+    success) — this round's own pre-fix measurement does establish it
+    (`::std::vec::Vec<u8>` → no parse at all, `Box<::std::vec::Vec<u8>>` →
+    `Box<>`, and the feature test asserts the impl exists, so a silent empty spec
+    fails it).
+  - **The spec-less `#[batch_impl]` item — I had this one wrong, and the
+    maintainer caught it.** I closed the previous round by measuring that all
+    four empty forms "compile with zero diagnostics" and concluding "not a
+    defect, empty ⇒ zero impls". The measurement was too weak: *compiling* is
+    exactly what a swallowed impl looks like. Re-measured with an existence
+    assertion (`fn need<T: EmptyAttr>() {} need::<u8>();`), the impl-entry forms
+    fail with **E0277** — the item was gone, silently, because the impl entry
+    withholds the original by design and nothing was derived to replace it. The
+    maintainer's model is the right one: the attribute is a **derivation**
+    (a flat-map over its `;`-separated specs, each replacing the block with the
+    0..N impls it derives), so an empty spec list is the **identity** and must
+    emit the original block unchanged. Implemented as an early `Ok(quote!(#item))`
+    when no spec chunk has content (separators are not content, so `#[batch_impl(;)]`
+    counts as empty); the original's own attributes ride along (the `#[batch_impl]`
+    itself is consumed by rustc), and the tokens are re-emitted with their spans.
+    Locked by `impl_entry_boundary::impl_entry_empty_spec_list_is_a_no_op`
+    (runtime `tag()` calls for the bare / `()` / `;` forms) and
+    `tests/ui/pass/impl_entry_empty_attribute.rs` (compile-time `need` calls);
+    the falsification probe removes the guard and gets E0599 for all three.
+    The attribute entry needed no change — measured: `#[batch_impl]` on a
+    `trait` (and `#[batch_impl()]` on an `unsafe` trait carrying its own
+    `#[allow]`) leaves the item intact, so "empty ⇒ the item as written" already
+    held there, and both entries now agree. Recorded as an explicit correction
+    because the wrong conclusion had been written into `entry/impl_entry.rs` and
+    the changelog for a round.
 
 ## 0.9.7 (2026-08-29)
 
@@ -2291,3 +3240,4 @@
   mechanical but large-diff; near-miss names (`where_process` vs
   `where_at`, dual `splat.rs`) documented instead of renamed; `wip/`
   scratch stays ignored.
+
