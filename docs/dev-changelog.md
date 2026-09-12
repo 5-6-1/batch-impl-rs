@@ -897,6 +897,30 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Second review, round 2: a nested declaration's bindings are reported, not dropped**
+  (F7c) — the review called it a theoretical gap; it is reachable and silent.
+  `codegen/extract.rs::hoist_type_params` collected a `WithType` node's **params**
+  and rebuilt the node as its inner type, discarding `wt.0.bindings`: the root
+  declaration's bindings become the impl's associated types
+  (`extract_impl_parts`), so `#[batch_impl(<Item = u8> Held)]` renders
+  `impl DeclBinding for Held { type Item = u8; }`, while the nested
+  `(<Item = u8> Held,)` generated `impl … for (Held,)` with **no** `type Item` and
+  no diagnostic (measured with `batch_preview!`; the reviewer's suggested spelling,
+  a binding inside a *bound*, is not the gap — bounds are carried).
+  - **Fix**: `hoist_type_params` now returns `Result<_, TokenStream>` and, before
+    hoisting, reports the first nested binding declaration through a walk that
+    composes on `Ty::map_children` and collects instead of unwinding (the same
+    shape as the driver's `collect_errors`) — only *children* are inspected, which
+    is what exempts the outermost declaration. The message names the spelling:
+    "an associated-type binding belongs to the outermost `<>` declaration (write
+    `<Item = u8> Foo<…>`, not `(<Item = u8> Foo<…>,)`)"; both callers (`pipeline.rs`,
+    the impl entry's two hoist sites) propagate it.
+  - **Locks**: the positive case had no test at all — it does now
+    (`dsl_bound_bindings::declaration_binding_becomes_the_associated_type`, which
+    names the impl through `DeclBinding<Item = u8>`), and the rejection is the new
+    `tests/ui/nested_binding_declaration.rs`.
+  - **Evidence**: lib **159**, features **294**, UI **101 + 3**, doctests 93,
+    fmt/clippy clean.
 - **Second review, round 1: one authority for the `@`-reference diagnostics** — the
   four message families of the `@` position references had drifted into 3 / 3 / 4 /
   2 copies across four files (the review's F1/F2/F4, whose census was verified

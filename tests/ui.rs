@@ -163,6 +163,10 @@ fn ui() {
     t.compile_fail("tests/ui/binding_bound_empty.rs");
     t.compile_fail("tests/ui/literal_and_range.rs");
     t.compile_fail("tests/ui/array_and_punct.rs");
+    // a **nested** `<>` declaration carrying associated-type bindings has no
+    // rendering — reported instead of dropped (the outermost declaration owns
+    // them and they become the impl's associated types)
+    t.compile_fail("tests/ui/nested_binding_declaration.rs");
 
     // flat-chain depth guards: no group nesting, yet each builds a deep Ty
     // tree — capped at 128 levels instead of overflowing the compiler stack

@@ -194,6 +194,14 @@
   message — and a half-built impl was emitted next to it. They now report the
   DSL's own error, and the empty-range message names the numbers
   (``empty exclusive range `@2..1` ``) instead of printing a literal `@{}..{}`.
+- **An associated-type binding on a nested `<>` declaration is reported, not
+  dropped** — the outermost declaration's bindings become the impl's associated
+  types (`#[batch_impl(<Item = u8> Held)]` → `impl Tr for Held { type Item = u8; }`,
+  now covered by a test), but the same declaration written *inside* a type
+  (`(<Item = u8> Held,)`, `Vec<(<Item = u8> Held,)>`) hoisted its parameters and
+  silently discarded the binding, generating an impl without the associated type.
+  It now reports "an associated-type binding belongs to the outermost `<>`
+  declaration" and names the spelling that works.
 
 ## 0.9.7 (2026-08-29)
 

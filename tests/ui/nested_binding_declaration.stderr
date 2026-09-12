@@ -1,0 +1,7 @@
+error: batch-impl: an associated-type binding belongs to the outermost `<>` declaration (write `<Item = u8> Foo<…>`, not `(<Item = u8> Foo<…>,)`)
+ --> tests/ui/nested_binding_declaration.rs:9:1
+  |
+9 | #[batch_impl((<Item = u8> NestedHeld,))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

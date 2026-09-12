@@ -280,7 +280,7 @@ fn expand_leaf(
     // (`P0, P1, ...`) and resolve the carriers to display names before the
     // shape kernel syn-parses the leaf.
     let mut fresh_decls = vec![];
-    let leaf = hoist_type_params(leaf, &mut fresh_decls);
+    let leaf = hoist_type_params(leaf, &mut fresh_decls)?;
     let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
     // The leaf's own idents join the collision set: the matrix source is the
     // user's text (`Holder<P0>`), so a display name must never shadow it.
@@ -381,7 +381,7 @@ fn expand_direct_form(
             Span::call_site(),
         ));
     };
-    let leaf = hoist_type_params(leaf, &mut fresh_decls);
+    let leaf = hoist_type_params(leaf, &mut fresh_decls)?;
     let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
     // The spec's for-type is user text too — its idents join the set.
     let leaf_ts = leaf.to_token_stream();

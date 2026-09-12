@@ -33,6 +33,7 @@
 - **生命周期永远不是形状槽位**——当槽位名与某个生命周期同名时（`#[batch_impl(Box<a> : [Box<u8>, Box<u16>])] impl<'a> L<'a> for Box<a>`），替换会钻进生命周期**内部**改掉那个 ident，并丢掉 `<'a>` 声明，于是 impl 以 `E0261: use of undeclared lifetime name 'u8` 失败。形状匹配中具名生命周期是逐字比较、从不绑定，所以 `'a` 现在原样通过并保留声明，而类型位置照常替换。
 - **`::` 后面什么都没有时会直说**——`#[batch_impl(A::)]` 此前报 "a `::`-tail segment must be an identifier — DSL tokens (`@…` / `#…`) are not allowed in a `::`-tail"，描述的却是另一种错误。现在尾部直接结束时报 "`::` must be followed by a path segment (write `Foo::Assoc`)"；尾部里真的写了 DSL token 则沿用原措辞。
 - **畸形 `@` 引用无论在什么位置都报自己的错**——角度实参里的空排他区间（`#[batch_impl(Box<@2..1>)]`）、非整数位置引用（`Box<@1.5>`、`Box<@1u8>`）、range 端点不是数字，此前都以类型位置的 `compile_error!(…);` 到达 rustc，于是错误显示成 `` expected one of `,` or `>`, found `;` `` 而不是宏自己的消息——而且还额外吐出一个半成品 impl。现在它们报 DSL 自己的错误，且空区间消息会带上数字（``empty exclusive range `@2..1` ``），不再打印字面 `@{}..{}`。
+- **嵌套 `<>` 声明上的关联类型 binding 改为报错而不是丢弃**——最外层声明的 binding 会成为 impl 的关联类型（`#[batch_impl(<Item = u8> Held)]` → `impl Tr for Held { type Item = u8; }`，现在有测试覆盖），但把同一个声明写在类型**内部**（`(<Item = u8> Held,)`、`Vec<(<Item = u8> Held,)>`）时，提升只搬走了参数、把 binding 静默丢掉，生成的 impl 少了关联类型。现在报 "an associated-type binding belongs to the outermost `<>` declaration"，并给出可用的写法。
 
 ## 0.9.7 (2026-08-29)
 
