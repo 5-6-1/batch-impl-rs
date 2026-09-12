@@ -252,11 +252,11 @@ pub(crate) struct TyWithImpl(pub(crate) Option<Box<Ty>>, pub(crate) TyImplTempla
 pub(crate) struct TyWithDyn(pub(crate) Box<Ty>, pub(crate) TyBoundList);
 
 #[derive(Clone, Debug)]
-/// `for<'a> <inner>` — a higher-ranked trait bound. The binder (`<'a>`)
-/// stays verbatim; the inner type is kept structural (so a
-/// `for<'a> Fn.().2` generator inside works). Rendered back as
-/// `for<'a> <inner>`.
-pub(crate) struct TyWithFor(pub(crate) TokenStream, pub(crate) Box<Ty>);
+/// `for<'a, 'b: 'c> <inner>` — a higher-ranked trait bound. The binder is a
+/// **list of lifetimes** (parsed, so `for<u8>` is reported instead of reaching
+/// rustc) and the inner type stays structural (so a `for<'a> Fn.().2` generator
+/// inside works). Rendered back as `for<'a, 'b> <inner>`.
+pub(crate) struct TyWithFor(pub(crate) Vec<Ty>, pub(crate) Box<Ty>);
 
 #[derive(Clone, Debug)]
 /// The template token stream carried by [`TyWithImpl`].

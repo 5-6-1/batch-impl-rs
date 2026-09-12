@@ -148,3 +148,22 @@ fn dyn_bound_tail_takes_the_sync_marker() {
     let boxed: Box<dyn SyncMarker<u8> + Send> = Box::new(0u8);
     assert_eq!(boxed.tag(), "synced");
 }
+
+// The `for<…>` binder is a **list of lifetimes**: several elements stay separate
+// (the commas are the renderer's, not part of any element), and the DSL reports a
+// type parameter written there — `for<u8>` is a declaration in the wrong place,
+// which used to be passed straight through for rustc to reject
+// (`tests/ui/hrtb_binder_type_param.rs`).
+#[batch_impl(for<'a, 'b> fn(&'a u8, &'b u8) -> u8 { fn tag(&self) -> &'static str { "two" } })]
+trait TwoLifetimeHrtb {
+    fn tag(&self) -> &'static str;
+}
+
+#[test]
+fn hrtb_binder_holds_a_lifetime_list() {
+    fn tag_of<T: TwoLifetimeHrtb>(t: &T) -> &'static str {
+        t.tag()
+    }
+    let f: for<'a, 'b> fn(&'a u8, &'b u8) -> u8 = |a, _b| *a;
+    assert_eq!(tag_of(&f), "two");
+}

@@ -203,6 +203,10 @@
 - **A `+` with no bound after it in a `dyn` list is diagnosed** — `dyn Send +` used
   to emit the bare `+` for rustc to complain about; the DSL now reports "a `+` in a
   `dyn` bound list needs a bound after it".
+- **A `for<…>` binder is checked**: it holds lifetimes (`for<'a>`), so `for<u8>` —
+  a type parameter, which Rust declares on the impl — is reported by the DSL with
+  the offending element's span instead of reaching rustc as an "expected lifetime"
+  error.
 - **A malformed `@` reference reports itself, whatever position it sits in** — an
   empty exclusive range inside angle arguments (`#[batch_impl(Box<@2..1>)]`), a
   non-integer position reference (`Box<@1.5>`, `Box<@1u8>`) or a range end that is

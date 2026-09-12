@@ -126,8 +126,9 @@ impl ToTokens for Ty {
             }
             TyKind::WithFor(wf) => {
                 let inner = wf.1.to_token_stream();
-                let binder = &wf.0;
-                quote!(for < #binder > #inner)
+                // The binder is a lifetime list; the commas are the renderer's.
+                let binder = wf.0.iter().map(|l| l.to_token_stream()).collect::<Vec<_>>();
+                quote!(for < #(#binder),* > #inner)
             }
             TyKind::Fn(f) => render_fn(f),
             TyKind::TypeParam(tp) => params_to_tokens_no_base(tp),

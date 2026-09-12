@@ -897,6 +897,27 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **AST structure pass, step 2: the `for<…>` binder is a parsed lifetime list** —
+  `TyWithFor` kept its binder as one opaque `TokenStream` (`for_block` copied the
+  `<>` contents verbatim), so `for<u8>` — a type parameter where Rust allows only
+  lifetimes — travelled to rustc as an "expected lifetime" error against the macro
+  input. The binder is now `Vec<Ty>` of lifetime nodes, one per comma-separated
+  element (each may carry its `: 'b` bound tokens), the commas live in the renderer,
+  and a non-lifetime element is reported by the DSL:
+  "a `for<…>` binder holds lifetimes (`for<'a>`) — a type or const parameter is
+  declared on the impl, not in the binder" (`tests/ui/hrtb_binder_type_param.rs`,
+  span on the offending element, one error, no cascade).
+  - **The traversal had to grow with it**: `map_children` mapped only the inner type,
+    so an error minted in the binder was invisible to the driver's collection and
+    rendered into a type position instead — the fixture's first snapshot was
+    rustc's `expected one of …, found `::`` (the F2 shape again, caught by blessing
+    the new fixture and reading it). The binder is a child now.
+  - **Locked both ways**: `dsl_dyn_for::hrtb_binder_holds_a_lifetime_list` uses a
+    two-lifetime binder (`for<'a, 'b> fn(&'a u8, &'b u8) -> u8`), and the existing
+    single-lifetime HRTB tests (`dsl_basic`, `dsl_bound_bindings`,
+    `dsl_bound_generator`) pass unchanged — the 9 goldens included.
+  - **Evidence**: lib **161**, features **298**, UI **103 + 3**, doctests 93,
+    fmt/clippy/doc clean.
 - **AST structure pass, step 1: the `dyn` bound tail is a bound list (and two
   silent bugs fell out)** — `TyWithDyn`'s second field was `Vec<TokenStream>`, and
   `dyn_block` **parsed** each `+` bound into a `Ty` only to flatten it straight

@@ -178,7 +178,14 @@ impl Ty {
             )
             .to_ty()
             .with_span(span),
-            TyKind::WithFor(wf) => TyWithFor(wf.0, Box::new(f(*wf.1))).to_ty().with_span(span),
+            // The binder is a lifetime list, but it is **part of the node**: the
+            // traversals must see it too (an error minted there — `for<u8>` — has
+            // to reach the driver's collection, not render into a type position).
+            TyKind::WithFor(wf) => {
+                TyWithFor(wf.0.into_iter().map(|e| f(e)).collect(), Box::new(f(*wf.1)))
+                    .to_ty()
+                    .with_span(span)
+            }
             TyKind::WithTrait(wt) => {
                 TyWithTrait(TyTrait(wt.0.0, map_type_param(wt.0.1, f)), f(*wt.1).into())
                     .to_ty()

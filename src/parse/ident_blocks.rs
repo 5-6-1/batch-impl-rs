@@ -246,19 +246,42 @@ fn passthrough_block(cursor: &mut Cursor, n_leading: usize) -> Ty {
     TyPrimitive(tokens.into_iter().collect()).to_ty()
 }
 
-/// `for<'a> <inner>` — a higher-ranked trait bound. The binder (`<'a>`) is
-/// kept verbatim; the qualified type is parsed **structurally** (so
-/// `for<'a> Fn.().2` runs the Fn generator). Rendered back as
-/// `for<'a> <inner>`. The binder governs a **bound** (Rust's grammar), so
+/// `for<'a, 'b> <inner>` — a higher-ranked trait bound. The **binder is parsed**
+/// as a list of lifetimes (each may carry its `: 'b` bound tokens), so `for<u8>`
+/// — a type parameter, which Rust declares on the impl, not in a binder — is
+/// reported here instead of reaching rustc; the inner type is parsed
+/// **structurally** (so `for<'a> Fn.().2` runs the Fn generator). Rendered back as
+/// `for<'a, 'b> <inner>`. The binder governs a **bound** (Rust's grammar), so
 /// `for<'a> Iterator<Item = u8>` takes its bindings.
 pub(crate) fn for_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
     cursor.bump(); // `for`
-    let binder = if let Some(g) = cursor.peek_group(delimiter![<>]) {
+    let mut binder = vec![];
+    if let Some(g) = cursor.peek_group(delimiter![<>]) {
         cursor.bump();
-        g.stream()
-    } else {
-        quote::quote!()
-    };
+        let args = g.stream().into_iter().collect::<Vec<_>>();
+        for chunk in crate::parse::generic::split_at_depth0(&args, ',') {
+            if chunk.is_empty() {
+                continue;
+            }
+            // A binder element starts with `'` + ident (a lifetime); anything
+            // else is a declaration in the wrong place, reported rather than
+            // passed through for rustc to puzzle over.
+            let is_lifetime =
+                matches!(chunk.first(), Some(TokenTree::Punct(p)) if p.as_char() == '\'');
+            if !is_lifetime {
+                let span = chunk.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
+                binder.push(err_ty_at(
+                    "batch-impl: a `for<…>` binder holds lifetimes (`for<'a>`) — a type or \
+                     const parameter is declared on the impl, not in the binder",
+                    span,
+                ));
+                continue;
+            }
+            // The chunk's own tokens ride along (`'a` and, if written, its
+            // `: 'b` bound) — the lifetime node is a leaf.
+            binder.push(TyLifetime(chunk.iter().cloned().collect()).to_ty());
+        }
+    }
     let inner = crate::parse::chain::parse_dot_chain(cursor, ctx.in_bound()).unwrap_or_else(empty);
     TyWithFor(binder, Box::new(inner)).to_ty()
 }

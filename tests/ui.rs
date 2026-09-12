@@ -228,6 +228,9 @@ fn ui() {
     // a `+` in a `dyn` bound list with nothing after it: the DSL reports the
     // missing bound (it used to emit the bare `+` for rustc to complain about)
     t.compile_fail("tests/ui/dyn_bound_missing.rs");
+    // a `for<…>` binder holds lifetimes — a type parameter there is reported
+    // instead of reaching rustc as an "expected lifetime" error
+    t.compile_fail("tests/ui/hrtb_binder_type_param.rs");
 
     // the fn-type family: a named parameter is valid only in a `fn(x: u8)`
     // pointer type (the `Fn(x: u8)` sugar rejects it, like rustc), and a name
