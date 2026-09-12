@@ -194,6 +194,12 @@
   - **评审未能证伪的（如实记录）**：全语料 token 等价（只覆盖了那 11 个拼写 + goldens）；"所有挂死都会被 `GuardAlloc` 兜住"（F5 反证）；以及 gap B 在**顶层**确实坏过——它那种"只编译"的语料分不出"静默 0 impl"与"成功编译"，而本轮自己的修复前实测确立了这一点（`::std::vec::Vec<u8>` 完全无解析、`Box<::std::vec::Vec<u8>>` 渲染成 `Box<>`，且 feature 测试断言 impl 存在，静默空 spec 会让它失败）。
   - **不带 spec 的 `#[batch_impl]`——这条我判错了，维护者抓了出来。** 上一轮我用"四种空形态都零诊断编译通过"收尾并定论"不是缺陷、空 ⇒ 0 个 impl"。这个测量太弱：*能编译*恰恰就是"impl 被吞掉"的样子。加上存在性断言（`fn need<T: EmptyAttr>() {} need::<u8>();`）重测后，impl 入口的两种形态报 **E0277**——该项静默消失了，因为 impl 入口按设计扣下原块，而没有任何派生结果来顶替它。维护者的模型才对：属性是一次**派生**（对 `;` 分隔的 spec 做 flat-map，每段用从原块派生出的 0..N 个 impl 顶替它），因此空 spec 列表就是**恒等**，必须原样发射原块。实现为"没有任何 spec 块含内容时提前 `Ok(quote!(#item))`"（分隔符不算内容，所以 `#[batch_impl(;)]` 也算空）；原块自身属性随行（`#[batch_impl]` 本身已被 rustc 消费），token 连同 span 一起重新发射。由 `impl_entry_boundary::impl_entry_empty_spec_list_is_a_no_op`（对裸 / `()` / `;` 三种形态做运行期 `tag()` 断言）与 `tests/ui/pass/impl_entry_empty_attribute.rs`（编译期 `need` 调用）锁定；证伪探针去掉守卫后三种形态全报 E0599。attr 入口无需改动——实测：`#[batch_impl]` 挂在 `trait` 上、以及 `#[batch_impl()]` 挂在自带 `#[allow]` 的 `unsafe trait` 上，item 都保持完整，即"空 ⇒ item 原样"在那里本来就成立，两个入口现在一致。这里明确记为一次更正，因为那个错误结论曾在 `entry/impl_entry.rs` 与 changelog 里停留了一轮。
 
+- **AST 结构轮，第 4 步：`where` 谓词在定型后校验**（`codegen/pipeline.rs`）——`validate_where_predicates` 跑在 `X<>` 同步、`@` 解析与形状槽替换之后，也就是 DSL 唯一一次拿到**定型谓词**的时刻，用 `Punctuated::<WherePredicate, Token![,]>::parse_terminated` 解析 `render_angles` 的扁平形式。`where{ A B }` 此前被拼进 impl，以"整个属性解析失败"的形式报出。
+  - **两个实测事实决定了它的形状**：单个元素可能装**多个**谓词（range 主体展开成 `P0: Clone, P1: Clone`，渲染器按元素拼接，所以元素本身就是一个列表）；谓词到达时**可能已配对**（DSL 的 `where{…}` 组）、**也可能已是扁平**（从 trait 继承的谓词由 `syn` 引回）。第一版按 depth-0 逗号切分；探针打印出半截谓词 `std :: collections :: HashMap < X`，即把 `HashMap<X, Y>` 切成两半。
+  - **背后的死代码 bug**：形状映射作用在 `parts.where_clauses` 上，而渲染器读的是 `where_resolved`，于是任何模板槽都没到过输出谓词——映射现在直接作用在 `where_resolved` 上。证伪探针：停用映射会让新 feature 测试（`shape_template_advanced::slot_rewrite_reaches_where`）报 E0425（`cannot find type T`）。
+  - **有一条消息在推荐根本不能用的写法**：`where_splat_bad` 建议把 splat 包进元组，但没有任何阶段会展开谓词里的 splat——where 子句从解析到输出全程 token 级。现在两种写法都会报错（新增 `where_not_a_predicate` fixture；splat 消息与 fixture 注释一并修正），architecture/tutorial 里"`(*(A,B)): Trait` / `X: Trait<*(A,B)>` 合法"的说法也改成实测结果。
+  - **证据**：单测 **161**、feature 测试 **299**、UI **104 + 3**、doctest 93，9 份 golden 不变，fmt/clippy/doc 干净。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

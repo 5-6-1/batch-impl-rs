@@ -41,6 +41,10 @@
 - **`<>` 声明块里的关联类型 binding 报错，并给出可用写法**——声明块声明的是**参数**，因此 `<Item = u8> Held` 现在报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"（嵌套写法 `(<Item = u8> Held,)` 此前会静默丢掉 binding，最外层写法则会"照办"——两者都不是 DSL 建模的拼写）。请把 binding 写在 trait 应用上：`#[batch_impl(AssocOnTrait<Item = u8> Held)]` → `impl AssocOnTrait for Held { type Item = u8; }`，并被提升进 body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`。
 - **生成的新鲜泛型不再抢占写在 bound 里的名字**——impl 泛型的内联 bound 与从 trait 定义继承来的谓词，现在都在生成显示名（`P0`、`P1`…）必须避让的冲突集里，因此 `<T: BoundTr<P0>> …` 里的 `P0` 仍指你自己那个类型（新鲜泛型改叫 `P0A`），不再被静默遮蔽。
 
+- **`where{…}` 谓词在定型后校验**——宏现在在所有阶段跑完之后（`X<>` 填充、`@` 解析、`impl{…}` 形状模板槽替换）解析谓词，因此 `where{ A B }`（漏 `:`）由 DSL 报出并给出修法，不再以"整个属性解析失败"的形式出现。
+- **`impl{…}` 模板槽现在也替换进 `where{…}` 谓词**——文档承诺的替换（"模板的名字会重写目标、谓词与 body"）实际只作用到一份**不参与输出**的谓词副本上：`Vec<i16> impl{SlotBox<T>} where{Vec<T>: Clone}` 生成 `where Vec<T>: Clone`（impl 上没有 `T`，E0425），而不是 `where Vec<i16>: Clone`。
+- **谓词内的 splat 由 DSL 报错，不再丢给 rustc**——splat 是"参数位置列表"，没有任何阶段会展开谓词里的它（`(*(A,B)): Trait`、`X: Trait<*(A,B)>`），因此由谓词终检报错。裸 `*(A,B): Trait` 保留自己的消息，且不再推荐一个根本不工作的写法。
+
 ## 0.9.7 (2026-08-29)
 
 > 评审修复发布：黄金快照测试层（最后一块覆盖空白）、实测展开开销、打包卫生、Windows CI。无 DSL 语法变化。

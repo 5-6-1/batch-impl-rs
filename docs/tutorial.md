@@ -249,7 +249,7 @@ trait GenSpl {}
 
 ### 4.6 Legal positions
 
-A splat is a **parameter-position list**: generic args / tuple / array elements / generic declarations / fn parameters / spec lists. A bare splat as a **where-predicate subject** is rejected (`*(A,B): Trait` has no defined semantics); a bare `*` that is neither a splat nor a raw pointer errors with a targeted message.
+A splat is a **parameter-position list**: generic args / tuple / array elements / generic declarations / fn parameters / spec lists. A bare splat as a **where-predicate subject** is rejected (`*(A,B): Trait` has no defined semantics) — and wrapping it does not help either: the where clause stays token-level all the way to the output, so no expander ever sees a splat inside a predicate (`(*(A,B)): Trait`, `X: Trait<*(A,B)>`), and the final predicate check reports it. A bare `*` that is neither a splat nor a raw pointer errors with a targeted message.
 
 ## 5. Generics `<>`
 
@@ -1201,7 +1201,8 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Unknown `@` constant**: lists the built-in names (`@u*`/`@i*`/`@f*`/`@scalar`/`@num` + range families)
 - **Constant cycle/forward reference**: rejected at definition (prevents infinite recursion)
 - **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count / `@2_0` group missing — targeted errors in user language (the fresh generics are numbered from 0 in document order); the generated names are the user-visible display names (`P0`, `P1`, ...) and the reference is intercepted in the macro — never a raw rustc E0412
-- **Splat as a where-predicate subject**: explicitly rejected (`A, B: Trait` has no defined semantics)
+- **Splat as a where-predicate subject**: explicitly rejected (`A, B: Trait` has no defined semantics) — and wrapping it does not help: the where clause stays token-level all the way to the output, so no expander ever sees a splat inside a predicate (`(*(A,B)): Trait`, `X: Trait<*(A,B)>`)
+- **`where` predicate that is not a Rust predicate**: reported once the predicate is final (after the `X<>` fill, the `@` resolution and the shape-template slots) — `where{ A B }` (a missing `:`) gets the fix named instead of a parse error against the whole attribute
 - **Generic rename breaks inheritance**: renaming a trait generic param = explicit error, never silent
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
 - **Empty range** (`@u16..u8`): "no impls generated for empty range"

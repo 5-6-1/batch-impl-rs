@@ -248,7 +248,7 @@ impl 入口的目标或形参时才有意义；今天没有这样的特性，因
   `TySplat::Tuple`（列表——追加/元组幂，对标 `TyTuple`）；左操作数
   `apply_help` **委托镜像容器**再包回结果，splat 保持到消费
   （实现 `X.*[A,B].T` = `X<A.T,B.T>` 单 impl）。右 splat 操作数同样保持整体
-  （`T.*(A,B)` = `T<*(A,B)>`，仅在 codegen 展开成 `T<A,B>`）。**组内孤立 splat 解析为容器、splat 作为一个元素保持**——`(*(a,b))` = `( *(a,b) )`、`[*(a,b)]` = `[ *(a,b) ]`——splat 元素只在 codegen 展开（渲染结果 `(a, b)` / `[a, b]`），一条代码路径、无按定界符的特例。**合法位置**：splat 是"参数位置列表"（泛型实参/元组/数组元素/泛型声明/fn 参数/spec 列表）；裸 splat 作 **where 谓词主体**在 codegen 明确拒绝（`*(A,B): Trait` 无定义语义——谓词是约束不是列表），谓词内部 splat（`X: Trait<*(A,B)>`）与元组谓词（`(*(A,B)): Trait`）合法。**splat 只展开一层**：元组是类型、作为单元素保持
+  （`T.*(A,B)` = `T<*(A,B)>`，仅在 codegen 展开成 `T<A,B>`）。**组内孤立 splat 解析为容器、splat 作为一个元素保持**——`(*(a,b))` = `( *(a,b) )`、`[*(a,b)]` = `[ *(a,b) ]`——splat 元素只在 codegen 展开（渲染结果 `(a, b)` / `[a, b]`），一条代码路径、无按定界符的特例。**合法位置**：splat 是"参数位置列表"（泛型实参/元组/数组元素/泛型声明/fn 参数/spec 列表）；裸 splat 作 **where 谓词主体**在 codegen 明确拒绝（`*(A,B): Trait` 无定义语义——谓词是约束不是列表）；谓词内部的 splat 也没有任何阶段展开（where 子句从解析到渲染输出全程 token 级，Ty 层展开器看不到它——`X: Trait<*(A,B)>` 与 `(*(A,B)): Trait` 由管线的谓词终检报错）。**splat 只展开一层**：元组是类型、作为单元素保持
   （`*((a,b),)` = 一个 `(a,b)` impl），数组/嵌套 splat/生成器/组摊平。
   **元组 splat 的 `.N` 幂把每个笛卡尔组合包回 splat**——`*(A,B).2` =
   `[*(A,A),*(A,B),*(B,A),*(B,B)]`——右 splat 链把组合摊平进容器
@@ -433,8 +433,8 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
 | `tests/`    | `no_panic/main.rs` | no-panic 守卫：用 `syn` 走遍 `src/**/*.rs`（72 个生产文件），断言 `#[cfg(test)]` 之外无 panic 构造——包括**宏 token 流内部**铸出的（`quote!(x.unwrap())`）与**限定形式** `Option::unwrap(o)`——且任何属性位置、嵌在 `#[cfg_attr(…)]` 里或**宏体内**的 deny 家族 `#[allow]` / `#[expect]` 都被报出（一刀切静默同样在内：`clippy::all` / `clippy::restriction` / `warnings`）；`#[cfg(test)]` 闸门只跳过裸谓词，因此 `#[cfg(not(test))]` 的代码照样被扫描；crate 级 deny 行本身也被断言（`lib.rs` clippy deny 之外的第二条腿）；**检测器本身有自测**（`no_panic/selftest.rs`：每个臂都喂了合成违规 + 邻近反例，因此 `syn` 升级或收窄的 `matches!` 会让该文件失败而不是静默报 0 违规），唯一记录在案的洞是**宏体内手写的索引**逃过两条腿（`quote!(v[0])`——clippy 看不见宏体，而这里的 `[…]` 组无法与数组类型区分） |
 | `tests/`    | `doc_consistency.rs` | 文档一致性守卫（两条腿）：**两种语言**的 architecture 树都与 `src/**/*.rs` **集合相等**（幽灵项、缺项、重复项各自带清单失败），且当前态文档（architecture / development-guide / tutorial，中英各一份；`src/…` 与模块相对拼写 `codegen/repeat.rs`）提到的每个文件路径必须存在——changelog **以及** architecture 版本前言豁免：历史本来就该写后来被改名的文件 |
-| `tests/`    | `features/`     | **50** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **295** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、splat、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**103** 个 `compile_fail` fixture 锁定诊断措辞 + 3 个 `pass` fixture |
+| `tests/`    | `features/`     | **50** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **299** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、splat、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**104** 个 `compile_fail` fixture 锁定诊断措辞 + 3 个 `pass` fixture |
 
 运行：
 

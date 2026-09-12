@@ -236,6 +236,23 @@
   `P1`, …) must avoid, so `<T: BoundTr<P0>> …` keeps referring to your `P0` type
   (the fresh becomes `P0A`) instead of silently shadowing it.
 
+- **A `where{…}` predicate is checked once it is final** — the macro now parses
+  the predicates after every stage has run (the `X<>` fill, the `@` resolution,
+  the `impl{…}` shape-template slots), so `where{ A B }` (a missing `:`) is
+  reported against the DSL with the fix named instead of surfacing as a parse
+  error on the whole attribute.
+- **An `impl{…}` template slot is substituted in the `where{…}` predicates too**
+  — the documented substitution ("the template's names are rewritten in the
+  target, the predicates and the body") was reaching a pre-resolution copy of
+  the predicates that no longer feeds the output:
+  `Vec<i16> impl{SlotBox<T>} where{Vec<T>: Clone}` emitted `where Vec<T>: Clone`
+  with no `T` on the impl (E0425) instead of `where Vec<i16>: Clone`.
+- **A splat inside a `where` predicate is reported, not passed to rustc** — a
+  splat is a parameter-position list and no stage expands one inside a predicate
+  (`(*(A,B)): Trait`, `X: Trait<*(A,B)>`), so the final predicate check reports
+  it. The bare `*(A,B): Trait` keeps its own message, which no longer
+  recommends a form that does not work.
+
 ## 0.9.7 (2026-08-29)
 
 > Review-fix release: the golden-snapshot test layer (the last coverage gap),

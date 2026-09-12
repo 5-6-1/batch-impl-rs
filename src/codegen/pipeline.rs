@@ -127,7 +127,7 @@ pub(crate) fn generate_parts(
         Err(e) => return e,
     };
     // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
-    let where_resolved = match resolve_where_predicates(&parts.where_clauses, &fresh_ctx) {
+    let mut where_resolved = match resolve_where_predicates(&parts.where_clauses, &fresh_ctx) {
         Ok(ws) => ws,
         Err(es) => {
             errs.extend(es);
@@ -205,8 +205,18 @@ pub(crate) fn generate_parts(
         }
     };
     if !shape_map.slots().is_empty() {
-        parts.where_clauses =
-            parts.where_clauses.iter().map(|p| apply_mapping(p.clone(), &shape_map)).collect();
+        where_resolved =
+            where_resolved.iter().map(|p| apply_mapping(p.clone(), &shape_map)).collect();
+    }
+    // The predicates are final **now** — `X<>` filled (the sync), `@` references
+    // resolved, the shape template's slots substituted. That is the one moment the
+    // DSL can ask "is this a Rust predicate?" before rustc sees it: `where{ A B }`
+    // used to be spliced into the impl and reported as a parse error against the
+    // whole attribute, and a splat (`*(…)` — a parameter-position list, which
+    // nothing expands inside a predicate; see `render_impl`'s note) is not a
+    // predicate either.
+    if let Some(e) = validate_where_predicates(&where_resolved) {
+        return e;
     }
     if let Some(b) = &mut parts.body {
         // Body token postprocessing lives together here, where the impl's
@@ -268,4 +278,38 @@ pub(crate) fn generate_parts(
         &shape_map,
         Some(&fresh_ctx),
     )
+}
+
+/// The rendered predicates must be **Rust where-predicates**. This is the last
+/// point at which the DSL has them in hand (after the `X<>` sync, the `@`
+/// resolution and the shape-slot substitution), so the check happens here rather
+/// than surfacing as a rustc parse error against the whole attribute.
+///
+/// One element may hold **several** predicates — a range subject expands to
+/// `P0: Clone, P1: Clone` in a single stream, which is exactly what the renderer
+/// joins — so the element is parsed as a whole comma-separated list. The flat
+/// form is restored first (the same pre-parse step the impl templates take,
+/// `render::parse_impl_templates`), because a predicate may arrive with its
+/// `<...>` still paired (a DSL `where{…}` group) or already flat (a predicate
+/// inherited from the trait, which `syn` quoted back).
+fn validate_where_predicates(preds: &[TokenStream]) -> Option<TokenStream> {
+    use syn::parse::Parser as _;
+
+    let list = syn::punctuated::Punctuated::<syn::WherePredicate, syn::Token![,]>::parse_terminated;
+    for p in preds {
+        if p.is_empty() {
+            continue;
+        }
+        let flat = crate::preprocess::render_angles(p.clone());
+        if let Err(err) = list.parse2(flat) {
+            return Some(compile_error_str(
+                "batch-impl: a where predicate must be a Rust predicate — write \
+                 `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a \
+                 `*(…)` splat is not expanded inside a predicate, so write the \
+                 types out",
+                err.span(),
+            ));
+        }
+    }
+    None
 }

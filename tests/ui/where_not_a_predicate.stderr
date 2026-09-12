@@ -1,0 +1,7 @@
+error: batch-impl: a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out
+ --> tests/ui/where_not_a_predicate.rs:9:1
+  |
+9 | #[batch_impl(u8 where{A B})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

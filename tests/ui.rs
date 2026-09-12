@@ -69,6 +69,9 @@ fn ui() {
 
     // bare where new syntax missing a code block
     t.compile_fail("tests/ui/where_missing_body.rs");
+    // a where predicate that is not a Rust predicate (`A B` — a missing `:`),
+    // reported against the DSL instead of as a parse error on the attribute
+    t.compile_fail("tests/ui/where_not_a_predicate.rs");
 
     // @ constant system: unknown constants / range endpoint errors / reference visibility (cycles / forward)
     t.compile_fail("tests/ui/const_unknown.rs");

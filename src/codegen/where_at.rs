@@ -30,11 +30,14 @@ pub(crate) fn resolve_where_predicates(
     let mut where_resolved = vec![];
     let mut errs = vec![];
     for pred in where_clauses {
-        // A bare splat as a predicate subject has no defined semantics
-        // (`*(A,B): Trait` would expand to `A, B: Trait` — a predicate is a
-        // constraint, not a parameter list). Reject with a clear message;
-        // splats inside a predicate (`X: Trait<*(A,B)>`) and tuple
-        // predicates (`(*(A,B)): Trait`) are fine — they expand legally.
+        // A splat has no defined semantics in a predicate: `*(A,B): Trait`
+        // would have to mean `A: Trait, B: Trait` (a predicate is a
+        // constraint, not a parameter list), and the subject is a single type.
+        // Reject with a clear message. The wrapped forms do **not** work
+        // either — the where clause is token-level from here to the output, so
+        // nothing expands a splat inside it (measured: `(*(A,B)): Trait` and
+        // `X: Trait<*(A,B)>` reach rustc unexpanded); they are caught by the
+        // final predicate check in the pipeline instead.
         let head = pred.clone().into_iter().collect::<Vec<_>>();
         if matches!(head.as_slice(),
             [TokenTree::Punct(p), TokenTree::Group(g), ..]
@@ -46,9 +49,10 @@ pub(crate) fn resolve_where_predicates(
                 )
         ) {
             errs.push(compile_err!(
-                "batch-impl: a bare splat cannot be a where-predicate subject \
-                 (`*(A,B): Trait`); wrap it in a tuple (`(*(A,B)): Trait`) or \
-                 write separate predicates"
+                "batch-impl: a splat cannot be a where-predicate subject \
+                 (`*(A,B): Trait`) — a `*(…)` list is a parameter position, \
+                 and a predicate is a constraint, not a list; write the \
+                 predicates out (`A: Trait, B: Trait`)"
             ));
             continue;
         }

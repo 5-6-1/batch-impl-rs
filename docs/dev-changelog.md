@@ -1470,6 +1470,36 @@
     because the wrong conclusion had been written into `entry/impl_entry.rs` and
     the changelog for a round.
 
+- **AST structure pass, step 4: `where` predicates are validated once they are
+  final** (`codegen/pipeline.rs`) — `validate_where_predicates` runs after the
+  `X<>` sync, the `@` resolution and the shape-slot substitution, i.e. at the one
+  moment the DSL has a finished predicate in hand, and parses the list with
+  `Punctuated::<WherePredicate, Token![,]>::parse_terminated` over
+  `render_angles`' flat form. `where{ A B }` used to be spliced into the impl and
+  reported as a parse error against the whole attribute.
+  - **Two measured facts shaped it**: one element may hold **several** predicates
+    (a range subject expands to `P0: Clone, P1: Clone`, and the renderer joins the
+    elements, so an element *is* a list), and a predicate arrives either **paired**
+    (a DSL `where{…}` group) or **flat** (a predicate inherited from the trait,
+    which `syn` quoted back). The first implementation split at depth-0 commas;
+    the probe printed the half-predicate `std :: collections :: HashMap < X`, i.e.
+    it cut `HashMap<X, Y>` in half.
+  - **The dead-code bug behind it**: the shape mapping was applied to
+    `parts.where_clauses` while the renderer reads `where_resolved`, so no
+    template slot ever reached an output predicate — the mapper now runs on
+    `where_resolved` itself. Falsification probe: disabling the map turns the new
+    feature test (`shape_template_advanced::slot_rewrite_reaches_where`) into
+    E0425 (`cannot find type T`).
+  - **A message was recommending a form that does not work**: `where_splat_bad`
+    told the user to wrap the splat in a tuple, but no stage expands a splat
+    inside a predicate — the where clause is token-level from resolution to the
+    output. Both spellings are reported now (`where_not_a_predicate` is the new
+    fixture; the splat message and fixture comment were corrected), and the
+    architecture/tutorial claim that `(*(A,B)): Trait` / `X: Trait<*(A,B)>` are
+    legal was corrected to what is measured.
+  - **Evidence**: lib **161**, features **299**, UI **104 + 3**, doctests 93, the
+    9 goldens unchanged, fmt/clippy/doc clean.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic
