@@ -14,7 +14,6 @@ use super::*;
 /// (generics concerns → sync → where → shape → render). Split out of
 /// [generate_impl] so bound-generator distribution can run each element
 /// through the full pipeline independently.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_parts(
     mut parts: ImplParts, trait_name: &TokenStream, is_unsafe_trait: bool,
     trait_bounds: &TraitBounds, trait_param_names: &[Ident],

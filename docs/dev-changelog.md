@@ -897,6 +897,15 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **Second review, round 4: the stale `allow` and the missing reason** (F7d) — of the
+  eight production `#[allow(…)]` sites in `src/`, two carried
+  `clippy::too_many_arguments` with no explanation: `entry/mod.rs`'s `run_pipeline`
+  (8 parameters — the allow is needed) and `codegen/pipeline.rs`'s `generate_parts`
+  (**5** parameters). Measured on a copy of the tree: deleting the latter leaves
+  `cargo clippy --all-targets -- -D warnings` clean, so it was stale — it is gone.
+  The live one now carries the same one-line reason as its two siblings
+  (`driver.rs`, `impl_spec.rs`): every parameter is a distinct input of the entry,
+  and a context struct would only move the list.
 - **Second review, round 3: the collision set now covers the impl's own bounds and
   inherited predicates** (F3) — the attribute entry built the "names the impl
   already writes" set from the target, trait args, where clauses, body, attrs,

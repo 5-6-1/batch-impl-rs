@@ -40,6 +40,11 @@ pub(crate) use preview::preview;
 /// `tokens` must already be paired by `angle_collect` and bare-`where` rewritten
 /// (see module docs); `top_level` controls the stop semantics of the spec list.
 /// Errors are returned via `Err` as a `compile_error!` stream.
+// clippy's 7-argument threshold is not useful here: each parameter is one
+// distinct input of the entry (tokens, stop semantics, trait path + name,
+// unsafety, the trait definition, its bounds, its parameter names), and a
+// context struct would only move the list (the same reason as
+// `driver::parse_batch_trait_entry` and `impl_spec::assemble_impl`).
 #[allow(clippy::too_many_arguments)]
 fn run_pipeline(
     tokens: &[TokenTree], top_level: Op, trait_full_path: &TokenStream, trait_last_ident: &Ident,
