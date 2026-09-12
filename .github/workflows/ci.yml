@@ -50,7 +50,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # MSRV 只跑功能/回归 + doctest，跳过 trybuild 快照（.stderr 措辞随 rustc 漂移）
       # tests/dsl.rs 是拆分后的测试 crate 入口（mod features; 挂载 tests/features/ 全部模块）
-      - run: cargo test --lib --test dsl
+      # no_panic 是平台无关的源码守卫（0.8 s），每个 job 都跑：no-panic 是契约
+      # doc_consistency 同样是源码/文档守卫（<0.1 s），且路径归一化与平台有关，每个 job 都跑
+      - run: cargo test --lib --test dsl --test no_panic --test doc_consistency
       - run: cargo test --doc
 
   test-windows:
@@ -62,7 +64,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Windows/MSVC：链接产物通知（linker_messages）与路径分隔符是平台特有面，
       # 功能/回归 + doctest 覆盖它；trybuild UI 快照的 .stderr 措辞跨平台漂移，跳过
-      - run: cargo test --lib --test dsl
+      # doc_consistency 的模块树解析与 `\` → `/` 归一化正是 Windows 相关面
+      - run: cargo test --lib --test dsl --test no_panic --test doc_consistency
       - run: cargo test --doc
 
   doc:

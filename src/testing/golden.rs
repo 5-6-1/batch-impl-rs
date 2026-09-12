@@ -30,6 +30,7 @@ const SPECS: &[Spec] = &[
     Spec { name: "splat", attr: "Pair3<*[Box, Rc]>", trait_src: "trait S {}" },
     Spec { name: "nested_apply", attr: "Box Vec u8", trait_src: "trait N {}" },
     Spec { name: "where_clause", attr: "<T: Clone> Holder<T> Box<T>", trait_src: "trait W {}" },
+    Spec { name: "qualified", attr: "Holder<<u8 as Tr>::Assoc>", trait_src: "trait Q {}" },
     Spec {
         name: "directive",
         attr: "[u8, u16] #name{\"n\"}",
@@ -55,6 +56,11 @@ const IMPL_SPECS: &[ImplSpec] = &[
         name: "impl_entry_generics",
         attr: "A<B> : [Box, Rc] [u8, u16]",
         impl_src: "impl Conv<B> for A<B> where B: Clone { fn into_b(self) -> B { self.0 } }",
+    },
+    ImplSpec {
+        name: "impl_entry_qualified",
+        attr: "Vec<<u8 as Tr>::Assoc>",
+        impl_src: "impl Q for Vec<u8> {}",
     },
 ];
 

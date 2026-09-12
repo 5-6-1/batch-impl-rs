@@ -6,6 +6,36 @@
 // catchable panics instead of process aborts.
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
+// The no-panic promise, machine-enforced: a panic inside a proc macro is a
+// compiler ICE, and production code is audited free of panic constructs. The
+// `not(test)` scope keeps the deny off the crate's own `#[cfg(test)]` modules
+// (`testing/*`, `*_tests.rs`, the inline test modules) and off the
+// integration-test crates, where `unwrap`/`assert!` *are* the right failure
+// mode. `assert!` / `debug_assert!` have no clippy lint: the text-level guard
+// in `tests/no_panic/main.rs` walks `src/**` with syn and covers them, skipping
+// every `#[cfg(test)]` item and every `#[cfg(test)]`-declared module.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+    )
+)]
+// The indexing/slicing ratchet **completed**, so its contract moved to one
+// crate-level line instead of a per-file attribute: every production site now
+// reads through `get()` / the shared `slice_*` accessors. Those clamp on
+// purpose — `get(..n)` is not a clamp (it returns `None` for `n > len`), and
+// an out-of-range *start* yields an empty slice rather than a panic.
+// `clippy::indexing_slicing` covers indexing **and** range slicing (a probe
+// confirmed both fire from this one line); `clippy::string_slice` is a
+// **separate** lint that this line does *not* imply, so it is named explicitly —
+// otherwise `&s[..n]` would be the one unguarded member of the family. Same
+// `not(test)` scope as the panic family above.
+#![cfg_attr(not(test), deny(clippy::indexing_slicing, clippy::string_slice))]
 // The `delimiter!` macro is defined at the top of preprocess and imported into the crate
 // root via `#[macro_use]`; textual scope requires its declaration to precede all users
 // (fuzz / parse / this module).

@@ -144,7 +144,7 @@ proptest! {
 
         let ts = toks.iter().map(to_token).collect::<Vec<_>>();
         let mut cursor = Cursor::new(&ts);
-        while parse_item(&mut cursor, Op::Comma, None).is_some() {}
+        while parse_item(&mut cursor, Op::Comma, crate::parse::Ctx::default()).is_some() {}
         prop_assert!(cursor.at_end());
     }
 
