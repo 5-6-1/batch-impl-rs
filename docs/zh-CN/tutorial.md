@@ -285,6 +285,10 @@ trait A<T: Clone, const N: usize> {}
 // → impl<T: Clone, const N: usize> A<T, N> for Vec<u8> {}
 ```
 
+这个简写属于 **spec 头部**（trait 应用处）：正是它在声明那些形参。写在别处——
+例如目标类型上——空 `<>` 就是 §6.5 的**同步标记**，会被填上本 spec 的实参
+（`Swap2<>` → `Swap2<T>`），绝不会在 spec 中间吐出一个声明块。
+
 ### 5.3 实参：多实参、嵌套、绑定
 
 ```rust
@@ -566,8 +570,7 @@ trait Module<Add, Mul> {
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
-where 谓词或 `impl{...}` 模板里的 `X<>`（**同名** trait 的空尖括号）会同步为
-本 spec 的 trait 应用——写 `Semiring<>` 而不用重复
+`X<>`（空尖括号）会同步为本 spec 的 trait 应用——写 `Semiring<>` 而不用重复
 `Semiring<Additive, Multiplicative>`：
 
 ```rust
@@ -583,8 +586,11 @@ trait Semiring<Oa, Om> {}
 // → …… arity 2（P1 同谓词）
 ```
 
-`@trait<>` 等价（`@trait` 先展开为 trait 路径）。任何非本 spec trait 的
-`X<>` 报错；无泛型参数的 trait 同步为裸名（`Tr<>` → `Tr`）。**body 内部**
+它填充 **where 谓词**、`impl{...}` 模板、impl 泛型 bound 以及**目标类型**（含
+`dyn … + X<>` 尾巴）——凡是标记出现在 impl 类型结构里的地方。`@trait<>` 等价
+（`@trait` 先展开为 trait 路径）。该标记**不看名字**：填进去的是本 spec 的实参，
+所以 `Other<>` 会变成 `Other<…spec 实参…>`（那里的元数不匹配由 rustc 报）；无泛型
+参数的 trait 同步为裸名（`Tr<>` → `Tr`）。**body 内部**
 通过**开关模板** `impl{Tr<>}` 同步——只含空括号 trait 的模板，不参与
 Self 匹配，仅声明 body 里的 `Tr<>` 引用也同步（body 是任意 Rust，`Vec<>`
 不是 trait 引用）。

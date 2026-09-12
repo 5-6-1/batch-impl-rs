@@ -1,0 +1,7 @@
+error: batch-impl: a `+` in a `dyn` bound list needs a bound after it (e.g. `dyn Iterator<Item = u8> + Send`)
+ --> tests/ui/dyn_bound_missing.rs:6:1
+  |
+6 | #[batch_impl(dyn Send +)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

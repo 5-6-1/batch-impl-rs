@@ -244,11 +244,12 @@ pub(crate) struct TyWithWhere(pub(crate) Option<Box<Ty>>, pub(crate) TyWhere);
 pub(crate) struct TyWithImpl(pub(crate) Option<Box<Ty>>, pub(crate) TyImplTemplate);
 
 #[derive(Clone, Debug)]
-/// `dyn <inner> + <bound>` — a trait object. The inner type is kept
-/// **structural** (so a `dyn Fn.().3` generator inside works), and any
-/// `+ Bound` tail rides along as token fragments. Rendered back as
+/// `dyn <inner> + <bounds>` — a trait object. Both halves are **structural**:
+/// the inner type (so a `dyn Fn.().3` generator inside works) and the `+` tail,
+/// which is a [`TyBoundList`] like every other bound list — so the empty-bracket
+/// sync (`X<>`) and the traversals see it. Rendered back as
 /// `dyn <inner> + <bounds>`.
-pub(crate) struct TyWithDyn(pub(crate) Box<Ty>, pub(crate) Vec<TokenStream>);
+pub(crate) struct TyWithDyn(pub(crate) Box<Ty>, pub(crate) TyBoundList);
 
 #[derive(Clone, Debug)]
 /// `for<'a> <inner>` — a higher-ranked trait bound. The binder (`<'a>`)

@@ -186,6 +186,23 @@
   allowed in a `::`-tail", which described a different mistake. A tail that simply
   ends now reports "`::` must be followed by a path segment (write `Foo::Assoc`)";
   a genuine DSL token in the tail keeps the old wording.
+- **A `<>` sync marker in a `dyn … + Marker<>` tail (or anywhere in the target
+  type) fills in the spec's arguments instead of vanishing** — the tail of a trait
+  object used to be a token bag the sync never saw, so
+  `#[batch_impl(<T> … Box<dyn Marker<> + Send>)]` generated
+  `Box<dyn Marker + Send>`: the marker silently disappeared (an empty argument list
+  renders as the bare name). Empty brackets now fill wherever they sit in the
+  impl's type structure — where predicates, `impl{...}` templates, impl-generic
+  bounds and the target type.
+- **`X<>` on a *target* no longer corrupts the trait's arguments** — the
+  declaration shorthand `A<>` (declare the trait's formals, apply its args) belongs
+  to the spec head; written on the target it emitted a declaration block that the
+  parse merged into the trait's own arguments, generating
+  `impl<T> Trait<T, T> for Holder<T>` (an impl nobody can compile). Only the head
+  expands now, and the target's marker follows the sync rule above.
+- **A `+` with no bound after it in a `dyn` list is diagnosed** — `dyn Send +` used
+  to emit the bare `+` for rustc to complain about; the DSL now reports "a `+` in a
+  `dyn` bound list needs a bound after it".
 - **A malformed `@` reference reports itself, whatever position it sits in** — an
   empty exclusive range inside angle arguments (`#[batch_impl(Box<@2..1>)]`), a
   non-integer position reference (`Box<@1.5>`, `Box<@1u8>`) or a range end that is

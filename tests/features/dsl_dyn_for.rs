@@ -120,3 +120,31 @@ fn hrtb_bound_generator() {
     let tup = (9u8,);
     assert_eq!(HrtbBound::go(&tup, |a: u8| a * 3), 27);
 }
+
+// The `+ Bound` tail of a trait object is a **structured bound list**, so the
+// `X<>` sync marker reaches it: `dyn SyncMarker<> + Send` fills with the spec's
+// trait args. While the tail was a token bag the sync never saw it and the
+// brackets vanished — `Box<dyn SyncMarker + Send>`, which does not even name a
+// type (E0107), so this test would not compile.
+trait SyncMarker<A> {}
+impl SyncMarker<u8> for u8 {}
+
+#[batch_impl(<T> DynTailSync<T> Box<dyn SyncMarker<> + Send> {
+    fn tag(&self) -> &'static str {
+        "synced"
+    }
+})]
+trait DynTailSync<T> {
+    fn tag(&self) -> &'static str;
+}
+
+#[test]
+fn dyn_bound_tail_takes_the_sync_marker() {
+    // Naming the impl proves the marker became `SyncMarker<u8>`: a dropped
+    // marker would leave `dyn SyncMarker` (an arity error), and a marker that
+    // stayed empty would not match this bound.
+    fn need<T: DynTailSync<u8>>() {}
+    need::<Box<dyn SyncMarker<u8> + Send>>();
+    let boxed: Box<dyn SyncMarker<u8> + Send> = Box::new(0u8);
+    assert_eq!(boxed.tag(), "synced");
+}

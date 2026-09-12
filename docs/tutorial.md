@@ -275,6 +275,11 @@ trait A<T, const N: usize> {}
 // → impl<T, const N: usize> A<T, N> for Vec<u8> {}
 ```
 
+This shorthand belongs to the **spec head** (the trait application): it is what
+declares those formals. Written anywhere else — e.g. on the target — an empty
+`<>` is the *sync marker* of §6.5 instead, which fills in the spec's arguments
+(`Swap2<>` → `Swap2<T>`); it never emits a declaration in the middle of a spec.
+
 ### 5.3 Args: multi-args, nesting, bindings
 
 ```rust
@@ -589,9 +594,8 @@ On the other axis (value classes):
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
-`X<>` (empty angle brackets on the **same-named** trait) in a where
-predicate or an `impl{...}` template syncs to the spec trait application —
-write `Semiring<>` instead of repeating `Semiring<Additive, Multiplicative>`:
+`X<>` (empty angle brackets) syncs to the spec trait application — write
+`Semiring<>` instead of repeating `Semiring<Additive, Multiplicative>`:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -606,13 +610,16 @@ trait Semiring<Oa, Om> {}
 // → ... arity 2 (P1 gets the same predicate)
 ```
 
-`@trait<>` is equivalent (`@trait` expands to the trait path first). A `X<>`
-for any trait other than the spec's errors; a trait with no generic
-arguments syncs to the bare name (`Tr<>` → `Tr`). The **body** syncs via a
-**switch template** `impl{Tr<>}` — a template holding only the empty-bracket
-trait, which does not match Self; it only declares that the body's `Tr<>`
-references sync too (the body is arbitrary Rust, so a `Vec<>` there is not a
-trait reference).
+It fills in **where predicates**, `impl{...}` templates, impl-generic bounds and
+the **target type** (including a `dyn … + X<>` tail) — anywhere the marker sits in
+the impl's type structure. `@trait<>` is equivalent (`@trait` expands to the trait
+path first). The marker is **ident-agnostic**: it is the spec's arguments that go
+in, so `Other<>` becomes `Other<…spec args…>` (an arity mismatch there is
+rustc's to report); a trait with no generic arguments syncs to the bare name
+(`Tr<>` → `Tr`). The **body** syncs via a **switch template** `impl{Tr<>}` — a
+template holding only the empty-bracket trait, which does not match Self; it only
+declares that the body's `Tr<>` references sync too (the body is arbitrary Rust,
+so a `Vec<>` there is not a trait reference).
 
 ### 6.5 Bound generators: Fn-family types in impl-generic bounds
 

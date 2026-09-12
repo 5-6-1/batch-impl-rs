@@ -41,6 +41,13 @@ pub(crate) fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
     quote!(<#(#all),*>)
 }
 
+/// A `+`-joined bound list (`A + B + 'a`) — one authority for the separator, used
+/// by the `BoundList` node itself and by the `dyn <inner> + <list>` tail.
+fn render_bound_list(b: &TyBoundList) -> TokenStream {
+    let elems = b.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
+    quote!(#(#elems)+*)
+}
+
 /// Two-state rendering with optional inner: `Some(inner)` concatenates inner and
 /// payload (order decided by `inner_first`), `None` renders the bare payload.
 /// The WithPrefix/WithAttr/WithCode/WithWhere arms are isomorphic and all
@@ -108,11 +115,14 @@ impl ToTokens for Ty {
             TyKind::WithPrefix(wp) => render_optional(wp.1.as_deref(), prefix_token(wp.0), false),
             TyKind::WithDyn(wd) => {
                 let inner = wd.0.to_token_stream();
-                let mut ts = quote!(dyn #inner);
-                for b in &wd.1 {
-                    ts.extend(b.clone());
+                // The `+` list renders like any other bound list (one authority,
+                // `render_bound_list`); an empty tail (`dyn Trait`) emits no `+`.
+                if wd.1.0.is_empty() {
+                    quote!(dyn #inner)
+                } else {
+                    let bounds = render_bound_list(&wd.1);
+                    quote!(dyn #inner + #bounds)
                 }
-                ts
             }
             TyKind::WithFor(wf) => {
                 let inner = wf.1.to_token_stream();
@@ -151,10 +161,7 @@ impl ToTokens for Ty {
                 let end = proc_macro2::Literal::usize_unsuffixed(r.end);
                 if r.inclusive { quote!(#start ..= #end) } else { quote!(#start .. #end) }
             }
-            TyKind::BoundList(b) => {
-                let elems = b.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
-                quote!(#(#elems)+*)
-            }
+            TyKind::BoundList(b) => render_bound_list(b),
             TyKind::WithTrait(wt) => {
                 let trait_tokens = params_to_tokens(&wt.0.0, &wt.0.1);
                 let inner = wt.1.to_token_stream();

@@ -172,7 +172,12 @@ impl Ty {
             TyKind::WithPrefix(wp) => {
                 TyWithPrefix(wp.0, wp.1.map(|e| f(*e).into())).to_ty().with_span(span)
             }
-            TyKind::WithDyn(wd) => TyWithDyn(Box::new(f(*wd.0)), wd.1).to_ty().with_span(span),
+            TyKind::WithDyn(wd) => TyWithDyn(
+                Box::new(f(*wd.0)),
+                TyBoundList(wd.1.0.into_iter().map(|e| f(e)).collect()),
+            )
+            .to_ty()
+            .with_span(span),
             TyKind::WithFor(wf) => TyWithFor(wf.0, Box::new(f(*wf.1))).to_ty().with_span(span),
             TyKind::WithTrait(wt) => {
                 TyWithTrait(TyTrait(wt.0.0, map_type_param(wt.0.1, f)), f(*wt.1).into())

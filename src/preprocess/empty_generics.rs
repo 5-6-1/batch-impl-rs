@@ -58,6 +58,15 @@ fn render_formals(trait_def: &ItemTrait, trait_bounds: &TraitBounds) -> Vec<Toke
 /// angle-group(args + bindings)` — same shape as `angle_collect`'s pairing
 /// output; the parse layer need not distinguish the source.
 ///
+/// - **Only the spec's trait application expands** — the first top-level ident
+///   of each `;`-separated spec. The shorthand means "declare the trait's
+///   formals here and apply its args", which is only meaningful in the head.
+///   An `X<>` further along the spec (a *target*-position marker) used to be
+///   rewritten too, and the declaration it emitted landed **between the trait
+///   head and the target**, where the parse merged it into the trait's own args
+///   (`Trait<T, T>` — measured, an impl nobody could compile). Those are filled
+///   by the codegen sync (`sync_impl_parts`), which reaches the whole type
+///   structure and needs no rewrite;
 /// - Only **top-level** `Ident` + angle groups are handled (`B<A<>>` is
 ///   nested in a group and not expanded; `A<T, Item=U>` with positional args
 ///   is ordinary DSL syntax, not expanded);
@@ -78,8 +87,15 @@ pub(crate) fn expand_empty_trait_generics(
     let formals = render_formals(trait_def, trait_bounds);
     let mut out = vec![];
     let mut i = 0;
+    // Per `;`-separated spec: has the head been seen? (see the docs above)
+    let mut head_seen = false;
     while let Some(cur) = tokens.get(i) {
         match cur {
+            TokenTree::Punct(p) if p.as_char() == ';' => {
+                head_seen = false;
+                out.push(cur.clone());
+                i += 1;
+            }
             // `Ident` + angle group (pairing output of `angle_collect`) —
             // expanded only at top level: empty args (`A<>`) or
             // **binding-only args** (`A<Item=T>`) → positional args copy the
@@ -87,6 +103,8 @@ pub(crate) fn expand_empty_trait_generics(
             // positional args is ordinary DSL syntax (not expanded).
             // `Ident<>` inside a group (nested like `B<A<>>`) is not handled.
             TokenTree::Ident(id) => {
+                let is_head = !head_seen;
+                head_seen = true;
                 let group = match tokens.get(i + 1) {
                     Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>] => g,
                     _ => {
@@ -97,7 +115,7 @@ pub(crate) fn expand_empty_trait_generics(
                 };
                 let args = group.stream().into_iter().collect::<Vec<TokenTree>>();
                 let bindings_only = !args.is_empty() && args_all_bindings(&args);
-                if args.is_empty() || bindings_only {
+                if is_head && (args.is_empty() || bindings_only) {
                     // Expand into an angle-group sequence (the pairing-output
                     // shape of `angle_collect`): `angle-group(<'a, T: bounds,
                     // const N>) A angle-group(<'a, T, N, Item = T>)`

@@ -1,10 +1,14 @@
-//! `X<>` (empty angle brackets) → `X<spec args>`, **switched on by a
-//! switch template** (`impl{@trait<>}` / `impl{Tr<>}` — the empty-bracket
-//! spec trait alone). While the switch is on, every `X<>` — the spec's own
-//! trait or any other ident — fills with the spec trait application's
-//! arguments (parsed from the spec's trait part — no state). Without a
-//! switch, no `X<>` is touched at all. A trait application with no
+//! `X<>` (empty angle brackets) → `X<spec args>`. Every `X<>` — the spec's own
+//! trait or any other ident — fills with the spec trait application's arguments
+//! (parsed from the spec's trait part — no state). A trait application with no
 //! arguments syncs to the bare ident (brackets dropped).
+//!
+//! **Which surfaces**: where predicates and `impl{...}` templates fill as tokens
+//! (`sync_trait_application`), and everything in the **type structure** — the
+//! target type and the impl-generic bounds — fills through [`sync_tree`] /
+//! [`sync_bound_ty`], because there the `X<>` is already a parsed empty-param
+//! node. A **switch template** (`impl{@trait<>}` / `impl{Tr<>}`, the
+//! empty-bracket spec trait alone) additionally turns on **body** sync.
 //!
 //! `@trait<>` (preprocessing) expands to the trait path + `<>`, then this
 //! pass fills the brackets.
@@ -47,12 +51,25 @@ pub(crate) fn sync_impl_parts(
         synced.push(sync_trait_application(w.clone(), &trait_args)?);
     }
     parts.where_clauses = synced;
-    // bounds: the empty brackets are lost in the Ty parse (render drops
-    // them), so the sync works on the Ty structure — see `sync_bound_ty`.
+    // Empty brackets in the **type structure** take the spec's args too — the
+    // rule is a property of the node, not of the surface it sits on. That covers
+    // impl-generic bounds (`<T: Marker<>>`) and the target type, including a
+    // `dyn … + Marker<>` tail: while the tail was a token bag the sync never saw
+    // it, so `Box<dyn Marker<> + Send>` rendered `Box<dyn Marker + Send>` — the
+    // marker vanished silently (measured). One post-order walk (`sync_tree`)
+    // applies `sync_bound_ty` wherever it can change something, and accumulates
+    // the first error instead of unwinding (`map_children` cannot return).
+    let mut sync_err = None;
     for (_, bound) in &mut parts.impl_generics {
         if let Some(b) = bound {
-            *b = sync_bound_ty(b, &trait_args)?;
+            *b = sync_tree(b.clone(), &trait_args, &mut sync_err);
         }
+    }
+    if sync_err.is_none() {
+        parts.target_type = sync_tree(parts.target_type.clone(), &trait_args, &mut sync_err);
+    }
+    if let Some(e) = sync_err {
+        return Err(e);
     }
     if body_sync && let Some(b) = &mut parts.body {
         *b = sync_trait_application(b.clone(), &trait_args)?;
@@ -167,20 +184,56 @@ pub(crate) fn is_switch_template(tokens: &[TokenTree], trait_ident: &Ident) -> b
     }
 }
 
-/// Syncs an empty `X<>` in an impl-generic **bound** Ty (called only while a
-/// switch template is present). Unlike where predicates / templates
-/// (TokenStream passthrough — the empty brackets survive as tokens), a
-/// bound is parsed by the DSL: an `X<>` becomes an empty-param `TyTrait` /
-/// `TyGeneric` — and rendering drops the empty brackets (`params_to_tokens`
-/// renders only the base when params and bindings are empty). This works on
-/// the Ty structure: every empty-param `TyTrait` / `TyGeneric` gets the
-/// spec's trait args filled in.
+/// Whether a param list holds nothing at all — the shape an `X<>` parses to
+/// (both params and bindings empty), which is what the renderer drops. The single
+/// predicate [`sync_bound_ty`] and the tree walk both ask.
+fn is_empty_params(tp: &TyTypeParam) -> bool {
+    tp.params.is_empty() && tp.bindings.is_empty()
+}
+
+/// Applies [`sync_bound_ty`] at every node of `ty`, children first: the
+/// empty-bracket rule is position-independent, so one post-order pass covers a
+/// `dyn … + X<>` tail, a bound nested in a generic argument, and so on. The first
+/// error is accumulated rather than unwound, because the traversal authority
+/// ([`Ty::map_children`]) cannot return.
+fn sync_tree(ty: Ty, args: &[TokenStream], err: &mut Option<TokenStream>) -> Ty {
+    let ty = ty.map_children(&mut |c| sync_tree(c, args, err));
+    if err.is_some() {
+        return ty;
+    }
+    // Only an empty-bracket node can change — calling the sync on everything
+    // would clone each subtree for nothing (the review already flagged that
+    // shape in `collect_errors`).
+    let can_fill = match &ty.kind {
+        TyKind::Generic(g) => is_empty_params(&g.1),
+        TyKind::Trait(t) => is_empty_params(&t.1),
+        _ => false,
+    };
+    if !can_fill {
+        return ty;
+    }
+    match sync_bound_ty(&ty, args) {
+        Ok(t) => t,
+        Err(e) => {
+            *err = Some(e);
+            ty
+        }
+    }
+}
+
+/// Syncs an empty `X<>` in a **bound** Ty (called only while a switch template is
+/// present). Unlike where predicates / templates (TokenStream passthrough — the
+/// empty brackets survive as tokens), a bound is parsed by the DSL: an `X<>`
+/// becomes an empty-param `TyTrait` / `TyGeneric` — and rendering drops the empty
+/// brackets (`params_to_tokens` renders only the base when params and bindings are
+/// empty). This works on the Ty structure: every empty-param `TyTrait` /
+/// `TyGeneric` gets the spec's trait args filled in.
 pub(crate) fn sync_bound_ty(ty: &Ty, args: &[TokenStream]) -> Result<Ty, TokenStream> {
     match &ty.kind {
-        TyKind::Generic(g) if g.1.params.is_empty() && g.1.bindings.is_empty() => {
+        TyKind::Generic(g) if is_empty_params(&g.1) => {
             Ok(TyGeneric(g.0.clone(), filled_params(args)).to_ty().with_span(ty.span))
         }
-        TyKind::Trait(t) if t.1.params.is_empty() && t.1.bindings.is_empty() => {
+        TyKind::Trait(t) if is_empty_params(&t.1) => {
             Ok(TyTrait(t.0.clone(), filled_params(args)).to_ty().with_span(ty.span))
         }
         // A `+`-joined bound list (`A<> + B + C`): sync every element
@@ -191,7 +244,7 @@ pub(crate) fn sync_bound_ty(ty: &Ty, args: &[TokenStream]) -> Result<Ty, TokenSt
             Ok(TyBoundList(elems).to_ty().with_span(ty.span))
         }
         // Any other bound shape: leave as-is (a `Wrapper<X<>>` nested empty
-        // bracket is out of scope for now — it renders as the bare `X`).
+        // bracket is reached by `sync_tree`'s children pass, not from here).
         _ => Ok(ty.clone()),
     }
 }
@@ -212,6 +265,28 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<TokenStream> {
         list.iter().map(|a| a.parse::<TokenStream>().unwrap()).collect()
+    }
+
+    /// The tree walk reaches empty brackets **nested** in the type structure
+    /// (`Box<SyncMarker<>>`) — while a `dyn … + X<>` tail was a token bag the
+    /// walk could not, and the marker disappeared silently. One post-order pass
+    /// covers a generic argument, a tuple element and the bound list alike.
+    #[test]
+    fn sync_tree_fills_a_nested_empty_bracket() {
+        let flat =
+            "Box<SyncMarker<>>".parse::<TokenStream>().unwrap().into_iter().collect::<Vec<_>>();
+        let paired = crate::preprocess::angle_collect(&flat).unwrap();
+        let ty = crate::parse::parse_item(
+            &mut crate::util::Cursor::new(&paired),
+            crate::ast::Op::Comma,
+            crate::parse::Ctx::default(),
+        )
+        .unwrap();
+        let mut err = None;
+        let out = sync_tree(ty, &args(&["T"]), &mut err);
+        assert!(err.is_none(), "sync error");
+        let s = out.to_token_stream().to_string();
+        assert!(s.contains("SyncMarker < T >"), "got: {s}");
     }
 
     #[test]

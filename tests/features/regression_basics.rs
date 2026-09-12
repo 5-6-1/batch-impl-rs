@@ -96,3 +96,29 @@ fn dyn_trait_with_multi_bounds() {
     fn _check<T: DynMarkerMultiBound + ?Sized>() {}
     _check::<dyn std::fmt::Display + Send + Sync>();
 }
+
+// ============================================================
+// 7. `X<>` on the **target** must not corrupt the spec's trait args
+// ============================================================
+// `A<>` at the spec **head** is the "declare the trait's formals here" shorthand
+// (`dsl_generics.rs`'s `EmptyGenA/B/C`). The same marker further along the spec —
+// on the target — used to be rewritten too, and the declaration block it emitted
+// landed between the trait head and the target, which the parse merged into the
+// trait's own arguments: `impl<T> TargetMarker<T, T>` (measured; an impl nobody
+// can compile). Only the head expands now, and the target's marker is filled by
+// the codegen sync (`X<>` → the spec's args).
+struct Swap2<A>(A);
+
+#[batch_impl(<T> TargetMarker<T> Swap2<> { fn tag(&self) -> u8 { 0 } })]
+trait TargetMarker<T> {
+    fn tag(&self) -> u8;
+}
+
+#[test]
+fn a_target_position_marker_fills_instead_of_duplicating_the_trait_args() {
+    // `TargetMarker<u8>` for `Swap2<u8>`: the trait takes exactly one argument,
+    // so the old `TargetMarker<T, T>` rendering could not even name this impl.
+    fn need<X: TargetMarker<u8>>() {}
+    need::<Swap2<u8>>();
+    assert_eq!(Swap2(7u8).tag(), 0);
+}

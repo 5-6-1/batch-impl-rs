@@ -78,6 +78,8 @@ pub(crate) fn generate_parts(
     // output, so counting them would shift numbering the rendered impl never
     // shows. The target stream is kept for the later reference resolution (one
     // `to_token_stream` per impl instead of two).
+    // target stream feeds the collision set below (the render-side snapshot is
+    // taken again after the sync, which can change the type)
     let target_stream = parts.target_type.to_token_stream();
     let plain_impl_names =
         impl_name_streams.iter().filter(|n| decl_fresh_pos(n).is_none()).collect::<Vec<_>>();
@@ -108,9 +110,10 @@ pub(crate) fn generate_parts(
     let fresh_ctx = FreshCtx::new(&impl_name_streams, &used);
 
     // `X<>` (empty angle brackets) → `X<spec args>` — where predicates,
-    // `impl{...}` templates and impl-generic bounds fill unconditionally; a
-    // **switch template** (`impl{@trait<>}` / `impl{Tr<>}`) additionally
-    // turns on **body** sync (see `sync.rs`).
+    // `impl{...}` templates, impl-generic bounds **and the target type** fill
+    // unconditionally (a `dyn … + Marker<>` tail is a structured bound list now,
+    // so the sync reaches it); a **switch template** (`impl{@trait<>}` /
+    // `impl{Tr<>}`) additionally turns on **body** sync (see `sync.rs`).
     if let Err(e) = sync_impl_parts(&mut parts, trait_name) {
         return e;
     }
@@ -162,11 +165,15 @@ pub(crate) fn generate_parts(
 
     // The target type's references resolve now: its tokens must be valid
     // Rust before the shape kernel syn-parses them, and the resolvers emit
-    // final names — nothing downstream renames idents anymore.
-    let target_tokens = match range_refs::expand_range_refs(target_stream, &fresh_ctx) {
-        Ok(t) => t,
-        Err(e) => return e,
-    };
+    // final names — nothing downstream renames idents anymore. The stream is
+    // re-derived **after** `sync_impl_parts`: the snapshot taken for the
+    // collision set predates it, and the sync may have filled empty brackets
+    // (`dyn SyncMarker<> + Send` → `dyn SyncMarker<T> + Send`).
+    let target_tokens =
+        match range_refs::expand_range_refs(parts.target_type.to_token_stream(), &fresh_ctx) {
+            Ok(t) => t,
+            Err(e) => return e,
+        };
     // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
     // rewrites (where predicates + body here; the target type at render,

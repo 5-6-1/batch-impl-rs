@@ -263,31 +263,35 @@ pub(crate) fn for_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
     TyWithFor(binder, Box::new(inner)).to_ty()
 }
 
-/// `dyn ...` — a trait object. The qualified type after `dyn` is parsed
-/// **structurally** (so `dyn Fn.().3` runs the Fn generator), and any
-/// `+ Bound` tail rides along as token fragments. Rendered back as
-/// `dyn <inner> + <bounds>`. A trait object **is** a bound position, so
-/// `dyn Iterator<Item = u8>` takes its bindings.
+/// `dyn ...` — a trait object. Both halves are parsed **structurally**: the
+/// qualified type after `dyn` (so `dyn Fn.().3` runs the Fn generator) and the
+/// `+ Bound` tail, which becomes a [`TyBoundList`] like every other bound list —
+/// so the empty-bracket sync (`X<>`, `sync::sync_bound_ty`) reaches it, and the
+/// `+` tokens live in the renderer instead of in the data. A trait object **is** a
+/// bound position, so `dyn Iterator<Item = u8>` takes its bindings.
 pub(crate) fn dyn_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
     cursor.bump(); // `dyn`
     let ctx = ctx.in_bound();
     let inner = crate::parse::chain::parse_dot_chain(cursor, ctx).unwrap_or_else(empty);
     let mut bounds = vec![];
     while cursor.is_punct('+') {
-        // `is_punct` guarantees the peek — extracted rather than unwrapped
-        // (a panic in a proc macro is a compiler ICE).
-        let Some(plus) = cursor.peek() else { break };
-        let mut ts = plus.to_token_stream();
         cursor.bump();
-        if let Some(t) = cursor.peek()
-            && (starts_block(cursor) || matches!(t, TokenTree::Punct(p) if p.as_char() == '+'))
-        {
-            let b = crate::parse::chain::parse_dot_chain(cursor, ctx).unwrap_or_else(empty);
-            ts.extend(b.to_token_stream());
+        // A `+` with no bound after it (`dyn Trait +`) is a user error, not a
+        // token to emit: the old code pushed the bare `+` and let rustc report
+        // it. `starts_block` (or a second `+`, which the next round consumes)
+        // decides whether a bound follows.
+        if !(starts_block(cursor) || cursor.is_punct('+')) {
+            let span = cursor.peek().map_or_else(proc_macro2::Span::call_site, |t| t.span());
+            bounds.push(err_ty_at(
+                "batch-impl: a `+` in a `dyn` bound list needs a bound after it \
+                 (e.g. `dyn Iterator<Item = u8> + Send`)",
+                span,
+            ));
+            continue;
         }
-        bounds.push(ts);
+        bounds.push(crate::parse::chain::parse_dot_chain(cursor, ctx).unwrap_or_else(empty));
     }
-    TyWithDyn(Box::new(inner), bounds).to_ty()
+    TyWithDyn(Box::new(inner), TyBoundList(bounds)).to_ty()
 }
 
 /// `dyn ...` / `impl Trait` — swallow the qualified type and a `+ Bound`

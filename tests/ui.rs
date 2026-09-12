@@ -225,6 +225,9 @@ fn ui() {
     // a lifetime is not an apply operand (`'a T` — it belongs in bounds,
     // declarations or references)
     t.compile_fail("tests/ui/lifetime_as_operand.rs");
+    // a `+` in a `dyn` bound list with nothing after it: the DSL reports the
+    // missing bound (it used to emit the bare `+` for rustc to complain about)
+    t.compile_fail("tests/ui/dyn_bound_missing.rs");
 
     // the fn-type family: a named parameter is valid only in a `fn(x: u8)`
     // pointer type (the `Fn(x: u8)` sugar rejects it, like rustc), and a name

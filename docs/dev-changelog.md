@@ -897,6 +897,49 @@
     onto the final impls, and the shape-family × element case that justifies the
     stage order), 49 feature modules / **288** feature tests, **155** lib tests,
     UI 99 + 3 and the 9 goldens still passing without `BLESS`, fmt/clippy/doc clean.
+- **AST structure pass, step 1: the `dyn` bound tail is a bound list (and two
+  silent bugs fell out)** — `TyWithDyn`'s second field was `Vec<TokenStream>`, and
+  `dyn_block` **parsed** each `+` bound into a `Ty` only to flatten it straight
+  back (`ts.extend(b.to_token_stream())`, with the `+` punct baked into the
+  payload). Nothing structural ever consumed it — only render spliced it and six
+  call sites cloned it — so the `X<>` sync, which runs on the **Ty** structure
+  (`sync_bound_ty` over `TyBoundList`), could not see a `dyn … + Marker<>` tail.
+  - **The measured consequence**: `#[batch_impl(<T> … Box<dyn Marker<> + Send>)]`
+    rendered `Box<dyn Marker + Send>` — the marker did not merely stay unsynced,
+    it **vanished** (an empty param list renders as the bare name), i.e. a silent
+    semantic change. `TyWithDyn(Box<Ty>, TyBoundList)` fixes it: one bound list, one
+    renderer (`render_bound_list`, shared with the `BoundList` node), one sync rule.
+  - **A dangling `+` is now diagnosed**: `dyn Trait +` used to push the bare `+`
+    token for rustc to complain about ("expected trait, found `+`", pointing at the
+    macro input); the DSL reports "a `+` in a `dyn` bound list needs a bound after
+    it" (`tests/ui/dyn_bound_missing.rs`).
+  - **The sync now reaches the whole type structure**: `sync_tree` applies
+    `sync_bound_ty` at every node of the target type (post-order, accumulating the
+    first error because `map_children` cannot unwind) instead of only walking
+    impl-generic bounds. `pipeline.rs` also had to re-derive the target's tokens
+    **after** the sync — the snapshot taken for the collision set predated it, so a
+    target-side fill was computed and then dropped (`dyn Marker<T> + Send` looked
+    unfilled end-to-end while the walk itself worked; found by bisecting with a
+    unit probe rather than by reading).
+  - **Pre-existing bug found on the way: `X<>` on a target corrupted the trait
+    args.** `expand_empty_trait_generics` rewrote **every** top-level `Ident<>`,
+    and its output shape (`angle-group(formals) Ident angle-group(args)`) is only
+    meaningful at the **spec head**. On a target the emitted declaration landed
+    between the trait head and the target, and the parse merged it into the trait's
+    own arguments: `#[batch_impl(<T> Trait<T> Holder<>)]` generated
+    `impl<T> Trait<T, T> for Holder<T>` — an impl nobody can compile (measured with
+    `batch_preview!` and with a real macro). The pass now expands only each
+    `;`-separated spec's **first** ident (the head); every other `X<>` is the sync
+    marker, filled structurally. Locked by
+    `regression_basics::a_target_position_marker_fills_instead_of_duplicating_the_trait_args`.
+  - **Docs corrected while here**: the tutorial claimed a `X<>` for a non-spec
+    trait *errors* — measured, the sync is ident-agnostic (`Other<>` becomes
+    `Other<…spec args…>`), and the surfaces list now names the target type; §5.2
+    states that the `A<>` shorthand belongs to the spec head.
+  - **Evidence**: lib **161**, features **297**, UI **102 + 3**, doctests 93, 9
+    goldens and every other snapshot passing without `BLESS` / `TRYOVERWRITE`
+    (`dyn Display + Send + Sync` — the multi-bound tail — is unchanged byte for
+    byte).
 - **Maintainer correction: an associated-type binding belongs on the *trait
   application*, not in a declaration block** — rounds 2's positive case was wrong.
   It locked `#[batch_impl(<Item = u8> Held)]` (a `<>` declaration block carrying only
