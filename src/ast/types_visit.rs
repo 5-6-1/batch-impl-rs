@@ -47,7 +47,7 @@ pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
     }
 }
 
-fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
+pub(crate) fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
     elems.into_iter().fold((vec![], None), |(mut flat, decl), e| {
         let (mut es, d) = splat_expand(e);
         flat.append(&mut es);

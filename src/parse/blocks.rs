@@ -217,6 +217,12 @@ fn parse_single_ref(lit: &str) -> Option<FreshRef> {
 /// only the range's own tokens are examined, whatever follows is a chain
 /// block).
 pub(crate) fn literal_block(cursor: &mut Cursor) -> Ty {
+    // Every path — including the error paths — must **consume its tokens**: an
+    // error node that leaves the cursor in place makes the enclosing
+    // space-application chain fold the same token forever, and the depth cap
+    // then reported "space-application chain exceeds 129 levels" instead of the
+    // literal/range message below (measured: `#[batch_impl(1.5)]` and
+    // `#[batch_impl(1..x)]` both reported the depth guard).
     // `N..M` / `N..=M` — the range operator read off the dictionary
     let n = match cursor.op_at(1) {
         Some((crate::util::Op::DotDot, _)) => 4,
@@ -229,11 +235,15 @@ pub(crate) fn literal_block(cursor: &mut Cursor) -> Ty {
                         cursor.bump();
                         TyNum(number).to_ty()
                     }
-                    Err(_) => err_ty_at(
-                        "batch-impl: a bare literal in a type position must be an \
+                    Err(_) => {
+                        let span = lit.span();
+                        cursor.bump();
+                        err_ty_at(
+                            "batch-impl: a bare literal in a type position must be an \
                              integer (usize); float/string/char literals are not types",
-                        lit.span(),
-                    ),
+                            span,
+                        )
+                    }
                 },
                 _ => err_ty_at("batch-impl: unexpected literal in a type position", cursor.span()),
             };
@@ -244,9 +254,11 @@ pub(crate) fn literal_block(cursor: &mut Cursor) -> Ty {
         cursor.advance(n);
         return range;
     }
+    let span = cursor.span();
+    cursor.advance(n);
     err_ty_at(
         "batch-impl: a range (`..`/`..=`) in a type position needs integer \
          endpoints (e.g. `0..=3`)",
-        cursor.span(),
+        span,
     )
 }

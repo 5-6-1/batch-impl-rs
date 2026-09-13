@@ -96,19 +96,40 @@ pub(crate) fn expand_splat_elems(ty: Ty) -> Ty {
                 None => trait_ty,
             }
         }
+        // A callable's parameter list is a **parameter-position list** like a
+        // tuple's: a splat element splices into it (`fn(u8, *(u16, u32))` →
+        // `fn(u8, u16, u32)`, `Fn(*(A,B)) -> C` the same) and a generator
+        // hoists its declaration. The return type recurses.
+        TyKind::Fn(f) => {
+            let TyFn(params, ret, is_unsafe, kind) = f;
+            let (params, decl) = match params {
+                Some(ps) => {
+                    let (flat, d) = fold_splat_elems(ps);
+                    (Some(flat.into_iter().map(expand_splat_elems).collect()), d)
+                }
+                None => (None, None),
+            };
+            let ret = ret.map(|r| Box::new(expand_splat_elems(*r)));
+            let node = TyFn(params, ret, is_unsafe, kind).to_ty().with_span(span);
+            match decl {
+                Some(d) => TyWithType(d, Box::new(node)).to_ty().with_span(span),
+                None => node,
+            }
+        }
         // Leaves and token-stream-bearing nodes (Splat / PrimitiveArray /
-        // Fn / ...) stay — a bare `Splat` is itself the pending expansion.
+        // ...) stay — a bare `Splat` is itself the pending expansion.
         other => Ty { span, kind: other },
     }
 }
 
-/// Expand splat params inside a `TyTypeParam` (generic args / trait args):
-/// top-level splat params flatten via [`flat_splat_params`], then every
-/// remaining param (name / bound / binding value) recurses through
-/// [`expand_splat_elems`]. Fresh declarations hoisted out of `*().N` splats
-/// are returned for the caller to wrap in `TyWithType` (a `TyGeneric` /
-/// `TyTrait` cannot carry them itself).
-fn expand_tp(tp: TyTypeParam) -> (TyTypeParam, Option<TyTypeParam>) {
+/// Expand splat params inside a `TyTypeParam` (generic args / trait args /
+/// **declaration blocks**): top-level splat params flatten via
+/// [`flat_splat_params`], then every remaining param (name / bound / binding
+/// value) recurses through [`expand_splat_elems`]. Fresh declarations hoisted
+/// out of `*().N` splats are returned for the caller to wrap in `TyWithType` (a
+/// `TyGeneric` / `TyTrait` cannot carry them itself; a declaration block hands
+/// them straight to the impl's parameter list).
+pub(crate) fn expand_tp(tp: TyTypeParam) -> (TyTypeParam, Option<TyTypeParam>) {
     let (flat, decl) = flat_splat_params(tp.params);
     let params = flat
         .into_iter()

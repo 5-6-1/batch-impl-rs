@@ -180,3 +180,48 @@ fn splat_one_layer() {
     assert_rl::<Pair<u128, u32>>();
     assert_rl::<Pair<usize, usize>>();
 }
+
+// ------------------------------------------------------------
+// Every parameter-position list splices, not just the tuple/args ones
+// ------------------------------------------------------------
+// `fn(...)` params, an `Fn`-family callable, a `<>` declaration block and an
+// inline bound are all parameter lists. Before the expansion reached them the
+// splat arrived at rustc verbatim (a raw-pointer error, `expected type, found
+// @`), which is how the gap was found while writing the position matrix.
+trait Two<A, B> {}
+
+struct Both;
+impl Two<u8, u16> for Both {}
+
+#[batch_impl(fn(u8, *(u16, u32)))]
+trait SplatFnParams {}
+
+#[batch_impl(<T: Fn(*(u8, u16)) -> u32> SplatCallable<T> Box<T>)]
+trait SplatCallable<T> {}
+
+#[batch_impl(<T: Two<*(u8, u16)>> SplatInlineBound<T> u8)]
+trait SplatInlineBound<T> {}
+
+#[batch_impl(<*(A, B)> SplatDecl<A, B> u8)]
+trait SplatDecl<A, B> {}
+
+#[test]
+fn splat_splices_into_every_parameter_list() {
+    fn fn_params<T: SplatFnParams>() {}
+    fn_params::<fn(u8, u16, u32)>();
+
+    // The generated impl is `impl<T: Fn(u8, u16) -> u32> SplatCallable<T> for
+    // Box<T>` — assert it where the bound is expressible.
+    fn boxed<T: Fn(u8, u16) -> u32>()
+    where
+        Box<T>: SplatCallable<T>,
+    {
+    }
+    boxed::<fn(u8, u16) -> u32>();
+
+    fn inline_bound<T: SplatInlineBound<Both>>() {}
+    inline_bound::<u8>();
+
+    fn declaration<T: SplatDecl<u8, u16>>() {}
+    declaration::<u8>();
+}

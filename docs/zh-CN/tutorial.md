@@ -255,7 +255,11 @@ trait GSplat {}
 
 ### 4.6 合法位置
 
-splat 在**参数位置列表被当作 Ty 结构解析**的地方展开——泛型实参（`Foo<*(a,b)>`）、trait 应用实参（`Conv<*(A,B)> X`）、元组元素（`(a, *(b,c))`）、数组元素（`[*(a),*(b)]`）、`dyn` bound 尾巴（`dyn Tr<*(u8, u16)>`）与 spec 列表（`[*(a,b)]`）。有三个位置**没有**这层结构，因此不展开（实测：rustc 会报 raw pointer 错）：泛型声明块（`<T, *(A,B)>`）、fn 参数表（`fn(*(u8, u16))`）与内联 bound（`<T: Tr<*(u8, u16)>>`）。`where` 谓词里的 splat 由 DSL 报错（见 §8）。既非 splat 也非指针的裸 `*` 定向报错。
+splat 是**参数位置列表**：它会拼进泛型实参（`Foo<*(a,b)>`）、trait 应用实参（`Conv<*(A,B)> X`）、元组元素（`(a, *(b,c))`）、数组元素（`[*(a),*(b)]`）、callable 的参数表（`fn(*(u8, u16))`，`Fn(*(A,B)) -> C` 是同一张表）、`<>` 声明块（`<*(A,B)>` → `<A, B>`）、内联 bound（`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`）、`dyn` bound 尾巴（`dyn Tr<*(u8, u16)>`）与 spec 列表（`[*(a,b)]`）。
+
+唯一**不**展开的位置是 `where` 谓词——那里由 DSL 报出而不是泄漏出去（§8）：该子句到输出全程 token 级。
+
+`<>` 声明块里的 fresh **生成器**是定向错误（那个块**就是** impl 的参数表，其 fresh 永不会被使用）——把生成器写在类型上。既非 splat 也非指针的裸 `*` 定向报错。
 
 完整的位置矩阵见 `docs/zh-CN/reference.md` §2 与 §4。
 
@@ -1118,7 +1122,7 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **具体类型实参遇 `=`/`:`**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）与 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … or in a bound"）
 - **`<>` 声明块里的关联类型 binding**：声明块声明的是**参数**，因此 `<Item = u8> Target` 报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"。可用的写法是 trait 应用那种（它的 binding 会被提升进 impl body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`）
 - **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型
-- **splat 落在不展开的位置**（§4.6）：泛型声明块、fn 参数表与内联 bound 目前会把 splat 泄漏给 rustc；`where` 谓词里的 splat 由 DSL 报错
+- **`<>` 声明块里的 fresh 生成器**：报出可用写法（把生成器写在类型上，如 `T^()^2`）——那个块**就是** impl 的参数表，其 fresh 会被声明却永不被使用
 
 ## 13. 实战：仓库里那三个示例
 

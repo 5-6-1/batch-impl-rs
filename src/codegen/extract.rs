@@ -79,17 +79,42 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
     match kind {
         TyKind::WithType(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
+            // A fresh **generator** in the declaration position has no carrier:
+            // the `<>` block *is* the impl's parameter list, so its freshs would
+            // be declared and never used (E0392). Before this check the
+            // `@`-carrying declaration tokens leaked to rustc ("expected type,
+            // found `@`", ui `decl_generator_splat`); report the spelling that
+            // works instead.
+            if let Some((name, _)) =
+                wt.0.params.iter().find(|(n, _)| matches!(n.kind, TyKind::WithType(_)))
+            {
+                parts.target_type = crate::apply::err_ty_at(
+                    "batch-impl: a fresh generator cannot be declared here — the `<>` \
+                     block declares the impl's own parameters, so its freshs would be \
+                     declared and never used; write the generator on the type instead \
+                     (e.g. `T^()^2`)",
+                    name.span,
+                );
+                return parts;
+            }
+            // A declaration block is a **parameter list**: a splat element
+            // flattens into it (`<*(A,B)>` → `<A, B>`) and a `*().N` splat
+            // hoists the declaration it carries (the names must be declared for
+            // the impl to compile — here the declaration *is* the carrier).
+            let (tp, decl) = super::splat_expand::expand_tp(wt.0);
             let (impl_generics, associated_types) = (parts.impl_generics, parts.associated_types);
             parts.impl_generics =
-                wt.0.params
-                    .into_iter()
-                    .map(|(n, b)| (n.to_token_stream(), b.map(|b| *b)))
-                    .collect();
-            parts.associated_types =
-                wt.0.bindings
-                    .into_iter()
-                    .map(|(n, v)| (n.to_token_stream(), v.to_token_stream()))
-                    .collect();
+                tp.params.into_iter().map(|(n, b)| (n.to_token_stream(), b.map(|b| *b))).collect();
+            if let Some(d) = decl {
+                parts.impl_generics.extend(
+                    d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b.map(|b| *b))),
+                );
+            }
+            parts.associated_types = tp
+                .bindings
+                .into_iter()
+                .map(|(n, v)| (n.to_token_stream(), v.to_token_stream()))
+                .collect();
             parts.impl_generics.extend(impl_generics);
             parts.associated_types.extend(associated_types);
             parts

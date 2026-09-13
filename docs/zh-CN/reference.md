@@ -59,12 +59,12 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | 位置 | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | 生成器 `()^N` | `@` 引用 | `X<>` 同步 |
 |---|---|---|---|---|---|---|
 | trait 应用 `Conv<…> X` | ✓ | ✓（提升进 impl body，因 `impl Trait<Item=u8> for X` 是 E0229） | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓（fresh 声明提升到 impl） | ✓ | ✓ |
-| 泛型声明 `<…>` | ✓ | ✗ 定向错误（声明的是**参数**；给出 trait 应用的写法） | ✗ 未展开（实测 `<T, *(A,B)>` 原样泄漏） | ✗ 交给 rustc（实测 `<*().3>` → "expected type, found `@`"；ui `decl_generator_splat`） | ✓（`<@0..>` 声明 fresh） | ✓（`A<>` 头部展开） |
+| 泛型声明 `<…>` | ✓ | ✗ 定向错误（声明的是**参数**；给出 trait 应用的写法） | ✓ `<*(A,B)>` → `<A, B>` | ✗ 定向错误（该块**就是** impl 的参数表，fresh 永不被使用；ui `decl_generator_splat`） | ✓（`<@0..>` 声明 fresh） | ✓（`A<>` 头部展开） |
 | 纯类型实参 `Vec<…>` | ✗ 定向错误 | ✗ 定向错误（ui `concrete_binding` / `concrete_bound`） | ✓ `T<*(A,B)>` → `T<A,B>` | ✓ | ✓ | ✓ |
-| 内联 bound `<T: …>` | ✓ | ✓ | ✗ 未展开（实测：rustc 报 raw pointer 错） | ✓（`Fn.().N` 的 fresh 提升到 impl） | ✓ | ✓ |
+| 内联 bound `<T: …>` | ✓ | ✓ | ✓ `<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>` | ✓（`Fn.().N` 的 fresh 提升到 impl） | ✓ | ✓ |
 | `dyn` / `for<'a>` 尾巴 | ✓ | ✓ | ✓ `dyn Tr<*(A,B)>` → `dyn Tr<A,B>`（实测） | ✓ | ✓ | ✓ |
 | where 谓词 | ✓ | — | ✗ 由终检报错（见 §7） | — | ✓（`@N` 族） | ✓ |
-| 目标类型 | ✗ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| 目标类型（callable 的参数表是同一张表） | ✗ | ✗ | ✓ `fn(u8, *(u16, u32))` → `fn(u8, u16, u32)`，与元组内一致 | ✓ | ✓ | ✓ |
 | `impl{...}` 模板 | — | — | ✗（模板是标准 Rust 类型，DSL 算子被 syn 拒） | ✗ 同上 | ✓（`@trait` / `@` 在 `expand_consts` 展开） | ✓ |
 | body | — | — | ✗（不解释，`a * b` 保持乘法） | — | ✓（`@N`；`@{N}` 需 `impl{@{}}` 开关） | — |
 | 指令参数 `#fill(…)` | — | — | — | — | ✓（`@all` 家族、`[a,b]` 列表） | — |
@@ -105,12 +105,12 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | 元组元素 `(u8, *(u16, u32))` | ✓ 展开成 `(u8, u16, u32)` |
 | 数组元素 `[*(A), *(B)]` | ✓（spec 列表位置，expand 阶段摊平） |
 | `dyn` bound 尾巴 `dyn Tr<*(u8, u16)>` | ✓ 展开成 `dyn Tr<u8, u16>` |
-| **泛型声明块** `<T, *(A,B)>` / `<*(A,B)>` | ✗ **未展开**，原样泄漏给 rustc |
-| **fn 参数表** `fn(*(u8, u16))` / `fn(u8, *(u16, u32))` | ✗ **未展开**，原样泄漏给 rustc |
-| **内联 bound** `<T: Tr<*(u8, u16)>>` | ✗ **未展开**（rustc：`expected mut or const keyword in raw pointer type`） |
-| **where 谓词** `where{T: Tr<*(u8, u16)>}` | ✗ 由谓词终检报错（§7），不泄漏给 rustc |
+| 泛型声明块 `<T, *(A,B)>` / `<*(A,B)>` | ✓ 展开成 `<T, A, B>` / `<A, B>`；`*().N` splat 会提升它携带的声明，而那里的**生成器**是定向错误（§10.1） |
+| fn 参数表 `fn(*(u8, u16))` / `fn(u8, *(u16, u32))` | ✓ 展开成 `fn(u8, u16)` / `fn(u8, u16, u32)`——`Fn` 家族的 callable（`Fn(*(A,B)) -> C`）是同一张参数表 |
+| 内联 bound `<T: Tr<*(u8, u16)>>` | ✓ 展开成 `<T: Tr<u8, u16>>`（从 bound 里提升出来的声明照常落到 impl 上） |
+| **`where` 谓词** `where{T: Tr<*(u8, u16)>}` | ✗ 由谓词终检报出（§7），不泄漏给 rustc |
 
-> 上表后三行是**已知缺口**（实测记录，尚未修）：splat 的展开点目前覆盖 Ty 结构（泛型/trait 实参、元组元素、`dyn` 尾巴），而泛型声明块、fn 参数表、内联 bound 走的是另一条路径。教程 §4 的旧列表曾把它们列为合法位置——已按实测更正。
+> 最后一行是唯一有意的例外，而且它不是展开器的缺口：where 子句从解析到渲染输出全程 token 级，因此由**谓词终检**报出 splat。其余每个参数位置列表都会展开——上面三行此前把 token 原样交给 rustc（raw pointer 错、`expected type, found @`），直到展开器覆盖到 callable 参数表、声明块与 bound 位置。
 
 **其它边界**：`*const` / `*mut` 指针不受影响（按后续 token 区分）；裸 `*`（既非 splat 也非指针）定向报错；splat 单独作目标会摊平成重复（`*(A,B)` → E0119），元组 impl 写 `(A,B)`；`*()^N` 把 fresh 元组包回 splat，供载体追加参数（`T^*()^2` = `<A,B>T<A,B>`）。
 
@@ -280,6 +280,8 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，这决定了
 | `dangling_operator` | `A.` | missing operand after `.` (e.g. `T.U`) | DSL |
 | `leading_operator` | `.A` | missing operand before `.` (e.g. `T.U`) | DSL |
 | `num_as_left_operand` | `0.T` | number `0` cannot be a left operand; use it on the right (e.g. `T.0`) | DSL |
+| `literal_and_range` | `1.5` / `1..x` | a bare literal in a type position must be an integer (usize)；range 端点必须是整数 | DSL |
+| `decl_generator_splat` | `<*().3> Vec<u8>` | a fresh generator cannot be declared here——把生成器写在类型上（如 `T^()^2`） | DSL |
 | `semi_in_spec` | 类型后多写 `;` | unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | `+` is not valid at the start of a type (it belongs in a bound) | DSL |
 | `star_misuse` | 裸 `*` | `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
@@ -306,7 +308,6 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，这决定了
 | `attach_too_deep` | 129 个附件 | space-application chain exceeds 129 levels (limit 128) | DSL |
 | `impl_attach_too_deep` | 同样的链走 impl 入口 | space-application chain exceeds 129 levels (limit 128) | DSL |
 | `const_value_deep_nesting` | 常量值嵌套 129 层 | nesting depth exceeds 128 levels in a constant value | DSL |
-| `literal_and_range` | `1.5` / `1..x` | **锁的是深度守卫那条消息**——字面量/范围诊断今天没有触发（记为误导性锁定） | DSL |
 
 ### 10.3 `@` 常量、引用与范围
 
@@ -420,8 +421,8 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，这决定了
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 |---|---|---|---|
-| `decl_generator_splat` | `<*().3> Vec<u8>` | expected type, found `@` | rustc |
-| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope（E0425——`-> B` 已填，类型是符号名） | rustc |
+| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope（E0425；返回类型是类型位置，因此 `C` 被应用成 `B` 的实参——换成原生类型名就是 rustc 的 E0109，而 `-> Box u8` = `Box<u8>` 依赖同一次折叠） | rustc |
+| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope（E0425；返回类型是类型位置，因此 `C` 被应用成 `B` 的实参——换成原生类型名就是 rustc 的 E0109，而 `-> Box u8` = `Box<u8>` 依赖同一次折叠） | rustc |
 | `impl_trait_sync_body_negative` | body 里写 `X<>` 但模板不带 `Tr<>` | trait takes 1 generic argument but 0 generic arguments were supplied（E0107） | rustc |
 | `unsafe_non_fn` | 对非 unsafe trait 用 `unsafe` | implementing the trait `T` is not unsafe | rustc |
 

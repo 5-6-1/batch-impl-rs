@@ -220,6 +220,14 @@
 - **教程末尾新增实战章（§13）**——仓库里那三个示例现在在读者会遇到它们的地方被讲清楚：`examples/quickstart.rs`（可运行导览）、`examples/simplify.rs`（约 15 行 DSL 出 29 个 impl）、`examples/typeclass.rs`（类层级 + 36 个 `From<bool>` 实例），每个都给出"是什么 / 怎么跑 / 组合了哪些机制"，并引用一段**摘录**形式的代表 spec（`text` 而非 doctest——trait 定义在那个文件里）。这一章加的是**组合**而非机制：机制仍在 §1–§12 与参考手册。
   - **证据**：doc_consistency **4**、doctest **94**（本章不新增 doctest——摘录用 `text`）、`fmt`/`clippy`/`doc` 干净。体量：教程 1289 / 1176 行，参考手册 448 / 448。
 
+- **splat 展开覆盖到每一个参数位置列表（参考手册里那三处"已知缺口"关闭）**——写位置矩阵时发现三个位置的 token 原样到达 rustc；三处都是展开覆盖面问题，不是语义问题：
+  - `fn(*(u8, u16))` / `Fn(*(A,B)) -> C`：`codegen/splat_expand.rs` **没有 `TyKind::Fn` 分支**（注释写着"叶子与带 token 流的节点……保持原样"），callable 的参数表从未被访问。现在它按元组分支那样折叠（splat 元素拼入，生成器提升其声明）。
+  - `<*(A,B)>` / `<T, *(A,B)>`：`extract_impl_parts` 把声明块的参数直接渲染成 token、不做展开；现在先跑 `expand_tp`。那里的 fresh **生成器**（`<*().3>`）是定向错误——该块**就是** impl 的参数表，其 fresh 会被声明却永不被使用（E0392）。0.8.0 的 changelog 早就声称这是既有行为。
+  - `<T: Tr<*(u8, u16)>>`：`expand_splat_elems` 从未跑过 impl 泛型的 bound。新增 `expand_bound_splats` 展开每个 bound 并提升其中带出的声明（与 `hoist_bound_fresh` 同一规则），在管线里紧挨它之前调用。
+  - **一条深度守卫消息盖住了另外两条**：`literal_block` 的错误路径不消费 token，于是 `parse_space_chain` 把同一个 token 折到 129 层上限、报出的却是深度消息——在 `#[batch_impl(1.5)]` 与 `#[batch_impl(1..x)]` 上实测到；现在它们报出本为自己写的那两条字面量/范围消息。三条错误路径都会推进游标（`parse_return_expr` 早就有的进度不变量）。
+  - **`fn_return_reapply` 不是缺陷——记录而非"修"**：返回类型是类型位置，因此 `-> u16 u32` 渲染成 `-> u16<u32>`（rustc E0109），而 `-> Box u8` = `Box<u8>` 依赖同一次折叠；fixture 注释承诺的"guidance"一旦实现就会破坏这个拼写。注释与参考手册对应行都改成实测结果（符号名时报的是每个名字一条 E0425）。
+  - **证据**：单测 **161**、feature 测试 **299 → 300**（新增 `dsl_splat_advanced::splat_splices_into_every_parameter_list`）、UI **104 + 3**（三份快照重新 bless 并逐份读过：`decl_generator_splat`、`literal_and_range` 锁住新的 DSL 消息；`fn_return_reapply` 的差异只是注释引起的行号位移）、doctest **94**，9 份 golden 不变，`fmt`/`clippy`/`doc` 干净。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

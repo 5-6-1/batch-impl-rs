@@ -36,6 +36,11 @@ pub(crate) fn generate_parts(
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
 
+    // A bound is a type position: expand splat/generator structure inside it
+    // first (`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`), then hoist whatever
+    // declaration came out.
+    expand_bound_splats(&mut parts.impl_generics);
+
     // hoist fresh generics out of impl-generic **bounds** (`<T: Fn.().2>` →
     // the generator's `<P0,P1>` rides out of the bound, leaving `T: Fn(P0,P1)`;
     // the fresh declarations join the impl generics). A bound generator

@@ -59,12 +59,12 @@ The same construct is legal in different places because the gate is a property o
 | Position | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | generator `()^N` | `@` refs | `X<>` sync |
 |---|---|---|---|---|---|---|
 | Trait application `Conv<…> X` | ✓ | ✓ (hoisted into the impl body — `impl Trait<Item=u8> for X` is E0229) | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓ (fresh declarations hoisted onto the impl) | ✓ | ✓ |
-| Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✗ not expanded (measured: `<T, *(A,B)>` leaks verbatim) | ✗ handed to rustc (measured: `<*().3>` → "expected type, found `@`"; ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
+| Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✓ `<*(A,B)>` → `<A, B>` | ✗ targeted error (the block *is* the impl's parameter list, so its freshs would never be used; ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
 | Plain type args `Vec<…>` | ✗ targeted error | ✗ targeted error (ui `concrete_binding` / `concrete_bound`) | ✓ `T<*(A,B)>` → `T<A,B>` | ✓ | ✓ | ✓ |
-| Inline bound `<T: …>` | ✓ | ✓ | ✗ not expanded (measured: rustc reports a raw-pointer error) | ✓ (`Fn.().N` freshs hoist onto the impl) | ✓ | ✓ |
+| Inline bound `<T: …>` | ✓ | ✓ | ✓ `<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>` | ✓ (`Fn.().N` freshs hoist onto the impl) | ✓ | ✓ |
 | `dyn` / `for<'a>` tail | ✓ | ✓ | ✓ `dyn Tr<*(A,B)>` → `dyn Tr<A,B>` (measured) | ✓ | ✓ | ✓ |
 | `where` predicate | ✓ | — | ✗ reported by the final predicate check (see §7) | — | ✓ (the `@N` family) | ✓ |
-| Target type | ✗ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| Target type (a callable's parameter list is the same list) | ✗ | ✗ | ✓ `fn(u8, *(u16, u32))` → `fn(u8, u16, u32)`, as inside a tuple | ✓ | ✓ | ✓ |
 | `impl{...}` template | — | — | ✗ (a template is a standard Rust type; syn rejects DSL operators) | ✗ same | ✓ (`@trait` / `@` expand via `expand_consts`) | ✓ |
 | Body | — | — | ✗ (not interpreted; `a * b` stays a multiplication) | — | ✓ (`@N`; `@{N}` needs the `impl{@{}}` switch) | — |
 | Directive argument `#fill(…)` | — | — | — | — | ✓ (`@all` families, `[a,b]` lists) | — |
@@ -105,12 +105,12 @@ Nested types are native (`HashMap<String, Vec<(u8, u16)>>` is written and parsed
 | Tuple element `(u8, *(u16, u32))` | ✓ expands to `(u8, u16, u32)` |
 | Array element `[*(A), *(B)]` | ✓ (spec-list position, flattened in the expand phase) |
 | `dyn` bound tail `dyn Tr<*(u8, u16)>` | ✓ expands to `dyn Tr<u8, u16>` |
-| **Generic declaration block** `<T, *(A,B)>` / `<*(A,B)>` | ✗ **not expanded**, leaks verbatim to rustc |
-| **fn parameter list** `fn(*(u8, u16))` / `fn(u8, *(u16, u32))` | ✗ **not expanded**, leaks verbatim to rustc |
-| **Inline bound** `<T: Tr<*(u8, u16)>>` | ✗ **not expanded** (rustc: `expected mut or const keyword in raw pointer type`) |
+| Generic declaration block `<T, *(A,B)>` / `<*(A,B)>` | ✓ expands to `<T, A, B>` / `<A, B>`; a `*().N` splat hoists the declaration it carries, while a **generator** there is a targeted error (§10.1) |
+| fn parameter list `fn(*(u8, u16))` / `fn(u8, *(u16, u32))` | ✓ expands to `fn(u8, u16)` / `fn(u8, u16, u32)` — an `Fn`-family callable (`Fn(*(A,B)) -> C`) is the same parameter list |
+| Inline bound `<T: Tr<*(u8, u16)>>` | ✓ expands to `<T: Tr<u8, u16>>` (a declaration hoisted out of the bound rides out to the impl, as in any bound) |
 | **`where` predicate** `where{T: Tr<*(u8, u16)>}` | ✗ reported by the predicate check (§7), not leaked to rustc |
 
-> The last three rows are **known gaps** (measured and recorded, not yet fixed): splat expansion today covers the Ty structure (generic/trait args, tuple elements, `dyn` tails), while declaration blocks, fn parameter lists and inline bounds travel a different path. The tutorial's old legality list called them legal — corrected to the measurements.
+> The last row is the one deliberate exception, and it is not an expander gap: the where clause is token-level from resolution to the rendered output, so the **predicate check** reports the splat. Every other parameter-position list expands — the three rows above used to leak their tokens to rustc (a raw-pointer error, `expected type, found @`) until the expansion reached the callable parameter lists, the declaration block and the bound positions.
 
 **Other boundaries**: `*const` / `*mut` pointers are unaffected (decided by the following token); a bare `*` (neither splat nor pointer) gets a targeted error; a splat alone as the target flattens into duplicates (`*(A,B)` → E0119), so write `(A,B)` for tuple impls; `*()^N` re-wraps its fresh tuple into a splat so a carrier can append parameters (`T^*()^2` = `<A,B>T<A,B>`).
 
@@ -280,6 +280,8 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `dangling_operator` | `A.` | missing operand after `.` (e.g. `T.U`) | DSL |
 | `leading_operator` | `.A` | missing operand before `.` (e.g. `T.U`) | DSL |
 | `num_as_left_operand` | `0.T` | number `0` cannot be a left operand; use it on the right (e.g. `T.0`) | DSL |
+| `literal_and_range` | `1.5` / `1..x` | a bare literal in a type position must be an integer (usize); a range needs integer endpoints | DSL |
+| `decl_generator_splat` | `<*().3> Vec<u8>` | a fresh generator cannot be declared here — write the generator on the type instead (e.g. `T^()^2`) | DSL |
 | `semi_in_spec` | a stray `;` after a type | unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | `+` is not valid at the start of a type (it belongs in a bound) | DSL |
 | `star_misuse` | a bare `*` | `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
@@ -306,7 +308,6 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `attach_too_deep` | 129 attachments | space-application chain exceeds 129 levels (limit 128) | DSL |
 | `impl_attach_too_deep` | the same through the impl entry | space-application chain exceeds 129 levels (limit 128) | DSL |
 | `const_value_deep_nesting` | a constant value nested 129 deep | nesting depth exceeds 128 levels in a constant value | DSL |
-| `literal_and_range` | `1.5` / `1..x` | **the depth-guard message is what is locked here** — the literal/range diagnostic does not fire (recorded as a misleading lock) | DSL |
 
 ### 10.3 `@` constants, references and ranges
 
@@ -420,8 +421,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 
 | Fixture | Trigger | Locked message | Source |
 |---|---|---|---|
-| `decl_generator_splat` | `<*().3> Vec<u8>` | expected type, found `@` | rustc |
-| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope (E0425 — the `-> B` is filled, the types are symbolic) | rustc |
+| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope (E0425; the return type is a type position, so `C` is applied to `B` — with primitive names that application is rustc's E0109, and `-> Box u8` = `Box<u8>` depends on the same fold) | rustc |
 | `impl_trait_sync_body_negative` | a body `X<>` without a `Tr<>`-carrying template | trait takes 1 generic argument but 0 generic arguments were supplied (E0107) | rustc |
 | `unsafe_non_fn` | `unsafe` on a non-unsafe trait | implementing the trait `T` is not unsafe | rustc |
 

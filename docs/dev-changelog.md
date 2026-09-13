@@ -1598,6 +1598,42 @@
     its excerpts are `text`), `fmt`/`clippy`/`doc` clean. Sizes: tutorial
     1289 / 1176 lines, reference 448 / 448.
 
+- **Splat expansion reaches every parameter-position list (the reference's three
+  "known gaps" are closed)** — writing the position matrix found three positions
+  whose tokens reached rustc verbatim; all three are expansion coverage, not
+  semantics:
+  - `fn(*(u8, u16))` / `Fn(*(A,B)) -> C`: `codegen/splat_expand.rs` had **no
+    `TyKind::Fn` arm** ("leaves and token-stream-bearing nodes … stay"), so a
+    callable's parameter list was never visited. It now folds like the tuple arm
+    (a splat element splices in, a generator hoists its declaration).
+  - `<*(A,B)>` / `<T, *(A,B)>`: `extract_impl_parts` rendered a declaration
+    block's params to tokens with no expansion; it now runs `expand_tp` first. A
+    fresh **generator** there (`<*().3>`) is a targeted error — the block *is* the
+    impl's parameter list, so its freshs would be declared and never used (E0392),
+    which is what the 0.8.0 changelog had claimed was already the case.
+  - `<T: Tr<*(u8, u16)>>`: `expand_splat_elems` was never run over the
+    impl-generic bounds. New `expand_bound_splats` expands each bound and hoists
+    whatever declaration came out (the same rule as `hoist_bound_fresh`), called
+    just before it in the pipeline.
+  - **A depth-guard message was hiding two others**: `literal_block`'s error paths
+    did not consume their tokens, so `parse_space_chain` folded the same token up
+    to the 129-level cap and reported *that* instead — measured on
+    `#[batch_impl(1.5)]` and `#[batch_impl(1..x)]`, both of which now report the
+    literal/range message they were written for. The three error paths advance the
+    cursor (the progress invariant `parse_return_expr` already had).
+  - **`fn_return_reapply` is not a defect — recorded, not "fixed"**: the return
+    type is a type position, so `-> u16 u32` renders `-> u16<u32>` (rustc E0109)
+    and `-> Box u8` = `Box<u8>` depends on the very same fold; the fixture's
+    "must error with guidance" comment promised a diagnostic that cannot exist
+    without breaking that spelling. Comment and reference row corrected to the
+    measurement (with symbolic names the rustc error is E0425 per name).
+  - **Evidence**: lib **161**, features **299 → 300** (new
+    `dsl_splat_advanced::splat_splices_into_every_parameter_list`), UI **104 + 3**
+    with three snapshots re-blessed and read (`decl_generator_splat`,
+    `literal_and_range` lock new DSL messages; `fn_return_reapply`'s diff is
+    comment-driven line shifts only), doctests **94**, the 9 goldens unchanged,
+    `fmt`/`clippy`/`doc` clean.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

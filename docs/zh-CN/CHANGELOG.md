@@ -53,6 +53,9 @@
 
 - **教程末尾新增实战章**——仓库那三个示例（`quickstart`、`simplify` 约 15 行 DSL 出 29 个 impl、`typeclass` 层级 + 36 个实例）连同它们组合的机制与运行方式一起讲清楚。
 
+- **splat 现在在*每一个*参数位置列表里都展开**——callable 的参数表（`fn(*(u8, u16))`，`Fn(*(A,B)) -> C` 是同一张表）、`<>` 声明块（`<*(A,B)>` → `<A, B>`）与内联 bound（`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`）此前把 splat 原样交给 rustc（raw pointer 错，或 `expected type, found @`）。唯一仍然拒绝 splat 的位置是 `where` 谓词——那里由 DSL 报出。
+- **三条误导性诊断修好**——`#[batch_impl(1.5)]` 与 `#[batch_impl(1..x)]` 此前都报 "space-application chain exceeds 129 levels"（字面量块的错误路径没有消费游标，链把同一个 token 折到深度上限）；现在分别报"类型位置的字面量必须是整数"与"range 端点必须是整数"。`<>` 声明块里的 fresh 生成器（`<*().3>`）此前报 rustc 的 `expected type, found @`，现在给出定向消息与可用写法（`T^()^2`）。
+
 ## 0.9.7 (2026-08-29)
 
 > 评审修复发布：黄金快照测试层（最后一块覆盖空白）、实测展开开销、打包卫生、Windows CI。无 DSL 语法变化。

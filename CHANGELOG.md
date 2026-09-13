@@ -281,6 +281,21 @@
   hierarchy plus 36 instances) are explained with the mechanisms they combine and
   how to run them.
 
+- **A splat now expands in *every* parameter-position list** — a callable's
+  parameter list (`fn(*(u8, u16))`, and `Fn(*(A,B)) -> C` is the same list), a
+  `<>` declaration block (`<*(A,B)>` → `<A, B>`) and an inline bound
+  (`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`) used to hand the splat straight to
+  rustc (a raw-pointer error, or `expected type, found @`). A `where` predicate
+  stays the one position that refuses a splat — the DSL reports it there.
+- **Three misleading diagnostics are fixed** — `#[batch_impl(1.5)]` and
+  `#[batch_impl(1..x)]` both reported "space-application chain exceeds 129 levels"
+  (the literal block's error path left the cursor in place, so the chain folded
+  the same token up to the depth cap); they now report that a type-position
+  literal must be an integer and that range endpoints must be integers. A fresh
+  generator in a `<>` declaration block (`<*().3>`) reported rustc's
+  `expected type, found @` and now gets a targeted message with the spelling that
+  works (`T^()^2`).
+
 ## 0.9.7 (2026-08-29)
 
 > Review-fix release: the golden-snapshot test layer (the last coverage gap),

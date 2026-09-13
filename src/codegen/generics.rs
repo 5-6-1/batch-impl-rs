@@ -134,6 +134,26 @@ pub(crate) fn merge_dup_params(parts: &mut ImplParts) {
 /// inner type (`T: Fn(P0, P1)`). Without this the bound renders
 /// `T: <P0,P1> Fn(P0,P1)` — a generic declaration inside a predicate, which
 /// rustc rejects.
+/// Expand splat/generator structure **inside impl-generic bounds**
+/// (`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`, `<T: Tr<().2>>` → a hoisted
+/// declaration plus `<T: Tr<(P0, P1)>>`). A bound is a type position like any
+/// other; before this the splat tokens reached the rendered predicate verbatim
+/// (rustc then reported a raw-pointer error, which is how the gap was found).
+/// A declaration hoisted out of the bound joins the impl generics — a predicate
+/// cannot carry one, exactly as in [`hoist_bound_fresh`].
+pub(crate) fn expand_bound_splats(impl_generics: &mut Vec<(TokenStream, Option<Ty>)>) {
+    let mut hoisted = vec![];
+    for (_, bound) in impl_generics.iter_mut() {
+        if let Some(b) = bound {
+            let expanded = super::splat_expand::expand_splat_elems(b.clone());
+            let (stripped, fresh) = strip_bound_fresh(&expanded);
+            *b = stripped;
+            hoisted.extend(fresh);
+        }
+    }
+    impl_generics.extend(hoisted);
+}
+
 pub(crate) fn hoist_bound_fresh(impl_generics: &mut Vec<(TokenStream, Option<Ty>)>) {
     let mut hoisted = vec![];
     for (_, bound) in impl_generics.iter_mut() {

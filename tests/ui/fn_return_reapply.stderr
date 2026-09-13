@@ -1,17 +1,17 @@
 error[E0425]: cannot find type `A` in this scope
- --> tests/ui/fn_return_reapply.rs:6:17
-  |
-6 | #[batch_impl(fn(A) -> B   C)]
-  |                 ^ not found in this scope
+  --> tests/ui/fn_return_reapply.rs:10:17
+   |
+10 | #[batch_impl(fn(A) -> B   C)]
+   |                 ^ not found in this scope
 
 error[E0425]: cannot find type `B` in this scope
- --> tests/ui/fn_return_reapply.rs:6:23
-  |
-6 | #[batch_impl(fn(A) -> B   C)]
-  |                       ^ not found in this scope
+  --> tests/ui/fn_return_reapply.rs:10:23
+   |
+10 | #[batch_impl(fn(A) -> B   C)]
+   |                       ^ not found in this scope
 
 error[E0425]: cannot find type `C` in this scope
- --> tests/ui/fn_return_reapply.rs:6:27
-  |
-6 | #[batch_impl(fn(A) -> B   C)]
-  |                           ^ not found in this scope
+  --> tests/ui/fn_return_reapply.rs:10:27
+   |
+10 | #[batch_impl(fn(A) -> B   C)]
+   |                           ^ not found in this scope

@@ -249,7 +249,11 @@ trait GenSpl {}
 
 ### 4.6 Legal positions
 
-A splat expands where a **parameter-position list is parsed as a Ty structure** — generic args (`Foo<*(a,b)>`), trait-application args (`Conv<*(A,B)> X`), tuple elements (`(a, *(b,c))`), array elements (`[*(a),*(b)]`), the `dyn` bound tail (`dyn Tr<*(u8, u16)>`) and spec lists (`[*(a,b)]`). Three positions parse a parameter list **without** that structure and stay unexpanded (measured — rustc then reports a raw-pointer error): generic declaration blocks (`<T, *(A,B)>`), fn parameter lists (`fn(*(u8, u16))`) and inline bounds (`<T: Tr<*(u8, u16)>>`). A splat inside a `where` predicate is reported by the DSL instead (§8). A bare `*` that is neither a splat nor a raw pointer errors with a targeted message.
+A splat is a **parameter-position list**: it splices into generic args (`Foo<*(a,b)>`), trait-application args (`Conv<*(A,B)> X`), tuple elements (`(a, *(b,c))`), array elements (`[*(a),*(b)]`), a callable's parameter list (`fn(*(u8, u16))`, and `Fn(*(A,B)) -> C` is the same list), a `<>` declaration block (`<*(A,B)>` → `<A, B>`), an inline bound (`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`), the `dyn` bound tail (`dyn Tr<*(u8, u16)>`) and spec lists (`[*(a,b)]`).
+
+The one position that does **not** expand is a `where` predicate, where the DSL reports the splat instead of leaking it (§8) — that clause is token-level all the way to the output.
+
+A fresh **generator** in a `<>` declaration block is a targeted error (that block *is* the impl's parameter list, so its freshs would never be used) — write the generator on the type instead. A bare `*` that is neither a splat nor a raw pointer errors with a targeted message.
 
 The full position matrix is in `docs/reference.md` §2 and §4.
 
@@ -1230,9 +1234,9 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
   not the wrapper's `Self`) — error with a `#name{...}` suggestion. A
   `Self::Assoc` **return** (`fn iter(&self) -> Self::Iter`) is fine — the
   inner `T` carries the same associated type
-- **Splat in a position that does not expand** (§4.6): generic declaration
-  blocks, fn parameter lists and inline bounds leak the splat to rustc today;
-  a `where` predicate is reported by the DSL instead
+- **A fresh generator in a `<>` declaration block**: reported with the spelling
+  that works (write the generator on the type, e.g. `T^()^2`) — the block *is*
+  the impl's parameter list, so its freshs would be declared and never used
 
 ## 13. Real Scenarios: the Three Bundled Examples
 
