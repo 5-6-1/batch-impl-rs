@@ -1654,6 +1654,17 @@
     renumbering), doctests **94**, `fmt`/`clippy`/`doc` clean; the reference went
     448 → **591 (EN) / 592 (zh)** lines.
 
+- **The reference is being reorganized around rule *systems*, not syntax elements**
+  (maintainer direction): the manual systematically states a rule system, its
+  **crossings** with the others and its **boundary cases**, while the tutorial keeps
+  the progressive path and the general material. First section converted: §3 is now
+  the apply system in full — blocks, the two spellings with their measured
+  composition (`Box Vec u8` → `Box<Vec, u8>`, `Box.Vec.u8` → `Box<Vec<u8>>`,
+  `Box.Vec u8` → `Box<Vec, u8>`, `Box Vec.u8` → `Box<Vec<u8>>`, a group as one
+  argument, a prefix taking the next block), lists/tuples as set/sequence, power,
+  `self`, where the apply stops (the trait/target split) and a boundary table.
+  - **Evidence**: doc_consistency **4**, doctests **94**, `fmt`/`doc` clean.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

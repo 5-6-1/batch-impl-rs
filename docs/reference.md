@@ -73,23 +73,53 @@ The directive domain and the type domain never enter each other: after `#` come 
 
 ## 3. The Apply System
 
-| Notation | Meaning | Example |
-|---|---|---|
-| Space | left-assoc apply (accumulation) | `HashMap K V` = `HashMap<K, V>` |
-| `.` | right-assoc apply (nesting) | `&.Box u8` = `&Box<u8>` |
-| `[A, B]` | list: one impl per element | `[Box, Rc] u8` = `Box<u8>` + `Rc<u8>` |
-| `(A)` | transparent group | `(u8)` = `u8` |
-| `[A]` | slice type | `[u8]` |
-| `(A, B)` | tuple | `(u8, u16)` |
-| `T^N` / `T^[A,B]` | power: distribute over each element | `(u8, u16)^2` = 4 tuple impls |
-| `self` | identity prefix (the bare-type placeholder of a matrix) | `[Box, self] u8` = `Box<u8>` + `u8` |
-| `&` / `&mut` | reference | `& Box<T>` |
-| `*const` / `*mut` | raw pointer | `*const T` |
-| `unsafe` | `unsafe.fn(A) -> B` = `unsafe impl`; `unsafe fn(A) -> B` is only an unsafe fn **type** | tutorial §10 |
-| `#[...]` | attribute attached to the impl | `#[cfg(...)]` gating |
-| `!` | fn return type only | `fn(u8) -> !` |
+The type domain has one operator with two spellings; everything else is a block. This section states the rules systematically — the tutorial teaches them by example (§2, §3, §10).
 
-Nested types are native (`HashMap<String, Vec<(u8, u16)>>` is written and parsed directly); `[]` is a **set** and `()` a **sequence**, and `*` merely mirrors the container of its source bracket.
+### 3.1 Blocks
+
+A block is one atom: a path, a group `(...)`, a list `[...]`, a tuple, a prefix (`&`, `&mut`, `*const`, `*mut`, `unsafe`, `self`, `#[...]`), a splat (`*(...)` / `*[...]`), a generator (`().N`), an `@`-constant result, or a directive's output. Attachments (`{body}`, `where{...}`, `impl{...}`) are blocks too, and they may follow a spec in any order (§1.1).
+
+### 3.2 The two spellings
+
+| Chain | Rule | Measured result |
+|---|---|---|
+| `A B C` | the space is **left-associative and accumulates** into the head's argument list | `Box Vec u8` → `Box<Vec, u8>` |
+| `A.B.c` | `.` is **right-associative and binds tighter** than the space | `Box.Vec.u8` → `Box<Vec<u8>>` |
+| `A.B C` | the `.` chain resolves first, then the space accumulates onto the head | `Box.Vec u8` → `Box<Vec, u8>` |
+| `A B.c` | `.` binds tighter, so it nests before the space applies | `Box Vec.u8` → `Box<Vec<u8>>` |
+| one block | stays as it is; a group is **one** argument | `Box (u8, u16)` → `Box<(u8, u16)>` |
+| a prefix | applies to the block that follows it | `& Box u8` → `&Box<u8>` |
+
+Two consequences worth remembering: **to nest, chain with `.`** (`Box Vec u8` never means `Box<Vec<u8>>`), and **to pass several arguments, use the space** (`Box u8 u16` → `Box<u8, u16>`).
+
+### 3.3 Lists and tuples
+
+`[A, B] T` distributes the trailing type over the elements — one impl each (`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); a bare list at the target position is the same thing spelled as impls. `(A, B)` is one tuple value; `(A)` is transparent; `[A]` as a type is a slice, `[u8; 3]` an array. A list is a **set** and a tuple a **sequence** — the distinction shows up under a splat operand (§4).
+
+### 3.4 Power `^N`
+
+`T^N` distributes over a value or a list (`(u8, u16)^2` = four tuple impls, `[Box, Rc]^2 u8` = four), and the per-spec ceiling of 1024 impls (§11) is what reports a mistyped power. `*()^N` re-wraps its fresh parameters into a splat so a following operand can append them (`T^*()^2` = `<A,B>T<A,B>`).
+
+### 3.5 `self` and the bare-type placeholder
+
+`self` is the identity prefix: `self T` = `T`. In a matrix it stands for the bare type (`[Box, self] u8` → `Box<u8>` **and** `u8`), which is how "wrapped or bare" families are written.
+
+### 3.6 Where the apply stops
+
+When the head names the annotated trait (or is `@trait`), the first element is the **trait application** and the remainder is the **target**; with a trait head, `.` and the space behave identically. `<...>` after an ident and `::` continue a path, while `.` and the space are element boundaries — the rule behind absolute-path targets and behind `Tr<T>::Type` being a single type (§1.2).
+
+### 3.7 Boundary cases
+
+| Spelling | What happens |
+|---|---|
+| `A.` / `.A` / `,A` | missing operand, targeted error (§10.1) |
+| `(A)` vs `A` | the same type; `(*(a,b))` is the container holding a splat as one element |
+| `[A]` vs `[A, B]` | a slice vs two impls |
+| `Box u8 u16` | `Box<u8, u16>` — two arguments, not nested generics |
+| `Box Vec u8` | `Box<Vec, u8>` — the space accumulates; nesting needs `.` |
+| `& Box u8` | `&Box<u8>` — the prefix takes the following block |
+| `*(A,B)` alone as the target | duplicate impls (E0119); write `(A,B)` |
+| a nested type like `HashMap<String, Vec<(u8, u16)>>` | written and parsed directly — no passthrough form |
 
 ## 4. Splat `*`
 
