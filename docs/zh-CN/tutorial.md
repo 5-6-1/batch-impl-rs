@@ -1113,7 +1113,7 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **splat 作 where 谓词主体**：明确拒绝（`A, B: Trait` 无定义语义）——包进元组也没用：where 子句到输出全程 token 级，任何展开器都看不到谓词里的 splat（`(*(A,B)): Trait`、`X: Trait<*(A,B)>`）
 - **`where` 谓词不是合法 Rust 谓词**：在谓词定型后（`X<>` 填充、`@` 解析、shape 模板槽替换之后）报错——`where{ A B }`（漏 `:`）直接给出修法，而不是对整个属性报解析错误
 - **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
-- **泛型改名不继承**：trait 泛型参数改名 = 明确报错，绝不静默
+- **trait 泛型改名没问题——继承是位置式的**：谓词里的 trait 参数按**位置**跟随（`trait Store<T> where T: Clone` 配 `<X> Store<X> usize` → `impl<X: Clone> Store<X> for usize`）；0.9 之前那条"改名中断继承"的拒绝已不存在（参考手册 §7.2）
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
 - **具体类型实参遇 `=`/`:`**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）与 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … or in a bound"）
 - **`<>` 声明块里的关联类型 binding**：声明块声明的是**参数**，因此 `<Item = u8> Target` 报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"。可用的写法是 trait 应用那种（它的 binding 会被提升进 impl body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`）

@@ -159,38 +159,98 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 ## 6. `#` 指令
 
-统一形状 `#指令名(作用域){内容}`：
+### 6.1 形状，以及能挂在哪
 
-| 指令 | 作用域 | 内容 |
+`#指令名(作用域){内容}`。`#name{body}` 是 `#fill` 的单成员特例：`#fill([foo]){body}` ≡ `#foo{body}`。
+
+指令的产物形态决定它挂在哪：`#name` / `#fill` / `#delegate` / 开放扩展的 `{...}` 组是**单组**输出，既能附着到类型上（`T {body}`）也能单独作 spec；`#blanket` 是**多 token** 输出（自带泛型、目标与委托），只能单独作 spec。开放扩展自 0.6.7 起**仅限顶层**——`{! m!{...}}` 把 spec 体前置并在顶层发出宏调用；旧的 impl 内形式 `T {m!{...}}` 自 0.7.2 起废弃但仍接受。
+
+### 6.2 作用域文法
+
+| 元素 | 含义 | 被拒的形态（fixture） |
 |---|---|---|
-| `#name{body}` | 单个成员（按名字选） | 该成员的实现体 |
-| `#fill(scope){body}` | 成员集合（`@all` 家族 / 名字 / `-name` 排除） | 统一实现体 |
-| `#delegate(scope){target}` | 成员集合 | 委托目标（`=new_name` 可改名） |
-| `#blanket(@all_methods){wrapper}` | 全体方法 | 覆盖式委托（包装矩阵） |
-| 开放扩展 `{! m!{...}}` | 仅顶层 | 你把 spec 体交给同名宏 |
+| `name` | 一个 trait 成员 | 成员不存在 → `single_name_not_found` |
+| `@all` 家族 | 选中的成员集合（§5.1） | `batch_trait!` 里用 `@all*` |
+| `[a, b]` | 字面列表 | — |
+| `-name` / `-[a, b]` | 从集合里排除 | `-` 后面什么都没有 → `minus_bad_target`；集合被排空 → `minus_empty` |
+| `,` | 分隔元素 | 前导/尾随逗号 → `fill_bad_comma` |
+| （空） | — | 参数表为空 → `fill_empty_args` |
 
-- **`# path::To::Trait:` 前缀**声明外部 trait 的真实路径（至少含一个 `::`），`@trait` 与路径引用随后使用它；仅 `batch_impl_only`（见 `src/doc/batch_impl_only.md`）。
-- **未知名字不设拼写守卫**：`#name(args){body}` 既不是内置指令也不是 trait 成员名时，展开为你同名宏（开放扩展）——拼错会以 rustc 的 "macro not found" 出现。
-- 每个指令的完整参数语义在 rustdoc（§开头列出的 `src/doc/directive_*.md`）；`batch_trait!` **不支持** `#` 指令（它看不到 trait 定义）。
+### 6.3 逐指令参考
+
+| 指令 | 作用域 | 内容 | 边界 |
+|---|---|---|---|
+| `#name{body}` | 按名字选一个成员——方法、常量或关联类型 | 该成员的实现 | body 必须匹配该成员的形状 |
+| `#fill(scope){body}` | 成员集合 | 统一 body，逐个成员从 trait 定义抄签名 | "声明数据、不写重复代码"的核心 |
+| `#delegate(scope){target}` | 仅方法 | `fn m(&self, ...) -> R { (target).m(...) }`——跳过 `self`、转发其余参数 | `=new_name` 改名（`X = Y` 两侧都要标识符；重复改名报错）；签名带/返回裸 `Self` 报错并建议 `#name{...}`，而 `Self::Assoc` 返回合法 |
+| `#blanket(scope){wrapper list}` | 全体方法 | 每个包装（围绕 fresh `T`）一个完整 impl，按 deref 委托 | 包装可带 `:N`（deref 深度 ≤ 128）；`*const`/`*mut` 包装被拒；`@Cow` 是打包常量 |
+| `{! m!{...}}`（开放扩展） | 仅顶层 | 把参数、body 与 trait 定义交给 `m!` | 既非内置也非 trait 成员的名字会展开成**你自己的**宏——所以拼错以 rustc 的 "macro not found" 出现 |
+
+`batch_trait!` **一条都不支持**（它看不到 trait 定义）；每条指令的完整参数语义在 rustdoc（`src/doc/directive_*.md`）。
+
+### 6.4 `# path::To::Trait:` 不是指令
+
+它是 **spec 前缀**（仅 `batch_impl_only`），声明外部 trait 的真实路径：至少含一个 `::`，随后 `@trait` 与所有路径引用都用它（`src/doc/batch_impl_only.md`）。尾部 ident 与被标注的 trait 名不同 → `path_prefix_mismatch`。
 
 ## 7. `where`
 
-- **两种写法**：后缀 `where{谓词, 谓词}`，与裸 `where 谓词 {代码块}`（谓词直接跟着 body）。
-- **继承**：trait 定义上的 `where` 按**位置替换**并入每个 impl（不是按名字）；单类型参数谓词（`T: Clone`）并进该参数的**内联 bound**，其余谓词逐字进入 impl 的 where。trait 泛型参数**改名**会中断继承 → 定向报错，绝不静默。
-- **同形合并**：`<T: Clone> <T: Copy>` 这类同名声明合并为一份声明 + where 谓词。
-- **`@` 引用**：`@N` / `@g_i` / `@0..=M` / `@N..` 在谓词里索引宏生成的 fresh 泛型（`where{@0: Clone}`）；`@N..` 展开成**多个**谓词。
-- **`X<>`**：谓词里的 `Trait<>` 填上本 spec 的实参。
-- **shape 槽**：`impl{...}` 模板声明的槽位会替换进谓词（`Vec<i16> impl{SlotBox<T>} where{Vec<T>: Clone}` → `where Vec<i16>: Clone`）。
-- **终检**：谓词定型后（`X<>` 填完、`@` 解完、槽替换完）由 DSL 解析为合法 Rust 谓词，否则报定向错误（`where{ A B }` 漏 `:`）。
-- **splat 不展开**：谓词到输出全程 token 级，任何展开器都看不到它（`(*(A,B)): Trait`、`X: Trait<*(A,B)>` 都会被终检报出）。
+### 7.1 三种形式
+
+| 形式 | 拼写 | 备注 |
+|---|---|---|
+| 后缀 | `Trait<A> Target where{P1, P2}` | 附件块——顺序自由 |
+| 裸形式 | `Trait<A> Target where P1 { body }` | 谓词直接跟着 body；缺 `{...}` 是 `where_missing_body` |
+| 继承 | 被标注 trait 定义上的 `where` | 并入每个 impl（7.2） |
+
+### 7.2 继承是**位置式**的，不是按名字
+
+trait 自己的参数与 spec 的 trait 实参**按位置**配对，这决定了三件事：
+
+- 谓词里的 trait 参数按**位置**跟随，因此**trait 参数改名没问题**：`trait Store<T, K> where T: Clone` 配 `<X, Y> Store<X, Y> usize` 生成 `impl<X: Clone, Y> Store<X, Y> for usize`（由 `features::dsl_where::subst_renamed_generics` 锁定）——0.9 之前那条"改名中断继承"的拒绝已不存在；
+- **单类型参数**谓词（`T: Clone`）并进该参数的**内联 bound**；其余谓词带替换逐字通过（`HashMap<T, K>: Send` → `HashMap<X, Y>: Send`）；
+- trait 的内联参数 bound 以同样方式继承。
+
+### 7.3 渲染前会被填上的东西
+
+| 标记 | 来自 | 规则 |
+|---|---|---|
+| `Trait<>` | 本 spec 的 trait 实参 | 同步（§1.3） |
+| `@N` / `@g_i` / 区间 | impl 的 fresh 泛型 | §5.3；`@N..` 变成**多条**谓词 |
+| `impl{...}` 槽位 | 形状映射 | §8.3 |
+
+### 7.4 终检
+
+所有填充跑完后，谓词会被当作**Rust 谓词**解析，失败由 DSL 报出（§10.8）。会被拒的：漏 `:`（`where{ A B }`）、splat（`(*(A,B)): Trait`、`X: Trait<*(A,B)>`——没有任何阶段展开谓词里的 splat）、裸 splat 主体（`where_splat_bad`）、空排他区间（`where_empty_exclusive_range`）。
 
 ## 8. `impl{...}` 形状模板
 
-- 模板里是**标准 Rust 类型**（DSL 算子被 syn 拒；`X<>` 同步后立即解析一次，见 `parse_impl_templates`）。
-- **匹配规则**：与叶子目标类型逐位比对——与目标同位置 **ident 相同** = 字面（原样保留），**不同** = 槽位，绑定到目标的那棵子树；槽位随后重写**目标 / where 谓词 / body**。
-- **多模板**：合并成一份映射（同形重复合法，异形 → `InconsistentBinding`）。
-- **变长段**：`A@..` 标记变长段，驱动 body 的重复块 `@(…@0,)..`；`impl{@0..}` 是 **fresh 绑定开关**（逐轮绑定 fresh，并启用 `@{N}` 引用）。
-- 教程 §8.4 有逐步示例；本手册只列不变量。
+### 8.1 形态与解析点
+
+模板里是**标准 Rust 类型**（`impl{Container<U>}`）；里面的 DSL 算子被拒（`impl_template_dsl_ops`），且它**只解析一次**——就在 `X<>` 同步之后（同步前 `impl{GenW<>}` 不是合法 Rust）。`@trait` / `@` 在常量阶段进入它，`where_process` 把它当作谓词区边界。
+
+### 8.2 逐位匹配
+
+| 模板 vs 叶子目标类型 | 结果 |
+|---|---|
+| 该位置的 ident 与目标**相同** | 字面，原样保留 |
+| ident **不同** | 槽位，绑定到目标的那棵子树 |
+| 多个模板 | 合并成一份映射——同形重复合法，冲突是 `impl_inconsistent_binding` |
+| 形状不匹配（元数/种类/结构） | `impl_shape_mismatch`，并指出形状 |
+
+### 8.3 槽位重写什么
+
+替换会到达**目标类型**、**`where` 谓词**与 **body**；槽位是**子树**而不是文本 token（整棵值被拼接）。由 `features::shape_template_advanced::slot_rewrite_reaches_where` 与 `impl_multiple_templates_merge` 锁定。
+
+### 8.4 变长段、重复块与 fresh 开关
+
+| 拼写 | 作用 |
+|---|---|
+| 模板里的 `A@..` | 标记**变长段**——一个形状族覆盖的元数 |
+| body 里的 `@(…@0,)..` | **重复块**：每个被覆盖元素一轮，`@ident` 拼接该轮的子树 |
+| `impl{@0..}` | **fresh 绑定开关**：每轮一个 fresh（纯游标块），并启用 `@{N}` 引用 |
+| `impl{@{}}` | body 槽开关，在重复块否则会把 `@` 读成块首的地方启用 `@{N}` |
+
+边界（各自在 §10.6 有 fixture）：body 里的裸 `@` 是 `impl_shape_repeat_bare_at`；纯游标块需要驱动——`impl_shape_repeat_cursor_multi`；各段长度不等 `impl_shape_repeat_unequal`；未知段 `impl_shape_repeat_unknown`；驱动冲突 `impl_shape_repeat_driver_conflict`；开关区间覆盖不到 fresh `impl_shape_repeat_invalid_switch`。可运行的例子在教程 §8.4。
 
 ## 9. 入口
 

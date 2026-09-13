@@ -1565,6 +1565,27 @@
   - **Evidence**: doc_consistency **4**, doctests **94**, `fmt`/`clippy`/`doc`
     clean.
 
+- **The directive, `where` and shape-template sections of the reference are
+  reference-shaped now** — `docs/reference.md` §6 splits into the shape/attachment
+  rule (single-group output may attach or stand alone; `#blanket`'s multi-token
+  output may not; the open extension is top-level only), the **scope grammar**
+  (`name` / `@all` families / `[a, b]` / `-name` / `,` — each rejected shape with
+  its fixture) and a per-directive table (scope, content, edges), with
+  `# path::To::Trait:` called out as a prefix rather than a directive. §7 gives the
+  three `where` forms, the **positional** inheritance rule, the pre-render fill
+  table and the final check. §8 gives the parse site, the position-by-position
+  match table, what the slots rewrite and the variadic-segment/repeat-block/fresh-
+  switch table with every edge pointing at its fixture.
+  - **A stale claim fell out**: the tutorial's §12 (and the reference's first
+    draft) said "renaming a trait generic parameter breaks inheritance = explicit
+    error". Inheritance has been **positional substitution** since 0.9 —
+    `features::dsl_where::subst_renamed_generics` locks the renamed form — so both
+    were corrected to the measured rule. (`tests/ui.rs` has said since that round
+    that the old rename-rejection fixtures became positive tests; only the prose
+    never followed.)
+  - **Evidence**: doc_consistency **4**, doctests **94**, `fmt`/`clippy`/`doc`
+    clean.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

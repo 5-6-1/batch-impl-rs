@@ -1213,7 +1213,7 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Splat as a where-predicate subject**: explicitly rejected (`A, B: Trait` has no defined semantics) — and wrapping it does not help: the where clause stays token-level all the way to the output, so no expander ever sees a splat inside a predicate (`(*(A,B)): Trait`, `X: Trait<*(A,B)>`)
 - **`where` predicate that is not a Rust predicate**: reported once the predicate is final (after the `X<>` fill, the `@` resolution and the shape-template slots) — `where{ A B }` (a missing `:`) gets the fix named instead of a parse error against the whole attribute
 - **Empty range** (`@u16..u8`): "no impls generated for empty range"
-- **Generic rename breaks inheritance**: renaming a trait generic param = explicit error, never silent
+- **Trait-generic renaming is fine — inheritance is positional**: a predicate mentioning a trait parameter follows that parameter's **position** (`trait Store<T> where T: Clone` with `<X> Store<X> usize` → `impl<X: Clone> Store<X> for usize`); the pre-0.9 "renaming breaks inheritance" rejection is gone (reference §7.2)
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
 - **`=`/`:` in concrete-type args**: bounds and bindings belong to a trait path
   (`Conv<Item = u32> X`) and to a **bound position** (`T: Iterator<Item = u8>`, the
