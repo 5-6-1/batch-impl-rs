@@ -116,20 +116,46 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 ## 5. `@` 宏元层
 
-`@` 是**仅有的宏元记号**（`#` 只剩指令名）。它是**词法替换**：展开结果进入原管线，不参与任何域内解析，且在四趟预处理里**最先**跑。
+`@` 是**仅有的宏元记号**（`#` 只剩指令名）。它是**词法替换**：展开结果进入原管线，不参与任何域内解析，且在四趟预处理里**最先**跑。逐条的展开示例在教程 §6；本节给记号索引、合法性矩阵与边界。
 
-| 类别 | 记号 | 备注 |
-|---|---|---|
-| 名字族 | `@u*` `@i*` `@f*` `@num` `@scalar` | 展开成成员列表（`@num` = 14 个数值类型；`@scalar` 再加 `bool`/`char`） |
-| 范围族 | `@u8..u128` `@i8..i128` `@f32..f64` | 闭区间；任一端点可省（`@..u128` ≡ `@u8..u128`）；`usize`/`isize` 只在名字族里 |
-| trait 相关 | `@trait` | batch_impl = 本地名；batch_impl_only = 外部路径；batch_trait! = **段级**替换 |
-| trait 成员族 | `@all_methods` / `@all_constants` / `@all_types` / `@all_required*` / `@all_default*` / `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | 仅 batch_impl / batch_impl_only（batch_trait! 报错）；展开成 `[a,b,c]` 组，再进指令参数解析 |
-| 泛型参数族 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | 展开成扁平 `<...>` 声明（const 参数带完整 `const N: usize`，裸名是 E0747） |
-| 包装常量 | `@Cow` | 仅 `#blanket`；= `Cow<'_>` + 内在约束谓词 |
-| 位置引用 | `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | 按**文档序**索引宏生成的 fresh 泛型（`P0`、`P1`…）；`@all_fresh` 已废弃，写 `@0..`；`@N..` 越过末尾 = 空、不报错 |
-| 自定义常量 | `@name=值;` | 仅 `batch_trait!` 的前导段；值可链式引用、可含 DSL 表达式 |
+### 5.1 记号索引
 
-**惰性 + 拒绝循环**：值是逐字 token，引用处再递归展开；循环/前向引用在**定义处**报错；裸范围端点（`@a=@u8`，无 `..`）在定义处报错。
+| 类别 | 记号 | 展开成 | 细节 |
+|---|---|---|---|
+| 名字族 | `@u*` `@i*` `@f*` `@num` `@scalar` | 类型**列表** | 教程 §6.1 |
+| 范围族 | `@u8..u128` `@i8..i128` `@f32..f64` | **列表**（闭区间连续段） | 任一端点可省；`usize`/`isize` 不在任何范围族里 |
+| trait | `@trait` | trait 路径（`batch_trait!` 里是**该段**自己的路径） | 教程 §6 |
+| trait 成员族 | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | `[a,b,c]` **组**，随后进指令参数解析 | 接收者/必需项过滤属于常量本身 |
+| 泛型参数族 | `@all_type_params` `@all_const_params` `@all_lifetimes` | 扁平 `<...>` **声明** | const 参数带完整 `const N: usize`；裸名是 E0747 |
+| 包装常量 | `@Cow` | `Cow<'_>` + 内在约束谓词 | 仅 `#blanket` |
+| 位置引用 | `@N` `@g_i` `@0..=M` `@N..` `@all_fresh` | 一个 fresh 名，或逗号分隔的一串 | §5.3 |
+| 自定义常量 | `@name=值;` | 值本身（逐字 token） | 仅 `batch_trait!` 的前导段 |
+
+### 5.2 按入口看合法性
+
+| 记号 | `#[batch_impl]` | `#[batch_impl_only]` | `batch_trait!` | 备注 |
+|---|---|---|---|---|
+| 名字族 / 范围族 | ✓ | ✓ | ✓ | 纯词法列表 |
+| `@trait` | ✓ 本地名 | ✓ 外部路径（`# path::To::Trait:` 前缀） | ✓ **段级**替换 | 唯一按入口改变含义的常量 |
+| `@all*` 成员族 | ✓ | ✓ | ✗ 定向错误 | 它们需要 trait 定义 |
+| `@all_type_params` / `@all_const_params` / `@all_lifetimes` | ✓ | ✓ | ✗ 定向错误（ui `generic_family_batch_trait`） | 从 trait 自己的参数拷贝 |
+| `@Cow` | ✓（仅 `#blanket`） | ✓（仅 `#blanket`） | ✗ | 它是包装打包常量，不是类型别名 |
+| `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | ✓ | ✓ | ✓ | 由 codegen 解析（`@trait` 更早解析） |
+| `@name=值;` | ✗ 定向错误（ui `const_attr_unsupported`） | ✗ 同上 | ✓ | 0.7.2 的属性宏形式已在 0.8.0 回退 |
+
+### 5.3 位置引用
+
+- **编号**：fresh 泛型按**文档序从 0** 编号，编号就是用户可见的显示名（`@0` → `P0`）。用户自己写的参数用它们自己的名字——`@N` 之所以存在，正是因为 fresh 名不是用户写的。
+- **`@g_i` 是本原**：组 `g`、槽 `i`（跨数组分发保持稳定）；`@N` 是文档序摊平形式。
+- **范围**：`@N..=M` 闭区间，`@N..` 开到最后一个 fresh。在 where 谓词里，一串覆盖会展开成**每个 fresh 一条谓词**（逗号分隔）。
+- **越界**：`@N` 越过末尾是定向错误（`at_num_in_type`）；而**开区间**越过末尾（两 fresh 的 impl 上写 `where{@5..: Clone}`）什么都不贡献——是空、不是错（spec 里的闭区间对应 `empty_range`）。
+- **`@all_fresh`** 已废弃：写 `@0..`。
+- **在 blanket 包装的 where 子句里**，`@0` 指**目标泛型**（blanket 唯一的 fresh）；那里预处理只替换 `@trait`。
+- **排他区间已归一**：`@N..M` 在任何位置都排除 `M`（`@0..2` 覆盖 `P0, P1`）。
+
+### 5.4 惰性、循环与定义
+
+`@` 的值是**逐字 token**，在引用处递归展开；值可以是另一个常量（`@a=@b`）或一个 DSL 表达式。**定义处**拒绝：循环（`@a=@a`）、前向引用（`@b` 之前引用 `@b`）、裸范围端点（`@a=@u8` 无 `..`）。常量值内的嵌套同样受 `MAX_NEST_DEPTH` 约束。
 
 ## 6. `#` 指令
 

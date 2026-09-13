@@ -116,20 +116,46 @@ Nested types are native (`HashMap<String, Vec<(u8, u16)>>` is written and parsed
 
 ## 5. The `@` Macro-Meta Layer
 
-`@` is the **only** macro-meta token (`#` keeps only directive names). It is **lexical substitution**: the expanded result enters the original pipeline, participates in no in-domain parsing, and runs **first** of the four preprocessing passes.
+`@` is the **only** macro-meta token (`#` keeps only directive names). It is **lexical substitution**: the expanded result enters the original pipeline, participates in no in-domain parsing, and runs **first** of the four preprocessing passes. The worked expansions live in the tutorial (§6); this section is the notation index, the legality matrix and the edge cases.
 
-| Class | Notation | Note |
-|---|---|---|
-| Name families | `@u*` `@i*` `@f*` `@num` `@scalar` | expand to their members as a list (`@num` = 14 numeric types; `@scalar` adds `bool`/`char`) |
-| Range families | `@u8..u128` `@i8..i128` `@f32..f64` | inclusive; either endpoint may be omitted (`@..u128` ≡ `@u8..u128`); `usize`/`isize` live only in the name families |
-| Trait | `@trait` | batch_impl = the local name; batch_impl_only = the external path; batch_trait! = **segment-level** replacement |
-| Trait-member families | `@all_methods` / `@all_constants` / `@all_types` / `@all_required*` / `@all_default*` / `@all_ref_methods` / `@all_value_methods` / `@all_static_methods` | batch_impl / batch_impl_only only (batch_trait! errors); expand into a `[a,b,c]` group that then goes through directive-argument parsing |
-| Generic-parameter families | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | expand into a flat `<...>` declaration (a const parameter carries its full `const N: usize` — a bare name is E0747) |
-| Wrapper constant | `@Cow` | `#blanket` only; `Cow<'_>` plus its inherent constraint predicates |
-| Positional references | `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | index the macro-generated fresh generics (`P0`, `P1`, …) in **document order**; `@all_fresh` is deprecated — write `@0..`; `@N..` past the end is empty, not an error |
-| Custom constants | `@name=value;` | `batch_trait!` leading section only; values may chain references and contain DSL expressions |
+### 5.1 Notation index
 
-**Lazy, with cycles rejected**: values are verbatim tokens, expanded recursively at the reference site; cycles and forward references are rejected **at the definition**; a bare range endpoint (`@a=@u8` without `..`) is rejected at the definition too.
+| Class | Notation | Expands into | Detail |
+|---|---|---|---|
+| Name families | `@u*` `@i*` `@f*` `@num` `@scalar` | a **list** of types | tutorial §6.1 |
+| Range families | `@u8..u128` `@i8..i128` `@f32..f64` | a **list** (contiguous run, inclusive) | either endpoint may be omitted; `usize`/`isize` are not in any range family |
+| Trait | `@trait` | the trait path (or, for `batch_trait!`, the segment's own path) | tutorial §6 |
+| Trait-member families | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | a `[a,b,c]` **group** that then goes through directive-argument parsing | receiver/required filtering is part of the constant |
+| Generic-parameter families | `@all_type_params` `@all_const_params` `@all_lifetimes` | a flat `<...>` **declaration** | a const parameter carries its full `const N: usize`; a bare name is E0747 |
+| Wrapper constant | `@Cow` | `Cow<'_>` plus its inherent constraint predicates | `#blanket` only |
+| Positional references | `@N` `@g_i` `@0..=M` `@N..` `@all_fresh` | one fresh name, or a comma-separated run of them | §5.3 |
+| Custom constants | `@name=value;` | whatever the value is (verbatim tokens) | `batch_trait!` leading section only |
+
+### 5.2 Legality by entry point
+
+| Notation | `#[batch_impl]` | `#[batch_impl_only]` | `batch_trait!` | Notes |
+|---|---|---|---|---|
+| name / range families | ✓ | ✓ | ✓ | pure lexical lists |
+| `@trait` | ✓ local name | ✓ the external path (`# path::To::Trait:` prefix) | ✓ **segment-level** replacement | the only constant whose meaning is per-entry |
+| `@all*` member families | ✓ | ✓ | ✗ targeted error | they need the trait definition |
+| `@all_type_params` / `@all_const_params` / `@all_lifetimes` | ✓ | ✓ | ✗ targeted error (ui `generic_family_batch_trait`) | copied from the trait's own parameters |
+| `@Cow` | ✓ (`#blanket` only) | ✓ (`#blanket` only) | ✗ | it is a wrapper-packing constant, not a type alias |
+| `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | ✓ | ✓ | ✓ | resolved by codegen (`@trait` is resolved earlier) |
+| `@name=value;` | ✗ targeted error (ui `const_attr_unsupported`) | ✗ same | ✓ | the 0.7.2 attribute-macro form was reverted in 0.8.0 |
+
+### 5.3 Positional references
+
+- **Numbering**: fresh generics are numbered **from 0 in document order**, and the numbers are the user-visible display names (`@0` → `P0`). User-written parameters are addressed by their own names — `@N` exists exactly because fresh names are not written by the user.
+- **`@g_i` is the primitive**: group `g`, slot `i` (stable across array distribution); `@N` is the flattened document-order form.
+- **Ranges**: `@N..=M` is inclusive, `@N..` is open to the last fresh. A run in a where predicate expands to **one predicate per covered fresh** (comma-separated).
+- **Out of range**: `@N` past the end is a targeted error (`at_num_in_type`), while an **open** range past the end (`where{@5..: Clone}` on a two-fresh impl) contributes nothing — it is empty, not an error (`empty_range` is the closed-range counterpart in a spec).
+- **`@all_fresh`** is deprecated: write `@0..`.
+- **In a blanket wrapper where clause**, `@0` is the **target generic** (the blanket's only fresh); preprocessing replaces only `@trait` there.
+- **Exclusive ranges are normalised**: `@N..M` excludes `M` in every position (`@0..2` covers `P0, P1`).
+
+### 5.4 Laziness, cycles and definitions
+
+`@` values are stored as **verbatim tokens** and expanded recursively at the reference site; a value may be another constant (`@a=@b`) or a DSL expression. Rejected **at the definition**: cycles (`@a=@a`), forward references (`@a=@b` before `@b`), and a bare range endpoint (`@a=@u8` without `..`). Nesting inside a constant value shares `MAX_NEST_DEPTH`.
 
 ## 6. `#` Directives
 

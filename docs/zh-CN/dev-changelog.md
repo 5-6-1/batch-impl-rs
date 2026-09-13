@@ -210,6 +210,9 @@
   - **写这些行时抓出的缺陷**（记录，未修）：`literal_and_range`（`1.5` / `1..x`）锁的是**深度守卫**那条消息——字面量/范围诊断根本没触发；`fn_return_reapply` 锁的是 rustc 的 E0425，fixture 注释承诺的"guidance"不在快照里。参考手册的位置矩阵此前称 `decl_generator_splat` 有定向错误，已更正——该 fixture 锁的是 rustc 的 `expected type, found \`@\``。
   - **证据**：doc_consistency **4**、feature 测试 **299**、UI **104 + 3**、doctest **94**，9 份 golden 不变，`fmt`/`clippy`/`doc` 干净。
 
+- **宏元层在参考手册里有了自己的一节**——`docs/reference.md` §5 现在是：记号索引（每个 `@` 类**展开成什么**，逐条展开示例仍指向教程——两者是不同的事实，因此"一条事实一个真相源"仍成立）、**按入口的合法性矩阵**（`#[batch_impl]` / `#[batch_impl_only]` / `batch_trait!` 各自允许什么、哪些家族在那里是定向错误、以及 `@trait` 是唯一随入口改变含义的常量）、位置引用规则（文档序编号、`@g_i` 为本原、区间归一、越过末尾的开区间为空操作、blanket 包装里 `@0` 指目标泛型）与惰性/循环规则。
+  - **证据**：doc_consistency **4**、doctest **94**、`fmt`/`clippy`/`doc` 干净。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

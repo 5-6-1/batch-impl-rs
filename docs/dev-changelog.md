@@ -1553,6 +1553,18 @@
   - **Evidence**: doc_consistency **4**, features **299**, UI **104 + 3**, doctests
     **94**, the 9 goldens unchanged, `fmt`/`clippy`/`doc` clean.
 
+- **The macro-meta layer has a reference section of its own** — `docs/reference.md`
+  §5 is now a notation index (what each `@` class expands *into*, pointing at the
+  tutorial for the worked expansions — a different fact, so the one-source-of-truth
+  rule holds), a **legality matrix per entry point** (`#[batch_impl]` /
+  `#[batch_impl_only]` / `batch_trait!`, including which families are targeted
+  errors there and that `@trait` is the only constant whose meaning is per-entry),
+  the positional-reference rules (document-order numbering, `@g_i` as the
+  primitive, range normalisation, the open range past the end being a no-op, `@0`
+  as the target generic inside a blanket wrapper) and the laziness/cycle rules.
+  - **Evidence**: doc_consistency **4**, doctests **94**, `fmt`/`clippy`/`doc`
+    clean.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic
