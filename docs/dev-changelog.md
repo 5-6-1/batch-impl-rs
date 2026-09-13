@@ -1634,6 +1634,26 @@
     comment-driven line shifts only), doctests **94**, the 9 goldens unchanged,
     `fmt`/`clippy`/`doc` clean.
 
+- **The reference manual gained its behaviour-and-usage sections** — after the
+  surface, `docs/reference.md` now carries §13 **behaviour details** (what each
+  preprocessing pass guarantees, where the `X<>` sync reaches, how fresh display
+  names and the collision set work, shape-template/variadic-segment/repeat-block
+  semantics, and what the macro never does), §14 **ceilings and failure modes**
+  (every limit with what you see when it is exceeded, plus the guarantees that hold
+  under all of them), §15 **counterintuitive cases** (the questions the surface
+  invites, each answered with the rule that produces it) and §16 **a notation
+  glossary** (every token in one table).
+  - **Scope correction (maintainer direction)**: the first draft also carried
+    design decisions (D1–D13), the measurement records behind them, the verification
+    layers, the extension guidelines, a version table and migration notes. Those are
+    *developer* records, not usage detail — the manual is for users, and the
+    decisions already live in `docs/architecture.md` and this changelog. The six
+    sections were removed and the numbering closed up (§18–§20 → §14–§16), with the
+    `D…`-references in the kept prose rewritten.
+  - **Evidence**: doc_consistency **4** (its mirror-numbering guard covers the
+    renumbering), doctests **94**, `fmt`/`clippy`/`doc` clean; the reference went
+    448 → **591 (EN) / 592 (zh)** lines.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

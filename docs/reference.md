@@ -446,3 +446,146 @@ The **3 `pass` fixtures** are the other half of the lock: `constant_named_type_a
 - **Syntax freeze (0.7.2)**: the semantics of every existing token are **final** — later releases only **add** (new directives / constants / tools), refine diagnostics and polish docs; changing existing semantics requires a deliberate breaking release.
 - **The `@N` stability commitment** now covers the whole surface: `@N` numbering (document order) will not change.
 - **Docs are part of the surface**: the examples in this manual and in the tutorial must be true — readers and reviewers check them item by item, so any expansion is measured before it is written. When a doc and the code disagree, the **measurement** wins and the changelog records the correction.
+
+## 13. Semantics: What Each Stage Guarantees
+
+This is the contract behind §1.3's order — what you may rely on, and what the macro promises not to do. The module-level map lives in `docs/architecture.md`; this section is the behaviour.
+
+### 13.1 The four preprocessing passes
+
+| Pass | Reads | Guarantees |
+|---|---|---|
+| `@` constants | verbatim values, recursively | a value may contain **flat** `<...>` (pairing runs after, so it is seen); cycles/forward references are rejected at the definition, so expansion terminates |
+| `<>` pairing (`angle_collect`) | flat `<` `>` punctuation | every `<...>` chunk becomes **one group**; downstream parsing never tracks `<>` depth; the `>` of `->` never participates. Destructive by design — it runs exactly once |
+| `#` directives | directive names + their arguments | the directive domain is parsed independently (`,` lists, `-name`, `@all` families); type-domain operators inside argument lists are **not** interpreted |
+| `where` | the complete structure | predicates are split at depth-0 commas; an `impl{...}` template is a predicate-region boundary |
+
+**Pass-through**: the bodies of `ident![...]` macros and `#[...]` attributes are arbitrary Rust. None of the four recursive entries enters them, and the decision is made in one place (`scan::bracket_is_passthrough`) — one missing guard once expanded a `#name` inside `#[...]`.
+
+The pass order is not a convention but a **type-level** state machine (`preprocess/stream.rs`: `Raw → … → Ready`): a pass can only run on the state its predecessor produced, so "which order" is not re-decidable at a call site.
+
+### 13.2 The `X<>` sync
+
+`Trait<>` (empty brackets) means "this spec's trait arguments". The sync is one pass over the **Ty structure**, so it reaches wherever a type can be:
+
+| Surface | Synced? |
+|---|---|
+| `where` predicates | ✓ |
+| `impl{...}` templates | ✓ (the templates are parsed **after** it — an `X<>` marker inside a template is not valid Rust before that) |
+| impl-generic bounds and the `dyn` bound tail | ✓ |
+| the target type | ✓ (its token snapshot is re-derived after the sync — a pre-sync snapshot silently dropped a filled marker) |
+| the **body** | only with a **switch template** (`impl{@trait<>}` / `impl{Tr<>}`): body sync is opt-in, and its absence is a documented rustc E0107 rather than a silent rewrite |
+
+### 13.3 Fresh generics: naming, numbering, collisions
+
+- A construct that needs generated parameters (`().N`, `*().N`, `@0..` declarations) carries a **fresh declaration** in the Ty until codegen renames it; no internal carrier ever reaches the output.
+- **Display names** are `P0`, `P1`, … in **document order** — the same numbering `@N` uses.
+- The **collision set** is every ident the impl already writes: the spec's parameters, their inline bounds, the target type, the trait arguments, the inherited and written where predicates, the body, the attributes and the associated types. Template placeholders are **excluded** (the shape mapping rewrites them away, so counting them would shift visible numbering).
+- `@g_i` addresses a fresh by `(group, slot)` — stable across array distribution; `@N` is the flattened document-order form; `@N..` is open and empty when past the end.
+
+### 13.4 Shape templates, variadic segments and repeat blocks
+
+- The template is a **standard Rust type** (syn rejects DSL operators), matched against the leaf target type position by position: an ident equal to the target's is a literal, a different one is a slot bound to that subtree.
+- Substitution reaches the **target, the `where` predicates and the body** — a slot is a subtree (spliced as a value), never a text replacement.
+- A **variadic segment** (`A@..`) marks the element of a template that varies; the body's `@(…@0,)..` repeat block runs once per covered element, splicing that element's subtree. The **fresh-binding switch** (`impl{@0..}`) makes a cursor-only block run once per fresh; `impl{@{}}` enables `@{N}` references where `@` would otherwise start a block.
+
+### 13.5 What the macro never does
+
+- **No panicking paths**: no `unwrap` / `expect` / `panic!` / `unreachable!` / `debug_assert!` / `assert!` in production code (a panic in a proc macro is a compiler ICE). Internal invariants report a targeted error instead — enforced by a clippy deny family plus a source-level guard test (`tests/no_panic/`).
+- **No silent empty spec**: an input that produces zero impls without a diagnostic is a bug (the `+A` case used to do exactly that).
+- **No leaked internal names**: display names only; a dangling `@N` is intercepted in the macro, never surfaced as rustc's E0412.
+- **No new reserved symbols**: the DSL reserves `@`, `#` and the documented operator set; generated names stay inside `P0…` and are collision-checked against everything you wrote.
+
+## 14. Ceilings and Failure Modes in Depth
+
+| Ceiling | Value | Source | What you see when you exceed it |
+|---|---|---|---|
+| Impls per spec | 1024 | `src/ast/op.rs` (`MAX_EXPAND`) | a targeted error naming the product and the limit — "likely exponential/range/Cartesian typo" |
+| Nesting depth | 128 | `src/util/mod.rs` (`MAX_NEST_DEPTH`) | "nesting depth exceeds 128 levels (perhaps an accidental extra bracket)"; groups, chains, attachments and constant values share the counter |
+| Repeat-block output | 65536 tokens | `src/codegen/repeat.rs` (`MAX_REPEAT_TOKENS`) | the budget guard reports the block that ran away |
+| `#blanket` deref depth | 128 | the same depth rule | "`:999999` is too large (deref depth must be ≤ 128)" |
+| Fuzz allocation guard | 256 MiB | `src/testing/mod.rs` (test-only) | turns a runaway allocation into a catchable panic during fuzzing instead of an abort |
+
+**Guarantees that hold under every ceiling**: an error **replaces** the impl (there is never a half-built impl next to a diagnostic — a stale snapshot used to emit one); the macro never ICEs; and no input silently produces zero impls.
+
+## 15. Counterintuitive Cases
+
+Each of these is a question the surface invites, answered with the rule that produces it.
+
+**Why does `fn(A) -> Box u8` mean `Box<u8>`, while `fn(A) -> u16 u32` is an error?** The return type is a type position, so the space applies as everywhere (`→ §3`); applying an argument to a primitive is rustc's E0109. There is no separate "return type" syntax to reject it without breaking `-> Box u8`.
+
+**Why is `Tr<T>::Type` one type rather than a trait application plus something?** `<...>` after an ident binds to that ident, and `::` continues the same path — so the whole thing is *one element*, the spec is a target type, and the trait is the annotated one. Neither "`impl Tr for <T>::Type`" nor "`impl<T> Tr<T> for ::Type`" is reachable from that spelling (§1.2).
+
+**Why does `Head . ::path` work when `Head ::path` does not?** `.` and the space are element boundaries; `::` is a continuation. With a trait head they are equivalent until the target starts with `::`.
+
+**Why does `(::T)` after a head append an argument instead of becoming the target?** A group is a *value* (a tuple or a parenthesized type), not a boundary; the space applies it.
+
+**Why is a splat refused in a `where` predicate?** The clause stays token-level all the way to the output, so the final predicate check reports it. Every other parameter-position list expands (§4).
+
+**Why is `*(A,B)` alone as the target an error (E0119), while `(A,B)` works?** A splat is a parameter-position list; alone as a target it flattens into duplicate impls. Write the tuple.
+
+**Why does `@0..2` cover two freshs?** An exclusive range excludes its end in *every* position, so the type path and the where-predicate path agree — write `@0..=1` for the inclusive spelling.
+
+**Why is `where{@5..: Clone}` not an error on a two-fresh impl?** An open range past the end contributes nothing — an arity-dependent spec must not fail just because a shorter case has fewer freshs.
+
+**Why is a fresh generator in a `<>` block an error?** The block *is* the impl's parameter list, so its freshs would be declared and never used (E0392). Write the generator on the type (`T^()^2`) — and note that a plain splat there is fine (`<*(A,B)>` → `<A, B>`).
+
+**Why does an impl-entry spec list with nothing in it re-emit the block?** The entry is a *derivation* (`0..N` impls per spec), so an empty list is the identity: the block you wrote comes back unchanged.
+
+**Why is a trait's `where T: Clone` merged into the parameter instead of the impl's where clause?** A single-type-parameter predicate belongs to that parameter; it becomes its inline bound. Everything else passes through verbatim, with positional substitution (§7.2).
+
+**Why can a generated name never collide with mine?** The fresh display names are chosen against every ident the impl writes (13.3) — including bounds, predicates and the body.
+
+**Why is a body `X<>` sometimes left unsynced?** Body sync is opt-in: only a switch template (`impl{@trait<>}` / `impl{Tr<>}`) turns it on, so a template without it leaves the body's marker to rustc (E0107), which is the documented behaviour (§13.2).
+
+**Why is `#[batch_impl(1.5)]` an error rather than a type alias?** Only an integer is a type in the DSL (it is how `@N` and powers are counted), so a float/string/char literal is reported as such (see §10.1).
+
+## 16. Notation Glossary
+
+Every token the surface uses, in one place.
+
+| Notation | Name | Meaning / where legal |
+|---|---|---|
+| `.` | right-assoc apply | `A.B` = `A<B>`; also the element boundary before an absolute-path target (§1.2, §3) |
+| (space) | left-assoc apply | `HashMap K V` = `HashMap<K, V>`; accumulates arguments |
+| `[...]` | list | a set: one impl per element (`[Box, Rc] u8`); a slice when it is a target (`[u8]`) |
+| `[...; N]` | array type | `[u8; 3]` |
+| `(...)` | tuple | `(A, B)` — a *sequence*, appends under a splat |
+| `(A)` | transparent group | the same type as `A` (but `(*(a,b))` is the container holding a splat) |
+| `<>` | angle brackets | generic args after an ident, a declaration block at the start of a spec, or a qualified head with a depth-0 `as` (§1.2) |
+| `A<>` | the sync marker | "this spec's trait arguments" — filled in where/when templates/bounds/target (§13.2) |
+| `^N` / `^[A,B]` | power | distribute over a value or a list: `(u8, u16)^2` = four impls |
+| `*(...)` / `*[...]` | splat | splice a container/generator into the enclosing parameter list; one layer; left operand keeps its source bracket's semantics (§4) |
+| `*()N` | generator splat | hoists fresh declarations and splices the fresh tuple |
+| `@` | macro-meta namespace | constants and positional references; resolved lexically, first pass (§5) |
+| `#` | directive namespace | `#name` / `#fill` / `#delegate` / `#blanket` / the open extension (§6) |
+| `;` | spec separator | splits the attribute argument into specs; a separator alone is not content (§1.1) |
+| `,` | list separator | in lists, tuples, args and directive argument lists |
+| `-name` | exclusion | directive argument lists only |
+| `!` | never type | as an `fn` return type (`fn(A) -> !`) |
+| `&` / `&mut` | reference prefix | `& Box<T>` |
+| `*const` / `*mut` | raw-pointer prefix | `*const T` |
+| `unsafe` | unsafe marker | `unsafe.fn(A) -> B` marks the **impl**; `unsafe fn(A) -> B` is a fn *type* |
+| `self` | identity prefix | `self T` = `T`; the bare-type placeholder in a matrix |
+| `#[...]` | attribute | attached to the generated impl; never entered by the DSL |
+| `{body}` | body attachment | the implementation block (a block, any order) |
+| `where{...}` | predicate attachment | Rust predicates with `@N`, `X<>` and shape slots (§7) |
+| `impl{...}` | shape template attachment | a standard Rust type matched against the target (§8) |
+| `@N` | positional reference | the N-th fresh generic, document order (`@0` → `P0`) |
+| `@g_i` | group reference | fresh `i` of generator group `g`; stable across distribution |
+| `@N..=M` / `@N..` | ranges | inclusive / open-to-last; `@N..` is empty past the end |
+| `@all_fresh` | deprecated | write `@0..` |
+| `@trait` | trait path | the annotated trait; per-entry meaning (local / external / segment) |
+| `@u*` `@i*` `@f*` `@num` `@scalar` | name families | expand to their member lists |
+| `@u8..u128` `@i8..i128` `@f32..f64` | range families | a contiguous run, either endpoint omittable |
+| `@all_methods` … `@all_static_methods` | member families | a selected item set for directive arguments |
+| `@all_type_params` `@all_const_params` `@all_lifetimes` | parameter families | a flat `<...>` declaration copied from the trait |
+| `@Cow` | wrapper constant | `#blanket` packing |
+| `@name=value;` | custom constant | `batch_trait!` leading section only |
+| `#name{body}` | single-item directive | one trait item's implementation |
+| `#fill(scope){body}` | bulk-fill directive | one body, many signatures |
+| `#delegate(scope){target}` | delegation directive | generated forwarding calls |
+| `#blanket(scope){wrappers}` | blanket directive | one complete impl per wrapper |
+| `{! m!{...}}` | open extension | hands the spec body to your macro (top level only) |
+| `# path::To::Trait:` | external-path prefix | declares the real path of a foreign trait (`batch_impl_only`) |
+
