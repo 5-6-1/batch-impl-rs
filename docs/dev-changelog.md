@@ -1536,6 +1536,23 @@
     `cargo package --list` 104 → **105** files (the reference ships, the zh mirror
     stays excluded).
 
+- **The diagnostics catalog is complete and guarded** — `docs/reference.md` §10 now
+  lists **every** `tests/ui` fixture (104 `compile_fail` + the 3 `pass`), grouped by
+  area, each row giving the trigger, the locked wording and who writes it (DSL /
+  rustc / the `batch_trait!` front-end / the preview channel). The new guard
+  `reference_names_every_ui_fixture` requires every fixture stem inside the §10
+  section of **both** language mirrors — scoped to that section, so a stray mention
+  elsewhere cannot stand in for a row (falsification probe: renaming one row's
+  `deep_nesting` fails it).
+  - **Writing the rows surfaced defects** (recorded, not fixed): `literal_and_range`
+    (`1.5` / `1..x`) locks the **depth-guard** message — the literal/range
+    diagnostic does not fire; `fn_return_reapply` locks rustc's E0425, so the
+    "guidance" its fixture comment promises is not in the snapshot. The reference's
+    position matrix claimed a targeted error for `decl_generator_splat` and was
+    corrected: that fixture locks rustc's `expected type, found \`@\``.
+  - **Evidence**: doc_consistency **4**, features **299**, UI **104 + 3**, doctests
+    **94**, the 9 goldens unchanged, `fmt`/`clippy`/`doc` clean.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

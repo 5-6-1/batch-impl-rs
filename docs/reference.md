@@ -59,7 +59,7 @@ The same construct is legal in different places because the gate is a property o
 | Position | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | generator `()^N` | `@` refs | `X<>` sync |
 |---|---|---|---|---|---|---|
 | Trait application `Conv<…> X` | ✓ | ✓ (hoisted into the impl body — `impl Trait<Item=u8> for X` is E0229) | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓ (fresh declarations hoisted onto the impl) | ✓ | ✓ |
-| Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✗ not expanded (measured: `<T, *(A,B)>` leaks verbatim) | ✗ targeted error (no carrier in the declaration position, ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
+| Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✗ not expanded (measured: `<T, *(A,B)>` leaks verbatim) | ✗ handed to rustc (measured: `<*().3>` → "expected type, found `@`"; ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
 | Plain type args `Vec<…>` | ✗ targeted error | ✗ targeted error (ui `concrete_binding` / `concrete_bound`) | ✓ `T<*(A,B)>` → `T<A,B>` | ✓ | ✓ | ✓ |
 | Inline bound `<T: …>` | ✓ | ✓ | ✗ not expanded (measured: rustc reports a raw-pointer error) | ✓ (`Fn.().N` freshs hoist onto the impl) | ✓ | ✓ |
 | `dyn` / `for<'a>` tail | ✓ | ✓ | ✓ `dyn Tr<*(A,B)>` → `dyn Tr<A,B>` (measured) | ✓ | ✓ | ✓ |
@@ -181,28 +181,165 @@ The full argument semantics of each entry are in `src/doc/` (`batch_impl_only.md
 
 ## 10. Diagnostics Catalog
 
-Every diagnostic is a **compile-time** error pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line) — one error, no cascade. The wording is locked by fixtures under `tests/ui/`:
+Every diagnostic is a **compile-time** error pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line) — one error, no cascade. The wording is locked by fixtures under `tests/ui/` and `cargo test --test ui` checks it one by one; **every fixture appears below** (a guard fails the suite when one is missing here).
 
-| Class | Trigger (examples) | Fixture |
-|---|---|---|
-| Missing operand | `A.` / `.A` / `,A` | `dangling_operator` / `leading_operator` / `leading_comma` |
-| Binding/bound position | `Assoc<Item = u32>` (plain type args), `<Item = u8> Target` (declaration) | `concrete_binding` / `declaration_binding` |
-| Generator in a declaration | `<*()^N>` / `<*(()^N)>` | `decl_generator_splat` |
-| Missing `=`/`:` value | `Conv<Item =>` / `Conv<T:> X` | `binding_bound_empty` |
-| `@` constants | unknown / cycle / forward reference / bare endpoint | `const_unknown` / `const_cycle` / `const_forward` / `const_bare_endpoint` |
-| `@N` references | out of range / dangling / bare number in a type / empty range | `at_num_in_type` / `at_group_in_type` / `at_empty_range_in_angle` / `empty_range` |
-| Ranges | empty range / non-integer endpoint / over the ceiling | `const_range_bad` / `expand_limit` / `bound_gen_over_limit` |
-| `where` predicates | bare splat subject / not a Rust predicate | `where_splat_bad` / `where_not_a_predicate` / `where_empty_exclusive_range` |
-| Directives | malformed arguments / missing arguments | `fill_empty_args` / `fill_bad_comma` / `directive_bad_follow` / `delegate_on_non_fn` / `delegate_double_rename` / `delegate_rename_missing_left` / `single_name_not_found` |
-| Shape templates | DSL operator in a template / shape mismatch / conflicting binding | `impl_template_dsl_ops` / `impl_shape_mismatch` / `impl_inconsistent_binding` |
-| Repeat blocks / varsegs | missing driver / unequal counts / conflicting drivers / unknown / illegal position | `impl_shape_repeat_*` / `impl_shape_varseg_*` |
-| Syntax residue | `;`/`=`/`@`/`#`/`-` in a type position, tokens after an fn parameter list, leading `+` | `semi_in_spec` / `extern_fn_stray_hash` / `plus_at_type_start` / `fn_return_reapply` |
-| Pointers / references | bare `*`, reference misuse | `star_misuse` |
-| Depth ceilings | nesting / chain / attachment past `MAX_NEST_DEPTH` | `deep_nesting` / `chain_too_deep` / `attach_too_deep` / `nested_bracket_too_deep` |
-| Entries | empty spec / non-type spec / a direct `#` | `implentry_direct_not_type` / `implentry_at_num_banned` / `implentry_hash_banned` |
-| Blanket / `Self` | a method taking or returning bare `Self`, a `Self` inside a group | `blanket_self_return` / `blanket_self_in_group` / `blanket_ptr` |
+The **Source** column says who writes the message: **DSL** = the macro's own user-language diagnostic, **rustc** = a known leak (the macro hands the tokens over and rustc complains), **macro** = the `batch_trait!` front-end's own parse error, **channel** = `batch_preview!` output.
 
-The complete list is `tests/ui/*.rs` (104 `compile_fail` fixtures + 3 `pass` fixtures): `cargo test --test ui` checks the wording one by one.
+### 10.1 Type and spec syntax
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `array_and_punct` | `[u8; 3; 4]` / `[u8;]` | array length `[T; N]` missing or malformed (write `[u8; 3]`) | DSL |
+| `leading_comma` | `,A` | spec list cannot start with `,` | DSL |
+| `dangling_operator` | `A.` | missing operand after `.` (e.g. `T.U`) | DSL |
+| `leading_operator` | `.A` | missing operand before `.` (e.g. `T.U`) | DSL |
+| `num_as_left_operand` | `0.T` | number `0` cannot be a left operand; use it on the right (e.g. `T.0`) | DSL |
+| `semi_in_spec` | a stray `;` after a type | unexpected `;` after the type | DSL |
+| `plus_at_type_start` | `+A` | `+` is not valid at the start of a type (it belongs in a bound) | DSL |
+| `star_misuse` | a bare `*` | `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
+| `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | unexpected `#` in a type position | DSL |
+| `lifetime_as_operand` | `'a T` | a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`) | DSL |
+| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | a `::`-tail segment is a plain Rust path — DSL tokens are not allowed | DSL |
+| `global_path_no_ident` | a trailing `::` | `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
+| `path_prefix_mismatch` | `# path::Other: Trait` | path prefix `#...Other` has a trailing ident that differs from the trait name | DSL |
+| `group_angle_bare` | `<...>` inside `(...)` | a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form | DSL |
+| `bare_impl_trait_target` | `impl Trait` as a target | a bare `impl` in the spec is a shape template — an `impl <trait-object>` target is not | DSL |
+| `error_aggregation` | several bad specs in one attribute | number `0` cannot be a left operand (every error is reported, not just the first) | DSL |
+| `trait_path_no_ident` | `batch_trait! { 1: ... }` | `batch_trait!` expects an ident as the trait name | macro |
+| `only_semicolon` | `batch_trait! { ; }` | `batch_trait!` expects a trait name | macro |
+| `missing_colon` | `batch_trait! { Tr ... }` | `batch_trait!` expects ':' to separate the trait name and impl-specs | macro |
+
+### 10.2 Depth ceilings
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `deep_nesting` | 129 nested groups | nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
+| `nested_bracket_too_deep` | 130 nested `[` groups | nesting depth exceeds 128 levels | DSL |
+| `chain_too_deep` | a 129-level operator chain | operator chain exceeds 129 levels (limit 128); split the chain | DSL |
+| `segments_too_deep` | a 129-level space chain | space-application chain exceeds 129 levels (limit 128) | DSL |
+| `attach_too_deep` | 129 attachments | space-application chain exceeds 129 levels (limit 128) | DSL |
+| `impl_attach_too_deep` | the same through the impl entry | space-application chain exceeds 129 levels (limit 128) | DSL |
+| `const_value_deep_nesting` | a constant value nested 129 deep | nesting depth exceeds 128 levels in a constant value | DSL |
+| `literal_and_range` | `1.5` / `1..x` | **the depth-guard message is what is locked here** — the literal/range diagnostic does not fire (recorded as a misleading lock) | DSL |
+
+### 10.3 `@` constants, references and ranges
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `const_unknown` | `@unknown` | unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` … | DSL |
+| `const_cycle` | `@a=@a` | constant `@a` references unknown `@a` (undefined or defined later) | DSL |
+| `const_forward` | `@a=@b` before `@b` | constant `@a` references unknown `@b` (undefined or defined later) | DSL |
+| `const_bare_endpoint` | `@a=@u8` (no `..`) | constant `@a` references unknown `@u8` — a bare range endpoint is not a constant | DSL |
+| `const_range_bad` | `@u32..u8` | range start is greater than end: `u32..u8` | DSL |
+| `const_reserved_all` | `@all = ...` | constant name `@all` is a reserved `@all` selector; please rename | DSL |
+| `const_attr_unsupported` | a custom `@name=value;` on `#[batch_impl]` | custom constants are not supported by `#[batch_impl]` / `#[batch_impl_only]` | DSL |
+| `generic_family_batch_trait` | `@all_type_params` inside `batch_trait!` | `@all_type_params` is supported only by `#[batch_impl]` / `#[batch_impl_only]` | DSL |
+| `at_num_in_type` | `Box<@5>` with two freshs | `@5` is out of range — this impl has 2 fresh generics | DSL |
+| `at_group_in_type` | `@2_0` in a type | `@2_0` does not match a generated generic — this impl has no group 2 position | DSL |
+| `at_group_out_of_range` | the same, a different position | `@2_0` does not match a generated generic — this impl has no group 2 position | DSL |
+| `at_range_in_type` | `Vec<@0..=2>` with none | `@0..=2` out of range — this scope has 0 fresh generics | DSL |
+| `at_empty_range_in_angle` | `Box<@2..1>` | empty exclusive range `@2..1` (start not below end) | DSL |
+| `at_open_range_bare` | a top-level `A@..` | range constant `@..` must name the family's maximum endpoint (e.g. `@..u128`) | DSL |
+| `at_binding_splat` | `Tr<Item = *(A,B)>` | a splat cannot be an associated-type binding value | DSL |
+| `at_segment_carrier_in_body` | a `@{...}` carrier in a body | `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`) | DSL |
+| `error_aggregation_codegen` | several dangling `@N` references | `@5` is out of range — this impl has 2 fresh generics (all reported) | DSL |
+| `empty_range` | an empty numeric range in a spec | range `3..2` is empty (start not below end); no impls will be generated | DSL |
+| `expand_limit` | `(...).2000` | `tuple .2000` expands to 2000 impls (limit 1024) | DSL |
+| `bound_gen_over_limit` | a bound-generator product of 29791 | bound-generator distribution expands to 29791 impls (limit 1024) | DSL |
+
+### 10.4 Bindings, bounds and function types
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `concrete_binding` | `Assoc<Item = u32>` (plain type args) | binding args (`Item = u32`) are only valid on a trait path | DSL |
+| `concrete_bound` | `Wrap<u8: Clone>` | bound args (`T: Clone`) are only valid on a trait path, in a generic declaration | DSL |
+| `declaration_binding` | `<Item = u8> Target` | an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target` | DSL |
+| `binding_bound_empty` | `Conv<Item =>` / `Conv<T:>` | binding `Item =` missing a value (write `Item = u32`) | DSL |
+| `fn_named_param_missing_type` | `fn(x:)` | named parameter `x:` is missing a type (write `x: u8`) | DSL |
+| `fn_sugar_named_param` | `Fn(x: u8)` | the `Fn(…)` trait sugar does not support named parameters | DSL |
+| `hrtb_binder_type_param` | `for<u8>` | a `for<…>` binder holds lifetimes (`for<'a>`) — a type parameter is declared on the impl | DSL |
+| `dyn_bound_missing` | `dyn Send +` | a `+` in a `dyn` bound list needs a bound after it | DSL |
+
+### 10.5 Directives
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `fill_empty_args` | `#fill()` | the directive's argument list cannot be empty | DSL |
+| `fill_bad_comma` | `#fill(,a)` | in directive arguments, a comma is in an illegal position | DSL |
+| `minus_empty` | `#fill(@all,-)` | directive arguments cannot be empty | DSL |
+| `minus_bad_target` | `#fill(-1)` | in directive arguments, after `-` expected an identifier or `[...]` list | DSL |
+| `directive_bad_follow` | `#m` with no args/body | `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
+| `single_name_not_found` | `#name` for an unknown item | item `T` not found in trait `no_such` | DSL |
+| `delegate_on_non_fn` | `#delegate` on a const | #delegate only works on methods; `HasConst` in trait `VALUE` is not a method | DSL |
+| `delegate_const` | the same on another const | #delegate only works on methods; `ConstApi` in trait `LIMIT` is not a method | DSL |
+| `delegate_double_rename` | `#delegate(size=a, size=b)` | #delegate method `size` is renamed twice | DSL |
+| `delegate_rename_missing_left` | `#delegate(=foo)` | #delegate rename `X = Y` needs identifiers on both sides | DSL |
+| `blanket_ptr` | `#blanket(*const T)` | #blanket does not support `*const`/`*mut` wrappers | DSL |
+| `blanket_self_return` | a blanket method returning bare `Self` | #blanket method `NewT::new` takes/returns `Self` | DSL |
+| `blanket_self_in_group` | a `Self` inside a group | #blanket method `GroupSelf::f` takes/returns `Self` | DSL |
+| `blanket_bad_depth` | `#blanket(...:abc)` | after #blanket `:abc` must come a number (e.g. `Box.Arc:2`) | DSL |
+| `blanket_bad_empty_depth` | `#blanket(...:)` | after #blanket `:` must come a number (e.g. `Box.Arc:2`) | DSL |
+| `blanket_bad_huge_depth` | `#blanket(...:999999)` | #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
+
+### 10.6 Shape templates, repeat blocks and variadic segments
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `impl_template_dsl_ops` | DSL operators inside `impl{...}` | the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
+| `impl_template_range_constant` | a range constant inside a template | the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
+| `impl_shape_mismatch` | a template that does not match the target | `impl{...}` template cannot destructure the target type (generic argument shape …) | DSL |
+| `impl_shape_fn_bound` | `fn(A) -> B` in a template | `impl{...}` template cannot destructure the target type (template `fn(A) -> …`) | DSL |
+| `impl_shape_lifetime_arg` | a lifetime argument differs | `impl{...}` template cannot destructure the target type (generic argument …) | DSL |
+| `impl_shape_varseg_duplicate` | the same `A@..` twice | `impl{...}` template cannot destructure the target type (duplicate variadic segment …) | DSL |
+| `impl_shape_varseg_outside_tuple` | a varseg outside a tuple | `impl{...}` template cannot destructure the target type (a variadic segment …) | DSL |
+| `impl_shape_varseg_uneven` | uneven variadic segments | `impl{...}` template cannot destructure the target type (variadic segments c…) | DSL |
+| `impl_inconsistent_binding` | two templates binding `X` differently | binding slot `X` is bound to different subtrees across merged `impl{...}` templates | DSL |
+| `impl_shape_repeat_unknown` | `@X` with no such segment | repeat block references unknown variadic segment `@X` | DSL |
+| `impl_shape_repeat_unequal` | segments of length 2 vs 3 | repeat block segments have different lengths (2 vs 3) | DSL |
+| `impl_shape_repeat_driver_conflict` | driver `@A` vs inner `@B` | repeat block driver `@A` conflicts with the inner segment reference `@B` | DSL |
+| `impl_shape_repeat_bare_at` | a bare `@foo` in a body | `@` inside an impl body must start a repeat block `@(...)..` | DSL |
+| `impl_shape_repeat_cursor_multi` | a cursor-only block with several templates | a cursor-only repeat block needs a driving segment | DSL |
+| `impl_shape_repeat_invalid_switch` | `impl{@2..1}` | invalid fresh-binding switch — the range covers no fresh | DSL |
+| `impl_shape_repeat_invalid_switch_closed` | `impl{@2..=1}` | invalid fresh-binding switch — the range covers no fresh | DSL |
+| `impl_shape_repeat_no_driver` | a cursor-only body block with no switch | expected one of `.`, `;`, `?`, `}`, or an operator, found `,` | rustc |
+
+### 10.7 Entries and top-level blocks
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `implentry_at_num_banned` | `@0` on an impl-entry spec with no fresh | `@0` is out of range — this impl has 0 fresh generics | DSL |
+| `implentry_direct_not_type` | a directive where a type belongs | the direct form takes exactly one type after the generic declaration | DSL |
+| `implentry_hash_banned` | `#fill` on the impl entry | `#` directives are not supported on the ItemImpl entry | DSL |
+| `top_level_block_not_last` | `{! m!{…}}` before other blocks | a `{! ...}` top-level block must be the last block | DSL |
+| `top_level_manual_not_last` | the manual top-level form, not last | a `{! ...}` top-level block must be the last block | DSL |
+| `top_level_without_attach` | a top-level block with no attached type | a top-level `{! ...}` block needs an attached type | DSL |
+
+### 10.8 `where`
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `where_missing_body` | a bare `where` with no `{...}` | `where` predicates are missing a code block {...} | DSL |
+| `where_not_a_predicate` | `where{ A B }` | a where predicate must be a Rust predicate — write `T: Bound` | DSL |
+| `where_splat_bad` | `where{*(A,B): Clone}` | a splat cannot be a where-predicate subject | DSL |
+| `where_empty_exclusive_range` | `where{@2..2: Clone}` | empty exclusive range `@2..2` (start not below end) | DSL |
+
+### 10.9 Preview channel
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `preview_ok` | `batch_preview! { #[batch_impl(usize, isize)] trait Pv {} }` | batch-impl preview: 2 impl(s) generated | channel |
+| `preview_miswrite` | a mis-written preview body | batch-impl preview: 1 impl(s) generated | channel |
+
+### 10.10 Known leaks (rustc writes the wording)
+
+| Fixture | Trigger | Locked message | Source |
+|---|---|---|---|
+| `decl_generator_splat` | `<*().3> Vec<u8>` | expected type, found `@` | rustc |
+| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope (E0425 — the `-> B` is filled, the types are symbolic) | rustc |
+| `impl_trait_sync_body_negative` | a body `X<>` without a `Tr<>`-carrying template | trait takes 1 generic argument but 0 generic arguments were supplied (E0107) | rustc |
+| `unsafe_non_fn` | `unsafe` on a non-unsafe trait | implementing the trait `T` is not unsafe | rustc |
+
+The **3 `pass` fixtures** are the other half of the lock: `constant_named_type_arg` (a type parameter merely *named* `constant` is never a `const` parameter), `tests/ui/pass/basic.rs` and `tests/ui/pass/impl_entry_empty_attribute.rs` must keep compiling.
 
 ## 11. Ceilings and Guarantees
 

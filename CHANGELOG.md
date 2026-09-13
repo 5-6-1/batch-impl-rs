@@ -270,6 +270,12 @@
   reported by the DSL inside a `where` predicate. The tutorial and the reference
   now state the measured set.
 
+- **The reference's diagnostics catalog now lists every locked message** — all 104
+  `compile_fail` fixtures with their trigger and exact wording (plus the three
+  `pass` fixtures), each row saying whether the DSL, rustc, the `batch_trait!`
+  front-end or the preview channel writes it. Four rows honestly record a
+  rustc-written message where a targeted one is missing.
+
 ## 0.9.7 (2026-08-29)
 
 > Review-fix release: the golden-snapshot test layer (the last coverage gap),

@@ -49,6 +49,8 @@
 - **绝对路径目标用 `.` 隔开**——`<...>`（跟在 ident 后）与 `::` 续接当前路径，所以 `@trait<u8> ::std::string::String` 会粘成一条路径、把 trait 放进类型位置（E0782）。写 `@trait<u8> . ::std::string::String` → `impl Tr<u8> for ::std::string::String`；有 trait 头时 `.` 与空格等价。
 - **文档曾称为合法的三个 splat 位置实际不展开**（实测记录，尚未修）——泛型声明块（`<T, *(A,B)>`）、fn 参数表（`fn(*(u8, u16))`）与内联 bound（`<T: Tr<*(u8, u16)>>`）里的 splat 原样到达 rustc；同一个 splat 在 `dyn` 尾巴里会展开，在 `where` 谓词里由 DSL 报错。教程与参考手册都已改成实测结果。
 
+- **参考手册的诊断目录列出全部锁定消息**——104 个 `compile_fail` fixture 的触发与精确措辞（外加 3 个 `pass`），每行标明是 DSL、rustc、`batch_trait!` 前端还是预览通道写的。有四行如实记录"该有定向诊断、目前是 rustc 的消息"。
+
 ## 0.9.7 (2026-08-29)
 
 > 评审修复发布：黄金快照测试层（最后一块覆盖空白）、实测展开开销、打包卫生、Windows CI。无 DSL 语法变化。

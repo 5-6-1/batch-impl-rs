@@ -206,6 +206,10 @@
   - **新增守卫**：`tests/doc_consistency.rs` 现在还会比对两种语言的**章节编号**（`## N.` / `### N.M`）——只加到一种语言的新章节会让测试失败。证伪探针：把 zh 的一个标题改成 `4.7`，`language_mirrors_share_their_section_numbers` 失败。
   - **证据**：单测 **161**、feature 测试 **299**、UI **104 + 3**、doctest 93 → **94**（新增的 §5.7 示例），9 份 golden 不变，`fmt`/`clippy`/`doc` 干净，`cargo package --list` 从 104 → **105** 个文件（参考手册进包，zh 镜像仍排除）。
 
+- **诊断目录补全并加守卫**——`docs/reference.md` §10 现在列出**每一个** `tests/ui` fixture（104 个 `compile_fail` + 3 个 `pass`），按域分组，每行给出触发、锁定的措辞与**谁写的**（DSL / rustc / `batch_trait!` 前端 / 预览通道）。新守卫 `reference_names_every_ui_fixture` 要求两种语言的 §10 段落里都出现每个 fixture 名——**限定在该段落内**，别处的偶然提及不能顶替一行（证伪探针：把某行的 `deep_nesting` 改名即失败）。
+  - **写这些行时抓出的缺陷**（记录，未修）：`literal_and_range`（`1.5` / `1..x`）锁的是**深度守卫**那条消息——字面量/范围诊断根本没触发；`fn_return_reapply` 锁的是 rustc 的 E0425，fixture 注释承诺的"guidance"不在快照里。参考手册的位置矩阵此前称 `decl_generator_splat` 有定向错误，已更正——该 fixture 锁的是 rustc 的 `expected type, found \`@\``。
+  - **证据**：doc_consistency **4**、feature 测试 **299**、UI **104 + 3**、doctest **94**，9 份 golden 不变，`fmt`/`clippy`/`doc` 干净。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

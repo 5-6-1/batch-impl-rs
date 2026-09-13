@@ -59,7 +59,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | 位置 | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | 生成器 `()^N` | `@` 引用 | `X<>` 同步 |
 |---|---|---|---|---|---|---|
 | trait 应用 `Conv<…> X` | ✓ | ✓（提升进 impl body，因 `impl Trait<Item=u8> for X` 是 E0229） | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓（fresh 声明提升到 impl） | ✓ | ✓ |
-| 泛型声明 `<…>` | ✓ | ✗ 定向错误（声明的是**参数**；给出 trait 应用的写法） | ✗ 未展开（实测 `<T, *(A,B)>` 原样泄漏） | ✗ 定向错误（声明位置无载体，ui `decl_generator_splat`） | ✓（`<@0..>` 声明 fresh） | ✓（`A<>` 头部展开） |
+| 泛型声明 `<…>` | ✓ | ✗ 定向错误（声明的是**参数**；给出 trait 应用的写法） | ✗ 未展开（实测 `<T, *(A,B)>` 原样泄漏） | ✗ 交给 rustc（实测 `<*().3>` → "expected type, found `@`"；ui `decl_generator_splat`） | ✓（`<@0..>` 声明 fresh） | ✓（`A<>` 头部展开） |
 | 纯类型实参 `Vec<…>` | ✗ 定向错误 | ✗ 定向错误（ui `concrete_binding` / `concrete_bound`） | ✓ `T<*(A,B)>` → `T<A,B>` | ✓ | ✓ | ✓ |
 | 内联 bound `<T: …>` | ✓ | ✓ | ✗ 未展开（实测：rustc 报 raw pointer 错） | ✓（`Fn.().N` 的 fresh 提升到 impl） | ✓ | ✓ |
 | `dyn` / `for<'a>` 尾巴 | ✓ | ✓ | ✓ `dyn Tr<*(A,B)>` → `dyn Tr<A,B>`（实测） | ✓ | ✓ | ✓ |
@@ -181,28 +181,165 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 ## 10. 诊断目录
 
-所有诊断都是**编译期**错误，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行），**一条错误、不级联**。措辞由 `tests/ui/` 的 fixture 锁定：
+所有诊断都是**编译期**错误，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行），**一条错误、不级联**。措辞由 `tests/ui/` 的 fixture 锁定，`cargo test --test ui` 逐条核对；**每个 fixture 都在下面出现**（漏一个会让守卫测试失败）。
 
-| 类别 | 触发（举例） | fixture |
-|---|---|---|
-| 操作数缺失 | `A.` / `.A` / `,A` | `dangling_operator` / `leading_operator` / `leading_comma` |
-| 绑定/约束位置 | `Assoc<Item = u32>`（纯类型实参）、`<Item = u8> Target`（声明块） | `concrete_binding` / `declaration_binding` |
-| 声明位置的生成器 | `<*()^N>` / `<*(()^N)>` | `decl_generator_splat` |
-| `=`/`:` 缺值 | `Conv<Item =>` / `Conv<T:> X` | `binding_bound_empty` |
-| `@` 常量 | 未知常量 / 循环 / 前向引用 / 裸端点 | `const_unknown` / `const_cycle` / `const_forward` / `const_bare_endpoint` |
-| `@N` 引用 | 越界 / 悬空 / 类型位置的裸数字 / 空区间 | `at_num_in_type` / `at_group_in_type` / `at_empty_range_in_angle` / `empty_range` |
-| 范围 | 空区间 / 端点非整数 / 上限 | `const_range_bad` / `expand_limit` / `bound_gen_over_limit` |
-| where 谓词 | 裸 splat 主体 / 不是 Rust 谓词 | `where_splat_bad` / `where_not_a_predicate` / `where_empty_exclusive_range` |
-| 指令 | 未知指令参数形状 / 缺参数 | `fill_empty_args` / `fill_bad_comma` / `directive_bad_follow` / `delegate_on_non_fn` / `delegate_double_rename` / `delegate_rename_missing_left` / `single_name_not_found` |
-| 形状模板 | 模板里有 DSL 算子 / 形状不匹配 / 绑定冲突 | `impl_template_dsl_ops` / `impl_shape_mismatch` / `impl_inconsistent_binding` |
-| 重复块 / 变长段 | 缺驱动 / 数量不等 / 驱动冲突 / 未知 / 位置非法 | `impl_shape_repeat_*` / `impl_shape_varseg_*` |
-| 语法残留 | 类型位置的 `;`/`=`/`@`/`#`/`-`、fn 参数后续 token、`+` 打头 | `semi_in_spec` / `extern_fn_stray_hash` / `plus_at_type_start` / `fn_return_reapply` |
-| 指针 / 引用 | 裸 `*`、`&` 用法 | `star_misuse` |
-| 深度上限 | 嵌套/链/附件超 `MAX_NEST_DEPTH` | `deep_nesting` / `chain_too_deep` / `attach_too_deep` / `nested_bracket_too_deep` |
-| 入口 | 空 spec / 非类型 spec / 直接写 `#` | `implentry_direct_not_type` / `implentry_at_num_banned` / `implentry_hash_banned` |
-| blanket / `Self` | 方法带或返回裸 `Self`、组内 `Self` | `blanket_self_return` / `blanket_self_in_group` / `blanket_ptr` |
+**来源**列说明这条消息是谁写的：**DSL** = 宏自己的用户语言诊断；**rustc** = 已知泄漏（宏把 token 交出去、由 rustc 抱怨）；**macro** = `batch_trait!` 前端自己的解析错误；**channel** = `batch_preview!` 的输出。
 
-完整清单是 `tests/ui/*.rs`（104 个 `compile_fail` + 3 个 `pass`）：`cargo test --test ui` 运行时逐条核对措辞。
+### 10.1 类型与 spec 语法
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `array_and_punct` | `[u8; 3; 4]` / `[u8;]` | array length `[T; N]` missing or malformed (write `[u8; 3]`) | DSL |
+| `leading_comma` | `,A` | spec list cannot start with `,` | DSL |
+| `dangling_operator` | `A.` | missing operand after `.` (e.g. `T.U`) | DSL |
+| `leading_operator` | `.A` | missing operand before `.` (e.g. `T.U`) | DSL |
+| `num_as_left_operand` | `0.T` | number `0` cannot be a left operand; use it on the right (e.g. `T.0`) | DSL |
+| `semi_in_spec` | 类型后多写 `;` | unexpected `;` after the type | DSL |
+| `plus_at_type_start` | `+A` | `+` is not valid at the start of a type (it belongs in a bound) | DSL |
+| `star_misuse` | 裸 `*` | `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
+| `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | unexpected `#` in a type position | DSL |
+| `lifetime_as_operand` | `'a T` | a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`) | DSL |
+| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | a `::`-tail segment is a plain Rust path — DSL tokens are not allowed | DSL |
+| `global_path_no_ident` | 结尾的 `::` | `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
+| `path_prefix_mismatch` | `# path::Other: Trait` | path prefix `#...Other` has a trailing ident that differs from the trait name | DSL |
+| `group_angle_bare` | `(...)` 里的 `<...>` | a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form | DSL |
+| `bare_impl_trait_target` | 目标位置的 `impl Trait` | a bare `impl` in the spec is a shape template — an `impl <trait-object>` target is not | DSL |
+| `error_aggregation` | 一个属性里多个坏 spec | number `0` cannot be a left operand（全部错误都报出，不只第一条） | DSL |
+| `trait_path_no_ident` | `batch_trait! { 1: ... }` | `batch_trait!` expects an ident as the trait name | macro |
+| `only_semicolon` | `batch_trait! { ; }` | `batch_trait!` expects a trait name | macro |
+| `missing_colon` | `batch_trait! { Tr ... }` | `batch_trait!` expects ':' to separate the trait name and impl-specs | macro |
+
+### 10.2 深度上限
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `deep_nesting` | 129 层嵌套组 | nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
+| `nested_bracket_too_deep` | 130 层 `[` 组 | nesting depth exceeds 128 levels | DSL |
+| `chain_too_deep` | 129 层运算符链 | operator chain exceeds 129 levels (limit 128); split the chain | DSL |
+| `segments_too_deep` | 129 层空格应用链 | space-application chain exceeds 129 levels (limit 128) | DSL |
+| `attach_too_deep` | 129 个附件 | space-application chain exceeds 129 levels (limit 128) | DSL |
+| `impl_attach_too_deep` | 同样的链走 impl 入口 | space-application chain exceeds 129 levels (limit 128) | DSL |
+| `const_value_deep_nesting` | 常量值嵌套 129 层 | nesting depth exceeds 128 levels in a constant value | DSL |
+| `literal_and_range` | `1.5` / `1..x` | **锁的是深度守卫那条消息**——字面量/范围诊断今天没有触发（记为误导性锁定） | DSL |
+
+### 10.3 `@` 常量、引用与范围
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `const_unknown` | `@unknown` | unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` … | DSL |
+| `const_cycle` | `@a=@a` | constant `@a` references unknown `@a` (undefined or defined later) | DSL |
+| `const_forward` | `@b` 之前引用 `@b` | constant `@a` references unknown `@b` (undefined or defined later) | DSL |
+| `const_bare_endpoint` | `@a=@u8`（无 `..`） | constant `@a` references unknown `@u8`——裸范围端点不是常量 | DSL |
+| `const_range_bad` | `@u32..u8` | range start is greater than end: `u32..u8` | DSL |
+| `const_reserved_all` | `@all = ...` | constant name `@all` is a reserved `@all` selector; please rename | DSL |
+| `const_attr_unsupported` | `#[batch_impl]` 上写自定义 `@name=值;` | custom constants are not supported by `#[batch_impl]` / `#[batch_impl_only]` | DSL |
+| `generic_family_batch_trait` | `batch_trait!` 里用 `@all_type_params` | `@all_type_params` is supported only by `#[batch_impl]` / `#[batch_impl_only]` | DSL |
+| `at_num_in_type` | 只有 2 个 fresh 时写 `Box<@5>` | `@5` is out of range — this impl has 2 fresh generics | DSL |
+| `at_group_in_type` | 类型位置的 `@2_0` | `@2_0` does not match a generated generic — this impl has no group 2 position | DSL |
+| `at_group_out_of_range` | 同上，另一处位置 | `@2_0` does not match a generated generic — this impl has no group 2 position | DSL |
+| `at_range_in_type` | 无 fresh 时写 `Vec<@0..=2>` | `@0..=2` out of range — this scope has 0 fresh generics | DSL |
+| `at_empty_range_in_angle` | `Box<@2..1>` | empty exclusive range `@2..1` (start not below end) | DSL |
+| `at_open_range_bare` | 顶层的 `A@..` | range constant `@..` must name the family's maximum endpoint (e.g. `@..u128`) | DSL |
+| `at_binding_splat` | `Tr<Item = *(A,B)>` | a splat cannot be an associated-type binding value | DSL |
+| `at_segment_carrier_in_body` | body 里的 `@{...}` 载体 | `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`) | DSL |
+| `error_aggregation_codegen` | 多个悬空 `@N` 引用 | `@5` is out of range — this impl has 2 fresh generics（全部报出） | DSL |
+| `empty_range` | spec 里的空数字区间 | range `3..2` is empty (start not below end); no impls will be generated | DSL |
+| `expand_limit` | `(...).2000` | `tuple .2000` expands to 2000 impls (limit 1024) | DSL |
+| `bound_gen_over_limit` | bound 生成器乘积 29791 | bound-generator distribution expands to 29791 impls (limit 1024) | DSL |
+
+### 10.4 binding / bound 与函数类型
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `concrete_binding` | `Assoc<Item = u32>`（纯类型实参） | binding args (`Item = u32`) are only valid on a trait path | DSL |
+| `concrete_bound` | `Wrap<u8: Clone>` | bound args (`T: Clone`) are only valid on a trait path, in a generic declaration | DSL |
+| `declaration_binding` | `<Item = u8> Target` | an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target` | DSL |
+| `binding_bound_empty` | `Conv<Item =>` / `Conv<T:>` | binding `Item =` missing a value (write `Item = u32`) | DSL |
+| `fn_named_param_missing_type` | `fn(x:)` | named parameter `x:` is missing a type (write `x: u8`) | DSL |
+| `fn_sugar_named_param` | `Fn(x: u8)` | the `Fn(…)` trait sugar does not support named parameters | DSL |
+| `hrtb_binder_type_param` | `for<u8>` | a `for<…>` binder holds lifetimes (`for<'a>`) — a type parameter is declared on the impl | DSL |
+| `dyn_bound_missing` | `dyn Send +` | a `+` in a `dyn` bound list needs a bound after it | DSL |
+
+### 10.5 指令
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `fill_empty_args` | `#fill()` | the directive's argument list cannot be empty | DSL |
+| `fill_bad_comma` | `#fill(,a)` | in directive arguments, a comma is in an illegal position | DSL |
+| `minus_empty` | `#fill(@all,-)` | directive arguments cannot be empty | DSL |
+| `minus_bad_target` | `#fill(-1)` | in directive arguments, after `-` expected an identifier or `[...]` list | DSL |
+| `directive_bad_follow` | `#m` 后面既无参数也无 body | `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
+| `single_name_not_found` | `#name` 指向不存在的成员 | item `T` not found in trait `no_such` | DSL |
+| `delegate_on_non_fn` | 对常量用 `#delegate` | #delegate only works on methods; `HasConst` in trait `VALUE` is not a method | DSL |
+| `delegate_const` | 同上，另一个常量 | #delegate only works on methods; `ConstApi` in trait `LIMIT` is not a method | DSL |
+| `delegate_double_rename` | `#delegate(size=a, size=b)` | #delegate method `size` is renamed twice | DSL |
+| `delegate_rename_missing_left` | `#delegate(=foo)` | #delegate rename `X = Y` needs identifiers on both sides | DSL |
+| `blanket_ptr` | `#blanket(*const T)` | #blanket does not support `*const`/`*mut` wrappers | DSL |
+| `blanket_self_return` | blanket 方法返回裸 `Self` | #blanket method `NewT::new` takes/returns `Self` | DSL |
+| `blanket_self_in_group` | 组里的 `Self` | #blanket method `GroupSelf::f` takes/returns `Self` | DSL |
+| `blanket_bad_depth` | `#blanket(...:abc)` | after #blanket `:abc` must come a number (e.g. `Box.Arc:2`) | DSL |
+| `blanket_bad_empty_depth` | `#blanket(...:)` | after #blanket `:` must come a number (e.g. `Box.Arc:2`) | DSL |
+| `blanket_bad_huge_depth` | `#blanket(...:999999)` | #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
+
+### 10.6 形状模板、重复块与变长段
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `impl_template_dsl_ops` | `impl{...}` 里写 DSL 算子 | the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
+| `impl_template_range_constant` | 模板里写范围常量 | the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
+| `impl_shape_mismatch` | 模板与目标形状不匹配 | `impl{...}` template cannot destructure the target type (generic argument shape …) | DSL |
+| `impl_shape_fn_bound` | 模板里写 `fn(A) -> B` | `impl{...}` template cannot destructure the target type (template `fn(A) -> …`) | DSL |
+| `impl_shape_lifetime_arg` | 生命周期实参不一致 | `impl{...}` template cannot destructure the target type (generic argument …) | DSL |
+| `impl_shape_varseg_duplicate` | 同一个 `A@..` 出现两次 | `impl{...}` template cannot destructure the target type (duplicate variadic segment …) | DSL |
+| `impl_shape_varseg_outside_tuple` | 变长段不在元组里 | `impl{...}` template cannot destructure the target type (a variadic segment …) | DSL |
+| `impl_shape_varseg_uneven` | 变长段长度不齐 | `impl{...}` template cannot destructure the target type (variadic segments c…) | DSL |
+| `impl_inconsistent_binding` | 两个模板给 `X` 绑不同子树 | binding slot `X` is bound to different subtrees across merged `impl{...}` templates | DSL |
+| `impl_shape_repeat_unknown` | `@X` 没有对应段 | repeat block references unknown variadic segment `@X` | DSL |
+| `impl_shape_repeat_unequal` | 各段长度 2 vs 3 | repeat block segments have different lengths (2 vs 3) | DSL |
+| `impl_shape_repeat_driver_conflict` | 驱动 `@A` 与内层 `@B` 冲突 | repeat block driver `@A` conflicts with the inner segment reference `@B` | DSL |
+| `impl_shape_repeat_bare_at` | body 里裸写 `@foo` | `@` inside an impl body must start a repeat block `@(...)..` | DSL |
+| `impl_shape_repeat_cursor_multi` | 多模板下只有游标块 | a cursor-only repeat block needs a driving segment | DSL |
+| `impl_shape_repeat_invalid_switch` | `impl{@2..1}` | invalid fresh-binding switch — the range covers no fresh | DSL |
+| `impl_shape_repeat_invalid_switch_closed` | `impl{@2..=1}` | invalid fresh-binding switch — the range covers no fresh | DSL |
+| `impl_shape_repeat_no_driver` | 无开关的纯游标 body 块 | expected one of `.`, `;`, `?`, `}`, or an operator, found `,` | rustc |
+
+### 10.7 入口与顶层块
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `implentry_at_num_banned` | impl 入口 spec 无 fresh 时写 `@0` | `@0` is out of range — this impl has 0 fresh generics | DSL |
+| `implentry_direct_not_type` | 该写类型的位置写了指令 | the direct form takes exactly one type after the generic declaration | DSL |
+| `implentry_hash_banned` | impl 入口上用 `#fill` | `#` directives are not supported on the ItemImpl entry | DSL |
+| `top_level_block_not_last` | `{! m!{…}}` 不是最后一个块 | a `{! ...}` top-level block must be the last block | DSL |
+| `top_level_manual_not_last` | 手工顶层形式不在最后 | a `{! ...}` top-level block must be the last block | DSL |
+| `top_level_without_attach` | 顶层块没有附着类型 | a top-level `{! ...}` block needs an attached type | DSL |
+
+### 10.8 `where`
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `where_missing_body` | 裸 `where` 后面没有 `{...}` | `where` predicates are missing a code block {...} | DSL |
+| `where_not_a_predicate` | `where{ A B }` | a where predicate must be a Rust predicate — write `T: Bound` | DSL |
+| `where_splat_bad` | `where{*(A,B): Clone}` | a splat cannot be a where-predicate subject | DSL |
+| `where_empty_exclusive_range` | `where{@2..2: Clone}` | empty exclusive range `@2..2` (start not below end) | DSL |
+
+### 10.9 预览通道
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `preview_ok` | `batch_preview! { #[batch_impl(usize, isize)] trait Pv {} }` | batch-impl preview: 2 impl(s) generated | channel |
+| `preview_miswrite` | 预览体写错 | batch-impl preview: 1 impl(s) generated | channel |
+
+### 10.10 已知泄漏（措辞由 rustc 给出）
+
+| fixture | 触发 | 锁定的措辞 | 来源 |
+|---|---|---|---|
+| `decl_generator_splat` | `<*().3> Vec<u8>` | expected type, found `@` | rustc |
+| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope（E0425——`-> B` 已填，类型是符号名） | rustc |
+| `impl_trait_sync_body_negative` | body 里写 `X<>` 但模板不带 `Tr<>` | trait takes 1 generic argument but 0 generic arguments were supplied（E0107） | rustc |
+| `unsafe_non_fn` | 对非 unsafe trait 用 `unsafe` | implementing the trait `T` is not unsafe | rustc |
+
+锁的另一半是 **3 个 `pass` fixture**：`constant_named_type_arg`（只是*名字*叫 `constant` 的类型参数绝不是 `const` 参数）、`tests/ui/pass/basic.rs` 与 `tests/ui/pass/impl_entry_empty_attribute.rs` 必须保持可编译。
 
 ## 11. 上限与保证
 

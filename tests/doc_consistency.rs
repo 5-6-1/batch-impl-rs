@@ -247,6 +247,66 @@ fn language_mirrors_share_their_section_numbers() {
     }
 }
 
+/// Floors for the fixture inventory (104 `compile_fail` + 3 `pass` today).
+const MIN_UI_FIXTURES: usize = 100;
+
+/// Every `tests/ui` fixture must be named by the reference's diagnostics catalog
+/// (in **both** languages) — the catalog is the user-facing index of the wording
+/// lock, and a fixture the catalog never mentions is how the two drift apart:
+/// the wording changes, the snapshot is re-blessed, and the doc keeps describing
+/// the old message.
+///
+/// A fixture counts as named when its stem appears backticked (`deep_nesting`)
+/// or by its path under `pass/` (`pass/basic.rs`).
+#[test]
+fn reference_names_every_ui_fixture() {
+    fn walk(dir: &Path, out: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && let Some(stem) = path.file_stem()
+            {
+                out.push(stem.to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut fixtures = vec![];
+    walk(&root.join("tests/ui"), &mut fixtures);
+    assert!(
+        fixtures.len() >= MIN_UI_FIXTURES,
+        "the fixture walk found only {} files (floor {MIN_UI_FIXTURES})",
+        fixtures.len()
+    );
+
+    for doc in ["docs/reference.md", "docs/zh-CN/reference.md"] {
+        let text = fs::read_to_string(root.join(doc)).unwrap_or_else(|e| panic!("{doc}: {e}"));
+        // Scoped to the catalog itself (§10 up to §11): a stray mention in
+        // another section must not stand in for a catalog row.
+        let catalog = text
+            .split_once("## 10.")
+            .and_then(|(_, rest)| rest.split_once("## 11."))
+            .map(|(catalog, _)| catalog)
+            .unwrap_or_else(|| panic!("{doc}: no `## 10.` … `## 11.` catalog section"));
+        let missing = fixtures
+            .iter()
+            .filter(|stem| {
+                !catalog.contains(&format!("`{stem}`"))
+                    && !catalog.contains(&format!("pass/{stem}"))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(
+            missing.is_empty(),
+            "{doc} does not name these UI fixtures:\n  {}",
+            missing.join("\n  ")
+        );
+    }
+}
+
 /// The repo-relative file paths a doc body mentions, in two spellings: `src/…`
 /// (the authoritative one, used in prose and tables) and a backticked
 /// `dir/file.rs` (a relative path with a directory is unambiguous; a bare
