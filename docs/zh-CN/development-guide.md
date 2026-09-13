@@ -47,7 +47,7 @@ cargo doc --no-deps                    # 零警告
    `docs/zh-CN/dev-changelog.md`）。每个改动完成即记入，不攒到发布时补。
 2. **发布时**：
    - `Cargo.toml` 版本号递增；
-   - 头部版本行更新（`README.md`、`docs/tutorial.md`、`docs/architecture.md`
+   - 头部版本行更新（`README.md`、`docs/tutorial.md`、`docs/reference.md`、`docs/architecture.md`
      及其 zh-CN 对应——EN 替换为 `**vX.Y.Z** (date) — 摘要`；zh-CN architecture
      按版本堆叠是**新增一行**，不替换）；
    - README 依赖示例版本（`batch-impl = "X.Y.Z"`）同步；
@@ -109,12 +109,13 @@ cargo doc --no-deps                    # 零警告
 - **诊断 span**：指向用户可见 token（`err_ty_at` 水位），不用裸 `Span::call_site`
   （impl entry / shape 诊断已收编，`syn::Error::span()` / leaf token span 可用处必用）。
 
-## 5. 文档纪律（双语五处 + doctest）
+## 5. 文档纪律（双语六处 + doctest）
 
-- **双语同步**：EN 是发布产物，zh-CN 开发时先写。五处 × 双语：
-  `README`、`tutorial`、`architecture`、`dev-changelog`、`CHANGELOG`。
-  改一处必须同步另一语言，发布前检查。
-- **教程代码块 = doctest**：`docs/tutorial.md` 与 `README.md` 的 ```rust
+- **双语同步**：EN 是发布产物，zh-CN 开发时先写。六处 × 双语：
+  `README`、`tutorial`、`reference`、`architecture`、`dev-changelog`、`CHANGELOG`。
+  改一处必须同步另一语言，发布前检查；两种语言必须保持**相同的章节编号**
+  （`tests/doc_consistency.rs` 会比对这个序列）。
+- **教程代码块 = doctest**：`docs/tutorial.md`、`docs/reference.md` 与 `README.md` 的 ```rust
   块被 lib.rs 的 `#![doc = include_str!]` 编译——改了必须能编译。
 - **docs.rs 首屏**：README 是 lib.rs 文档的一部分，首页重构须保持
   "为什么用它 + 最小示例"置顶、版本横幅一行链接 CHANGELOG。
@@ -157,7 +158,7 @@ cargo doc --no-deps                    # 零警告
 ## 9. 打包卫生
 
 - 发布前 `cargo package --list` 人工检查：无关文件（本地笔记、探针）不进包。
-- **包里到底装什么、为什么**（`Cargo.toml` 的 `exclude` 写了同样的理由）：构建只通过 `include_str!` 读 `README.md`、`docs/tutorial.md` 与 `src/doc/*.md`。`docs/zh-CN/`、`docs/dev-changelog.md` 与 `tests/` 是开发产物，一律排除——**必须一起排，不能只排一半**：`tests/doc_consistency.rs` 会读 zh 版 architecture，并解析当前态文档点到的每个路径（含 `docs/dev-changelog.md`），所以"带了 tests 却没带这些文档"的包会内含一个必然失败的测试套件，而 `cargo package` **只 build**、抓不到这一点。
+- **包里到底装什么、为什么**（`Cargo.toml` 的 `exclude` 写了同样的理由）：构建只通过 `include_str!` 读 `README.md`、`docs/tutorial.md`、`docs/reference.md` 与 `src/doc/*.md`。`docs/zh-CN/`、`docs/dev-changelog.md` 与 `tests/` 是开发产物，一律排除——**必须一起排，不能只排一半**：`tests/doc_consistency.rs` 会读 zh 版 architecture，并解析当前态文档点到的每个路径（含 `docs/dev-changelog.md`），所以"带了 tests 却没带这些文档"的包会内含一个必然失败的测试套件，而 `cargo package` **只 build**、抓不到这一点。
 - 不提交探针文件（`tests/_iso/` 是临时区，历史教训：曾两次误提交）。
 
 ## 10. 边界（不要做的事）

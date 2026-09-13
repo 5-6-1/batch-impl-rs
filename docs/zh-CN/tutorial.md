@@ -2,7 +2,7 @@
 
 **v0.9.7**（2026-08-29）——评审修复发布：黄金展开快照（`tests/golden/`，测试体系最后一块空白）、实测展开开销（1024 个 impl 上限约 0.2 ms/impl，`cargo test --lib perf`）、打包卫生（`rust-2024-feature.md` 不再进包）、Windows（MSVC）CI job、impl entry 精确诊断 span、入口单次解析、纯文档占位宏不再静默。无 DSL 语法变化——下方 0.9.6 语法面不变。
 
-渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。
+渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。**配套查阅文档是 `docs/zh-CN/reference.md`**（合法性矩阵、诊断目录、上限与保证）。
 
 ## 0. 三个系统 + 一个操作符
 
@@ -253,9 +253,11 @@ trait GSplat {}
 // → impl<P0, P1> GSplat for Pair2<P0, P1>（摊平成两个实参）
 ```
 
-### 4.6 合法位置与限制
+### 4.6 合法位置
 
-splat 是"参数位置列表"——凡是要元素列表的地方都展开：泛型实参（`Foo<*(a,b)>`）、元组/数组元素（`(a, *(b,c))`、`[*(a),*(b)]`）、泛型声明、fn 参数（`fn(*(A,B))`）、spec 列表（`[*(a,b)]`）。裸 splat 作 **where 谓词主体**没有定义语义（`*(A,B): Trait` 会展开成 `A, B: Trait`）——明确报错；包进元组也没用：where 子句到输出全程 token 级，任何展开器都看不到谓词里的 splat（`(*(A,B)): Trait`、`X: Trait<*(A,B)>`），由谓词终检报错——把类型分开写出来。
+splat 在**参数位置列表被当作 Ty 结构解析**的地方展开——泛型实参（`Foo<*(a,b)>`）、trait 应用实参（`Conv<*(A,B)> X`）、元组元素（`(a, *(b,c))`）、数组元素（`[*(a),*(b)]`）、`dyn` bound 尾巴（`dyn Tr<*(u8, u16)>`）与 spec 列表（`[*(a,b)]`）。有三个位置**没有**这层结构，因此不展开（实测：rustc 会报 raw pointer 错）：泛型声明块（`<T, *(A,B)>`）、fn 参数表（`fn(*(u8, u16))`）与内联 bound（`<T: Tr<*(u8, u16)>>`）。`where` 谓词里的 splat 由 DSL 报错（见 §8）。既非 splat 也非指针的裸 `*` 定向报错。
+
+完整的位置矩阵见 `docs/zh-CN/reference.md` §2 与 §4。
 
 两条规则：`T.*(A,B,...)` ≡ `T<A, B, ...>`（右 splat = 扁平参数追加）；左 splat 按来源——`*[A,B] T` = `*[A.T,B.T]`（分配律）、`*(A,B) T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
 
@@ -396,6 +398,23 @@ trait Q6 {}
 ```
 
 `Fn(x: u8)` **不**被接受：rustc 本身就拒绝 `Trait(...)` 语法里的具名参数（"does not support named parameters"），DSL 因此照实报出这条规则，而不是漏出一个令人困惑的 `expected type` 错误。
+
+**目标以 `::` 开头时必须显式写出元素边界。** `<...>`（跟在 ident 之后）与 `::` 都是**当前路径的续接**，所以并列写法会把 trait 头和绝对路径目标粘成一条路径——trait 落进**类型位置**（E0782）。空格与 `.` 是元素边界，而在 trait 头下两者等价，因此写 `.`：
+
+```rust
+# use batch_impl::batch_impl;
+// `@trait<u8> . ::std::string::String` → impl TrE<u8> for ::std::string::String
+#[batch_impl(@trait<u8> . ::std::string::String)]
+trait TrE<T = usize> { fn tag(&self) -> u8 { 7 } }
+```
+
+```text
+@trait<u8> ::std::string::String   →  impl TrE for TrE<u8>::std::string::String   （粘连，E0782）
+Tr<u8> (::some_mod::SomeType)      →  impl Tr for Tr<u8, ::some_mod::SomeType>    （组是实参追加）
+::std::vec::Vec<u8>                →  impl Tr for ::std::vec::Vec<u8>             （单元素 spec 整体是目标）
+```
+
+edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::...`。规则本身见 `docs/zh-CN/reference.md` §1.2。
 
 ## 6. `@` 常量系统（宏元层）
 
@@ -1014,6 +1033,8 @@ trait Matrix {}
 
 ## 10. 修饰符大全
 
+完整的修饰符表（`&`/`&mut`、`*const`/`*mut`、`unsafe`、`#[...]`、`!`、`self`）在 `docs/zh-CN/reference.md` §3；本节只留三个**读法容易搞错**的。
+
 `&`、`*const`、`*mut`、`unsafe`、`fn` 类型、属性全支持：
 
 ```rust
@@ -1058,13 +1079,9 @@ trait Slices {}
 
 **任意嵌套类型原生支持**：`HashMap<String, Vec<(u8, u16)>>`、`Result<Box<dyn Fn(u8) -> u16>, String>` 等任意组合直接书写、结构化解析——DSL 已覆盖近乎全类型，不再是"原样透传"。
 
-## 11. 三个入口
+## 11. 入口
 
-| 入口                 | 语义                                                                                                        | trait 定义            |
-|----------------------|-------------------------------------------------------------------------------------------------------------|-----------------------|
-| `#[batch_impl]`      | 标准：impl + **重发 trait 定义**                                                                            | 标注在 trait 上       |
-| `#[batch_impl_only]` | 只生成 impl，trait 由外部定义（可加 `# 路径::到::Trait:` 前缀声明外部 trait 的真实路径，要求至少一个 `::`） | 标注在 dummy trait 上 |
-| `batch_trait!`       | 多段宏：多 trait + 段级 `@` 常量（不支持 `#` 指令）                                                         | 段内联                |
+六个入口共用同一套 spec 文法；对照表在 `docs/zh-CN/reference.md` §9，各入口的完整参数语义在 rustdoc（`src/doc/`）。两个容易读错的点：`#[batch_impl_only]` 用 `# 路径::到::Trait:` 前缀声明外部 trait（要求至少一个 `::`），而 `batch_trait!` 拿不到 trait 定义，因此**不支持** `#` 指令。
 
 ```rust
 # use batch_impl::batch_impl_only;
@@ -1089,26 +1106,17 @@ batch_trait! {
 
 ## 12. 错误提示
 
-batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）：
+batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）——**一条错误、不级联**。完整目录（每一类 + 锁定其措辞的 fixture）在 `docs/zh-CN/reference.md` §10。最常撞的是这些：
 
 - **操作数缺失**：`A.` / `.A` / `,A` —— `compile_error!` 明确报错
-- **未知 `@` 常量**：列出内置常量名（`@u*`/`@i*`/`@f*`/`@scalar`/`@num` + 范围族）
-- **常量循环/前向引用**：定义处拦截（防无限递归）
 - **`@N`/`@g_i` 越界或悬空引用**：`@5` 超出 impl 生成的泛型数 / `@2_0` 组不存在——用户语言定向报错（fresh 泛型从 0 按文档序编号）；生成名就是用户可见的显示名（`P0`、`P1`……），引用在宏内被拦截——绝不落为 rustc E0412 裸错
 - **splat 作 where 谓词主体**：明确拒绝（`A, B: Trait` 无定义语义）——包进元组也没用：where 子句到输出全程 token 级，任何展开器都看不到谓词里的 splat（`(*(A,B)): Trait`、`X: Trait<*(A,B)>`）
 - **`where` 谓词不是合法 Rust 谓词**：在谓词定型后（`X<>` 填充、`@` 解析、shape 模板槽替换之后）报错——`where{ A B }`（漏 `:`）直接给出修法，而不是对整个属性报解析错误
+- **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
 - **泛型改名不继承**：trait 泛型参数改名 = 明确报错，绝不静默
 - **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
-- **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
 - **具体类型实参遇 `=`/`:`**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）与 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … or in a bound"）
 - **`<>` 声明块里的关联类型 binding**：声明块声明的是**参数**，因此 `<Item = u8> Target` 报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"。可用的写法是 trait 应用那种（它的 binding 会被提升进 impl body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`）
-- **类型位置的 `;`/`=`/`@`/`#`/`-` 残留**：定向报错（`..=` 的 `=` 除外，不级联二次诊断；孤 `-` 是已退役运算符——排除语义仅存于指令列表）
-- **fn 参数列表后残留**：`fn(A) B` / `fn(A)->`——报意外 token（返回类型写 `-> B` 或 `fn(A) B`）
 - **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型
-- **binding/bound 缺值**：`Conv<Item =>` / `Conv<T:> X`——报 "missing a value" / "missing a bound"
-- **非整数类型字面量**：`1.5` / `"hi"` / `'a'`——类型位置只能是整数（usize）
-- **range 端点非整数**：`1..x` / `A..B`——报 "needs integer endpoints"
-- **数组长度畸形**：`[u8; 3; 4]` / `[u8;]`——报 "missing or malformed"
-- **类型起始 `+`**：`+A`——报 "not valid at the start of a type"（`+` 属于 bound，如 `T: Clone + Send`）；前导 `.` 报操作数缺失；`?` 前缀类型（`?Sized`）透传由 rustc 报错
-- **未知指令**：无内置拼写守卫——非内置指令、也非 trait item 名的 `#name(args){body}` 展开为你同名的宏（开放扩展）；拼写错误以 rustc 自己的 "macro not found" 呈现
+- **splat 落在不展开的位置**（§4.6）：泛型声明块、fn 参数表与内联 bound 目前会把 splat 泄漏给 rustc；`where` 谓词里的 splat 由 DSL 报错
 

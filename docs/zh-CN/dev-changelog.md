@@ -200,6 +200,12 @@
   - **有一条消息在推荐根本不能用的写法**：`where_splat_bad` 建议把 splat 包进元组，但没有任何阶段会展开谓词里的 splat——where 子句从解析到输出全程 token 级。现在两种写法都会报错（新增 `where_not_a_predicate` fixture；splat 消息与 fixture 注释一并修正），architecture/tutorial 里"`(*(A,B)): Trait` / `X: Trait<*(A,B)>` 合法"的说法也改成实测结果。
   - **证据**：单测 **161**、feature 测试 **299**、UI **104 + 3**、doctest 93，9 份 golden 不变，fmt/clippy/doc 干净。
 
+- **面向用户的文档拆成教程 + 参考手册**——新增 `docs/reference.md`（含 zh 镜像）并通过 `include_str!` 接进 crate 文档，因为教程已经长成半张查阅表（合法位置清单、修饰符表、入口清单、错误目录）。一条事实现在只有一个家：教程留叙述与可运行示例并指向参考手册，参考手册承载合法性矩阵、诊断目录（每一类 + 锁定其措辞的 fixture）、上限与保证，并把每条 API 的参数语义指向 rustdoc（`src/doc/*.md`）。同时更新了 README 的下一步清单、开发指南（五处 → **六处** × 双语、doctest 规则、打包规则）与 `Cargo.toml` 的 `exclude` 理由。
+  - **写位置矩阵时实测出来的——文档曾称为合法的三个位置其实不展开**：泛型**声明块**里的 splat（`<T, *(A,B)>`）、**fn 参数表**里的 splat（`fn(*(u8, u16))`）与**内联 bound** 里的 splat（`<T: Tr<*(u8, u16)>>`）都原样到达 rustc（bound 那条例报 `expected mut or const keyword in raw pointer type`）；同一个 splat 在 `dyn` 尾巴里会展开、在 `where` 谓词里由 DSL 报错。教程 §4.6 与参考手册都改成实测集合，三条旧声明删除。（把这三个位置修好是另一轮，仍未做。）
+  - **教程 §5.7 补上绝对路径规则**（上一轮拍板的拼写）：`<...>` 与 `::` 续接当前路径，空格与 `.` 是元素边界，因此以 `::` 开头的目标写成 `@trait<u8> . ::std::string::String` → `impl Tr<u8> for ::std::string::String`（真编译 + 运行期断言实测）；并列写法会粘成一条路径、把 trait 放进类型位置（E0782）。
+  - **新增守卫**：`tests/doc_consistency.rs` 现在还会比对两种语言的**章节编号**（`## N.` / `### N.M`）——只加到一种语言的新章节会让测试失败。证伪探针：把 zh 的一个标题改成 `4.7`，`language_mirrors_share_their_section_numbers` 失败。
+  - **证据**：单测 **161**、feature 测试 **299**、UI **104 + 3**、doctest 93 → **94**（新增的 §5.7 示例），9 份 golden 不变，`fmt`/`clippy`/`doc` 干净，`cargo package --list` 从 104 → **105** 个文件（参考手册进包，zh 镜像仍排除）。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

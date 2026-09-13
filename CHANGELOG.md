@@ -253,6 +253,23 @@
   it. The bare `*(A,B): Trait` keeps its own message, which no longer
   recommends a form that does not work.
 
+- **The docs are a tutorial plus a reference manual now** — `docs/reference.md` is
+  new: the position × construct legality matrix, the complete diagnostics catalog
+  (every class with the fixture that locks its wording), the ceilings and the
+  guarantees. The tutorial keeps the progressive path and links to it, so one fact
+  lives in one place; both documents ship in the crate's rustdoc.
+- **An absolute-path target is separated with `.`** — `<...>` (after an ident) and
+  `::` continue the current path, so `@trait<u8> ::std::string::String` glues into
+  one path and puts the trait in type position (E0782). Write
+  `@trait<u8> . ::std::string::String` → `impl Tr<u8> for ::std::string::String`;
+  with a trait head, `.` and the space are equivalent.
+- **Three documented splat positions do not expand** (measured, recorded, not yet
+  fixed) — a splat inside a generic declaration block (`<T, *(A,B)>`), a fn
+  parameter list (`fn(*(u8, u16))`) or an inline bound (`<T: Tr<*(u8, u16)>>`)
+  reaches rustc as written; the same splat does expand in a `dyn` tail and is
+  reported by the DSL inside a `where` predicate. The tutorial and the reference
+  now state the measured set.
+
 ## 0.9.7 (2026-08-29)
 
 > Review-fix release: the golden-snapshot test layer (the last coverage gap),

@@ -1500,6 +1500,42 @@
   - **Evidence**: lib **161**, features **299**, UI **104 + 3**, doctests 93, the
     9 goldens unchanged, fmt/clippy/doc clean.
 
+- **The user-facing docs are split into a tutorial and a reference manual** —
+  `docs/reference.md` (plus the zh mirror) is new and `include_str!`-wired into
+  the crate docs, because the tutorial had grown into half a lookup table (the
+  legal-position list, the modifier table, the entry list, the error catalog).
+  One fact now has one home: the tutorial keeps the narrative and the worked
+  examples and points at the reference, the reference carries the legality matrix,
+  the diagnostics inventory (each class with the fixture that locks its wording),
+  the ceilings and the guarantees, and points at rustdoc (`src/doc/*.md`) for
+  per-API arguments. `README`'s next-steps list, the development guide (five →
+  **six** files × two languages, the doctest rule, the packaging rule) and
+  `Cargo.toml`'s `exclude` reasoning were updated with it.
+  - **Measured while writing the position matrix — three positions the docs
+    called legal are not**: a splat inside a generic **declaration block**
+    (`<T, *(A,B)>`), inside an **fn parameter list** (`fn(*(u8, u16))`) and
+    inside an **inline bound** (`<T: Tr<*(u8, u16)>>`) is not expanded — the raw
+    tokens reach rustc (the bound case reports `expected mut or const keyword in
+    raw pointer type`), while the same splat in a `dyn` tail does expand and in a
+    `where` predicate is reported by the DSL. Tutorial §4.6 and the reference both
+    state the measured set, and the three claims are gone. (Fixing the three
+    positions is a separate, still-open round.)
+  - **The tutorial's §5.7 gains the absolute-path rule** (the spelling approved in
+    the previous round): `<...>` and `::` continue the current path while the
+    space and `.` are element boundaries, so a target starting with `::` is
+    written `@trait<u8> . ::std::string::String` → `impl Tr<u8> for
+    ::std::string::String` (measured with a real compile and a runtime assertion);
+    the juxtaposed form glues into one path and lands the trait in type position
+    (E0782).
+  - **New guard**: `tests/doc_consistency.rs` also compares the two language
+    mirrors' **section numbers** (`## N.` / `### N.M`) — a chapter added to one
+    language and not the other now fails the suite. Falsification probe: renaming
+    one zh heading to `4.7` fails `language_mirrors_share_their_section_numbers`.
+  - **Evidence**: lib **161**, features **299**, UI **104 + 3**, doctests 93 → **94**
+    (the new §5.7 example), the 9 goldens unchanged, `fmt`/`clippy`/`doc` clean,
+    `cargo package --list` 104 → **105** files (the reference ships, the zh mirror
+    stays excluded).
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

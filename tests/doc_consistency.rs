@@ -153,13 +153,15 @@ fn architecture_module_trees_match_sources() {
 /// `tutorial.md` is listed although it currently names no file path at all — the
 /// list states scope, and a tutorial that starts naming modules should be checked
 /// the day it does.
-const CURRENT_DOCS: [(&str, &str); 6] = [
+const CURRENT_DOCS: [(&str, &str); 8] = [
     ("docs/architecture.md", "## Module Organization"),
     ("docs/development-guide.md", ""),
     ("docs/tutorial.md", ""),
+    ("docs/reference.md", ""),
     ("docs/zh-CN/architecture.md", "## 模块组织"),
     ("docs/zh-CN/development-guide.md", ""),
     ("docs/zh-CN/tutorial.md", ""),
+    ("docs/zh-CN/reference.md", ""),
 ];
 
 #[test]
@@ -187,6 +189,62 @@ fn current_docs_path_references_exist() {
          the scan or the doc set is broken"
     );
     assert!(bad.is_empty(), "current-state docs name non-existent paths:\n  {}", bad.join("\n  "));
+}
+
+/// The user-facing doc pairs whose **section numbers** must agree. The prose is
+/// localized (that is the point of the mirrors), the numbered skeleton is not:
+/// after the docs were split into a tutorial and a reference, a section added to
+/// one language and not the other would otherwise stay invisible until a reader
+/// hit the missing §.
+///
+/// `architecture.md` is not listed: its headings are unnumbered by design.
+const DOC_PAIRS: [(&str, &str); 2] = [
+    ("docs/tutorial.md", "docs/zh-CN/tutorial.md"),
+    ("docs/reference.md", "docs/zh-CN/reference.md"),
+];
+
+/// The numeric section labels of a doc (`## 4.` / `### 4.6`), in order. An
+/// unnumbered heading contributes nothing — the contract is the numbered
+/// skeleton, and the tutorial's §3 deliberately uses prose headings.
+fn section_labels(doc: &str) -> Vec<String> {
+    doc.lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("### ").or_else(|| line.strip_prefix("## "))?;
+            let token = rest.split_whitespace().next()?;
+            let label = token.strip_suffix('.').unwrap_or(token);
+            let numeric = !label.is_empty()
+                && label.chars().all(|c| c.is_ascii_digit() || c == '.')
+                && label.chars().any(|c| c.is_ascii_digit());
+            numeric.then(|| label.to_string())
+        })
+        .collect()
+}
+
+/// Floors that keep a broken parse from passing on an empty sequence (the
+/// tutorial has 43 labels, the reference 15).
+const MIN_SECTION_LABELS: usize = 10;
+
+#[test]
+fn language_mirrors_share_their_section_numbers() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (en, zh) in DOC_PAIRS {
+        let en_labels = section_labels(&fs::read_to_string(root.join(en)).unwrap());
+        let zh_labels = section_labels(&fs::read_to_string(root.join(zh)).unwrap());
+        assert!(
+            en_labels.len() >= MIN_SECTION_LABELS,
+            "{en}: only {} section labels were parsed (floor {MIN_SECTION_LABELS})",
+            en_labels.len()
+        );
+        assert!(
+            zh_labels.len() >= MIN_SECTION_LABELS,
+            "{zh}: only {} section labels were parsed (floor {MIN_SECTION_LABELS})",
+            zh_labels.len()
+        );
+        assert_eq!(
+            en_labels, zh_labels,
+            "{en} and {zh} drifted apart — the two mirrors must keep the same numbered skeleton"
+        );
+    }
 }
 
 /// The repo-relative file paths a doc body mentions, in two spellings: `src/…`

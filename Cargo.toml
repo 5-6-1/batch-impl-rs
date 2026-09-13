@@ -17,7 +17,7 @@ rust-version = "1.95.0"
 # - `rust-2024-feature.md`: local notes (lesson: it once shipped in every crate).
 # - `docs/zh-CN/` + `docs/dev-changelog.md`: development artifacts (the zh
 #   mirrors and the internal changelog). The build only reads `README.md`,
-#   `docs/tutorial.md` and `src/doc/*.md` via `include_str!`.
+#   `docs/tutorial.md`, `docs/reference.md` and `src/doc/*.md` via `include_str!`.
 # - `tests/`: the suite is developed here, not shipped. It has to go together
 #   with the docs above — `tests/doc_consistency.rs` reads `docs/zh-CN/…` and
 #   resolves every path the current-state docs name (including

@@ -66,7 +66,8 @@ on it.
 2. **At release**:
    - Bump the version in `Cargo.toml`;
    - Update the head version line (`README.md`, `docs/tutorial.md`,
-     `docs/architecture.md` and their zh-CN counterparts — EN replaces with
+     `docs/reference.md`, `docs/architecture.md` and their zh-CN counterparts —
+     EN replaces with
      `**vX.Y.Z** (date) — summary`; the zh-CN architecture **appends** a line
      per version, it does not replace);
    - Sync the README dependency example (`batch-impl = "X.Y.Z"`);
@@ -177,11 +178,12 @@ on it.
 ## 5. Documentation Discipline (bilingual, five files, doctests)
 
 - **Bilingual sync**: EN is the release artifact; zh-CN is written first during
-  development. Five files × two languages: `README`, `tutorial`, `architecture`,
-  `dev-changelog`, `CHANGELOG`. A change to one language must be mirrored in
-  the other before release.
+  development. Six files × two languages: `README`, `tutorial`, `reference`,
+  `architecture`, `dev-changelog`, `CHANGELOG`. A change to one language must be
+  mirrored in the other before release, and the two language mirrors must keep
+  the **same section numbers** (`tests/doc_consistency.rs` compares them).
 - **Tutorial code blocks are doctests**: the ```rust blocks in
-  `docs/tutorial.md` and `README.md` are compiled by lib.rs's
+  `docs/tutorial.md`, `docs/reference.md` and `README.md` are compiled by lib.rs's
   `#![doc = include_str!]` — they must compile after any edit.
 - **docs.rs first screen**: README is part of the lib.rs docs; any front-page
   restructure must keep "Why use it" + the minimal example on top and the
@@ -240,8 +242,9 @@ review against them:
 - Before release, run `cargo package --list` and eyeball the manifest:
   unrelated files (local notes, probes) must not ship.
 - **What the crate ships, and why** (the `exclude` list in `Cargo.toml` carries
-  the same reasoning): the build reads only `README.md`, `docs/tutorial.md` and
-  `src/doc/*.md` through `include_str!`. `docs/zh-CN/`, `docs/dev-changelog.md`
+  the same reasoning): the build reads only `README.md`, `docs/tutorial.md`,
+  `docs/reference.md` and `src/doc/*.md` through `include_str!`. `docs/zh-CN/`,
+  `docs/dev-changelog.md`
   and `tests/` are development artifacts and are excluded — together, never
   separately: `tests/doc_consistency.rs` reads the zh architecture and resolves
   every path the current-state docs name (including `docs/dev-changelog.md`), so a

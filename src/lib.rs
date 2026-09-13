@@ -1,5 +1,6 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/tutorial.md"))]
+#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/reference.md"))]
 // The library uses no unsafe **in its own logic** — enforced as deny rather
 // than forbid for exactly one audited exception: the test-build allocation
 // guard (`testing::GuardAlloc`), which turns runaway fuzz allocations into

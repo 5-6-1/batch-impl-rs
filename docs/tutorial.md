@@ -249,7 +249,9 @@ trait GenSpl {}
 
 ### 4.6 Legal positions
 
-A splat is a **parameter-position list**: generic args / tuple / array elements / generic declarations / fn parameters / spec lists. A bare splat as a **where-predicate subject** is rejected (`*(A,B): Trait` has no defined semantics) — and wrapping it does not help either: the where clause stays token-level all the way to the output, so no expander ever sees a splat inside a predicate (`(*(A,B)): Trait`, `X: Trait<*(A,B)>`), and the final predicate check reports it. A bare `*` that is neither a splat nor a raw pointer errors with a targeted message.
+A splat expands where a **parameter-position list is parsed as a Ty structure** — generic args (`Foo<*(a,b)>`), trait-application args (`Conv<*(A,B)> X`), tuple elements (`(a, *(b,c))`), array elements (`[*(a),*(b)]`), the `dyn` bound tail (`dyn Tr<*(u8, u16)>`) and spec lists (`[*(a,b)]`). Three positions parse a parameter list **without** that structure and stay unexpanded (measured — rustc then reports a raw-pointer error): generic declaration blocks (`<T, *(A,B)>`), fn parameter lists (`fn(*(u8, u16))`) and inline bounds (`<T: Tr<*(u8, u16)>>`). A splat inside a `where` predicate is reported by the DSL instead (§8). A bare `*` that is neither a splat nor a raw pointer errors with a targeted message.
+
+The full position matrix is in `docs/reference.md` §2 and §4.
 
 ## 5. Generics `<>`
 
@@ -398,6 +400,23 @@ trait Q6 {}
 `Fn(x: u8)` is **not** accepted: rustc itself rejects named parameters in the
 `Trait(...)` sugar ("does not support named parameters"), so the DSL reports
 that rule instead of leaking a confusing `expected type` error.
+
+**A target that starts with `::` needs an explicit boundary.** `<...>` (after an ident) and `::` both *continue* the current path, so the juxtaposed form glues the trait head and an absolute-path target into one path — the trait then lands in **type position**, which is E0782. The space and `.` are element boundaries, and with a trait head they are equivalent, so write the `.`:
+
+```rust
+# use batch_impl::batch_impl;
+// `@trait<u8> . ::std::string::String` → impl TrE<u8> for ::std::string::String
+#[batch_impl(@trait<u8> . ::std::string::String)]
+trait TrE<T = usize> { fn tag(&self) -> u8 { 7 } }
+```
+
+```text
+@trait<u8> ::std::string::String   →  impl TrE for TrE<u8>::std::string::String   (glued, E0782)
+Tr<u8> (::some_mod::SomeType)      →  impl Tr for Tr<u8, ::some_mod::SomeType>    (a group appends an argument)
+::std::vec::Vec<u8>                →  impl Tr for ::std::vec::Vec<u8>             (a one-element spec is the target)
+```
+
+In edition 2024 `::name` names an **external crate**; write `crate::...` for this crate's root. The rule behind the table is in `docs/reference.md` §1.2.
 
 ## 6. The `@` Constant System (macro-meta layer)
 
@@ -1145,14 +1164,7 @@ Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u1
 
 ## 10. The Modifier Gallery
 
-| Modifier | Meaning | Example |
-|---|---|---|
-| `&` / `&mut` | reference | `& Box<T>` — nest a composed type with `.`: `&.Box u8` = `&Box<u8>` |
-| `*const` / `*mut` | raw pointer | `*const T` = `*const T` |
-| `unsafe` | unsafe fn / unsafe impl marker | `unsafe.fn.(A, B) C` = `unsafe impl ... for fn(A, B) -> C` |
-| `#[...]` attributes | attribute on the impl | `#[cfg(...)]` gating |
-| `!` | never as a fn return type | `fn(A) -> !` (a `!` block has no apply meaning; a trailing `{...}` belongs to the impl) |
-| `self` | identity prefix | `self T` = `T` — in a matrix, `[Box, self] u8` = `Box<u8>` + bare `u8` |
+The complete modifier table (`&`/`&mut`, `*const`/`*mut`, `unsafe`, `#[...]`, `!`, `self`) is in `docs/reference.md` §3. This section keeps the three whose *reading* is easy to get wrong.
 
 **`self`** is the identity prefix: `self T` = `T`. In a matrix it acts as a **bare-type placeholder** — `[Box, self] u8` generates both `Box<u8>` and the bare `u8`:
 
@@ -1176,10 +1188,9 @@ trait NeverRet { fn call(&self, x: u8) -> !; }
 
 **Arbitrarily nested types are native**: `HashMap<String, Vec<(u8, u16)>>`, `Result<Box<dyn Fn(u8) -> u16>, String>` etc. write and parse directly — the DSL covers nearly every type form, no "passthrough" needed.
 
-## 11. Three Entry Points
+## 11. Entry Points
 
-- **`#[batch_impl]`** — annotates the trait definition, re-emits it and generates impls (one trait per macro).
-- **`#[batch_impl_only]`** — generates impls only, the trait comes from outside (for traits you don't own, or already declared). A `# path::To::Trait:` prefix declares the external trait's real path (requires at least one `::`; `@trait` and path references then use it):
+Six entry points share one spec grammar; the comparison table is in `docs/reference.md` §9, and each entry's complete argument semantics are in rustdoc (`src/doc/`). The two readings that trip people up: `#[batch_impl_only]` takes a `# path::To::Trait:` prefix for the external trait (at least one `::`), and `batch_trait!` never sees a trait definition, so it supports **no** `#` directives.
 
 ```rust
 # use batch_impl::batch_impl_only;
@@ -1190,22 +1201,20 @@ trait Conv<T> { fn conv() -> T; }
 // → impl Conv<bool> for Wrapper<bool> { fn conv() -> bool { false } }（trait not re-emitted）
 ```
 
-- **`batch_trait!`** — a function-like macro for an already-declared trait, multi-section support, custom `@name=value;` constant sections, no directives.
-- **The impl entry (0.8.0, ItemImpl)** — `#[batch_impl]` also accepts an `impl` block: batch-instantiate a hand-written impl from a shape template × matrix source (see §8.5).
+- **`batch_trait!`** — a function-like macro for a trait that is already declared: sections, custom `@name=value;` constant sections, **no** directives (§6.3).
+- **The impl entry (0.8.0, ItemImpl)** — `#[batch_impl]` also accepts an `impl` block: batch-instantiate a hand-written impl from a shape template × matrix source (§8.5).
 
 ## 12. Error Hints
 
-batch-impl's errors are **compile-time diagnostics** pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line):
+batch-impl's errors are **compile-time diagnostics** pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line) — one error, no cascade. The complete inventory, every class with the fixture that locks its wording, is in `docs/reference.md` §10. The ones you will actually hit:
 
 - **Missing operand**: `A.` / `.A` / `,A` — `compile_error!` with a clear message
-- **Unknown `@` constant**: lists the built-in names (`@u*`/`@i*`/`@f*`/`@scalar`/`@num` + range families)
-- **Constant cycle/forward reference**: rejected at definition (prevents infinite recursion)
 - **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count / `@2_0` group missing — targeted errors in user language (the fresh generics are numbered from 0 in document order); the generated names are the user-visible display names (`P0`, `P1`, ...) and the reference is intercepted in the macro — never a raw rustc E0412
 - **Splat as a where-predicate subject**: explicitly rejected (`A, B: Trait` has no defined semantics) — and wrapping it does not help: the where clause stays token-level all the way to the output, so no expander ever sees a splat inside a predicate (`(*(A,B)): Trait`, `X: Trait<*(A,B)>`)
 - **`where` predicate that is not a Rust predicate**: reported once the predicate is final (after the `X<>` fill, the `@` resolution and the shape-template slots) — `where{ A B }` (a missing `:`) gets the fix named instead of a parse error against the whole attribute
+- **Empty range** (`@u16..u8`): "no impls generated for empty range"
 - **Generic rename breaks inheritance**: renaming a trait generic param = explicit error, never silent
 - **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
-- **Empty range** (`@u16..u8`): "no impls generated for empty range"
 - **`=`/`:` in concrete-type args**: bounds and bindings belong to a trait path
   (`Conv<Item = u32> X`) and to a **bound position** (`T: Iterator<Item = u8>`, the
   same inside `dyn` / `for<'a>`); anywhere else a targeted error
@@ -1216,19 +1225,11 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
   binding belongs on the trait application — write `Trait<Item = u8> Target`".
   The trait-application spelling is the one that works (its binding is hoisted into
   the impl body, since `impl Trait<Item = u8> for X` is `E0229` in Rust)
-- **Stray `;`/`=`/`@`/`#`/`-` in a type position**: targeted error (the `=` of `..=` excluded — no cascading second diagnostic; a lone `-` is the retired operator — the exclusion lives only in directive lists)
-- **Trailing tokens after an `fn` parameter list**: `fn(A) B` / `fn(A)->` — unexpected-token error (a return type is `-> B` or `fn(A) B`)
 - **Blanket method takes/returns bare `Self`**: `#blanket` cannot delegate a
   method taking or returning bare `Self` (forwarding yields the inner type,
   not the wrapper's `Self`) — error with a `#name{...}` suggestion. A
   `Self::Assoc` **return** (`fn iter(&self) -> Self::Iter`) is fine — the
   inner `T` carries the same associated type
-- **Empty binding/bound value**: `Conv<Item =>` / `Conv<T:> X` — "missing a value" / "missing a bound"
-- **Non-integer type literal**: `1.5` / `"hi"` / `'a'` — only an integer (usize) is a type
-- **Non-integer range endpoint**: `1..x` / `A..B` — "needs integer endpoints"
-- **Malformed array length**: `[u8; 3; 4]` / `[u8;]` — "missing or malformed"
-- **`+` at a type start**: `+A` — "not valid at the start of a type" (`+` belongs in a bound, e.g. `T: Clone + Send`); a leading `.` reports a missing operand; `?`-prefixed types (`?Sized`) pass through and rustc reports them
-- **Unknown directive**: no builtin-typo guard — a `#name(args){body}` that is
-  not a built-in directive and not a trait item name expands to your
-  same-named macro (the open extension); a typo surfaces as rustc's own
-  "macro not found"
+- **Splat in a position that does not expand** (§4.6): generic declaration
+  blocks, fn parameter lists and inline bounds leak the splat to rustc today;
+  a `where` predicate is reported by the DSL instead

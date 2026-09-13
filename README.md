@@ -159,7 +159,8 @@ One exception, written down because it has happened: a position that **contradic
 ## Next steps
 
 - **Full tutorial**: `docs/tutorial.md` (progressive, from a one-line impl to advanced matrix combinations)
-- **Three entry points**: `#[batch_impl]` (includes the trait) / `#[batch_impl_only]` (impls only) / `batch_trait!` (batch-generate for an already declared trait, multi-section support)
+- **Reference manual**: `docs/reference.md` (look-up: the position × construct legality matrix, the complete diagnostics catalog with the fixture that locks each message, ceilings and guarantees)
+- **Entry points**: `#[batch_impl]` (includes the trait) / `#[batch_impl_only]` (impls only) / `batch_trait!` (batch-generate for an already declared trait, multi-section support) — plus the impl entry, `batch_preprocess_test!` and `batch_preview!` (reference §9)
 - **impl entry / shape template (0.8.0)**: the **ItemImpl entry** — `#[batch_impl]` also accepts an `impl` block and batch-instantiates it from a shape-template × matrix-source (tutorial §8.5); the **`impl{...}` Self-part shape templates** — bind the generated impl's target shape and write **one prototype impl per shape family** to cover a whole matrix, incl. lifetime-bearing families like `Cow` (tutorial §8.4)
 - **Variadic segments + repeat blocks (0.8.2)**: `ident@..` template segments and `@(...)..` body repetition — the alga2-style `().1..=4 where @0..: Magma impl{(A@..)} #combine{...}` covers every tuple arity with one spec (tutorial §8.4)
 - **Expansion preview**: `batch_preview!` (wrap the `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` input and read the real expansion, plus space/`.` associativity miswrite notes)
