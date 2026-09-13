@@ -276,6 +276,11 @@
   front-end or the preview channel writes it. Four rows honestly record a
   rustc-written message where a targeted one is missing.
 
+- **The tutorial ends with a real-scenario chapter** — the three bundled examples
+  (`quickstart`, `simplify`'s 29 impls from ~15 lines of DSL, `typeclass`'s
+  hierarchy plus 36 instances) are explained with the mechanisms they combine and
+  how to run them.
+
 ## 0.9.7 (2026-08-29)
 
 > Review-fix release: the golden-snapshot test layer (the last coverage gap),

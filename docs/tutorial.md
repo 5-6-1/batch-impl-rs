@@ -1233,3 +1233,57 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
 - **Splat in a position that does not expand** (§4.6): generic declaration
   blocks, fn parameter lists and inline bounds leak the splat to rustc today;
   a `where` predicate is reported by the DSL instead
+
+## 13. Real Scenarios: the Three Bundled Examples
+
+The chapters above teach one mechanism at a time. `examples/` is where they are **combined** into whole files, and CI compiles them, so they cannot drift:
+
+| Example | What it is | What it shows |
+|---|---|---|
+| `examples/quickstart.rs` (~320 lines) | a runnable single-file tour — `cargo run --example quickstart` prints one `…: OK` line per demo plus a summary | one demo per mechanism (§1–§8) |
+| `examples/simplify.rs` (~170 lines) | a small "data inspection" library: **29 impls** from ~15 lines of DSL (hand-written: ~80 lines) | lists + shared body, wrapper delegation, tuple generation, space application, associated-type bindings, `#name`/`#fill`/`#delegate`, pointers, three entries |
+| `examples/typeclass.rs` (~120 lines) | a type-class hierarchy (`Num` → `UNum`/`INum`/`FNum`) plus `From<bool>` for a generic fraction | `@` families inside `batch_trait!`, splat pow (36 instances), trait arguments substituting into copied bodies |
+
+### 13.1 `simplify.rs` — one trait for twelve numerics
+
+```text
+#[batch_impl(
+    [u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64] {
+        fn describe(&self) -> String { format!("num:{self}") }
+        fn is_zero(&self) -> bool { *self == Self::default() }
+    }
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn is_zero(&self) -> bool;
+}
+```
+
+One list and one body → **12 impls**: the list expands into impls (§3), `{…}` is the shared body, and each signature is copied from the trait definition (§7). `Self::default()` is zero for every numeric type, which is why a single expression covers all twelve.
+
+The rest of the file covers four wrappers delegating to the inner value in one line (`[&, Box, Rc, Arc].T`, §7.3), tuple generation `().1..=4`, left-associative space application (`fn(i32, u32) String`, `HashMap u8 u16`), an associated-type binding with `#name{…}` for a single const, `#fill(name, kind){"u8"}` for one body shared by two methods, a `batch_trait!` segment, and `*const` / `*mut` targets.
+
+### 13.2 `typeclass.rs` — a class hierarchy and 36 instances
+
+```text
+#[batch_impl_only(
+    From<bool>
+    Frac<*(*@u*).2>
+    #from{
+        Frac { positive: true, num: value.into(), denom: true.into() }
+    }
+)]
+pub trait From<T>: Sized {
+    fn from(value: T) -> Self;
+}
+```
+
+Three mechanisms meet here: the trait application `From<bool>` **pins** the trait's parameter, so the copied signature `fn from(value: T)` becomes `fn from(value: bool)` (§7.2); the splat pow `Frac<*(*@u*).2>` feeds the `@u*` list into **both** generic positions — 6 × 6 = 36 impls (§4); and `#from{…}` supplies the single body the whole family shares (§6.3).
+
+The hierarchy above it shows the other half of the pattern: `Num` is defined and filled by `#[batch_impl]`, while its subclasses are declared and then filled **one line per class** by `batch_trait!` with `@` families (§6.1) — exactly what a type-class needs.
+
+### 13.3 Where to go next
+
+- mechanisms: §1–§12 above, then `docs/reference.md` for legality, diagnostics and ceilings;
+- the raw API: `src/doc/*.md` (one file per entry point and per directive);
+- the internal map: `docs/architecture.md`.

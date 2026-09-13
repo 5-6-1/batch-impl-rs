@@ -1120,3 +1120,57 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型
 - **splat 落在不展开的位置**（§4.6）：泛型声明块、fn 参数表与内联 bound 目前会把 splat 泄漏给 rustc；`where` 谓词里的 splat 由 DSL 报错
 
+## 13. 实战：仓库里那三个示例
+
+上面每一章只讲一个机制。`examples/` 是它们**组合**成完整文件的地方，而且 CI 会编译它们，所以不会漂移：
+
+| 示例 | 是什么 | 展示什么 |
+|---|---|---|
+| `examples/quickstart.rs`（约 320 行） | 可运行的单文件导览——`cargo run --example quickstart` 每个示例打印一行 `…: OK`，末尾给汇总 | 每个机制一个示例（§1–§8） |
+| `examples/simplify.rs`（约 170 行） | 一个小型"数据检视"库：**29 个 impl** 出自约 15 行 DSL（手写约 80 行） | 列表 + 共享 body、包装委托、元组生成、空格应用、关联类型 binding、`#name`/`#fill`/`#delegate`、指针、三个入口 |
+| `examples/typeclass.rs`（约 120 行） | type-class 层级（`Num` → `UNum`/`INum`/`FNum`）外加泛型分数的 `From<bool>` | `batch_trait!` 里的 `@` 家族、splat 幂（36 个实例）、trait 实参替换进抄来的 body |
+
+### 13.1 `simplify.rs`——一个 trait 覆盖十二种数值
+
+```text
+#[batch_impl(
+    [u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64] {
+        fn describe(&self) -> String { format!("num:{self}") }
+        fn is_zero(&self) -> bool { *self == Self::default() }
+    }
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn is_zero(&self) -> bool;
+}
+```
+
+一个列表 + 一个 body → **12 个 impl**：列表展开成 impl（§3），`{…}` 是共享 body，每个签名从 trait 定义抄来（§7）。`Self::default()` 对每种数值都是 0，所以一个表达式覆盖全部十二种。
+
+文件其余部分：四个包装各一行委托给内层值（`[&, Box, Rc, Arc].T`，§7.3）、元组生成 `().1..=4`、左结合空格应用（`fn(i32, u32) String`、`HashMap u8 u16`）、带 `#name{…}` 的关联类型 binding 填单个 const、`#fill(name, kind){"u8"}` 让两个方法共用一个 body、一个 `batch_trait!` 段，以及 `*const` / `*mut` 目标。
+
+### 13.2 `typeclass.rs`——一个类层级与 36 个实例
+
+```text
+#[batch_impl_only(
+    From<bool>
+    Frac<*(*@u*).2>
+    #from{
+        Frac { positive: true, num: value.into(), denom: true.into() }
+    }
+)]
+pub trait From<T>: Sized {
+    fn from(value: T) -> Self;
+}
+```
+
+这里三个机制交汇：trait 应用 `From<bool>` **钉住**了 trait 的参数，于是抄来的签名 `fn from(value: T)` 变成 `fn from(value: bool)`（§7.2）；splat 幂 `Frac<*(*@u*).2>` 把 `@u*` 列表喂进**两个**泛型位——6 × 6 = 36 个 impl（§4）；`#from{…}` 提供整族共用的那一个 body（§6.3）。
+
+它上面的层级展示了这个模式的另一半：`Num` 由 `#[batch_impl]` 定义并填充，而各子类先声明、再由 `batch_trait!` 配 `@` 家族**一行一个类**地填充（§6.1）——正是 type-class 需要的形状。
+
+### 13.3 接下来看哪里
+
+- 机制：上面的 §1–§12，然后是 `docs/zh-CN/reference.md`（合法性、诊断、上限）；
+- 原始 API：`src/doc/*.md`（每个入口、每条指令一份）；
+- 内部地图：`docs/zh-CN/architecture.md`。
+

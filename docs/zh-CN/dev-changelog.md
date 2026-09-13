@@ -217,6 +217,9 @@
   - **顺带掉出一条过时断言**：教程 §12（以及参考手册初稿）写着"trait 泛型参数改名会中断继承 = 明确报错"。自 0.9 起继承就是**位置替换**——`features::dsl_where::subst_renamed_generics` 锁定的正是改名后的形式——两处都已改成实测规则。（`tests/ui.rs` 从那一轮起就写着旧的改名拒绝 fixture 已变成正向测试，只有正文没跟上。）
   - **证据**：doc_consistency **4**、doctest **94**、`fmt`/`clippy`/`doc` 干净。
 
+- **教程末尾新增实战章（§13）**——仓库里那三个示例现在在读者会遇到它们的地方被讲清楚：`examples/quickstart.rs`（可运行导览）、`examples/simplify.rs`（约 15 行 DSL 出 29 个 impl）、`examples/typeclass.rs`（类层级 + 36 个 `From<bool>` 实例），每个都给出"是什么 / 怎么跑 / 组合了哪些机制"，并引用一段**摘录**形式的代表 spec（`text` 而非 doctest——trait 定义在那个文件里）。这一章加的是**组合**而非机制：机制仍在 §1–§12 与参考手册。
+  - **证据**：doc_consistency **4**、doctest **94**（本章不新增 doctest——摘录用 `text`）、`fmt`/`clippy`/`doc` 干净。体量：教程 1289 / 1176 行，参考手册 448 / 448。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

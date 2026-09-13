@@ -1586,6 +1586,18 @@
   - **Evidence**: doc_consistency **4**, doctests **94**, `fmt`/`clippy`/`doc`
     clean.
 
+- **The tutorial ends with a real-scenario chapter (§13)** — the three bundled
+  examples are now explained where a reader meets them: `examples/quickstart.rs`
+  (a runnable tour), `examples/simplify.rs` (29 impls from ~15 lines of DSL) and
+  `examples/typeclass.rs` (a class hierarchy plus 36 `From<bool>` instances), each
+  with what it is, the run command, the mechanisms it combines and one quoted key
+  spec as an **excerpt** (`text`, not a doctest — the traits live in the file).
+  The chapter adds composition, not mechanisms: every mechanism stays in §1–§12
+  and the reference.
+  - **Evidence**: doc_consistency **4**, doctests **94** (the chapter adds none —
+    its excerpts are `text`), `fmt`/`clippy`/`doc` clean. Sizes: tutorial
+    1289 / 1176 lines, reference 448 / 448.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic
