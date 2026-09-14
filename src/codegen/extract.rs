@@ -92,7 +92,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
                     "batch-impl: a fresh generator cannot be declared here — the `<>` \
                      block declares the impl's own parameters, so its freshs would be \
                      declared and never used; write the generator on the type instead \
-                     (e.g. `T^()^2`)",
+                     (e.g. `T.*().2`)",
                     name.span,
                 );
                 return parts;

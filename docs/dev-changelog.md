@@ -1696,10 +1696,25 @@
     entries above describe is superseded by this one.
   - **`^` residuals fixed**: the FAQ guidance and the tutorial's §12 bullet name the
     working spellings (`T.*().2` splices the generated parameters, `T<()2>` keeps
-    them as one tuple argument). The one surviving `T^()^2` in §10 is the compiler's
-    own message text, quoted verbatim — production wording, owned by the message fix.
+    them as one tuple argument). The `decl_generator_splat` row in §10 quotes the
+    compiler's own message text verbatim — and that message's example was still the
+    rejected `T^()^2`, corrected to the working `.N` spelling in the round below.
   - **Evidence**: doc_consistency **5**, doctests **94**, `fmt`/`clippy`/`doc`
     clean; the reference is **777 (EN) / 778 (zh)** lines.
+
+- **The declaration-position error recommends a spelling that works** — its example
+  was `T^()^2`, but `^` is not an operator at all: measured,
+  `#[batch_impl(Box^()^2)]` *and* the classic power form `(u8, u16)^2` are both
+  rejected with "unexpected `^` after the type". The message now shows `T.*().2` (the
+  `.N` carrier form: `Box.*().2` → `impl<P0, P1> … for Box<P0, P1>`), and the
+  juxtaposed `T<()2` (`Box<()2>` → `Box<(P0, P1,)>`) is the other working form.
+  - `tests/ui/decl_generator_splat.stderr` re-blessed; the diff is exactly that one
+    line (the fixture comment never quoted the old spelling, so it is unchanged). The
+    §10 rows of **both** mirrors now quote the new wording verbatim — the
+    `reference_quotes_every_diagnostic_verbatim` guard is what keeps the snapshot and
+    the catalog from drifting apart.
+  - **Evidence**: doc_consistency **5**, doctests **94**, UI **104 + 3**,
+    `fmt`/`clippy`/`doc` clean.
 
 ## 0.9.7 (2026-08-29)
 

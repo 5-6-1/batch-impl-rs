@@ -294,7 +294,12 @@
   literal must be an integer and that range endpoints must be integers. A fresh
   generator in a `<>` declaration block (`<*().3>`) reported rustc's
   `expected type, found @` and now gets a targeted message with the spelling that
-  works (`T^()^2`).
+  works (`T.*().2`).
+- **The declaration-position error now names a spelling that works** — its example
+  was `T^()^2`, but `^` is not an operator: the parser rejects it ("unexpected `^`
+  after the type"), for that spelling and for the classic power form alike. The
+  message shows `T.*().2` (the `.N` carrier form — `Box.*().2` → `Box<P0, P1>`);
+  the juxtaposed `T<()2` (`Box<()2>` → `Box<(P0, P1,)>`) is the other working form.
 
 ## 0.9.7 (2026-08-29)
 
