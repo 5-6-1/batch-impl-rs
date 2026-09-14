@@ -220,6 +220,111 @@ fn section_labels(doc: &str) -> Vec<String> {
         .collect()
 }
 
+/// The current-state docs that cite the tutorial or the reference **by section
+/// number** (`tutorial §8.4`, `参考手册 §7.2`, `the reference's §5 boundary
+/// material`, `README.md`'s `tutorial §6.4`) — the second field says which
+/// language mirror the citation means.
+///
+/// Changelogs are deliberately excluded: they describe the docs as they were at
+/// release time, so a citation into a section that has since been renumbered is
+/// history, not drift.
+const REF_SOURCES: [(&str, bool); 10] = [
+    ("README.md", false),
+    ("docs/tutorial.md", false),
+    ("docs/reference.md", false),
+    ("docs/architecture.md", false),
+    ("docs/development-guide.md", false),
+    ("docs/zh-CN/README.md", true),
+    ("docs/zh-CN/tutorial.md", true),
+    ("docs/zh-CN/reference.md", true),
+    ("docs/zh-CN/architecture.md", true),
+    ("docs/zh-CN/development-guide.md", true),
+];
+
+/// Floor for the cross-document scan: a broken window or a moved `§` must not
+/// turn the guard into a no-op (the tree has ~30 such citations today).
+const MIN_CROSS_REFS: usize = 15;
+
+/// The nearest char boundary at or below `i` (`§` neighbours can be multi-byte).
+fn floor_boundary(s: &str, mut i: usize) -> usize {
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// The nearest char boundary at or above `i`.
+fn ceil_boundary(s: &str, mut i: usize) -> usize {
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
+#[test]
+fn cross_document_section_references_resolve() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let labels = |path: &str| -> BTreeSet<String> {
+        let doc = fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        section_labels(&doc).into_iter().collect()
+    };
+    // `DOC_PAIRS` is (EN, zh); index 1 is the zh mirror of each target.
+    let target = |pair: usize, zh: bool| {
+        let (en, zh_path) = DOC_PAIRS[pair];
+        labels(if zh { zh_path } else { en })
+    };
+
+    let mut checked = 0usize;
+    let mut bad = vec![];
+    for (path, zh) in REF_SOURCES {
+        let text = fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let tutorial = target(0, zh);
+        let reference = target(1, zh);
+        let tutorial_words: &[&str] = if zh { &["教程"] } else { &["tutorial"] };
+        let reference_words: &[&str] =
+            if zh { &["参考手册"] } else { &["reference", "manual"] };
+        for (idx, _) in text.match_indices('§') {
+            let rest = &text[idx + '§'.len_utf8()..];
+            let label: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect::<String>()
+                .trim_end_matches('.')
+                .to_string();
+            if label.is_empty() {
+                continue;
+            }
+            // The citing sentence names the target either just before or just
+            // after the section mark.
+            let window = &text[floor_boundary(&text, idx.saturating_sub(30))
+                ..ceil_boundary(&text, (idx + 40).min(text.len()))];
+            let hit = if tutorial_words.iter().any(|w| window.contains(w)) {
+                Some(("tutorial", &tutorial))
+            } else if reference_words.iter().any(|w| window.contains(w)) {
+                Some(("reference", &reference))
+            } else {
+                None
+            };
+            if let Some((name, set)) = hit {
+                checked += 1;
+                if !set.contains(&label) {
+                    bad.push(format!("{path}: {name} §{label}"));
+                }
+            }
+        }
+    }
+    assert!(
+        checked >= MIN_CROSS_REFS,
+        "only {checked} cross-document section references were scanned (floor {MIN_CROSS_REFS}) — \
+         the scan or the doc set is broken"
+    );
+    assert!(
+        bad.is_empty(),
+        "cross-document section references point at sections that do not exist:\n  {}",
+        bad.join("\n  ")
+    );
+}
+
 /// Floors that keep a broken parse from passing on an empty sequence (the
 /// tutorial has 43 labels, the reference 15).
 const MIN_SECTION_LABELS: usize = 10;
