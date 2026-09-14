@@ -363,6 +363,18 @@
   message shows `T.*().2` (the `.N` carrier form — `Box.*().2` → `Box<P0, P1>`);
   the juxtaposed `T<()2` (`Box<()2>` → `Box<(P0, P1,)>`) is the other working form.
 
+- **A fifth review pass over the docs** — an independent cold read of every
+  document found that the architecture testing matrix had never been measured: it
+  claimed 104 UI fixtures, 9 goldens, 299 feature tests and 29 impls for
+  `examples/simplify.rs`, where the tree has **112**, **10**, **300** and **30**.
+  A guard now derives those counts from the tree (and checks both language
+  mirrors), so they cannot drift again. The same pass corrected the README's bare
+  `§` citations (they named no document, and both documents have those numbers),
+  gave the reference the modifier table the tutorial was pointing at, moved the
+  six-entry comparison into the tutorial where it belongs, and stopped three
+  `src/doc` pages from calling themselves "documentation marker only" although all
+  three document real macros.
+
 ## 0.9.7 (2026-08-29)
 
 > Review-fix release: the golden-snapshot test layer (the last coverage gap),

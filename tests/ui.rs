@@ -7,7 +7,7 @@
 fn ui() {
     let t = trybuild::TestCases::new();
 
-    // core diagnostics from the README "error hints" table
+    // core diagnostics from the reference's catalog (`docs/reference.md` §10)
     t.compile_fail("tests/ui/only_semicolon.rs");
 
     t.compile_fail("tests/ui/missing_colon.rs");

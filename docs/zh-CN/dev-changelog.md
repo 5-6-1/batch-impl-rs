@@ -238,7 +238,7 @@
   - **证据**：单测 **161**、feature 测试 **299**、UI **104 + 3**、doctest 93，9 份 golden 不变，fmt/clippy/doc 干净。
 
 - **面向用户的文档拆成教程 + 参考手册**——新增 `docs/reference.md`（含 zh 镜像）并通过 `include_str!` 接进 crate 文档，因为教程已经长成半张查阅表（合法位置清单、修饰符表、入口清单、错误目录）。一条事实现在只有一个家：教程留叙述与可运行示例并指向参考手册，参考手册承载合法性矩阵、诊断目录（每一类 + 锁定其措辞的 fixture）、上限与保证，并把每条 API 的参数语义指向 rustdoc（`src/doc/*.md`）。同时更新了 README 的下一步清单、开发指南（五处 → **六处** × 双语、doctest 规则、打包规则）与 `Cargo.toml` 的 `exclude` 理由。
-  - **写位置矩阵时实测出来的——文档曾称为合法的三个位置其实不展开**：泛型**声明块**里的 splat（`<T, *(A,B)>`）、**fn 参数表**里的 splat（`fn(*(u8, u16))`）与**内联 bound** 里的 splat（`<T: Tr<*(u8, u16)>>`）都原样到达 rustc（bound 那条例报 `expected mut or const keyword in raw pointer type`）；同一个 splat 在 `dyn` 尾巴里会展开、在 `where` 谓词里由 DSL 报错。教程 §4.6 与参考手册都改成实测集合，三条旧声明删除。（把这三个位置修好是另一轮，仍未做。）
+  - **写位置矩阵时实测出来的——文档曾称为合法的三个位置其实不展开**：泛型**声明块**里的 splat（`<T, *(A,B)>`）、**fn 参数表**里的 splat（`fn(*(u8, u16))`）与**内联 bound** 里的 splat（`<T: Tr<*(u8, u16)>>`）都原样到达 rustc（bound 那条例报 `expected mut or const keyword in raw pointer type`）；同一个 splat 在 `dyn` 尾巴里会展开、在 `where` 谓词里由 DSL 报错。教程 §4.6 与参考手册都改成实测集合，三条旧声明删除。（本发布随后就把这三个位置修好了——见下文 splat 覆盖那条。）
   - **教程 §5.7 补上绝对路径规则**（上一轮拍板的拼写）：`<...>` 与 `::` 续接当前路径，空格与 `.` 是元素边界，因此以 `::` 开头的目标写成 `@trait<u8> . ::std::string::String` → `impl Tr<u8> for ::std::string::String`（真编译 + 运行期断言实测）；并列写法会粘成一条路径、把 trait 放进类型位置（E0782）。
   - **新增守卫**：`tests/doc_consistency.rs` 现在还会比对两种语言的**章节编号**（`## N.` / `### N.M`）——只加到一种语言的新章节会让测试失败。证伪探针：把 zh 的一个标题改成 `4.7`，`language_mirrors_share_their_section_numbers` 失败。
   - **证据**：单测 **161**、feature 测试 **299**、UI **104 + 3**、doctest 93 → **94**（新增的 §5.7 示例），9 份 golden 不变，`fmt`/`clippy`/`doc` 干净，`cargo package --list` 从 104 → **105** 个文件（参考手册进包，zh 镜像仍排除）。
@@ -290,6 +290,16 @@
   - 措辞只有一份（`util::diagnostic::RETIRED_CARET`），两条路线不会漂移。覆盖范围实测过 **十一种**拼写——spec 链、splat 操作数、`Box^()^2`、角度块、声明块、splat 组、`fn(..) -> u16^2`、内联 bound、`dyn` 尾巴与两种 `where` 形式——各一条错误。
   - UI：新增 `tests/ui/caret_power_retired.rs`（spec 链 + 此前静默的 bound 位置），与其它退役算子 fixture 放在一起。参考手册 §10 目录逐字引用该消息、§3.4 指向它；教程 §12 清单新增一条。文档里旧的 `^` 示例在上一轮已改成 `.N`。
   - **证据**：单测 **161**、feature 测试 **300**、UI **105 + 3**、doc_consistency **5**、doctest **94**，9 份 golden 不变，`fmt`/`clippy`/`doc` 干净。
+
+- **第五轮评审：对每份文档的独立冷读。**评审者把文档与源码对读，给出两条 release-blocking 与一批 should-fix；全部复现并在此处理。
+  - **测试矩阵是无人测量的散文，其中四个数字是旧的**：104 → **112** 个 UI fixture、9 → **10** 份 golden、299 → **300** 个 feature 测试、29 → **30** 个 `simplify.rs` impl（示例自己的头注释与其余文档早已写 30）。新守卫 `architecture_testing_matrix_matches_the_tree` 从树里推导 UI/golden/模块/feature 测试/示例 impl 计数，并在**两种语言**的镜像上断言（已证伪：把文档里的 10 改回 9 即失败）。三个数字仍不设守卫，原因写在守卫的文档注释里：`cargo test --lib` 的计数（宏生成的 proptest 用例不是字面 `#[test]`）、生产文件数（"生产"由 no-panic 守卫的 skip 集定义）与 doctest 数（需要跑一次 `cargo test --doc`）。
+  - **参考手册里出现了 changelog 腔**（"它上面的三行就是本节所属那次提交修好的"），而 dev-changelog 仍把三个 splat 位置写成"仍未做"，可**本发布**正是修它们的——手册改成陈述规则，条目改为指向那次修复。
+  - **README 的 "§7.2 / §8.2" 没写文档名**，而两份文档都有这些编号且含义不同。现在写成 `docs/reference.md` §6.3/§6.4 与 §7.1，并把简写提示拆成两行，让引用守卫能按各自的主语判断（同一行含两个主语是守卫无法避免的假阳性）。
+  - **中文教程在"块计数守卫"盲区里漂移过**（守卫按节计数，因此**被替换**的块不可见）：§5.1 现在两种语言都用带 bound + `const` 的那个更完整的例子，§7.2 用 `wrapping_add` 的 body 取代 `todo!()`。验证方式是把两份 zh 文档当 crate doc 放进临时 crate 编译：**58 通过 + 1 ignore**（共 59 个 ```rust 块）——指南原先的"59 块"是碰巧对，评审的"60 通过"差了两个；指南现在写明这个实测拆分。
+  - **教程指向了一张并不存在的修饰符表**：它引用 `docs/reference.md` §3（apply 系统）来说明"完整修饰符表"。参考手册新增 **§3.8 前缀与属性**（`&`/`*const`/`unsafe`/`#[...]`/`!`/`self`/`fn` 家族各自合法在哪里，含教程讲的 `unsafe.fn` vs `unsafe fn` 区别），指针改为指向它。
+  - **较小修正**：README 功能表补上形状模板与 impl 入口两行；architecture 的发布一节删掉重复的步骤与 CI job 清单（那是指南的职责）；`src/doc/{batch_trait,batch_impl_only,batch_preview}.md` 不再以 "Documentation marker only — never call this function" 收尾（三者文档化的都是真宏）；`tests/ui.rs` 的头注释不再引用已被文档拆分移除的 README 表格；参考手册的上限行不再暗示 `chain_too_deep` / `attach_too_deep` 报的是嵌套消息（它们的快照读作 **129**）。
+  - **评估后未采纳（G3）**：对两版教程的代码块做**内容**比较。两版在标识符与注释上本就不同，会变成假阳性噪声；按节的块计数守卫 + 成对的规范示例是务实的检查，残余风险（只在一侧替换了块）留给评审。理由写在守卫的文档注释里。
+  - **证据**：doc_consistency **11 → 12**（新守卫已证伪）、lib 161、dsl 300、no_panic 6、UI **112 + 3**、doctest 101、`fmt`/`clippy`/`doc` 干净。
 
 ## 0.9.7 (2026-08-29)
 

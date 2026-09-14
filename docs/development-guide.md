@@ -183,7 +183,10 @@ on it.
   mirrored in the other before release, and the two language mirrors must keep
   the **same section numbers** — `tests/doc_consistency.rs` compares the numbered
   skeleton of the tutorial, the reference and this guide, and the heading
-  skeleton of `README` / `CHANGELOG` / `dev-changelog` / this guide.
+  skeleton of `README` / `CHANGELOG` / `dev-changelog` / this guide. The same
+  suite also derives the numbers the architecture **testing matrix** states (UI
+  fixtures, goldens, feature modules/tests, the `simplify.rs` impl count) from the
+  tree, so a count in that table cannot go stale unnoticed.
 - **Tutorial code blocks are doctests**: the ```rust blocks in
   `docs/tutorial.md`, `docs/reference.md` and `README.md` are compiled by lib.rs's
   `#![doc = include_str!]` — they must compile after any edit. The **zh-CN
@@ -192,7 +195,7 @@ on it.
   module cannot reference them without breaking `cargo doc` on the package). The
   mirror block-count guard is the structural check; when you change a zh block,
   re-verify by hand — including the two zh docs as crate docs in a scratch crate
-  and running `cargo test --doc` there passed 59 blocks on 2026-09-14.
+  and running `cargo test --doc` there passed 58 blocks with 1 ignored (59 ```rust blocks in total) on 2026-09-14.
 - **docs.rs first screen**: README is part of the lib.rs docs; any front-page
   restructure must keep "Why use it" + the minimal example on top and the
   version banner to one line linking the CHANGELOG.

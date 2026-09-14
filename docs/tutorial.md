@@ -279,13 +279,17 @@ A splat is a **parameter-position list**: it splices into generic and trait-appl
 
 ### 5.1 Declarations
 
-`<...>` before the trait name declares impl generics — copied into the impl as-is:
+`<...>` before the trait name declares impl generics — copied into the impl as-is (bounds and `const` parameters included):
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(<T> Vec<T>)]
-trait T2 {}
-// → impl<T> T2 for Vec<T> {}
+#[batch_impl(<T: Clone> Box<T>)]
+trait CloneBox {}
+// → impl<T: Clone> CloneBox for Box<T> {}
+
+#[batch_impl(<const N: usize> [u8; N])]
+trait ArrayLen {}
+// → impl<const N: usize> ArrayLen for [u8; N] {}
 ```
 
 ### 5.2 `A<>` — copied as-is
@@ -1183,7 +1187,7 @@ Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u1
 
 ## 10. The Modifier Gallery
 
-The complete modifier table (`&`/`&mut`, `*const`/`*mut`, `unsafe`, `#[...]`, `!`, `self`) is in `docs/reference.md` §3. This section keeps the three whose *reading* is easy to get wrong.
+The complete modifier table (`&`/`&mut`, `*const`/`*mut`, `unsafe`, `#[...]`, `!`, `self`) is in `docs/reference.md` §3.8. This section keeps the three whose *reading* is easy to get wrong.
 
 `&`, `*const`, `*mut`, `unsafe`, `fn` types and attributes are all supported:
 

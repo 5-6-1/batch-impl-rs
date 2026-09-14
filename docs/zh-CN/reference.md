@@ -141,6 +141,20 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | `*(A,B)` 单独作目标 | 重复 impl（E0119）；写 `(A,B)` |
 | `HashMap<String, Vec<(u8, u16)>>` 这类嵌套类型 | 直接写、直接解析——不存在"透传"写法 |
 
+### 3.8 前缀与属性
+
+前缀是一个块，它会吃掉紧随其后的那个块（`& Box u8` = `&Box<u8>`）。各自合法在哪里：
+
+| 前缀 | 含义 | 合法位置 | 备注 |
+|---|---|---|---|
+| `&` / `&mut` | 引用类型 | 任意类型位置 | `& Box u8`、`&str`、`&mut [u8]` |
+| `*const` / `*mut` | 原始指针类型 | 任意类型位置 | 由后续 token 决定，因此绝不会被读成 splat（§4.5） |
+| `unsafe` | 用 `.` 应用时是 **impl** 标记；否则是 fn **类型** | `unsafe.fn(A) -> B` 标记 impl；`unsafe fn(A) -> B` 是类型 | 最容易读错的一处（教程 §10） |
+| `#[...]` | 附着到生成 impl 的属性 | 附着在 spec 上 | `#[cfg(all())] u8`；DSL 绝不进入属性内部 |
+| `!` | never 类型 | `fn` 返回位置 | `fn(u8) -> !`；`!` 块没有 apply 语义 |
+| `self` | 恒等前缀 | spec 头部位置 | `self T` = `T`——矩阵里的裸类型占位 |
+| `fn` 家族（`fn` / `Fn` / `FnMut` / `FnOnce` / async 形式） | callable 类型 | 任意类型位置 | 它的参数表就是参数位置列表（§4.4） |
+
 ## 4. splat `*`
 
 ### 4.1 规则
@@ -177,7 +191,7 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 | 内联 bound `<T: Tr<*(u8, u16)>>` | ✓ 展开成 `<T: Tr<u8, u16>>`（从 bound 里提升出来的声明照常落到 impl 上） |
 | **`where` 谓词** `where{T: Tr<*(u8, u16)>}` | ✗ 由谓词终检报出（§7），不泄漏给 rustc |
 
-> 最后一行是唯一有意的例外，而且它不是缺口：where 子句从解析到渲染输出全程 token 级，因此由**谓词终检**报出 splat。它上面的三行就是本节所属那次提交修好的——在那之前，它们把 splat 的 token 原样交给 rustc（raw pointer 错、`expected type, found @`）。
+> 最后一行是唯一有意的例外，而且它不是缺口：where 子句从解析到渲染输出全程 token 级，因此由**谓词终检**报出 splat。其余每个参数位置列表都会展开——splat 绝不会原样交给 rustc。
 
 ### 4.5 边界
 
@@ -744,7 +758,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 | 上限 | 值 | 越界时看到什么 |
 |---|---|---|
 | 单 spec 的 impl 数 | **1024**，`.N` 幂、范围与笛卡尔积共用（`src/ast/op.rs`） | 定向错误，点出乘积与上限："… expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo"（`expand_limit`、`bound_gen_over_limit`） |
-| 嵌套深度 | **128**，组、链、附件与常量值共用同一个计数器（`src/util/mod.rs`） | "nesting depth exceeds 128 levels (perhaps an accidental extra bracket)"（`deep_nesting`、`nested_bracket_too_deep`、`chain_too_deep`、`attach_too_deep`、`const_value_deep_nesting`） |
+| 嵌套深度 | **128**，组、链、附件与常量值共用同一个计数器（`src/util/mod.rs`） | 组与常量值报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
 | 重复块输出 | **65536 token**（`src/codegen/repeat.rs`） | 预算守卫报出跑飞的那个块 |
 | `#blanket` deref 深度 | **128** | "`:999999` is too large (deref depth must be ≤ 128)"（`blanket_bad_huge_depth`） |
 

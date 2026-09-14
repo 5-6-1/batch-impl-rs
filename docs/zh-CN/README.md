@@ -136,8 +136,11 @@ trait Describe2 { fn describe(&self) -> String; }
 | 覆盖式委托 `#blanket`                | 包装矩阵一行生成委托 impl（任意包装 + `:N`、泛型 trait、assoc 投影、包装 where 谓词、静态方法经 `t` 转发） | §7 | 进阶 |
 | 开放扩展                             | 不认识的 `#name(args){body}` 变为顶层宏调用：你的同名宏收到 `{spec}(args){body}trait` 并生成自己的 impl | §7 | 进阶 |
 | 变长段 + 重复块                      | `impl{...}` 模板内 `ident@..`（覆盖所有剩余元组位置）+ body 内 `@(...)..` 重复（`@ident` 直接拼接绑定元素——`$(...)*` 语义；`@N` 索引游标）——一条 spec 覆盖所有元组 arity | §8.4 | 进阶 |
+| 形状模板 `impl{...}`                 | 把原型 impl 的 Self 形状绑到模板上批量实例化；槽位替换同时改写目标、`where` 谓词与 body（逐位匹配 + 变长段驱动重复块） | §8.4 | 进阶 |
+| impl 入口（ItemImpl）                | `#[batch_impl]` 挂在 `impl` 块上：从 spec 列表派生 impl，堆叠属性按源码顺序作为多阶段（后一阶段绑定前一阶段留下的槽位） | §8.5 | 进阶 |
 
-> **简写提示**：单方法 `#fill([foo]){body}` 等价于 `#foo{body}`；谓词 + 代码块 `where{谓词} {代码块}` 可裸写成 `where 谓词 {代码块}`（详见 §7.2 / §8.2）。
+> **简写提示**：单方法 `#fill([foo]){body}` 等价于 `#foo{body}`（`docs/zh-CN/reference.md` §6.3 / §6.4）。
+> **裸写形式**：谓词 + 代码块可写成 `where 谓词 { 代码块 }`（`docs/zh-CN/reference.md` §7.1）。
 
 ## 语法面冻结承诺（0.7.2 起）
 

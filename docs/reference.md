@@ -141,6 +141,20 @@ When the head names the annotated trait (or is `@trait`), the first element is t
 | `*(A,B)` alone as the target | duplicate impls (E0119); write `(A,B)` |
 | a nested type like `HashMap<String, Vec<(u8, u16)>>` | written and parsed directly — no passthrough form |
 
+### 3.8 Prefixes and attributes
+
+A prefix is a block that takes the block after it (`& Box u8` = `&Box<u8>`). Where each is legal:
+
+| Prefix | Meaning | Legal where | Note |
+|---|---|---|---|
+| `&` / `&mut` | reference type | any type position | `& Box u8`, `&str`, `&mut [u8]` |
+| `*const` / `*mut` | raw-pointer type | any type position | decided by the following token, so it never reads as a splat (§4.5) |
+| `unsafe` | **impl** marker when applied with `.`; a fn **type** otherwise | `unsafe.fn(A) -> B` marks the impl; `unsafe fn(A) -> B` is the type | the reading most often confused (tutorial §10) |
+| `#[...]` | attribute on the generated impl | attached to a spec | `#[cfg(all())] u8`; the DSL never enters the attribute |
+| `!` | never type | an `fn` return position | `fn(u8) -> !`; a `!` block has no apply meaning |
+| `self` | identity prefix | the spec head position | `self T` = `T` — the bare-type placeholder of a matrix |
+| `fn` family (`fn` / `Fn` / `FnMut` / `FnOnce` / the async forms) | callable type | any type position | its parameter list is a parameter-position list (§4.4) |
+
 ## 4. Splat `*`
 
 ### 4.1 The rule
@@ -177,7 +191,7 @@ A splat splices a container or a generator into the enclosing **parameter-positi
 | Inline bound `<T: Tr<*(u8, u16)>>` | ✓ expands to `<T: Tr<u8, u16>>` (a declaration hoisted out of the bound rides out to the impl, as in any bound) |
 | **`where` predicate** `where{T: Tr<*(u8, u16)>}` | ✗ reported by the predicate check (§7), not leaked to rustc |
 
-> The last row is the one deliberate exception, and it is not a gap: the where clause is token-level from resolution to the rendered output, so the **predicate check** reports the splat. The three rows above it were fixed in the commit this section is part of — before that they handed the splat's tokens to rustc verbatim (a raw-pointer error, `expected type, found @`).
+> The last row is the one deliberate exception, and it is not a gap: the where clause is token-level from resolution to the rendered output, so the **predicate check** reports the splat. Every other parameter-position list expands — a splat is never handed to rustc verbatim.
 
 ### 4.5 Boundaries
 
@@ -744,7 +758,7 @@ A body's `X<>` is synced only through a **switch template** (`impl{@trait<>}` / 
 | Ceiling | Value | What you see when you exceed it |
 |---|---|---|
 | Impls per spec | **1024**, shared by `.N` powers, ranges and Cartesian products (`src/ast/op.rs`) | a targeted error naming the product and the limit: "… expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo" (`expand_limit`, `bound_gen_over_limit`) |
-| Nesting depth | **128**, shared by groups, chains, attachments and constant values (`src/util/mod.rs`) | "nesting depth exceeds 128 levels (perhaps an accidental extra bracket)" (`deep_nesting`, `nested_bracket_too_deep`, `chain_too_deep`, `attach_too_deep`, `const_value_deep_nesting`) |
+| Nesting depth | **128**, shared by groups, chains, attachments and constant values (`src/util/mod.rs`) | groups and constant values report "nesting depth exceeds 128 levels" (`deep_nesting`, `nested_bracket_too_deep`, `const_value_deep_nesting`); chains and attachments report "…exceeds 129 levels (limit 128)" (`chain_too_deep`, `segments_too_deep`, `attach_too_deep`, `impl_attach_too_deep`) |
 | Repeat-block output | **65536 tokens** (`src/codegen/repeat.rs`) | the budget guard reports the block that ran away |
 | `#blanket` deref depth | **128** | "`:999999` is too large (deref depth must be ≤ 128)" (`blanket_bad_huge_depth`) |
 

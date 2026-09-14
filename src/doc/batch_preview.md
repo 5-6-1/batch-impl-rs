@@ -64,4 +64,4 @@ known container name costs a wrong note, never a wrong build.
   (its output is a `compile_error!`), so don't use it in code that must
   build — only interactively.
 
-**Documentation marker only — never call this function.**
+**This is a real macro, not a documentation-only entry point** — it is the expansion channel described above, and `tests/ui/preview_ok.rs` plus `tests/ui/preview_miswrite.rs` lock its output shape and the miswrite note.

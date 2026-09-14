@@ -91,4 +91,4 @@ batch_trait! {
 - trait defined elsewhere, need directives → `#[batch_impl_only]`;
 - trait defined elsewhere, type-matrix only → `batch_trait!`.
 
-**Documentation marker only — never call this function.**
+**This is a real macro, not a documentation-only entry point** — call it; the examples above are compiled as doctests.

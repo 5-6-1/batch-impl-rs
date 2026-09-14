@@ -687,8 +687,8 @@ trait ToString { fn to_str(&self) -> &str; }
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(u8 #fill([add, sub]){ todo!() })]
-trait Arith { fn add(&mut self, x: u8); fn sub(&mut self, x: u8); }
+#[batch_impl((u32,) #fill([add, add2]){self.0 = self.0.wrapping_add(x as u32)})]
+trait Ops { fn add(&mut self, x: u8); fn add2(&mut self, x: u8); }
 ```
 
 参数可以是名字列表、`@all` 系 marker，配合 `-name` 排除：
@@ -1060,7 +1060,7 @@ trait Matrix {}
 
 ## 10. 修饰符大全
 
-完整的修饰符表（`&`/`&mut`、`*const`/`*mut`、`unsafe`、`#[...]`、`!`、`self`）在 `docs/zh-CN/reference.md` §3；本节只留三个**读法容易搞错**的。
+完整的修饰符表（`&`/`&mut`、`*const`/`*mut`、`unsafe`、`#[...]`、`!`、`self`）在 `docs/zh-CN/reference.md` §3.8；本节只留三个**读法容易搞错**的。
 
 `&`、`*const`、`*mut`、`unsafe`、`fn` 类型、属性全支持：
 

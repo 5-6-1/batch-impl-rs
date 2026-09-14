@@ -73,4 +73,4 @@ definition — the `#` directives and `@all` selectors need one). Use
 `#[batch_impl_only]` when you need directives; `batch_trait!` when you only
 need the type-matrix DSL.
 
-**Documentation marker only — never call this function.**
+**This is a real attribute macro, not a documentation-only entry point** — apply it to a trait definition; the examples above are compiled as doctests.

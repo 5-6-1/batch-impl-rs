@@ -1701,8 +1701,8 @@
     tokens reach rustc (the bound case reports `expected mut or const keyword in
     raw pointer type`), while the same splat in a `dyn` tail does expand and in a
     `where` predicate is reported by the DSL. Tutorial §4.6 and the reference both
-    state the measured set, and the three claims are gone. (Fixing the three
-    positions is a separate, still-open round.)
+    state the measured set, and the three claims are gone. (The three positions
+    were then fixed in this same release — see the splat-coverage entry below.)
   - **The tutorial's §5.7 gains the absolute-path rule** (the spelling approved in
     the previous round): `<...>` and `::` continue the current path while the
     space and `.` are element boundaries, so a target starting with `::` is
@@ -1924,6 +1924,58 @@
     already corrected to `.N` in the previous round.
   - **Evidence**: lib **161**, features **300**, UI **105 + 3**, doc_consistency
     **5**, doctests **94**, the 9 goldens unchanged, `fmt`/`clippy`/`doc` clean.
+
+- **Fifth review round: an independent cold read of every document.** The reviewer
+  verified claims against the source and recommended two release blockers plus a
+  set of should-fix items; all were reproduced and are handled here.
+  - **The testing matrix was unmeasured prose, and four of its numbers were
+    stale**: 104 vs **112** UI fixtures, 9 vs **10** goldens, 299 vs **300**
+    feature tests, and 29 vs **30** `simplify.rs` impls (the example's own header
+    and the rest of the docs already said 30). New guard
+    `architecture_testing_matrix_matches_the_tree` derives the UI/golden/module/
+    feature-test/example-impl counts from the tree and asserts them in **both**
+    mirrors (falsified: 10 → 9 in the doc fails it). Three numbers stay unguarded
+    and the guard's doc comment says why: the `cargo test --lib` count
+    (macro-generated proptest cases are not literal `#[test]` items), the
+    production-file count (the no-panic guard's skip set defines "production") and
+    the doctest count (it needs a `cargo test --doc` run).
+  - **The reference spoke in changelog voice** ("the three rows above it were fixed
+    in the commit this section is part of") and the dev-changelog still called the
+    three splat positions a "still-open round" while *this release* fixes them —
+    the reference now states the rule and the entry points at the fix.
+  - **README cited "§7.2 / §8.2" with no document named**, and both documents have
+    those numbers meaning different things. They are now `docs/reference.md`
+    §6.3/§6.4 and §7.1, and the shorthand note is split across two lines so the
+    citation guard can judge each pointer by its own subject (one line with both
+    subjects is a false positive the guard cannot avoid).
+  - **The Chinese tutorial had drifted where the block-count guard is blind** (it
+    counts blocks per section, so a *replaced* block is invisible): §5.1 now
+    carries the richer bound + `const` example in both languages, and §7.2 the
+    `wrapping_add` body instead of `todo!()`. Measured by compiling the two zh docs
+    as crate doctests in a scratch crate: **58 passed + 1 ignored** (59 `rust`
+    blocks) — the guide's "59 blocks" was right by accident and the reviewer's
+    "60 passed" was off by two; the guide now states the measured split.
+  - **The tutorial pointed at a modifier table that did not exist**: it cited
+    `docs/reference.md` §3 (the apply system) for "the complete modifier table".
+    The reference gained **§3.8 Prefixes and attributes** (where `&`/`*const`/
+    `unsafe`/`#[...]`/`!`/`self`/the `fn` family are legal, including the
+    `unsafe.fn` vs `unsafe fn` distinction the tutorial teaches) and the pointer
+    now names it.
+  - **Smaller corrections**: the README feature table gained the shape-template and
+    impl-entry rows; the architecture release section dropped its duplicated step
+    list and CI job list (the guide owns them); `src/doc/{batch_trait,batch_impl_only,batch_preview}.md`
+    no longer end with "Documentation marker only — never call this function"
+    although all three document real macros; `tests/ui.rs`'s header no longer cites
+    a README table the docs split removed; and the reference's ceiling row no
+    longer implies `chain_too_deep` / `attach_too_deep` produce the nesting message
+    (their snapshots read **129**).
+  - **Evaluated and declined (G3)**: a *content* comparison of the two tutorials'
+    block sequences. Their identifiers and comments legitimately differ, so it would
+    be false-positive noise; the per-section block-count guard plus paired canonical
+    examples are the pragmatic check, and the residual risk (a block replaced on one
+    side only) stays a review concern. Recorded in the guard's doc comment.
+  - **Evidence**: doc_consistency **11 → 12** (the new guard falsified), lib 161,
+    dsl 300, no_panic 6, UI **112 + 3**, doctests 101, `fmt`/`clippy`/`doc` clean.
 
 ## 0.9.7 (2026-08-29)
 

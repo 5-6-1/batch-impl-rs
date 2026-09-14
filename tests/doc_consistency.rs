@@ -1333,3 +1333,127 @@ fn section_citations_match_their_subject() {
     );
     assert!(bad.is_empty(), "citations that do not match their subject:\n  {}", bad.join("\n  "));
 }
+
+/// Floors for the testing-matrix guard (112 fixtures, 50 modules, 300 feature
+/// tests, 10 goldens today).
+const MIN_MATRIX_FIXTURES: usize = 100;
+const MIN_MATRIX_MODULES: usize = 40;
+const MIN_MATRIX_FEATURE_TESTS: usize = 250;
+const MIN_MATRIX_GOLDENS: usize = 8;
+
+/// The last integer appearing **before** `marker` on the first line that
+/// contains `needle`. Every matrix cell is prose ("the 10 `tests/golden/*.golden`
+/// snapshots", "共 **300** 个 `#[test]`"), so the number is read off relative to
+/// the noun it counts rather than by position in the line.
+fn matrix_count(doc: &str, needle: &str, marker: &str) -> Option<usize> {
+    let line = doc.lines().find(|l| l.contains(needle))?;
+    let head = line.split_once(marker)?.0;
+    head.rsplit(|c: char| !c.is_ascii_digit()).find(|s| !s.is_empty()).and_then(|s| s.parse().ok())
+}
+
+/// The architecture testing matrix is prose and it drifts: at the time this
+/// guard was added its UI-fixture count was 104 (tree: 112), its golden count 9
+/// (10), its feature-test count 299 (300) and its `simplify.rs` count 29 (30 —
+/// the example's own header and the rest of the docs already said 30). Nothing
+/// measured it, so a reviewer had to.
+///
+/// Everything below is derived from the tree. Three numbers stay unguarded
+/// because they cannot be derived mechanically, and pretending otherwise would
+/// be worse than a documented gap: the `cargo test --lib` unit-test count (a
+/// chunk of it is macro-generated, so the literal `#[test]` count is lower), the
+/// production-file count (the no-panic guard's skip set defines "production"),
+/// and the doctest count (it needs a `cargo test --doc` run).
+///
+/// A **content** comparison of the two tutorials' blocks is deliberately absent
+/// too: their identifiers and comments legitimately differ, so it would be
+/// false-positive noise. The per-section block-count guard
+/// (`tutorial_mirrors_carry_the_same_examples`) plus paired canonical examples
+/// are the pragmatic check; the residual risk is a block *replaced* on one side
+/// only, which review catches.
+#[test]
+fn architecture_testing_matrix_matches_the_tree() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    let ui = fs::read_to_string(root.join("tests/ui.rs")).unwrap();
+    let fixtures = ui.matches("t.compile_fail(").count();
+    let passing = ui.matches("t.pass(").count();
+
+    let goldens = fs::read_dir(root.join("tests/golden"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "golden"))
+        .count();
+
+    let features = fs::read_dir(root.join("tests/features"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
+        .collect::<Vec<_>>();
+    let modules = features.iter().filter(|e| e.file_name() != "mod.rs").count();
+    let feature_tests = features
+        .iter()
+        .map(|e| fs::read_to_string(e.path()).unwrap().matches("#[test]").count())
+        .sum::<usize>();
+
+    // The example's header is the second source of truth for its impl count.
+    // (`impls from` rather than `impl`: the letter sequence `impl` sits inside
+    // the word "simplify", which cost this guard its first iteration.)
+    let example = fs::read_to_string(root.join("examples/simplify.rs")).unwrap();
+    let example_impls = matrix_count(&example, "impls from", "impls from")
+        .expect("examples/simplify.rs states its impl count in the header");
+
+    // The example's own checklist must add up to that header (a reviewer found
+    // them disagreeing once: the checklist silently omitted one impl).
+    let checklist =
+        example.lines().skip_while(|l| !l.contains("Verification:")).take(3).collect::<String>();
+    let breakdown = checklist
+        .split_once('(')
+        .and_then(|(_, rest)| rest.rsplit_once(')'))
+        .map(|(inner, _)| inner.to_string())
+        .expect("examples/simplify.rs lists its impl breakdown in parentheses");
+    let summed = breakdown
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<usize>().ok())
+        .sum::<usize>();
+    assert_eq!(
+        summed, example_impls,
+        "examples/simplify.rs: its checklist adds up to {summed} but its header says {example_impls}"
+    );
+
+    assert!(
+        fixtures >= MIN_MATRIX_FIXTURES
+            && modules >= MIN_MATRIX_MODULES
+            && feature_tests >= MIN_MATRIX_FEATURE_TESTS
+            && goldens >= MIN_MATRIX_GOLDENS,
+        "the tree walk found {fixtures} fixtures / {modules} modules / \
+         {feature_tests} feature tests / {goldens} goldens — floors are \
+         {MIN_MATRIX_FIXTURES}/{MIN_MATRIX_MODULES}/{MIN_MATRIX_FEATURE_TESTS}/{MIN_MATRIX_GOLDENS}"
+    );
+
+    for (path, module_needle, example_needle, example_marker) in [
+        ("docs/architecture.md", "per-feature test modules", "simplify.rs` (", "impls from"),
+        ("docs/zh-CN/architecture.md", "按功能域拆分的测试模块", "simplify.rs`（", "个 impl"),
+    ] {
+        let doc = fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let facts = [
+            ("UI fixtures", matrix_count(&doc, "`compile_fail`", "`compile_fail`"), fixtures),
+            ("pass fixtures", matrix_count(&doc, "`pass` fixture", "`pass` fixture"), passing),
+            (
+                "goldens",
+                matrix_count(&doc, "`tests/golden/*.golden`", "`tests/golden/*.golden`"),
+                goldens,
+            ),
+            ("feature modules", matrix_count(&doc, module_needle, module_needle), modules),
+            ("feature tests", matrix_count(&doc, "`#[test]`", "`#[test]`"), feature_tests),
+            ("example impls", matrix_count(&doc, example_needle, example_marker), example_impls),
+        ];
+        for (what, stated, actual) in facts {
+            assert_eq!(
+                stated,
+                Some(actual),
+                "{path}: the testing matrix says {what} = {stated:?} but the tree has {actual}"
+            );
+        }
+    }
+}

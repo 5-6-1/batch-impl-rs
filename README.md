@@ -147,8 +147,11 @@ trait Describe2 { fn describe(&self) -> String; }
 | Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | §7 | advanced |
 | Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | §7 | advanced |
 | Variadic segments + repeat blocks                | `ident@..` in `impl{...}` templates (cover every remaining tuple position) + `@(...)..` body repetition (`@ident` names, `@N` index cursors) — one spec covers every tuple arity | §8.4 | advanced |
+| Shape templates `impl{...}`                      | Batch-instantiate a prototype impl: bind its Self shape to a template, and slot substitution rewrites the target, the `where` predicates and the body | §8.4 | advanced |
+| impl entry (ItemImpl)                            | `#[batch_impl]` on an `impl` block: derive impls from a spec list, with stacked attributes running as stages in source order (a later stage binds the slots an earlier one left) | §8.5 | advanced |
 
-> **Shorthand**: a single method `#fill([foo]){body}` equals `#foo{body}`; predicates + code block `where{predicates} {code block}` can be written bare as `where predicates {code block}` (see §7.2 / §8.2).
+> **Shorthand**: a single method `#fill([foo]){body}` equals `#foo{body}` (`docs/reference.md` §6.3 / §6.4).
+> **Bare form**: predicates plus a code block can be written `where predicates { code block }` (`docs/reference.md` §7.1).
 
 ## Syntax-freeze commitment (0.7.2)
 
