@@ -56,7 +56,7 @@ Four fixed passes, and the order decides what may be written into what:
 
 The same construct is legal in different places because the gate is a property of the **position** (`parse::generic::ArgsPosition` plus `parse::Ctx { trait_name, bound }`), not of the list's shape.
 
-| Position | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | generator `()^N` | `@` refs | `X<>` sync |
+| Position | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | generator `().N` | `@` refs | `X<>` sync |
 |---|---|---|---|---|---|---|
 | Trait application `Conv<…> X` | ✓ | ✓ (hoisted into the impl body — `impl Trait<Item=u8> for X` is E0229) | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓ (fresh declarations hoisted onto the impl) | ✓ | ✓ |
 | Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✓ `<*(A,B)>` → `<A, B>` | ✗ targeted error (the block *is* the impl's parameter list, so its freshs would never be used; ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
@@ -96,9 +96,13 @@ Two consequences worth remembering: **to nest, chain with `.`** (`Box Vec u8` ne
 
 `[A, B] T` distributes the trailing type over the elements — one impl each (`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); a bare list at the target position is the same thing spelled as impls. `(A, B)` is one tuple value; `(A)` is transparent; `[A]` as a type is a slice, `[u8; 3]` an array. A list is a **set** and a tuple a **sequence** — the distinction shows up under a splat operand (§4).
 
-### 3.4 Power `^N`
+### 3.4 Power `.N`
 
-`T^N` distributes over a value or a list (`(u8, u16)^2` = four tuple impls, `[Box, Rc]^2 u8` = four), and the per-spec ceiling of 1024 impls (§11) is what reports a mistyped power. `*()^N` re-wraps its fresh parameters into a splat so a following operand can append them (`T^*()^2` = `<A,B>T<A,B>`).
+The power is written `.N`, attached to the value it repeats: `T.N` expands a tuple or a generator into the Cartesian product of `N` positions — `(u8, u16).2` is every ordered pair over `{u8, u16}`, i.e. four impls, and `Frac.*(*@u*).2` feeds both generic positions for 36 (`examples/typeclass.rs`; the argument spelling `Frac<*(*@u*).2>` gives the same 36). The per-spec ceiling of 1024 impls (§11) is what reports a mistyped exponent.
+
+`*().N` re-wraps its fresh parameters into a splat so a following operand can append them: `T.*().2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
+
+**The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected — "unexpected `^` after the type" (§4.5 records the same boundary from the splat side). Older docs and changelog entries spell the power with `^`, so write `.N`.
 
 ### 3.5 `self` and the bare-type placeholder
 
@@ -246,38 +250,77 @@ A value is stored as **verbatim tokens** and expanded where it is referenced. Re
 
 ## 6. `#` Directives
 
-### 6.1 The shape, and where it may go
+A directive copies signatures from the trait definition, fills bodies in bulk, generates delegation calls or writes a whole blanket impl. This section states the system: the shape, the scope grammar element by element, each built-in directive, and every rejected shape with the message it gets.
 
-`#directive(scope){content}`. `#name{body}` is the one-item special case of `#fill`: `#fill([foo]){body}` ≡ `#foo{body}`.
+### 6.1 The shape, and where the output may go
 
-A directive's output is **single-group** for `#name` / `#fill` / `#delegate` / the `{...}` group of an open extension, so it may attach to a type (`T {body}`) or stand alone as a spec; the **multi-token** output of `#blanket` (its own generics, target and delegation) is self-contained and may only stand alone. The open extension is **top-level only** since 0.6.7 — `{! m!{...}}` prepends the spec body and emits the macro call at top level; the legacy in-impl form `T {m!{...}}` is deprecated since 0.7.2 but still accepted.
+`#directive(scope){content}` — one shape for all of them: a **name**, a **scope** (what it acts on) and **content** (how it processes it). `#name{body}` is the one-item special case of `#fill`: `#fill([foo]){body}` ≡ `#foo{body}`, and the shorter spelling wins when you need exactly one item.
+
+What a directive produces decides where it may stand:
+
+| Output | Directives | Attach to a type | Stand alone as a spec |
+|---|---|---|---|
+| **single group** | `#name`, `#fill`, `#delegate`, and the `{...}` group of an open extension | ✓ (`T {body}`) | ✓ |
+| **multi-token** (carries its own generics, target and delegation) | `#blanket` | ✗ — attaching it is meaningless | ✓ |
+
+A directive name with neither `(args)` nor `[args]` still needs its `{body}`; `#m` alone is `directive_bad_follow`: "`#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)".
 
 ### 6.2 The scope grammar
 
-| Element | Meaning | Rejected shape (fixture) |
+The scope is parsed by the **directive domain**, not the type domain (§6.8): it is a `,`-separated list of elements.
+
+| Element | Meaning | Rejected shape |
 |---|---|---|
-| `name` | one trait item | an unknown item → `single_name_not_found` |
-| `@all` families | a selected item set (§5.1) | `@all*` inside `batch_trait!` |
-| `[a, b]` | a literal list | — |
-| `-name` / `-[a, b]` | exclude from the set | `-` with nothing after it → `minus_bad_target`; a set that becomes empty → `minus_empty` |
-| `,` | separates elements | a leading/trailing comma → `fill_bad_comma` |
-| (empty) | — | an empty argument list → `fill_empty_args` |
+| `name` | one trait item, by name | an item that does not exist → "item `T` not found in trait `no_such`" (`single_name_not_found`) |
+| `@all` family | a selected item set (§5.2): `@all_methods`, `@all_constants`, `@all_types`, `@all_required*`, `@all_default*`, `@all_ref_methods`, `@all_value_methods`, `@all_static_methods` | using one inside `batch_trait!` (it has no trait definition to select from) |
+| `[a, b]` | a literal list of names | — |
+| `-name` / `-[a, b]` | exclude from the set | a `-` with nothing after it → "after `-` expected an identifier or `[...]` list" (`minus_bad_target`); a set that ends up empty → "directive arguments cannot be empty" (`minus_empty`) |
+| `,` | separates elements | a leading or trailing comma → "a comma is in an illegal position" (`fill_bad_comma`) |
+| (nothing) | — | an empty argument list → "the directive's argument list cannot be empty" (`fill_empty_args`) |
 
-### 6.3 Per-directive reference
+### 6.3 `#name{body}` — one item
 
-| Directive | Scope | Content | Edges |
-|---|---|---|---|
-| `#name{body}` | one item by name — method, const or associated type | that item's implementation | the body must match the item's shape |
-| `#fill(scope){body}` | an item set | one shared body, with each signature copied from the trait definition | the "declare data, not repetitive code" core |
-| `#delegate(scope){target}` | methods only | `fn m(&self, ...) -> R { (target).m(...) }` — `self` is skipped, the rest forwarded | `=new_name` renames (`X = Y` needs identifiers on both sides; a double rename errors); a signature taking or returning bare `Self` errors with a `#name{...}` suggestion, while a `Self::Assoc` return is fine |
-| `#blanket(scope){wrapper list}` | every method | one complete impl per wrapper around a fresh `T`, each delegating by deref | a wrapper may carry `:N` (deref depth ≤ 128); `*const`/`*mut` wrappers are rejected; `@Cow` is the packing constant |
-| `{! m!{...}}` (open extension) | top level only | hands `m!` the arguments, the body and the trait definition | a name that is neither built-in nor a trait item becomes **your** macro — a typo therefore surfaces as rustc's "macro not found" |
+Looks up the **single** trait item called `name` — a method, an associated const or an associated type — and fills it with `body`, which must match that item's shape (`usize #to_str{"usize"}`). It is `#fill([name]){body}` with a shorter spelling, and the idiomatic choice for a one-off.
 
-`batch_trait!` supports **none** of them (it never sees a trait definition); each directive's full argument semantics live in rustdoc (`src/doc/directive_*.md`).
+### 6.4 `#fill(scope){body}` — one body, many signatures
 
-### 6.4 `# path::To::Trait:` is not a directive
+For every selected item the **signature is copied from the trait definition** and `body` becomes its implementation (`#fill([add, add2]){self.0 = self.0.wrapping_add(x as u32)}` fills two methods with one body). This is the directive system's core promise — declare data, do not write repetitive code — and the reason the scope exists: one body, the macro reproduces it under each selected signature. The body itself is not type-checked by the macro; an unsatisfiable one is reported by rustc against the generated impl.
 
-It is a **spec prefix** (batch_impl_only) declaring the external trait's real path: it needs at least one `::`, and `@trait` plus every path reference then use it (`src/doc/batch_impl_only.md`). A trailing ident that differs from the trait name is `path_prefix_mismatch`.
+### 6.5 `#delegate(scope){target}` — generate the calls
+
+One delegation call per selected method: `fn m(&self, ...) -> R { (target).m(...) }` — the `self` argument is skipped, the remaining arguments are forwarded, and the signature still comes from the trait definition. `Box.Vec.u32 #delegate(d_len){**self}` becomes `fn d_len(&self) -> usize { (**self).d_len() }`.
+
+| Shape | Rule |
+|---|---|
+| scope | methods only — a const or an associated type is "`HasConst` in trait `VALUE` is not a method" (`delegate_on_non_fn`, `delegate_const`) |
+| target | one expression, spliced into the generated call (`**self`, a field, a constructor call) |
+| `foo = call_foo` | delegates the trait's `foo` to the target's `call_foo`: the **signature keeps `foo`**, only the call uses the other name |
+| rename with a missing side | "rename `X = Y` needs identifiers on both sides" (`delegate_rename_missing_left`); renaming the same method twice is "method `size` is renamed twice" (`delegate_double_rename`) |
+
+### 6.6 `#blanket(scope){wrapper list}` — a whole impl per wrapper
+
+`#blanket` writes **one complete impl per wrapper** around a fresh generic `T`, delegating every selected method by deref — the automated form of hand-writing `<T: Trait> wrapper.T #delegate(selected){*…*self}` once per wrapper.
+
+| Element of the wrapper list | Meaning |
+|---|---|
+| a type form | the wrapper to implement for, around a fresh `T` (a `.`/space chain names the nesting, e.g. `Box.Arc`) |
+| `:N` | the **deref depth** to reach the inner value (`Box.Arc:2`) — a number, capped at 128 (`blanket_bad_depth`, `blanket_bad_empty_depth`, `blanket_bad_huge_depth`) |
+| `@Cow` | the packing constant: `Cow<'_>` plus its inherent constraint predicates |
+
+Rejected: `*const`/`*mut` wrappers (deref would be unsafe, `blanket_ptr`) and a method that takes or returns bare `Self` — forwarding yields the inner type, not the wrapper's `Self` — which is reported with a `#name{...}` suggestion, while a `Self::Assoc` **return** is fine (`blanket_self_return`, `blanket_self_in_group`).
+
+### 6.7 The open extension `{! m!{...}}`
+
+A `#name(args){body}` whose name is neither a built-in directive nor a trait item expands to a call of **your** function-like macro of the same name, handed the arguments, the body and the trait definition. The `{! ...}` block is **top-level only** since 0.6.7 — it prepends the spec body and emits the macro call at top level — and it must be the last block (`top_level_block_not_last`, `top_level_manual_not_last`, `top_level_without_attach`); the legacy in-impl form `T {m!{...}}` (no `!`) is deprecated since 0.7.2 but still accepted.
+
+Worth knowing: there is **no typo guard on directive names**, so a mistyped built-in silently becomes a macro call and surfaces as rustc's own "macro not found" — check the spelling against §6.3–§6.6 first.
+
+### 6.8 Boundaries and crossings
+
+- **A separate syntax domain**: directive arguments are parsed on their own; the type-domain parser never recurses into them and the directive pass never interprets DSL operators (§13.1). So inside a scope, `,` and `-` mean what they mean *here*, the space is not an application, and a name is just a name — `#fill(a * b)` is not a multiplication.
+- **`batch_trait!` supports none of them**: it never sees a trait definition, which is exactly what `#fill` / `#delegate` / `#blanket` need. The `@all` families and the open extension are attribute-macro features.
+- **`# path::To::Trait:` is not a directive**: it is a **spec prefix** (`batch_impl_only`) declaring the external trait's real path — at least one `::`, after which `@trait` and every path reference use it (`path_prefix_mismatch` when the trailing ident differs from the trait name).
+- **With the other systems**: a directive's output is a block, so it obeys the apply rules like any other block (§3.1) and composes with lists and attachments; `@` constants expand *before* the directive pass, so a scope may carry an `@all` family or a custom constant's list; `where` is parsed *after* it, so a `#fill` body may contain a bare `where predicate { code }` like any other body.
 
 ## 7. `where`
 
@@ -311,33 +354,60 @@ Once every fill has run, the predicates are parsed as **Rust predicates** and a 
 
 ## 8. `impl{...}` Shape Templates
 
-### 8.1 Form and parse site
+An `impl{...}` attachment is a **prototype of the impl's own shape**: it names the parts of the target type so the rest of the spec (and the body) can mention them, and one prototype covers a whole shape family. This section states the system.
 
-A template holds a **standard Rust type** (`impl{Container<U>}`); DSL operators inside are rejected (`impl_template_dsl_ops`) and it is parsed **once**, right after the `X<>` sync — an `X<>` marker inside a template is not valid Rust before that. `@trait` / `@` reach it at the constant stage, and `where_process` treats it as a predicate-region boundary.
+### 8.1 The parse site
+
+A template holds a **standard Rust type** (`impl{Container<U>}`): DSL operators inside it are rejected — "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)" (`impl_template_dsl_ops`, `impl_template_range_constant`). It is parsed **once**, right after the `X<>` sync, and the order matters in both directions: before the sync an `X<>` marker inside the template (`impl{GenW<>}`) is not valid Rust, and after it the shape matching works on types rather than tokens. `@trait` and `@` constants reach the template at the constant stage (the earliest pass, §13.1), and the `where` pass treats it as a predicate-region boundary — a `where{...}` after it is not part of the template.
 
 ### 8.2 Matching, position by position
 
-| Template vs the leaf target type | Result |
+The template is matched against the **leaf target type**, position by position:
+
+| Template vs target at that position | Result |
 |---|---|
-| an ident **equal** to the target's at that position | a literal, untouched |
-| an ident **different** | a slot bound to the target's subtree there |
-| several templates | merged into one mapping — identical re-bindings are legal, conflicting ones are `impl_inconsistent_binding` |
-| a shape mismatch (arity / kind / structure) | `impl_shape_mismatch`, naming the shape |
+| an ident **equal** to the target's | a literal — kept untouched |
+| an ident **different** | a **slot**, bound to the target's subtree there |
+| several templates in one spec | merged into **one mapping** — identical re-bindings are legal and redundant, conflicting ones are `impl_inconsistent_binding` |
+| a shape the template cannot destructure | `impl_shape_mismatch`, naming the shape: an arity/kind difference, a `fn` bound (`impl_shape_fn_bound`), a different lifetime argument (`impl_shape_lifetime_arg`), a duplicate variadic segment (`impl_shape_varseg_duplicate`), a segment outside a tuple (`impl_shape_varseg_outside_tuple`), uneven segments (`impl_shape_varseg_uneven`) |
 
-### 8.3 What the slots rewrite
+So the pattern reads "same ⇒ literal, different ⇒ slot": `impl{Container<U>}` over a `Vec<i16>` target makes `Container` = `Vec` and `U` = `i16`, while a template that repeats the target's own ident keeps that position fixed.
 
-The substitution reaches the **target type**, the **`where` predicates** and the **body**, and a slot is a *subtree* rather than a text token (its value is spliced). Locked by `features::shape_template_advanced::slot_rewrite_reaches_where` and `impl_multiple_templates_merge`.
+### 8.3 What the substitution reaches
 
-### 8.4 Variadic segments, repeat blocks and the fresh switch
+The mapping is applied to the **target type**, the **`where` predicates** and the **body** — and a slot is a *subtree*, not a text token: its value is spliced where the name appears, which is why a slot can stand for a whole generic argument (`Vec<i16> impl{SlotBox<T>} where{Vec<T>: Clone}` renders `where Vec<i16>: Clone`). The substitution is the documented rewrite rule for all three surfaces (locked by `features::shape_template_advanced::slot_rewrite_reaches_where` and `impl_multiple_templates_merge`).
 
-| Spelling | Role |
+### 8.4 Variadic segments and repeat blocks
+
+| Spelling | Where | Role |
+|---|---|---|
+| `A@..` | in the template | a **variadic segment**: it matches the remaining positions of the shape family and drives the body |
+| `@(…@0,)..` | in the body | a **repeat block**: one round per covered element, with `@ident` splicing that round's subtree (the `$(…)*` semantics) |
+| `impl{@0..}` | a template | the **fresh-binding switch**: binds one fresh per round for cursor-only blocks and enables `@{N}` references |
+| `impl{@{}}` | a template | the **body-slot switch**: enables `@{N}` in a body where a repeat block would otherwise read `@` as a block start |
+
+Typical shape: one spec with a template carrying the segment covers every arity of a tuple family (`().1..=4 where @0..: Magma impl{(A@..)} #combine{…}`), and the body's repeat block writes each round's elements.
+
+### 8.5 Boundaries
+
+| Shape | What happens |
 |---|---|
-| `A@..` in a template | marks a **variadic segment** — the arities a family covers |
-| `@(…@0,)..` in the body | a **repeat block**: one round per covered element, `@ident` splicing that round's subtree |
-| `impl{@0..}` | the **fresh-binding switch**: one fresh per round (cursor-only blocks) and enables `@{N}` references |
-| `impl{@{}}` | the body-slot switch that enables `@{N}` where a repeat block would otherwise read `@` as a block start |
+| a bare `@` in a body | "`@` inside an impl body must start a repeat block `@(...)..`" (`impl_shape_repeat_bare_at`) |
+| a cursor-only block with several templates but no driver chosen | "a cursor-only repeat block needs a driving segment" (`impl_shape_repeat_cursor_multi`) |
+| a cursor-only block with no switch at all | reaches rustc as a parse error (`impl_shape_repeat_no_driver`, recorded in §10.6) |
+| segments of different lengths | "repeat block segments have different lengths (2 vs 3)" (`impl_shape_repeat_unequal`) |
+| a reference to a segment the template does not declare | "repeat block references unknown variadic segment `@X`" (`impl_shape_repeat_unknown`) |
+| two different drivers in one block | "repeat block driver `@A` conflicts with the inner segment reference `@B`" (`impl_shape_repeat_driver_conflict`) |
+| a switch range that covers no fresh (`impl{@2..1}` / `impl{@2..=1}`) | "invalid fresh-binding switch — the range covers no fresh" (`impl_shape_repeat_invalid_switch`, `impl_shape_repeat_invalid_switch_closed`) |
+| a template that is not a standard Rust type | the §8.1 message, one error, no cascade |
 
-Edges (each with a fixture in §10.6): a bare `@` in a body is `impl_shape_repeat_bare_at`; a cursor-only block needs a driver — `impl_shape_repeat_cursor_multi`; unequal segment lengths `impl_shape_repeat_unequal`; an unknown segment `impl_shape_repeat_unknown`; conflicting drivers `impl_shape_repeat_driver_conflict`; a switch range covering no fresh `impl_shape_repeat_invalid_switch`. The tutorial's §8.4 walks through the working examples.
+### 8.6 Crossings
+
+- **× `@` constants**: expanded into the template at the constant stage, i.e. before it is parsed (§13.1) — so `impl{@trait<>}`, an `@all_type_params` declaration or a custom constant's list are all in place by the time the template must be valid Rust.
+- **× the `X<>` sync**: the sync fills the template's empty brackets, and *that* is why the parse sits behind it (§8.1). A template that actually carries the trait application (`impl{Tr<>}` / `impl{@trait<>}`) also switches **body** sync on; without such a switch the body's `X<>` is left to rustc (E0107).
+- **× `where`**: the pass treats `impl{...}` as a predicate-region boundary, and the shape mapping is then substituted into the predicates as well (§8.3) — a slot is legal wherever a type is, including inside a predicate.
+- **× the impl entry**: the entry (`#[batch_impl]` on an `impl` block) is exactly "shape template × matrix source" — one hand-written prototype impl plus the specs that instantiate it (§9).
+- **× the apply system**: a template is a block, so it composes with the spec chain like any other attachment and may be attached with `{body}` / `where{...}` in any order (§1.1).
 
 ## 9. Entries
 

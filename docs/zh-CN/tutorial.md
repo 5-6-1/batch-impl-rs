@@ -225,7 +225,7 @@ trait Conv<T, U>: Sized { fn cv(_v: T, _o: U) -> Self; }
 ```rust
 # use batch_impl::batch_impl;
 struct Frac<T, U>(T, U);
-#[batch_impl(Frac<*(*@u*)2>)]
+#[batch_impl(Frac<*(*@u*).2>)]
 trait Pow {}
 // → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}（36 个 impl）
 ```
@@ -243,12 +243,12 @@ trait C {}
 
 ### 4.5 generator 重包
 
-`*()N`——生成器 splat——提升 fresh 声明并把元组摊平进容器：
+`*().N`——生成器 splat——提升 fresh 声明并把元组摊平进容器：
 
 ```rust
 # use batch_impl::batch_impl;
 struct Pair2<A, B>(A, B);
-#[batch_impl(Pair2<*()2>)]
+#[batch_impl(Pair2<*().2>)]
 trait GSplat {}
 // → impl<P0, P1> GSplat for Pair2<P0, P1>（摊平成两个实参）
 ```

@@ -226,7 +226,7 @@ A splat power inside generic args distributes its Cartesian result one impl per 
 ```rust
 # use batch_impl::batch_impl;
 struct Frac<T, U>(T, U);
-#[batch_impl(Frac<*(*@u*)2>)]
+#[batch_impl(Frac<*(*@u*).2>)]
 trait Pow {}
 // → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}（36 impls）
 ```
@@ -237,12 +237,12 @@ A group whose content is a lone splat parses as the container holding the splat 
 
 ### 4.5 Generator re-wrap
 
-`*()N` — a generator splat — hoists fresh declarations and splats the tuple into a container:
+`*().N` — a generator splat — hoists fresh declarations and splats the tuple into a container:
 
 ```rust
 # use batch_impl::batch_impl;
 struct Pair3<A, B>(A, B);
-#[batch_impl(Pair3<*()2>)]
+#[batch_impl(Pair3<*().2>)]
 trait GenSpl {}
 // → impl<P0, P1> GenSpl for Pair3<P0, P1>（flattened into two args）
 ```
