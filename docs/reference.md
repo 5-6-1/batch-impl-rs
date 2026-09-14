@@ -123,69 +123,126 @@ When the head names the annotated trait (or is `@trait`), the first element is t
 
 ## 4. Splat `*`
 
-**Semantics**: splice a container/generator into the enclosing list, expanding exactly **one layer**. A tuple is a type and stays intact as a single element (`*((a,b),)` = one `(a,b)` impl) while arrays / nested splats / generators / groups flatten. The left operand follows its source bracket — `*[A,B] T` distributes (set), `*(A,B) T` appends (list); a right operand stays whole until consumption (`T.*(A,B)` = `T<*(A,B)>`, expanded to `T<A,B>` only in codegen).
+### 4.1 The rule
 
-**A lone splat in a group**: `(*(a,b))` = `( *(a,b) )` and `[*(a,b)]` = `[ *(a,b) ]` — parsed as the container holding the splat as **one element**, rendered as `(a, b)` / `[a, b]`.
+A splat splices a container or a generator into the enclosing **parameter-position list**. It stays a whole unit through parse and apply and expands **once**, in codegen, so nothing downstream ever sees half-flattened arguments. Expansion is **one layer**:
 
-**Measured: which positions actually expand**
+| Written | Result | Why |
+|---|---|---|
+| `(u8, *(u16, u32))` | `(u8, u16, u32)` | a tuple's elements splice |
+| `*((a, b),)` | one `(a, b)` impl | a tuple is a **type**, so it stays a single element |
+| `Box<*(u8, u16)>` | `Box<u8, u16>` | generic args are a parameter list |
+| `Box<*(*[u8, u16])>` | `Box<u8, u16>` | a nested splat splices into the same list |
+| `[u8, *()]` | one impl (`u8`) | an empty splat splices nothing |
+
+### 4.2 A lone splat in a group
+
+`(*(a,b))` parses as the container holding the splat as **one element** — `( *(a,b) )` — and `[*(a,b)]` the same way; the element expands at render time, so the results are `(a, b)` and `[a, b]`. That is the container rule: a group whose content is a lone splat *is* the container, not a splice point.
+
+### 4.3 Which operand is which
+
+- **Left operand — the source bracket decides**: `*[...] T` **distributes**, keeping set semantics (`*[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); `*(...) T` **appends**, keeping list semantics (`*(Box, Rc) u8` → the list `Box, Rc, u8`, i.e. three impls).
+- **Right operand — stays whole**: `T.*(A,B)` is `T<*(A,B)>` in the pipeline and `T<A, B>` in the output (measured: `Box.*(u8, u16)` → `Box<u8, u16>`).
+
+### 4.4 Where it expands
 
 | Position | Result |
 |---|---|
 | Generic args / trait-application args `T<*(A,B)>`, `Conv<*(A,B)> X` | ✓ expands to `T<A,B>` / `Conv<A,B>` |
 | Tuple element `(u8, *(u16, u32))` | ✓ expands to `(u8, u16, u32)` |
-| Array element `[*(A), *(B)]` | ✓ (spec-list position, flattened in the expand phase) |
+| Spec-list element `[u8, *()]`, `[*(u8), *(u16)]` | ✓ flattened in the expand phase (one impl per surviving element) |
 | `dyn` bound tail `dyn Tr<*(u8, u16)>` | ✓ expands to `dyn Tr<u8, u16>` |
 | Generic declaration block `<T, *(A,B)>` / `<*(A,B)>` | ✓ expands to `<T, A, B>` / `<A, B>`; a `*().N` splat hoists the declaration it carries, while a **generator** there is a targeted error (§10.1) |
 | fn parameter list `fn(*(u8, u16))` / `fn(u8, *(u16, u32))` | ✓ expands to `fn(u8, u16)` / `fn(u8, u16, u32)` — an `Fn`-family callable (`Fn(*(A,B)) -> C`) is the same parameter list |
 | Inline bound `<T: Tr<*(u8, u16)>>` | ✓ expands to `<T: Tr<u8, u16>>` (a declaration hoisted out of the bound rides out to the impl, as in any bound) |
 | **`where` predicate** `where{T: Tr<*(u8, u16)>}` | ✗ reported by the predicate check (§7), not leaked to rustc |
 
-> The last row is the one deliberate exception, and it is not an expander gap: the where clause is token-level from resolution to the rendered output, so the **predicate check** reports the splat. Every other parameter-position list expands — the three rows above used to leak their tokens to rustc (a raw-pointer error, `expected type, found @`) until the expansion reached the callable parameter lists, the declaration block and the bound positions.
+> The last row is the one deliberate exception, and it is not a gap: the where clause is token-level from resolution to the rendered output, so the **predicate check** reports the splat. The three rows above it were fixed in the commit this section is part of — before that they handed the splat's tokens to rustc verbatim (a raw-pointer error, `expected type, found @`).
 
-**Other boundaries**: `*const` / `*mut` pointers are unaffected (decided by the following token); a bare `*` (neither splat nor pointer) gets a targeted error; a splat alone as the target flattens into duplicates (`*(A,B)` → E0119), so write `(A,B)` for tuple impls; `*()^N` re-wraps its fresh tuple into a splat so a carrier can append parameters (`T^*()^2` = `<A,B>T<A,B>`).
+### 4.5 Boundaries
+
+| Written | What happens |
+|---|---|
+| `*const u8` / `*mut u8` | a pointer type: the `*` is decided by the following token, not taken as a splat |
+| a bare `*` (neither splat nor pointer) | targeted error (ui `star_misuse`) |
+| `*(u8, u16)` as the **target** | one impl per element (`u8`, `u16`); repeated elements collide — `*(u8, u8)` is two `impl … for u8` (E0119) |
+| `*().2` as the target | one impl per fresh (`P0`, `P1`) |
+| `Box<*().2>` | the generic arg carries the declaration: `impl<P0, P1> … for Box<P0, P1>` |
+| a generator inside a `<>` **declaration block** | targeted error — the block *is* the impl's parameter list (§10.1) |
+| a splat inside an `impl{...}` template | the template must be a standard Rust type, so DSL operators are rejected (§10.6) |
+| a splat inside a `where` predicate | reported by the predicate check (§7) |
+
+### 4.6 Crossings
+
+| With | Spelling | Measured |
+|---|---|---|
+| `@` constants (§5) | `Box<*(@u*)>` | `Box<u8, u16, u32, u64, u128, usize>` — the constant is spliced first, the splat expands in codegen |
+| the power (`.N`) | `*(u8, u16).2` | eight impls: the four Cartesian pairs, each spliced into its two elements |
+| the power, caret spelling | `*(u8, u16)^2`, `Box^*()^2`, `Box<()^2>` | **rejected** — "unexpected `^` after the type"; the caret is not a DSL operator, the power is written `.N` |
+| `#` directives (§6) | a directive whose arguments come from a spec | the directive domain parses its own argument list; the type domain never enters it, and vice versa |
+| `impl{...}` templates, variadic segments and repeat blocks (§8) | `impl{(A@..,)}` with `@(…@0,)..` | the template is standard Rust (no splat inside it); variadic segments and repeat blocks are the template system's own machinery |
 
 ## 5. The `@` Macro-Meta Layer
 
-`@` is the **only** macro-meta token (`#` keeps only directive names). It is **lexical substitution**: the expanded result enters the original pipeline, participates in no in-domain parsing, and runs **first** of the four preprocessing passes. The worked expansions live in the tutorial (§6); this section is the notation index, the legality matrix and the edge cases.
+### 5.1 The rule
 
-### 5.1 Notation index
+`@` is the **only** macro-meta token (`#` keeps only directive names). Substitution is **lexical**: the value is spliced as tokens and **no in-domain parsing happens at the reference site** — the result enters the normal pipeline and is parsed there exactly like hand-written text. It runs **first** of the four passes (`@` → `<>` pairing → `#` → `where`), which is what makes two things work:
+
+- a value may contain **flat** `<...>`, because angle pairing runs after it;
+- a value may be another constant (`@a=@b`) or a whole DSL expression, spliced and expanded recursively where it is referenced.
+
+### 5.2 Notation by class
 
 | Class | Notation | Expands into | Detail |
 |---|---|---|---|
-| Name families | `@u*` `@i*` `@f*` `@num` `@scalar` | a **list** of types | tutorial §6.1 |
-| Range families | `@u8..u128` `@i8..i128` `@f32..f64` | a **list** (contiguous run, inclusive) | either endpoint may be omitted; `usize`/`isize` are not in any range family |
-| Trait | `@trait` | the trait path (or, for `batch_trait!`, the segment's own path) | tutorial §6 |
-| Trait-member families | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | a `[a,b,c]` **group** that then goes through directive-argument parsing | receiver/required filtering is part of the constant |
-| Generic-parameter families | `@all_type_params` `@all_const_params` `@all_lifetimes` | a flat `<...>` **declaration** | a const parameter carries its full `const N: usize`; a bare name is E0747 |
-| Wrapper constant | `@Cow` | `Cow<'_>` plus its inherent constraint predicates | `#blanket` only |
-| Positional references | `@N` `@g_i` `@0..=M` `@N..` `@all_fresh` | one fresh name, or a comma-separated run of them | §5.3 |
-| Custom constants | `@name=value;` | whatever the value is (verbatim tokens) | `batch_trait!` leading section only |
+| Name families | `@u*` `@i*` `@f*` `@num` `@scalar` | a **list** of types | the closed, language-defined sets (tutorial §6.1) |
+| Range families | `@u8..u128` `@i8..i128` `@f32..f64` | a **list** — the contiguous run, inclusive | either endpoint may be omitted (`@..u128` = `@u8..u128`); `usize`/`isize` are not in any range family |
+| Trait | `@trait` | the trait path (in `batch_trait!`, the segment's own path) | the only constant whose meaning is per-entry (§5.3) |
+| Trait-member families | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | a `[a,b,c]` **group** that then goes through directive-argument parsing | required/default and receiver filtering are part of the constant |
+| Generic-parameter families | `@all_type_params` `@all_const_params` `@all_lifetimes` | a flat `<...>` **declaration** copied from the trait | a const parameter carries its full `const N: usize` (a bare name is E0747) |
+| Wrapper constant | `@Cow` | `Cow<'_>` plus the wrapper's constraint predicates | `#blanket` only |
+| Positional references | `@N` `@g_i` `@0..=M` `@N..` `@all_fresh` | one fresh name, or a comma-separated run of them | §5.4 |
+| Custom constants | `@name=value;` | whatever the value is, verbatim | `batch_trait!` leading section only |
 
-### 5.2 Legality by entry point
+### 5.3 Legality by entry point
 
 | Notation | `#[batch_impl]` | `#[batch_impl_only]` | `batch_trait!` | Notes |
 |---|---|---|---|---|
 | name / range families | ✓ | ✓ | ✓ | pure lexical lists |
-| `@trait` | ✓ local name | ✓ the external path (`# path::To::Trait:` prefix) | ✓ **segment-level** replacement | the only constant whose meaning is per-entry |
+| `@trait` | ✓ the local name | ✓ the external path (`# path::To::Trait:` prefix) | ✓ replaced **per segment** | the only constant whose meaning is per-entry (`src/doc/batch_trait.md`) |
 | `@all*` member families | ✓ | ✓ | ✗ targeted error | they need the trait definition |
 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | ✓ | ✓ | ✗ targeted error (ui `generic_family_batch_trait`) | copied from the trait's own parameters |
-| `@Cow` | ✓ (`#blanket` only) | ✓ (`#blanket` only) | ✗ | it is a wrapper-packing constant, not a type alias |
-| `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | ✓ | ✓ | ✓ | resolved by codegen (`@trait` is resolved earlier) |
-| `@name=value;` | ✗ targeted error (ui `const_attr_unsupported`) | ✗ same | ✓ | the 0.7.2 attribute-macro form was reverted in 0.8.0 |
+| `@Cow` | ✓ (`#blanket` only) | ✓ (`#blanket` only) | ✗ | a wrapper-packing constant, not a type alias |
+| `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | ✓ | ✓ | ✓ | resolved later than `@trait`, in codegen |
+| `@name=value;` | ✗ targeted error (ui `const_attr_unsupported`) | ✗ same | ✓ | the attribute-macro form was reverted in 0.8.0 |
 
-### 5.3 Positional references
+### 5.4 Addresses
 
-- **Numbering**: fresh generics are numbered **from 0 in document order**, and the numbers are the user-visible display names (`@0` → `P0`). User-written parameters are addressed by their own names — `@N` exists exactly because fresh names are not written by the user.
-- **`@g_i` is the primitive**: group `g`, slot `i` (stable across array distribution); `@N` is the flattened document-order form.
-- **Ranges**: `@N..=M` is inclusive, `@N..` is open to the last fresh. A run in a where predicate expands to **one predicate per covered fresh** (comma-separated).
-- **Out of range**: `@N` past the end is a targeted error (`at_num_in_type`), while an **open** range past the end (`where{@5..: Clone}` on a two-fresh impl) contributes nothing — it is empty, not an error (`empty_range` is the closed-range counterpart in a spec).
-- **`@all_fresh`** is deprecated: write `@0..`.
-- **In a blanket wrapper where clause**, `@0` is the **target generic** (the blanket's only fresh); preprocessing replaces only `@trait` there.
-- **Exclusive ranges are normalised**: `@N..M` excludes `M` in every position (`@0..2` covers `P0, P1`).
+- **Numbering and display names**: fresh generics are `P0`, `P1`, … in **document order**, and `@N` is exactly that index (`@0` → `P0`). User-written parameters are addressed by their own names — `@N` exists because fresh names are not written by the user.
+- **`@g_i` is the primitive**: group `g`, slot `i`, stable across array distribution; `@N` is the flattened form. Measured: `().2 where{@0_1: Clone}` → `where P1: Clone`.
+- **`@N..=M`** is inclusive, **`@N..`** is open to the last fresh. In a where predicate a run becomes **one predicate per covered fresh**: measured `().2 where{@1..: Clone}` → `where P1: Clone`.
+- **An exclusive range excludes its end in every position**: measured `().3 where{@0..2: Clone}` → `where P0: Clone, P1: Clone` on a three-fresh impl.
+- **An open range past the end contributes nothing**: measured `().2 where{@5..: Clone}` → no predicate, no error. An arity-dependent spec must not fail on its shorter case.
+- **`@N` past the end is a targeted error** (ui `at_num_in_type`; the closed-range counterpart in a spec is `empty_range`).
+- **In a blanket wrapper's where clause, `@0` is the target generic**: measured `#blanket(own){Box where{@0: Copy}}` → `impl<P0> … for Box<P0> where P0: Trait, P0: Copy`.
+- **`@all_fresh` is deprecated**: write `@0..`.
 
-### 5.4 Laziness, cycles and definitions
+### 5.5 Definitions
 
-`@` values are stored as **verbatim tokens** and expanded recursively at the reference site; a value may be another constant (`@a=@b`) or a DSL expression. Rejected **at the definition**: cycles (`@a=@a`), forward references (`@a=@b` before `@b`), and a bare range endpoint (`@a=@u8` without `..`). Nesting inside a constant value shares `MAX_NEST_DEPTH`.
+A value is stored as **verbatim tokens** and expanded where it is referenced. Rejected **at the definition**, before any impl is generated: cycles (`@a=@a`), forward references (`@a=@b` written before `@b`), and a bare range endpoint (`@a=@u8` without `..`). Nesting inside a value shares the depth cap of §11.
+
+### 5.6 Boundaries and crossings
+
+| Written | What happens |
+|---|---|
+| `Box<@1.5>` | "`@` in a type must be followed by a position digit (e.g. `@0` or `@0_1`)" — only `@N`/`@g_i` are references |
+| `Box<@5>` with no fresh generics | targeted error (ui `at_num_in_type`) |
+| `Box<0>` | a bare integer **is** a type in the DSL (renders `Box<0>`); only `@` introduces a reference |
+| `@trait` inside `where{...}` | expanded — measured `<T> TrW<T> u8 where{@trait<T>: Sized}` → `where TrW<T>: Sized` |
+| `@trait` inside `impl{...}` | expanded — measured `Box<u8> impl{@trait<u8>}` → `impl TrI for Box<u8>` |
+| `@all*` families as directive arguments | the directive domain's own input — measured `u8 #fill(@all_methods){7}` fills every method of the trait |
+| `@Cow` as a blanket wrapper | `Cow<'_>` plus the wrapper's constraint predicates — measured `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized, …` (`tests/features/dsl_macro_meta.rs` locks the full form) |
+| `@trait` in `batch_trait!` | replaced per segment with that segment's trait path, which is what lets one segment pack another's constants |
 
 ## 6. `#` Directives
 
