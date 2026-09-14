@@ -942,3 +942,344 @@ fn every_source_diagnostic_is_locked_or_listed() {
         unlocked.join("\n  ")
     );
 }
+
+/// The catalog is a **multiset**, not a set: a fixture named twice inside one
+/// mirror (a duplicated row) or present in one mirror and missing from the other
+/// is a defect the `contains`-style check cannot see. `docs/zh-CN/reference.md`
+/// carried the `fn_return_reapply` row twice when this was written.
+const MIN_CATALOG_ROWS: usize = 100;
+
+/// The fixture stems of a catalog's row labels, in file order.
+fn catalog_rows(catalog: &str) -> Vec<String> {
+    catalog
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("| `")?;
+            let (stem, _) = rest.split_once('`')?;
+            (!stem.is_empty()).then(|| stem.to_string())
+        })
+        .collect()
+}
+
+#[test]
+fn the_two_mirrors_carry_the_same_catalog_rows() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut rows = vec![];
+    for doc in ["docs/reference.md", "docs/zh-CN/reference.md"] {
+        let text = fs::read_to_string(root.join(doc)).unwrap_or_else(|e| panic!("{doc}: {e}"));
+        let catalog = text
+            .split_once("## 10.")
+            .and_then(|(_, rest)| rest.split_once("## 11."))
+            .map(|(catalog, _)| catalog)
+            .unwrap_or_else(|| panic!("{doc}: no `## 10.` … `## 11.` catalog section"));
+        let stems = catalog_rows(catalog);
+        assert!(
+            stems.len() >= MIN_CATALOG_ROWS,
+            "{doc}: only {} catalog rows parsed (floor {MIN_CATALOG_ROWS})",
+            stems.len()
+        );
+        let mut seen = std::collections::BTreeSet::new();
+        let duplicates =
+            stems.iter().filter(|stem| !seen.insert((*stem).clone())).cloned().collect::<Vec<_>>();
+        assert!(
+            duplicates.is_empty(),
+            "{doc}: the catalog names the same fixture twice:\n  {}",
+            duplicates.join("\n  ")
+        );
+        rows.push((doc, stems));
+    }
+    let (_, en) = &rows[0];
+    let (_, zh) = &rows[1];
+    let sorted = |v: &Vec<String>| {
+        let mut v = v.clone();
+        v.sort();
+        v
+    };
+    let (en, zh) = (sorted(en), sorted(zh));
+    let missing_zh = en.iter().filter(|s| !zh.contains(s)).cloned().collect::<Vec<_>>();
+    let missing_en = zh.iter().filter(|s| !en.contains(s)).cloned().collect::<Vec<_>>();
+    assert!(
+        missing_zh.is_empty() && missing_en.is_empty(),
+        "the mirrors' catalogs differ:\n  only in EN: {}\n  only in ZH: {}",
+        missing_zh.join(", "),
+        missing_en.join(", ")
+    );
+}
+
+// ------------------------------------------------------------- citations
+/// Every section of a doc as `(label, title)`, for the citation guard.
+fn sections_with_titles(doc: &str) -> Vec<(String, String)> {
+    doc.lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("### ").or_else(|| line.strip_prefix("## "))?;
+            let (token, title) = rest.split_once(' ').unwrap_or((rest, ""));
+            let label = token.strip_suffix('.').unwrap_or(token);
+            let numeric = !label.is_empty()
+                && label.chars().all(|c| c.is_ascii_digit() || c == '.')
+                && label.chars().any(|c| c.is_ascii_digit());
+            numeric.then(|| (label.to_string(), title.trim().to_string()))
+        })
+        .collect()
+}
+
+/// The marker family a window names: `#fill` / `#delegate` / `#blanket` are
+/// their own families and any other `#ident{…}` / `#ident(…)` spelling is the
+/// generic `#name` directive. Deliberately **only** directives: `impl{…}` in
+/// prose is usually an example rather than the citation's subject, and treating
+/// it as a marker produced false positives (the alga2 line is the reviewed
+/// exception). Returns every marker with its byte offset.
+fn marker_families(text: &str) -> Vec<(&'static str, usize)> {
+    let mut out = vec![];
+    let mut from = 0usize;
+    while let Some(pos) = text[from..].find('#') {
+        let start = from + pos + 1;
+        let end = text[start..]
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .map_or(text.len(), |e| start + e);
+        let ident = &text[start..end];
+        let after = text[end..].trim_start();
+        if !ident.is_empty() && (after.starts_with('{') || after.starts_with('(')) {
+            let family = match ident {
+                "fill" => "fill",
+                "delegate" => "delegate",
+                "blanket" => "blanket",
+                _ => "name",
+            };
+            out.push((family, from + pos));
+        }
+        from = end.max(start);
+        if from >= text.len() {
+            break;
+        }
+    }
+    out
+}
+
+/// Whether the citing sentence names the cited section's own subject: the
+/// title's **first** significant word (≥ 5 letters) appearing in the sentence
+/// means the citation is on-topic even when the sentence also spells a
+/// directive. A single distinctive word, not every title word: `trait` from
+/// "Trait-generic …" would otherwise excuse any sentence that says "trait".
+fn window_names_subject(window: &str, title: &str) -> bool {
+    let window = window.to_lowercase();
+    title
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .find(|w| w.len() >= 5)
+        .is_some_and(|w| window.contains(&w.to_lowercase()))
+}
+
+const MIN_CITATIONS: usize = 20;
+
+/// The body of a labelled section: the text between its heading and the next
+/// heading, used to check that a citation's subject is actually discussed there.
+fn section_body(doc: &str, label: &str) -> String {
+    let mut body = String::new();
+    let mut inside = false;
+    for line in doc.lines() {
+        let heading = line.starts_with("## ") || line.starts_with("### ");
+        if inside && heading {
+            break;
+        }
+        if heading {
+            let rest = line.trim_start_matches('#').trim_start();
+            let (token, _) = rest.split_once(' ').unwrap_or((rest, ""));
+            let found = token.strip_suffix('.').unwrap_or(token);
+            inside = found == label;
+        }
+        if inside {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    body
+}
+
+/// Reviewed exceptions to the "a citation next to a directive/template marker
+/// must point at a section about it" rule. Each entry is a distinctive substring
+/// of the citing sentence and the reason it is legitimate.
+const CITATION_EXCEPTIONS: [(&str, &str); 7] = [
+    (
+        "`().1..=4 where @0..: Magma impl{(A@..)} #combine{...}`",
+        "an end-to-end example that spells a template and a directive while citing the shape-template section for the repeat-block rules it contains",
+    ),
+    (
+        "`#fill` / `#delegate` / `#blanket` / the open extension",
+        "the `batch_trait!` limitation note lists the directives it does not support while citing the entry-point section",
+    ),
+    (
+        "Three mechanisms meet here",
+        "the example walkthrough cites three sections in one sentence; the directive it names belongs to the citation before it",
+    ),
+    ("这里三个机制交汇", "同上：示例走查一句里引用了三节，其中的指令属于前一个引用"),
+    (
+        "Rc, Arc].T",
+        "the `simplify.rs` walkthrough lists the file's other directives while citing the delegation section for its `[&, Box, Rc, Arc].T` line",
+    ),
+    (
+        "syntax domain",
+        "the syntax-domain bullet names a directive while citing the preprocessing-order section that documents the pass it belongs to",
+    ),
+    ("语法域", "同上：语法域小节列出一条指令，而引用指向记录该趟顺序的一节"),
+];
+
+/// A `§N[.M]` citation must resolve **and** agree with its subject: if the cited
+/// section is titled by a directive/template marker, the sentence around the
+/// citation must not name a different marker of the same kind. The tutorial's
+/// `#from{…}` cited as "custom constants (§6.3)" and the trait-argument pinning
+/// cited as `#fill (§7.2)` are exactly what this catches — both targets were
+/// real sections, so existence-only guards stayed green.
+#[test]
+fn section_citations_match_their_subject() {
+    const DOCS: [&str; 6] = [
+        "README.md",
+        "docs/tutorial.md",
+        "docs/reference.md",
+        "docs/zh-CN/tutorial.md",
+        "docs/zh-CN/reference.md",
+        "docs/zh-CN/README.md",
+    ];
+    /// One numbered doc: its path, its text, and its `(label, title)` sections.
+    type Skeleton<'a> = (&'a str, String, Vec<(String, String)>);
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let read = |p: &str| fs::read_to_string(root.join(p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+    // Both mirrors of the two numbered docs, for citations that cross documents
+    // (the README has no numbered sections of its own and cites the tutorial).
+    let skeletons: Vec<Skeleton<'_>> = vec![
+        (
+            "docs/tutorial.md",
+            read("docs/tutorial.md"),
+            sections_with_titles(&read("docs/tutorial.md")),
+        ),
+        (
+            "docs/reference.md",
+            read("docs/reference.md"),
+            sections_with_titles(&read("docs/reference.md")),
+        ),
+        (
+            "docs/zh-CN/tutorial.md",
+            read("docs/zh-CN/tutorial.md"),
+            sections_with_titles(&read("docs/zh-CN/tutorial.md")),
+        ),
+        (
+            "docs/zh-CN/reference.md",
+            read("docs/zh-CN/reference.md"),
+            sections_with_titles(&read("docs/zh-CN/reference.md")),
+        ),
+    ];
+    let section = |doc: &str, label: &str| -> Option<(String, String)> {
+        let (_, text, sections) = skeletons.iter().find(|(p, _, _)| *p == doc)?;
+        let (_, title) = sections.iter().find(|(l, _)| l == label)?;
+        Some((title.clone(), section_body(text, label)))
+    };
+    let mut checked = 0usize;
+    let mut bad = vec![];
+    for doc in DOCS {
+        let text = read(doc);
+        let own = sections_with_titles(&text);
+        for (idx, _) in text.match_indices('§') {
+            let rest = &text[idx + '§'.len_utf8()..];
+            let label: String =
+                rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+            let label = label.trim_end_matches('.').to_string();
+            if label.is_empty() {
+                continue;
+            }
+            checked += 1;
+            // The window stays inside the citation's own line: a table row or a
+            // paragraph is the sentence's scope, and bleeding into the next row
+            // would judge a citation by a neighbour's subject.
+            let line_start = text[..idx].rfind('\n').map_or(0, |p| p + 1);
+            let line_end = text[idx..].find('\n').map_or(text.len(), |p| idx + p);
+            let mut lo = idx.saturating_sub(70).max(line_start);
+            while lo > 0 && !text.is_char_boundary(lo) {
+                lo -= 1;
+            }
+            let mut hi = (idx + 70).min(text.len()).min(line_end);
+            while hi < text.len() && !text.is_char_boundary(hi) {
+                hi += 1;
+            }
+            let window = &text[lo..hi];
+            let line = &text[line_start..line_end];
+            // Two scopes, deliberately: the **line** for a section titled by a
+            // directive (its citation and the directive it is about can sit 60
+            // characters apart — `… fn from(value: T) … (§7.2); … #from{…} …`),
+            // the **window** for everything else, so a table row listing every
+            // directive does not judge a citation to an unrelated section.
+            let families: Vec<&str> = marker_families(line).into_iter().map(|(f, _)| f).collect();
+            let nearby: Vec<&str> = marker_families(window).into_iter().map(|(f, _)| f).collect();
+            if families.is_empty() {
+                continue;
+            }
+            // Resolution order: a document named in the window, then the
+            // containing document, then the tutorial, then the reference.
+            let zh = doc.starts_with("docs/zh-CN");
+            let named = if window.contains("tutorial") || window.contains("教程") {
+                Some(if zh { "docs/zh-CN/tutorial.md" } else { "docs/tutorial.md" })
+            } else if window.contains("reference")
+                || window.contains("manual")
+                || window.contains("参考手册")
+            {
+                Some(if zh { "docs/zh-CN/reference.md" } else { "docs/reference.md" })
+            } else {
+                None
+            };
+            let own_section = own
+                .iter()
+                .find(|(l, _)| l == &label)
+                .map(|(_, t)| (t.clone(), section_body(&text, &label)));
+            let resolved = named
+                .and_then(|d| section(d, &label))
+                .or(own_section)
+                .or_else(|| {
+                    section(if zh { "docs/zh-CN/tutorial.md" } else { "docs/tutorial.md" }, &label)
+                })
+                .or_else(|| {
+                    section(
+                        if zh { "docs/zh-CN/reference.md" } else { "docs/reference.md" },
+                        &label,
+                    )
+                });
+            let Some((title, body)) = resolved else {
+                bad.push(format!("{doc}: §{label} does not resolve in its target's skeleton"));
+                continue;
+            };
+            match marker_families(&title).first().map(|(f, _)| *f) {
+                // A section titled by a directive `#fill(…)` must be cited by a
+                // sentence that names that same directive.
+                Some(want) => {
+                    let excused = CITATION_EXCEPTIONS.iter().any(|(pat, _)| line.contains(pat));
+                    if !families.contains(&want) && !excused {
+                        bad.push(format!(
+                            "{doc}: §{label} is `{title}` (the `{want}` family) but the citation's sentence names {families:?}"
+                        ));
+                    }
+                }
+                // A section that is *not* titled by a directive may still be the
+                // right target — but then it has to discuss the directive the
+                // sentence names (the tutorial's `#from{…}` cited as "custom
+                // constants §6.3" named a directive that section never mentions).
+                None => {
+                    let discussed: Vec<&str> =
+                        marker_families(&body).into_iter().map(|(f, _)| f).collect();
+                    let hit = nearby.iter().any(|f| discussed.contains(f))
+                        // The directive chapter itself (`The Directive System #`)
+                        // is about every directive family.
+                        || title.contains('#')
+                        || window_names_subject(line, &title)
+                        || CITATION_EXCEPTIONS.iter().any(|(pat, _)| line.contains(pat));
+                    if !hit {
+                        bad.push(format!(
+                            "{doc}: §{label} (`{title}`) is cited next to {families:?} but neither its title nor its body is about them"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        checked >= MIN_CITATIONS,
+        "only {checked} citations were checked (floor {MIN_CITATIONS})"
+    );
+    assert!(bad.is_empty(), "citations that do not match their subject:\n  {}", bad.join("\n  "));
+}

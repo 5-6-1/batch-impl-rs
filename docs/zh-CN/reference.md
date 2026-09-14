@@ -632,7 +632,6 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
 | `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope | rustc |
-| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope | rustc |
 | `impl_trait_sync_body_negative` | body 里写 `X<>` 但模板不带 `Tr<>` | trait takes 1 generic argument but 0 generic arguments were supplied | rustc |
 | `unsafe_non_fn` | 对非 unsafe trait 用 `unsafe` | implementing the trait `T` is not unsafe | rustc |
 
