@@ -9,6 +9,22 @@
 
 > Diagnostics-and-docs patch: the one semantic unification is `@N..M` end-exclusive in every position (a position that contradicted the documentation, so it is a bug fix under the syntax freeze) — plus `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
 
+- **The tutorial got a second review pass** — the task index in §0 now carries
+  README's **tier** column; §6, §7 and §8.4/§8.5 announce themselves as the skippable
+  advanced layer, so the core path (§1–§5, §8.1–§8.3, §9–§13) reads as one line; §9
+  defines the power suffix and every arity spelling (`()N`, `*()N`, `(A,B,)N`,
+  `().1..=M`) with measured examples, including the correction that `(u8,)3` is the
+  three-fold *product*, not "tuples of length 1..=3"; §12 keeps the six errors you
+  actually hit and points at the reference's verbatim §10; the reference-shaped lists
+  in §4.6/§5.7 shrank to a rule plus a pointer; and §1 shows the payoff
+  (`examples/simplify.rs`: 29 impls from ~15 lines) before the details.
+- **Five examples that only the Chinese tutorial carried now exist in both languages
+  and are compiled** — two of them were **broken** (they had never been compiled):
+  `#[repr(C)] u8` is illegal on a trait impl, and a `#fill(@all_methods, -name)`
+  exclusion had emptied its argument set. A third latent defect, a hidden
+  `trait A<T>` disagreeing with the `A` a `batch_trait!` example implements, is fixed
+  too.
+
 - **Tutorial corrections from an external review** — the tutorial no longer claims
   that renaming a trait parameter is an error (§5.5/§8.3): inheritance is
   **positional**, so `trait Store<T> where T: Clone` with `<X> Store<X> usize`

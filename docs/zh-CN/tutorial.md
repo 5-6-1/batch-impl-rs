@@ -17,23 +17,24 @@ batch-impl 的一切能力由三根柱子（0.0→0.6 持续打磨）+ 一个操
 
 **预处理顺序**（固定的四阶段管道）：`@` 常量展开 → `<>` 尖括号配对 → `#` 指令展开 → `where` 处理。顺序决定了你能把什么写进什么：`@` 的结果可以包含 `<>`（配对后处理）、`#` 的参数可以引用 `@` 展开的列表、`where` 最后看到的是完整结构。
 
-**按任务找章节**——任务优先索引：
+**按任务找章节**——任务优先索引。**层级**列与 README 的功能表一致：核心路径是 §1–§5、§8.1–§8.3 与 §9–§13；§6、§7 与 §8.4/§8.5 是进阶层——需要时再读，核心路径不依赖它们。
 
-| 我想…… | 看 |
-|---|---|
-| 给很多类型实现同一个方法 | §1、§3 |
-| 用包装矩阵（空格、`.`、列表）覆盖一批类型 | §2 |
-| 让多个类型共用一个 body | §3 |
-| 把容器/生成器拼进列表（`*`） | §4 |
-| 声明泛型、继承或添加 bound、写限定类型 | §5 |
-| 寻址生成的参数（`@N` / `@g_i` / 区间） | §6 |
-| 抄签名、委托、覆盖式委托、用自己的宏扩展 | §7 |
-| 用 `where` 约束、用 `impl{...}` 写原型、批量化已有 `impl` | §8 |
-| 生成元组与笛卡尔矩阵 | §9 |
-| 用引用、指针、`unsafe`、属性、`!`、`self` | §10 |
-| 在几个入口宏之间选 | §11 |
-| 搞清某个错误是什么意思 | §12 |
-| 读一个完整真实文件 | §13 |
+| 我想…… | 看 | 层级 |
+|---|---|---|
+| 给很多类型实现同一个方法 | §1、§3 | 核心 |
+| 用包装矩阵（空格、`.`、列表）覆盖一批类型 | §2 | 核心 |
+| 让多个类型共用一个 body | §3 | 核心 |
+| 把容器/生成器拼进列表（`*`） | §4 | 核心 |
+| 声明泛型、继承或添加 bound、写限定类型 | §5 | 核心 |
+| 用 `where` 约束 | §8.1–§8.3 | 核心 |
+| 生成元组、各元数与笛卡尔矩阵 | §9 | 核心 |
+| 用引用、指针、`unsafe`、属性、`!`、`self` | §10 | 核心 |
+| 在几个入口宏之间选 | §11 | 核心 |
+| 搞清某个错误是什么意思 | §12 | 核心 |
+| 读一个完整真实文件 | §13 | 核心 |
+| 寻址生成的参数（`@N` / `@g_i` / 区间） | §6 | 进阶 |
+| 抄签名、委托、覆盖式委托、用自己的宏扩展 | §7 | 进阶 |
+| 用 `impl{...}` 写原型、批量化已有 `impl` | §8.4、§8.5 | 进阶 |
 
 ## 1. 从一行 impl 开始
 
@@ -63,6 +64,8 @@ spec 的骨架：
 | `{ body }`            | `{ fn m(&self) -> usize { 0 } }`        | 需要自定义实现体时     |
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
+
+**规模上能省多少。** `examples/simplify.rs` 用大约 **15 行** DSL 得到 **29 个 impl**（手写约 80 行），`examples/typeclass.rs` 覆盖一个类层级外加 36 个 `From<bool>` 实例。两者都由 CI 编译，§13 逐个讲解——想在细节之前先看回报，现在就可以翻过去。
 
 ## 2. 类型矩阵：空格（与 `.`）
 
@@ -100,7 +103,7 @@ spec 的骨架：
 
 > **注意**：`Box.Vec u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box.Vec.u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
 
-> **操作数严格性**：`.`/`,` 两侧必须有操作数——`A.`、`.A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`();`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
+> **操作数严格性**：`.`/`,` 两侧必须有操作数——`A.`、`.A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`()`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -273,13 +276,9 @@ trait GSplat {}
 
 ### 4.6 合法位置
 
-splat 是**参数位置列表**：它会拼进泛型实参（`Foo<*(a,b)>`）、trait 应用实参（`Conv<*(A,B)> X`）、元组元素（`(a, *(b,c))`）、数组元素（`[*(a),*(b)]`）、callable 的参数表（`fn(*(u8, u16))`，`Fn(*(A,B)) -> C` 是同一张表）、`<>` 声明块（`<*(A,B)>` → `<A, B>`）、内联 bound（`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`）、`dyn` bound 尾巴（`dyn Tr<*(u8, u16)>`）与 spec 列表（`[*(a,b)]`）。
+splat 是**参数位置列表**：它会拼进泛型/trait 应用实参、元组与数组元素、callable 的参数表、`<>` 声明块、内联 bound、`dyn` bound 尾巴与 spec 列表。唯一**不**展开的位置是 `where` 谓词——那里由 DSL 报出而不是泄漏出去（§8）。`<>` 声明块里的 fresh 生成器是定向错误，既非 splat 也非指针的裸 `*` 同样定向报错。
 
-唯一**不**展开的位置是 `where` 谓词——那里由 DSL 报出而不是泄漏出去（§8）：该子句到输出全程 token 级。
-
-`<>` 声明块里的 fresh **生成器**是定向错误（那个块**就是** impl 的参数表，其 fresh 永不会被使用）——把生成器写在类型上。既非 splat 也非指针的裸 `*` 定向报错。
-
-完整的位置矩阵见 `docs/zh-CN/reference.md` §2 与 §4。
+**"位置 × 构造"矩阵（哪个构造在哪个位置合法、不合法时该位置报什么）见 `docs/zh-CN/reference.md` §2 与 §4。**
 
 两条规则：`T.*(A,B,...)` ≡ `T<A, B, ...>`（右 splat = 扁平参数追加）；左 splat 按来源——`*[A,B] T` = `*[A.T,B.T]`（分配律）、`*(A,B) T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
 
@@ -429,7 +428,7 @@ trait Q6 {}
 
 `Fn(x: u8)` **不**被接受：rustc 本身就拒绝 `Trait(...)` 语法里的具名参数（"does not support named parameters"），DSL 因此照实报出这条规则，而不是漏出一个令人困惑的 `expected type` 错误。
 
-**目标以 `::` 开头时必须显式写出元素边界。** `<...>`（跟在 ident 之后）与 `::` 都是**当前路径的续接**，所以并列写法会把 trait 头和绝对路径目标粘成一条路径——trait 落进**类型位置**（E0782）。空格与 `.` 是元素边界，而在 trait 头下两者等价，因此写 `.`：
+**目标以 `::` 开头时必须显式写出元素边界**：`<...>`（跟在 ident 之后）与 `::` 都是**当前路径的续接**，而空格与 `.` 是元素边界，所以并列写法会把头和绝对路径目标粘成一条路径——trait 落进类型位置（E0782）。把 `.` 写出来：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -438,17 +437,13 @@ trait Q6 {}
 trait TrE<T = usize> { fn tag(&self) -> u8 { 7 } }
 ```
 
-```text
-@trait<u8> ::std::string::String   →  impl TrE for TrE<u8>::std::string::String   （粘连，E0782）
-Tr<u8> (::some_mod::SomeType)      →  impl Tr for Tr<u8, ::some_mod::SomeType>    （组是实参追加）
-::std::vec::Vec<u8>                →  impl Tr for ::std::vec::Vec<u8>             （单元素 spec 整体是目标）
-```
-
-edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::...`。规则本身见 `docs/zh-CN/reference.md` §1.2。
+有 trait 头时空格与 `.` 等价；edition 2024 里 `::name` 指**外部 crate**（本 crate 根写 `crate::...`）。完整规则与它的边界表——粘连形态、组是实参追加、单元素 spec 整体是目标——见 `docs/zh-CN/reference.md` §1.2。
 
 ## 6. `@` 常量系统（宏元层）
 
 `@` 是 DSL 预留的**库专属常量命名空间**——`#` 被指令机制占用，`@` 提供"命名并复用类型矩阵条目"的能力。它是纯**词法替换**（宏元层）：展开结果进入后续管道，不参与任何域内解析。
+
+> **进阶层——可跳过。** §6 与 §7 讲的是寻址生成的参数与自动化签名；核心路径在 §8（`where`）、§9（元组与矩阵）、§10（修饰符）继续。等矩阵需要 `@N` 式寻址或需要指令时再回来。
 
 ### 6.1 内置常量
 
@@ -707,8 +702,14 @@ trait Arith { fn add(&mut self, x: u8); fn sub(&mut self, x: u8); }
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(u8 #fill(@all_methods, -default_method){ 0 })]
-trait Markers {}
+#[batch_impl(u8 #fill(@all_methods, -extra){ 0 })]
+trait Markers {
+    fn marker(&self) -> u8;
+    fn extra(&self) -> u8 {
+        7
+    }
+}
+// → impl Markers for u8 { fn marker(&self) -> u8 { 0 } }（被排除的 `extra` 保留默认实现）
 ```
 
 > 只填一个方法时，`#fill([foo]){body}` 与单 item 指令 `#foo{body}` 等价，后者更简洁。
@@ -834,6 +835,8 @@ trait T { fn tag(&self) -> &'static str; }
 trait 级 where 谓词按**位置替换**并入 impl：改名的参数照样保留它的谓词，谓词文本跟随同一位置上的实参（§5.5、参考手册 §7.2）。谓词指到 impl 没声明的东西时逐字通过，因此由 rustc 报未知类型。`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..=M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义）；包进元组也没用（谓词内 splat 不展开）——分开写谓词。
 
 ### 8.4 `impl{...}` shape template 形状模板（0.8.0）
+
+> **进阶层——可跳过。** §8.1–§8.3（`where`）是核心；形状模板与 impl 入口是这套表面最深的一层。不需要"每个形状族写一个原型 impl"就跳到 §9（元组与矩阵），等要批量化一个手写 impl 时再回来。
 
 **一句话：模式匹配 + 文本替换。** 你写一个 `impl{...}` 块放**原型类型**，
 宏把它与每个叶子目标类型**逐位匹配**——**相同**的 ident 原样保留，
@@ -983,6 +986,8 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 
 ### 8.5 impl entry（0.8.0，ItemImpl 入口）
 
+> **进阶层——可跳过**（同 §8.4 的说明）：这是批量化你已写好的 `impl` 块的方式；核心路径在 §9 继续。
+
 **同一个思路，更大的模板：整个 impl 块成为模式。** 不再用独立的
 `impl{...}` 附件——你把一个普通 `impl` 块交给 `#[batch_impl]`，其 for-Type
 持有占位槽名（`impl Make for A<B>`），再加一个 `模板 : 矩阵` 源。每个矩阵
@@ -1054,24 +1059,36 @@ impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 
 ## 9. 元组生成与矩阵
 
-### 9.1 `(A,)N` 长度展开
+### 9.1 元组生成器、元数与幂后缀
 
-`(A,)N` 生成 1 元到 N 元元组（`(A,)`、`(A,A)`、…）：
+四种拼写，全部实测：
+
+| 拼写 | 生成什么 | 例子 |
+|---|---|---|
+| `()N` | **N 个 fresh 参数**（生成器）——由载体决定怎么拼 | `Pair3<*().2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
+| `*()N` | 同一个生成器**被拼入**，于是载体可以追加它的参数 | `T.*().2` → `<P0,P1>T<P0,P1>` |
+| `(A, B,)N` | 元素的 **N 重笛卡尔积**（长度 N 的元组） | `(u8, u16,)2` → 4 个 impl |
+| `().1..=M` / `(A,)L..U` | **每个元数**一个 impl，各自带自己的 fresh 参数（README 表里的 "ranges"） | `().1..=3` → `impl<P0> … for (P0,)`、`impl<P0,P1> … for (P0, P1,)`、`impl<P0,P1,P2> … for (P0, P1, P2,)` |
+
+幂是 **`.N` 后缀**（`(u8, u16).2` = 四个元组 impl）；并置形式 `()N` / `(u8, u16)2` 同样接受，而旧的 `^` 拼写会被拒绝并给出退休消息（§12）。后缀绑定到它所在的那个块，所以 `Box.*().2` 是把生成器应用到 `Box`，而不是别的什么。
 
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl((u8,)3)]
-trait TuplePow {}
-// → impl TuplePow for (u8,) {}
-// → impl TuplePow for (u8, u8) {}
-// → impl TuplePow for (u8, u8, u8) {}
+trait T {}
+// → impl T for (u8, u8, u8,) {}   （一元元组的三重积）
 ```
 
-范围：`(A,)2..4` / `(A,)2..=4` 生成区间长度。空元组 `()N` 是**生成器**——生成 N 个 fresh 泛型参数（见 5.4：`T<()2>` = `<P0,P1>T<(P0,P1)>`）。
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(().1..=3)]
+trait Arities {}
+// → impl<P0> Arities for (P0,) {} / impl<P0,P1> … for (P0, P1,) / impl<P0,P1,P2> … for (P0, P1, P2,)
+```
 
 ### 9.2 笛卡尔积
 
-`[A, B] [C, D]` 全组合；`*(A,B)2` splat 幂产生笛卡尔组合列表：
+`[A, B] [C, D]` 全组合；splat 幂——`(*(A,B)).2` 或并置的 `*(A,B)2`——产生笛卡尔组合列表：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -1097,8 +1114,10 @@ trait Ptrs {}
 #[batch_impl(unsafe fn(u8) -> u8)]
 trait FnT {}
 
-#[batch_impl(#[repr(C)] u8)]
+#[batch_impl(#[cfg(all())] u8)]
 trait Attr {}
+// → impl Ptrs for &str {} / &mut [u8] / *const u8 / *mut u8，impl FnT for unsafe fn(u8) -> u8，
+//   impl Attr for u8 {}（属性会附着到生成的 impl 上——`#[repr(C)]` 在那里**不**合法）
 ```
 
 > **`unsafe` 有两种角色**——`unsafe fn(A) -> B` 是 *unsafe fn 类型*：impl 本身保持安全（`impl Tr for unsafe fn(A) -> B`）。要把 **impl** 标记为 unsafe，用 `.` 应用 `unsafe`：`unsafe.fn(A) -> B` = `unsafe impl Tr for fn(A) -> B`。如果你写 `unsafe fn(...)` 却期待一个 unsafe impl，那就是写错了形式。
@@ -1155,7 +1174,7 @@ trait Conv<T> { fn conv() -> T; }
 
 ```rust
 # use batch_impl::batch_trait;
-# trait A<T> {} trait B<T> {}
+# trait A {} trait B<T> {}
 batch_trait! {
     @uints = @u*;
     A: @uints;
@@ -1167,20 +1186,16 @@ batch_trait! {
 
 ## 12. 错误提示
 
-batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）——**一条错误、不级联**。完整目录（每一类 + 锁定其措辞的 fixture）在 `docs/zh-CN/reference.md` §10。最常撞的是这些：
+batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）——**一条错误、不级联**。最常撞的是这些：
 
-- **操作数缺失**：`A.` / `.A` / `,A` —— `compile_error!` 明确报错
-- **`@N`/`@g_i` 越界或悬空引用**：`@5` 超出 impl 生成的泛型数 / `@2_0` 组不存在——用户语言定向报错（fresh 泛型从 0 按文档序编号）；生成名就是用户可见的显示名（`P0`、`P1`……），引用在宏内被拦截——绝不落为 rustc E0412 裸错
-- **splat 作 where 谓词主体**：明确拒绝（`A, B: Trait` 无定义语义）——包进元组也没用：where 子句到输出全程 token 级，任何展开器都看不到谓词里的 splat（`(*(A,B)): Trait`、`X: Trait<*(A,B)>`）
-- **`where` 谓词不是合法 Rust 谓词**：在谓词定型后（`X<>` 填充、`@` 解析、shape 模板槽替换之后）报错——`where{ A B }`（漏 `:`）直接给出修法，而不是对整个属性报解析错误
-- **range 空**（`@u16..u8`）：报"空范围无 impl 生成"
-- **trait 泛型改名没问题——继承是位置式的**：谓词里的 trait 参数按**位置**跟随（`trait Store<T> where T: Clone` 配 `<X> Store<X> usize` → `impl<X: Clone> Store<X> for usize`）；0.9 之前那条"改名中断继承"的拒绝已不存在（参考手册 §7.2）
-- **裸 `*`（非 splat 非指针）**：定向错误而非 rustc 原始指针困惑
-- **具体类型实参遇 `=`/`:`**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）与 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … or in a bound"）
-- **`<>` 声明块里的关联类型 binding**：声明块声明的是**参数**，因此 `<Item = u8> Target` 报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"。可用的写法是 trait 应用那种（它的 binding 会被提升进 impl body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`）
-- **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型
-- **`<>` 声明块里的 fresh 生成器**：报出可用写法（把生成器写在类型上，如 `T.*().2` 把生成的参数拼进去，或 `T<()2>` 把它们保持为一个元组实参）——那个块**就是** impl 的参数表，其 fresh 会被声明却永不被使用
-- **已退役的 `^` 幂**：`(u8, u16)^2` 与 `T^()^2` 有自己的消息——幂是 `.N` 后缀（`(u8, u16).2`、`T.*().2`）——spec 链、角度块、`dyn` 尾巴里都报，**bound 位置**也报（那里此前会被静默丢弃）
+- **操作数缺失**：`A.` / `.A` / `,A`
+- **`@N`/`@g_i` 越界或悬空引用**：`@5` 超出 impl 生成的泛型数，或 `@2_0` 组不存在——fresh 泛型从 0 按文档序编号、显示为 `P0`、`P1`……；悬空引用在宏内被拦截，绝不落为 rustc E0412 裸错
+- **`where` 谓词不是合法 Rust 谓词**：`where{ A B }`（漏 `:`）在谓词定型后报错并给出修法；谓词里的 **splat** 同样报出，因为该子句到输出全程 token 级
+- **`=`/`:` 写错实参表**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）或 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；`<>` **声明块**声明的是参数，那里的 binding 会被报出并给出可用写法
+- **`<>` 声明块里的 fresh 生成器**：把生成器写在类型上——`T.*().2` 拼入生成的参数，`T<()2>` 把它们保持为一个元组实参
+- **已退役的 `^` 幂**：`(u8, u16)^2` / `T^()^2` 有自己的消息；幂是 `.N` 后缀（`(u8, u16).2`、`T.*().2`）
+
+其余全部——每一类的**精确原话**与锁定它的 fixture——在 `docs/zh-CN/reference.md` §10。
 
 ## 13. 实战：仓库里那三个示例
 

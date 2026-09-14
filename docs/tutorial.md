@@ -17,23 +17,24 @@ Every capability of batch-impl is built from three pillars (polished continuousl
 
 **Preprocessing order** (fixed four-stage pipeline): `@` constant expansion → `<>` angle-bracket pairing → `#` directive expansion → `where` processing. The order decides what you can write into what: `@` results may contain `<>` (paired afterwards), `#` arguments may reference `@`-expanded lists, `where` sees the complete structure last.
 
-**Where to look for what** — the task-first index:
+**Where to look for what** — the task-first index. The **tier** column matches README's feature table: the core path is §1–§5, §8.1–§8.3 and §9–§13, while §6, §7 and §8.4/§8.5 are the advanced layer — read them when you need them, and the core path continues without them.
 
-| If you want to… | Go to |
-|---|---|
-| implement one method for many types | §1, §3 |
-| wrap a matrix of types (space, `.`, lists) | §2 |
-| give several types one shared body | §3 |
-| splice a container/generator into a list (`*`) | §4 |
-| declare generics, inherit or add bounds, use a qualified type | §5 |
-| address generated parameters (`@N` / `@g_i` / ranges) | §6 |
-| copy signatures, delegate, blanket-delegate, extend with your own macro | §7 |
-| constrain with `where`, prototype with `impl{...}`, batch an existing `impl` | §8 |
-| generate tuples and Cartesian matrices | §9 |
-| reach for references, pointers, `unsafe`, attributes, `!`, `self` | §10 |
-| pick between the entry macros | §11 |
-| see what an error means | §12 |
-| read a whole real file | §13 |
+| If you want to… | Go to | Tier |
+|---|---|---|
+| implement one method for many types | §1, §3 | core |
+| wrap a matrix of types (space, `.`, lists) | §2 | core |
+| give several types one shared body | §3 | core |
+| splice a container/generator into a list (`*`) | §4 | core |
+| declare generics, inherit or add bounds, use a qualified type | §5 | core |
+| constrain with `where` | §8.1–§8.3 | core |
+| generate tuples, every arity, and Cartesian matrices | §9 | core |
+| reach for references, pointers, `unsafe`, attributes, `!`, `self` | §10 | core |
+| pick between the entry macros | §11 | core |
+| see what an error means | §12 | core |
+| read a whole real file | §13 | core |
+| address generated parameters (`@N` / `@g_i` / ranges) | §6 | advanced |
+| copy signatures, delegate, blanket-delegate, extend with your own macro | §7 | advanced |
+| prototype with `impl{...}`, batch an existing `impl` | §8.4, §8.5 | advanced |
 
 ## 1. Starting from a One-Line impl
 
@@ -63,6 +64,8 @@ The spec skeleton:
 | `{ body }`            | `{ fn m(&self) -> usize { 0 } }`     | when a custom body is needed |
 
 Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
+
+**What this buys you at scale.** `examples/simplify.rs` gets **29 impls** out of roughly **15 lines** of DSL (hand-writing them takes ~80), and `examples/typeclass.rs` covers a class hierarchy plus 36 `From<bool>` instances. Both are compiled by CI, and §13 walks through them — worth a look now if you want the payoff before the details.
 
 ## 2. Type Matrix: the space (and `.`)
 
@@ -245,7 +248,14 @@ trait Pow {}
 
 ### 4.4 Container rule
 
-A group whose content is a lone splat parses as the container holding the splat as one element — `(*(a,b))` = `( *(a,b) )`, `[*(a,b)]` = `[ *(a,b) ]`; the splat element expands only in codegen.
+A group whose content is a lone splat parses as the container holding the splat as one element — `(*(a,b))` = `( *(a,b) )`, `[*(a,b)]` = `[ *(a,b) ]`; the splat element expands only in codegen, so the rendered result is a plain tuple or array.
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl((*(u8, u16)))]
+trait Cont {}
+// → impl Cont for (u8, u16) {}   (a lone splat group is the tuple, with the splat element expanded)
+```
 
 ### 4.5 Generator re-wrap
 
@@ -261,13 +271,9 @@ trait GenSpl {}
 
 ### 4.6 Legal positions
 
-A splat is a **parameter-position list**: it splices into generic args (`Foo<*(a,b)>`), trait-application args (`Conv<*(A,B)> X`), tuple elements (`(a, *(b,c))`), array elements (`[*(a),*(b)]`), a callable's parameter list (`fn(*(u8, u16))`, and `Fn(*(A,B)) -> C` is the same list), a `<>` declaration block (`<*(A,B)>` → `<A, B>`), an inline bound (`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`), the `dyn` bound tail (`dyn Tr<*(u8, u16)>`) and spec lists (`[*(a,b)]`).
+A splat is a **parameter-position list**: it splices into generic and trait-application args, tuple and array elements, a callable's parameter list, a `<>` declaration block, an inline bound, the `dyn` bound tail and spec lists. The one position that does **not** expand is a `where` predicate, where the DSL reports the splat instead of leaking it (§8). A fresh generator in a `<>` declaration block is a targeted error, and a bare `*` that is neither a splat nor a raw pointer errors too.
 
-The one position that does **not** expand is a `where` predicate, where the DSL reports the splat instead of leaking it (§8) — that clause is token-level all the way to the output.
-
-A fresh **generator** in a `<>` declaration block is a targeted error (that block *is* the impl's parameter list, so its freshs would never be used) — write the generator on the type instead. A bare `*` that is neither a splat nor a raw pointer errors with a targeted message.
-
-The full position matrix is in `docs/reference.md` §2 and §4.
+**The position × construct matrix — which of these is legal where, and what each position reports instead — is `docs/reference.md` §2 and §4.**
 
 ## 5. Generics `<>`
 
@@ -423,7 +429,7 @@ trait Q6 {}
 `Trait(...)` sugar ("does not support named parameters"), so the DSL reports
 that rule instead of leaking a confusing `expected type` error.
 
-**A target that starts with `::` needs an explicit boundary.** `<...>` (after an ident) and `::` both *continue* the current path, so the juxtaposed form glues the trait head and an absolute-path target into one path — the trait then lands in **type position**, which is E0782. The space and `.` are element boundaries, and with a trait head they are equivalent, so write the `.`:
+**A target that starts with `::` needs an explicit boundary**: `<...>` (after an ident) and `::` *continue* the current path, while the space and `.` are element boundaries, so the juxtaposed form glues the head and an absolute-path target into one path — the trait then lands in type position (E0782). Write the `.`:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -432,17 +438,13 @@ that rule instead of leaking a confusing `expected type` error.
 trait TrE<T = usize> { fn tag(&self) -> u8 { 7 } }
 ```
 
-```text
-@trait<u8> ::std::string::String   →  impl TrE for TrE<u8>::std::string::String   (glued, E0782)
-Tr<u8> (::some_mod::SomeType)      →  impl Tr for Tr<u8, ::some_mod::SomeType>    (a group appends an argument)
-::std::vec::Vec<u8>                →  impl Tr for ::std::vec::Vec<u8>             (a one-element spec is the target)
-```
-
-In edition 2024 `::name` names an **external crate**; write `crate::...` for this crate's root. The rule behind the table is in `docs/reference.md` §1.2.
+With a trait head the space and `.` are equivalent, and in edition 2024 `::name` names an **external crate** (write `crate::...` for this crate's root). The full rule and its boundary table — the glued form, a group appending an argument, a one-element spec — are in `docs/reference.md` §1.2.
 
 ## 6. The `@` Constant System (macro-meta layer)
 
 `@` is the DSL's reserved **library-owned constant namespace** — `#` is taken by the directive mechanism, so `@` provides "name and reuse type-matrix entries". It is pure **lexical substitution** (the macro-meta layer): the expanded result enters the pipeline and participates in no in-domain parsing.
+
+> **Advanced layer — skippable.** §6 and §7 address generated parameters and automate signatures; the core path continues at §8 (`where`), §9 (tuples and matrices) and §10 (modifiers). Come back when a matrix needs `@N`-style addressing or a directive.
 
 ### 6.1 Built-in constants
 
@@ -727,6 +729,20 @@ trait Ops { fn add(&mut self, x: u8); fn add2(&mut self, x: u8); }
 
 > Filling a single method, `#fill([foo]){body}` is equivalent to the single-item directive `#foo{body}`, which is more concise.
 
+The arguments may be a name list or an `@all` family, with `-name` exclusions:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(u8 #fill(@all_methods, -extra){ 0 })]
+trait Markers {
+    fn marker(&self) -> u8;
+    fn extra(&self) -> u8 {
+        7
+    }
+}
+// → impl Markers for u8 { fn marker(&self) -> u8 { 0 } }   (the excluded `extra` keeps its default)
+```
+
 ### 7.3 `#delegate(methods){target}` — delegate calls
 
 ```rust
@@ -878,6 +894,8 @@ trait T { fn tag(&self) -> &'static str; }
 Trait-level `where` clauses inherit into the impl by **positional substitution**: a renamed parameter keeps its predicate, and the predicate text follows the argument at the same position (§5.5, reference §7.2). A predicate naming something the impl does not declare is passed through verbatim, so rustc reports the unknown type.
 
 ### 8.4 The `impl{...}` shape templates (0.8.0)
+
+> **Advanced layer — skippable.** §8.1–§8.3 (`where`) are core; the shape template and the impl entry are the deepest layer of the surface. Skip to §9 (tuples and matrices) if you do not need "one prototype impl per shape family", and come back when a hand-written impl should be batch-instantiated.
 
 **The idea in one sentence: pattern matching + text substitution.** You write
 one `impl{...}` block holding a **prototype type**, and the macro *matches*
@@ -1090,6 +1108,8 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 
 ### 8.5 The impl entry (0.8.0, ItemImpl)
 
+> **Advanced layer — skippable** (the same note as §8.4): this is the way to batch-instantiate an `impl` block you already wrote; the core path continues at §9.
+
 **Same idea, bigger template: the whole impl block becomes the pattern.**
 Instead of a separate `impl{...}` attachment, you hand `#[batch_impl]` an
 ordinary `impl` block whose for-Type holds the placeholder slots
@@ -1180,20 +1200,36 @@ instead of just a body.**
 
 ## 9. Tuple Generation and Matrices
 
-### 9.1 Tuple generators
+### 9.1 Tuple generators, arities and the power suffix
 
-`(T,)N` generates tuples of length 1..=N; `()N` generates N fresh params:
+Four spellings, all measured:
+
+| Spelling | What it generates | Example |
+|---|---|---|
+| `()N` | **N fresh parameters** (a generator) — the carrier decides how they are spliced | `Pair3<*().2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
+| `*()N` | the same generator **spliced**, so a carrier can append its parameters | `T.*().2` → `<P0,P1>T<P0,P1>` |
+| `(A, B,)N` | the **N-fold Cartesian product** of the elements (tuples of length N) | `(u8, u16,)2` → 4 impls |
+| `().1..=M` | one impl **per tuple arity** 1..=M, each with its own fresh parameters (the "ranges" of README's table) | `().1..=3` → `impl<P0> … for (P0,)`, `impl<P0,P1> … for (P0, P1,)`, `impl<P0,P1,P2> … for (P0, P1, P2,)` |
+
+The power is the **`.N` suffix** (`(u8, u16).2` = four tuple impls); the juxtaposed form `()N` / `(u8, u16)2` is accepted as well, while the old `^` spelling is rejected with its own retirement message (§12). The suffix binds to its block, so `Box.*().2` applies the generator to `Box` rather than to something else.
 
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl((u8,)3)]
 trait T {}
-// → impl T for (u8,) {} / (u8, u8) / (u8, u8, u8)
+// → impl T for (u8, u8, u8,) {}   (the 3-fold product of the one-element tuple)
+```
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(().1..=3)]
+trait Arities {}
+// → impl<P0> Arities for (P0,) {} / impl<P0,P1> … for (P0, P1,) / impl<P0,P1,P2> … for (P0, P1, P2,)
 ```
 
 ### 9.2 Cartesian products
 
-`[A, B] [C, D]` full combinations; `*(A,B)2` splat pow produces a Cartesian combo list:
+`[A, B] [C, D]` full combinations; a splat power — `(*(A,B)).2` or the juxtaposed `*(A,B)2` — produces a Cartesian combo list:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -1208,6 +1244,22 @@ Matrices can be wrapped into containers or const-generic fixed arrays (`([u8, u1
 ## 10. The Modifier Gallery
 
 The complete modifier table (`&`/`&mut`, `*const`/`*mut`, `unsafe`, `#[...]`, `!`, `self`) is in `docs/reference.md` §3. This section keeps the three whose *reading* is easy to get wrong.
+
+`&`, `*const`, `*mut`, `unsafe`, `fn` types and attributes are all supported:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(&str, &mut [u8], *const u8, *mut u8)]
+trait Ptrs {}
+
+#[batch_impl(unsafe fn(u8) -> u8)]
+trait FnT {}
+
+#[batch_impl(#[cfg(all())] u8)]
+trait Attr {}
+// → impl Ptrs for &str {} / &mut [u8] / *const u8 / *mut u8, impl FnT for unsafe fn(u8) -> u8,
+//   impl Attr for u8 {} (the attribute rides onto the generated impl — `#[repr(C)]` is *not* legal there)
+```
 
 **`self`** is the identity prefix: `self T` = `T`. In a matrix it acts as a **bare-type placeholder** — `[Box, self] u8` generates both `Box<u8>` and the bare `u8`:
 
@@ -1231,6 +1283,15 @@ trait NeverRet { fn call(&self, x: u8) -> !; }
 
 **Arbitrarily nested types are native**: `HashMap<String, Vec<(u8, u16)>>`, `Result<Box<dyn Fn(u8) -> u16>, String>` etc. write and parse directly — the DSL covers nearly every type form, no "passthrough" needed.
 
+**Array and slice builders**: `[u8; 3]` is a fixed array, `[u8]` a slice:
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl([u8; 3], [u8], &[u8])]
+trait Slices {}
+// → impl Slices for [u8; 3] {} / [u8] / &[u8]
+```
+
 ## 11. Entry Points
 
 Six entry points share one spec grammar; each one's complete argument semantics are in rustdoc (`src/doc/`), and the reference's §9 carries the rules (the `# path::To::Trait:` prefix, what the impl entry inherits, and `batch_trait!`'s lack of directives).
@@ -1253,44 +1314,33 @@ trait Conv<T> { fn conv() -> T; }
 // → impl Conv<bool> for Wrapper<bool> { fn conv() -> bool { false } }(trait not re-emitted)
 ```
 
+```rust
+# use batch_impl::batch_trait;
+# trait A {} trait B<T> {}
+batch_trait! {
+    @uints = @u*;
+    A: @uints;
+    B: <T> B<T> Vec<T>;
+}
+```
+
+> **Limitation**: `batch_trait!` supports **no** `#` directives (`#fill` / `#delegate` / `#blanket` / the open extension) — a directive needs the trait definition as the signature source of truth, and `batch_trait!` is a function-like macro that never sees one. Reach for `#[batch_impl]` / `#[batch_impl_only]` when you need directives.
+
 - **`batch_trait!`** — a function-like macro for a trait that is already declared: sections, custom `@name=value;` constant sections, **no** directives (§6.3).
 - **The impl entry (0.8.0, ItemImpl)** — `#[batch_impl]` also accepts an `impl` block: batch-instantiate a hand-written impl from a shape template × matrix source (§8.5).
 
 ## 12. Error Hints
 
-batch-impl's errors are **compile-time diagnostics** pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line) — one error, no cascade. The complete inventory, every class with the fixture that locks its wording, is in `docs/reference.md` §10. The ones you will actually hit:
+batch-impl's errors are **compile-time diagnostics** pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line) — one error, no cascade. The ones you will actually hit:
 
-- **Missing operand**: `A.` / `.A` / `,A` — `compile_error!` with a clear message
-- **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count / `@2_0` group missing — targeted errors in user language (the fresh generics are numbered from 0 in document order); the generated names are the user-visible display names (`P0`, `P1`, ...) and the reference is intercepted in the macro — never a raw rustc E0412
-- **Splat as a where-predicate subject**: explicitly rejected (`A, B: Trait` has no defined semantics) — and wrapping it does not help: the where clause stays token-level all the way to the output, so no expander ever sees a splat inside a predicate (`(*(A,B)): Trait`, `X: Trait<*(A,B)>`)
-- **`where` predicate that is not a Rust predicate**: reported once the predicate is final (after the `X<>` fill, the `@` resolution and the shape-template slots) — `where{ A B }` (a missing `:`) gets the fix named instead of a parse error against the whole attribute
-- **Empty range** (`@u16..u8`): "no impls generated for empty range"
-- **Trait-generic renaming is fine — inheritance is positional**: a predicate mentioning a trait parameter follows that parameter's **position** (`trait Store<T> where T: Clone` with `<X> Store<X> usize` → `impl<X: Clone> Store<X> for usize`); the pre-0.9 "renaming breaks inheritance" rejection is gone (reference §7.2)
-- **Bare `*` (neither splat nor pointer)**: targeted error instead of rustc raw-pointer confusion
-- **`=`/`:` in concrete-type args**: bounds and bindings belong to a trait path
-  (`Conv<Item = u32> X`) and to a **bound position** (`T: Iterator<Item = u8>`, the
-  same inside `dyn` / `for<'a>`); anywhere else a targeted error
-  (`Assoc<Item = u32>` with a struct reports "binding args are only valid on a
-  trait path … or in a bound")
-- **An associated-type binding in a `<>` declaration block**: a declaration
-  declares *parameters*, so `<Item = u8> Target` reports "an associated-type
-  binding belongs on the trait application — write `Trait<Item = u8> Target`".
-  The trait-application spelling is the one that works (its binding is hoisted into
-  the impl body, since `impl Trait<Item = u8> for X` is `E0229` in Rust)
-- **Blanket method takes/returns bare `Self`**: `#blanket` cannot delegate a
-  method taking or returning bare `Self` (forwarding yields the inner type,
-  not the wrapper's `Self`) — error with a `#name{...}` suggestion. A
-  `Self::Assoc` **return** (`fn iter(&self) -> Self::Iter`) is fine — the
-  inner `T` carries the same associated type
-- **A fresh generator in a `<>` declaration block**: reported with the spelling
-  that works (write the generator on the type, e.g. `T.*().2` to splice the
-  generated parameters, or `T<()2>` to keep them as one tuple argument) — the
-  block *is* the impl's parameter list, so its freshs would be declared and never
-  used
-- **The retired `^` power**: `(u8, u16)^2` and `T^()^2` get their own message —
-  the power is the `.N` suffix (`(u8, u16).2`, `T.*().2`) — in a spec chain, in an
-  angle chunk, in a `dyn` tail and in a **bound position**, where the caret used
-  to be dropped silently
+- **Missing operand**: `A.` / `.A` / `,A`
+- **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count, or a missing `@2_0` group — the fresh generics are numbered from 0 in document order and print as `P0`, `P1`, …; a dangling reference is intercepted in the macro, never a raw rustc E0412
+- **`where` predicate that is not a Rust predicate**: `where{ A B }` (a missing `:`) is reported once the predicate is final, with the fix named; a **splat** in a predicate is reported too, because that clause is token-level all the way to the output
+- **`=`/`:` in the wrong argument list**: bounds and bindings belong on a trait path (`Conv<Item = u32> X`) or in a bound (`T: Iterator<Item = u8>`, same inside `dyn` / `for<'a>`); a `<>` **declaration** block declares parameters, so a binding there is reported with the spelling that works
+- **A fresh generator in a `<>` declaration block**: write it on the type instead — `T.*().2` to splice the generated parameters, `T<()2>` to keep them as one tuple argument
+- **The retired `^` power**: `(u8, u16)^2` / `T^()^2` get their own message; the power is the `.N` suffix (`(u8, u16).2`, `T.*().2`)
+
+Everything else — every class with its **exact wording** and the fixture that locks it — is `docs/reference.md` §10.
 
 ## 13. Real Scenarios: the Three Bundled Examples
 

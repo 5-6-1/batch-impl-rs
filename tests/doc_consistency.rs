@@ -220,6 +220,117 @@ fn section_labels(doc: &str) -> Vec<String> {
         .collect()
 }
 
+/// The **rust blocks per section** of a doc: `(section key, compiled, ignored)`.
+/// Numbered headings keep their number; an unnumbered heading is keyed by its
+/// ordinal among the sections seen so far, which is enough to align the two
+/// mirrors (their headings appear in the same order).
+fn section_blocks(doc: &str) -> Vec<(String, usize, usize)> {
+    let mut out: Vec<(String, usize, usize)> = vec![];
+    let mut section = String::from("(head)");
+    let mut in_block = false;
+    let mut info = String::new();
+    for line in doc.lines() {
+        if line.starts_with("## ") || line.starts_with("### ") {
+            let token = line
+                .trim_start_matches('#')
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('.');
+            section = if token.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                token.to_string()
+            } else {
+                format!("#{}", out.len())
+            };
+        }
+        if let Some(rest) = line.strip_prefix("```") {
+            if in_block {
+                if info.starts_with("rust") {
+                    let slot = match out.iter_mut().find(|(s, _, _)| *s == section) {
+                        Some(entry) => entry,
+                        None => {
+                            out.push((section.clone(), 0, 0));
+                            out.last_mut().expect("just pushed")
+                        }
+                    };
+                    if info.contains("ignore") {
+                        slot.2 += 1;
+                    } else {
+                        slot.1 += 1;
+                    }
+                }
+                in_block = false;
+                info.clear();
+            } else {
+                in_block = true;
+                info = rest.trim().to_string();
+            }
+            continue;
+        }
+    }
+    out.retain(|(_, compiled, ignored)| *compiled + *ignored > 0);
+    out
+}
+
+/// Floor under the section walk (34 sections carry blocks today).
+const MIN_BLOCK_SECTIONS: usize = 30;
+
+/// The two tutorials must carry the **same examples**: every section has the
+/// same number of compiled and `ignore`d rust blocks, in the same order.
+///
+/// This closes the gap the language-mirror guard leaves open. Only the English
+/// docs are `include_str!`d into the crate, so the Chinese code blocks are never
+/// compiled — an example that drifts, breaks or disappears there is invisible to
+/// every other check (`cargo test --doc` compiles the EN blocks only). The check
+/// found three such defects the day it was written: a Chinese `#[repr(C)] u8`
+/// (illegal on an impl block), a `#fill(@all_methods, -…)` whose exclusion emptied
+/// the argument set, and a hidden `trait A<T>` that disagreed with the `A` the
+/// example implements.
+///
+/// It deliberately does **not** compare block *contents*: the mirrors legitimately
+/// differ in identifier names and comments, and the EN side is the side the
+/// compiler checks.
+#[test]
+fn tutorial_mirrors_carry_the_same_examples() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let en = section_blocks(&fs::read_to_string(root.join("docs/tutorial.md")).unwrap());
+    let zh = section_blocks(&fs::read_to_string(root.join("docs/zh-CN/tutorial.md")).unwrap());
+    assert!(
+        en.len() >= MIN_BLOCK_SECTIONS && zh.len() >= MIN_BLOCK_SECTIONS,
+        "the section walk found {} / {} sections with blocks (floor {MIN_BLOCK_SECTIONS})",
+        en.len(),
+        zh.len()
+    );
+    let score = |v: &[(String, usize, usize)]| {
+        v.iter()
+            .map(|(s, c, i)| format!("{s}: {c} rust + {i} ignore"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    assert_eq!(
+        en.len(),
+        zh.len(),
+        "the mirrors differ in how many sections carry examples:\n  EN: {}\n  ZH: {}",
+        score(&en),
+        score(&zh)
+    );
+    for (e, z) in en.iter().zip(zh.iter()) {
+        assert_eq!(
+            (e.1, e.2),
+            (z.1, z.2),
+            "docs/tutorial.md §{} has {} rust + {} ignore blocks, docs/zh-CN/tutorial.md §{} has \
+             {} rust + {} ignore — an example exists on one side only (or its `ignore` flag \
+             disagrees); add it to both mirrors or explain the difference in the guard",
+            e.0,
+            e.1,
+            e.2,
+            z.0,
+            z.1,
+            z.2
+        );
+    }
+}
+
 /// The current-state docs that cite the tutorial or the reference **by section
 /// number** (`tutorial §8.4`, `参考手册 §7.2`, `the reference's §5 boundary
 /// material`, `README.md`'s `tutorial §6.4`) — the second field says which

@@ -11,6 +11,39 @@
 > diagnostics and AST-structure fixes, the splat-coverage and message corrections,
 > and the documentation split into a tutorial plus a reference manual.
 
+- **A guard for the tutorial mirrors' examples** (`tests/doc_consistency.rs`,
+  `tutorial_mirrors_carry_the_same_examples`): every section of the two mirrors must
+  carry the same number of compiled and `ignore`d rust blocks. Only the English docs
+  are `include_str!`d, so the Chinese blocks are never compiled — this is the check
+  that makes a one-sided example (or an `ignore` flag that disagrees) fail. It
+  deliberately does not compare block *contents* (the mirrors differ in identifier
+  names and comments, and the EN side is the compiled one). Falsification: adding a
+  block to one mirror fails with the section named.
+  - **It found three latent defects on day one**, all in the never-compiled Chinese
+    mirror and all fixed: `#[repr(C)] u8` (rustc: the attribute cannot be used on
+    trait impl blocks), `#fill(@all_methods, -default_method)` on an empty trait (the
+    DSL reports an empty argument set), and a hidden `trait A<T>` disagreeing with
+    the `A` the `batch_trait!` example implements (E0107).
+  - **The mirrors are isomorphic again**: the examples only the Chinese side carried
+    (the container rule, the `@all` exclusion, pointers/unsafe/attr, arrays and
+    slices, the `batch_trait!` segment) were ported to English — each measured
+    first, which took doctests **95 → 101** — and §11's `batch_trait!` block now
+    exists in both.
+- **Second external review of the tutorial, findings acted on** — the §0 task index
+  gained README's **tier** column (§6/§7/§8.4–§8.5 marked as the skippable advanced
+  layer, with the same note opening §6, §8.4 and §8.5); §9 defines the power suffix
+  and all four arity spellings with measured examples (`()N`, `*()N`, `(A,B,)N`,
+  `().1..=M`) and corrects the false "`(T,)N` generates tuples of length 1..=N"
+  claim (`(u8,)3` is the three-fold *product*; the arity range is `().1..=M`); §12
+  shrank to six high-frequency errors plus a pointer to the reference's verbatim
+  §10; §4.6/§5.7 shrank to a rule plus a pointer; §1 gained the `simplify.rs` payoff
+  before the associativity details; the Chinese section's stray `` `();` `` typo (an
+  empty group with a semicolon) is fixed, and a sweep for that class found no others.
+  §13 was left as it is — its table still introduces the three examples, now with a
+  forward pointer from §1.
+  - **Evidence**: doctests **95 → 101** (4 ignored), doc_consistency **7** (six
+    before), lib 161 / dsl 300 / no_panic 6 / UI 105 + 3, fmt/clippy/doc clean.
+
 - **External tutorial review (seven findings, each verified against the tree before
   fixing)** — §5.5's "renaming errors explicitly" was the last stale rename text
   *and* lived in one of the tutorial's two `rust,ignore` blocks, so no doctest could
