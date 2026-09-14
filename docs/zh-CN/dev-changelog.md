@@ -6,6 +6,14 @@
 
 > 0.9.7 以来的评审驱动多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正，以及文档拆成教程 + 参考手册。
 
+- **外部教程评审（七条，全部先在树里复核再动手）**——§5.5 那句"改名明确报错"是最后一条过时的改名断言，而且它正落在教程两个 `rust,ignore` 块之一里，因此任何 doctest 都抓不到：现在它陈述位置式继承、并且是**可编译**示例（`<X> Store<X> usize` + `trait Store<T> where T: Clone` → `impl<X: Clone> Store<X> for usize`，用 `batch_preview!` 量过）。§8.3 的弱化版本一并更正；另一个 `ignore` 块**必须保持 ignore**：§7.5 的开放扩展示例调用 `batch_preprocess_test!`——那是该协议的参考实现，文档定位是"照着写的范本"，不是 doctest 能断言的东西。
+  - **§3 注释漂移**：共享 body 示例的 `// →` 行现在与渲染真正拼接的 body 一致（每个 impl 都是 `fn zero() -> Self { Default::default() }`）。这类漂移现在锁在能锁的地方：新增 golden（`tests/golden/shared_body.golden`，`BLESS=1 cargo test --lib golden`）钉住这次渲染——golden 锁的是渲染而非正文，这是最省的守卫（正文与渲染的一致性仍属评审关注）。
+  - **全角标点**：英文教程代码注释中 13 行、26 个全角字符改为 ASCII，用 std-only Rust 助手完成（先 dry-run 报告，写回时自检字符总数不变）；两版 zh 镜像确认未被动过（仍各有 1255 / 1181 个全角字符）。
+  - **§0 与导航**：常量系统一行标明自定义 `@name=...` 段仅 `batch_trait!` 支持；顶部新增"按任务找章节"索引。
+  - **开关反例（§8.4）**，四条全部实测：完全没有模板时写 `@{0}` → "requires the `impl{@{}}` body-slot switch"；有 `impl{@{}}` 但没有 fresh → "`@0` is out of range — this impl has 0 fresh generics"；有 `impl{@{}}` 但无 fresh 开关却写纯游标块 → "needs a driving segment or a fresh-binding switch (`impl{@0..}`)"；完全没有模板却写纯游标块 → 没有 DSL 诊断，由 rustc 报 parse 错（ui `impl_shape_repeat_no_driver`）。`@1_000` 的读法从教程主线移入参考手册 §5 的边界表。
+  - **新守卫** `cross_document_section_references_resolve`：形如 `tutorial §N[.M]` / `reference §N[.M]`（含两种语言、含 `README.md`；changelog 作为历史排除）的引用必须解析到目标文档真实的编号标签；证伪方式是把一条指到 `§7.9`，失败信息为 `docs/tutorial.md: reference §7.9`。
+  - **证据**：单测 **161**、feature 测试 **300**、no_panic 6、UI **105 + 3**、doc_consistency **5 → 6**、doctest **95**（§5.5 示例变成 doctest）、原 9 份 golden 加新增 `shared_body`、`fmt`/`clippy`/`doc` 干净。
+
 - **开发规范**（`docs/development-guide.md` + zh-CN）——项目约定收编一处（提交规范、质量门、发布流程含 Unreleased 占位规则、架构契约、双语文档纪律、依赖/工具链策略、测试布局、打包卫生、边界），让轮换的 AI 评审与未来 contributor 从单一文档接手，不必从历史反推习惯。
 - **金丝雀移到 `mark_template` 后置条件**（评审发现，根因修复）——`expand_consts` 入口的 canary 声称"输入中不应有未标记 `ident@..`"，但该不变量只在 `impl{...}` 模板内成立：顶层裸 `A@..` 是**合法用户错误路径**（`expand_consts` 报 "range constant `@..` must name the family's maximum endpoint"），`Box @..u128` 是开放范围常量——canary 在 debug 构建下对两者都 panic（proc macro 通常以 debug 构建）。移到消费方的输出：`mark_template` 现在**检查**自己的后置条件（"输出不含未标记 `ident@..`"），此处形状无歧义（开放范围的 `@` 前是 `<`/`,`/`(`，绝不可能是 ident）。标记循环与金丝雀共用同一个段形状判定（`unmarked_segment_at`）。回归守卫：新 UI fixture `tests/ui/at_open_range_bare.rs` 锁定用户错误。`angle_collect` 金丝雀仍不可行（配对产物与真实透明组同为 `Delimiter::None`）。
 - **残留检查硬化：验证不可达、绝不 panic**——迁移后的后置条件用的是 `debug_assert!`，一旦触发就是用户可见的编译器 ICE（debug 构建的依赖带 `debug_assertions`）。两处改动：（1）检测器现在**递归进组**（`first_unmarked_segment`），真正匹配它写明的契约（"输出不含 `ident@..`"，而非"顶层不含"）；（2）违反时在**所有构建档**返回诊断而不是断言。`varseg::tests::postcondition_canary_never_fires` 证明该分支不可达：段形状自身字母表（ident / `@` / `.` / `,` / 字面量 / 嵌套组）上所有 ≤6 token 序列（约 30 万输入）+ 2 万随机长序列，逐一检查 panic、返回的残留诊断、以及**每一嵌套层级**的残留。不变量是结构性的：循环消费每个 `ident@..`，被消费的 4-token 窗口内不可能起新的形状（`@`/`.`/`.` 都不是 ident），也没有任何变换能凭空造出一个。

@@ -9,6 +9,15 @@
 
 > Robustness, diagnostics and docs: `@N..M` unified to end-exclusive everywhere, `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
 
+- **Tutorial corrections from an external review** — the tutorial no longer claims
+  that renaming a trait parameter is an error (§5.5/§8.3): inheritance is
+  **positional**, so `trait Store<T> where T: Clone` with `<X> Store<X> usize`
+  gives `impl<X: Clone> Store<X> for usize`. Its §3 shared-body comments now show
+  the body the macro actually splices into every impl, CJK punctuation in the
+  English tutorial's code comments became ASCII, §0 marks the custom `@name=...`
+  form as `batch_trait!`-only, a task-first index sits at the top, and §8.4 shows
+  the measured diagnostics you get when a switch declaration is missing.
+
 - **The retired `^` power now says so** — `(u8, u16)^2` used to report the generic
   "unexpected `^` after the type"; it now reports that `^` is no longer a type
   operator and gives the `.N` spelling that works (`(u8, u16).2` for a tuple,

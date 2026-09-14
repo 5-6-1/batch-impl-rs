@@ -36,6 +36,17 @@ const SPECS: &[Spec] = &[
         attr: "[u8, u16] #name{\"n\"}",
         trait_src: "trait D { fn name(&self) -> &'static str; }",
     },
+    // The tutorial's shared-body example (§3): per-item bodies merged with a
+    // shared trailing body. Added after a review found the tutorial's `// →`
+    // comment describing a render this spec now pins (the body is spliced
+    // verbatim into every impl, so the comments must show the same text).
+    Spec {
+        name: "shared_body",
+        attr: "[usize { fn name(&self) -> &'static str { \"usize\" } }, \
+               isize { fn name(&self) -> &'static str { \"isize\" } }] \
+               { fn zero() -> Self { Default::default() } }",
+        trait_src: "trait Tagged { fn zero() -> Self; fn name(&self) -> &'static str; }",
+    },
 ];
 
 /// The impl-entry snapshots: the same output-shape families through the

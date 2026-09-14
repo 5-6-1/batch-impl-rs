@@ -12,10 +12,28 @@ batch-impl 的一切能力由三根柱子（0.0→0.6 持续打磨）+ 一个操
 |----------------|-----------------------------------------------|----------------------------------------------------------------|
 | **apply 系统** | `.` / 空格 / `[]` / `()`                      | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
 | **指令系统**   | `#name` / `#fill` / `#delegate` / `#blanket`  | 从 trait 定义抄签名、批量填 body、委托调用、覆盖式委托         |
-| **常量系统**   | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | 宏元层：命名并复用类型矩阵条目，纯词法替换                     |
+| **常量系统**   | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | 宏元层：命名并复用类型矩阵条目，纯词法替换——列出的族到处可用，而自定义 `@name=...` 段**仅 `batch_trait!` 支持**（§6.3） |
 | **`*` 操作符** | `*[...]` / `*(...)`                           | 摊平：把容器/生成器展开拼入外层列表——0.7.0 新增，全位置生效    |
 
 **预处理顺序**（固定的四阶段管道）：`@` 常量展开 → `<>` 尖括号配对 → `#` 指令展开 → `where` 处理。顺序决定了你能把什么写进什么：`@` 的结果可以包含 `<>`（配对后处理）、`#` 的参数可以引用 `@` 展开的列表、`where` 最后看到的是完整结构。
+
+**按任务找章节**——任务优先索引：
+
+| 我想…… | 看 |
+|---|---|
+| 给很多类型实现同一个方法 | §1、§3 |
+| 用包装矩阵（空格、`.`、列表）覆盖一批类型 | §2 |
+| 让多个类型共用一个 body | §3 |
+| 把容器/生成器拼进列表（`*`） | §4 |
+| 声明泛型、继承或添加 bound、写限定类型 | §5 |
+| 寻址生成的参数（`@N` / `@g_i` / 区间） | §6 |
+| 抄签名、委托、覆盖式委托、用自己的宏扩展 | §7 |
+| 用 `where` 约束、用 `impl{...}` 写原型、批量化已有 `impl` | §8 |
+| 生成元组与笛卡尔矩阵 | §9 |
+| 用引用、指针、`unsafe`、属性、`!`、`self` | §10 |
+| 在几个入口宏之间选 | §11 |
+| 搞清某个错误是什么意思 | §12 |
+| 读一个完整真实文件 | §13 |
 
 ## 1. 从一行 impl 开始
 
@@ -146,7 +164,7 @@ trait Zero {
     fn name(&self) -> &'static str;
 }
 // → 每个 impl：独立 fn name + 共享 fn zero——不同方法共存
-// → impl Zero for isize { fn zero() -> Self { 0 } fn name() -> &'static str { "isize" } }
+// → impl Zero for isize { fn zero() -> Self { Default::default() } fn name() -> &'static str { "isize" } }
 ```
 
 ## 4. splat `*`——摊平操作符（0.7.0 主角）
@@ -337,16 +355,24 @@ trait ListArg {}
 
 ### 5.5 同名继承与 trait where 继承
 
-trait 泛型参数与 spec 实参同名时，bound 自动继承；改名则明确报错：
+trait 泛型参数与 spec 实参同名时，bound 自动继承——而继承是**位置式**的，因此改名的参数照样保留它的谓词：
 
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(<T> Box<T> where Box<T>: Clone)]
 trait B2 {}
 // → impl<T> B2 for Box<T> where Box<T>: Clone {}
+```
 
-#[batch_impl(<T> Foo<U>)]  // 改名（U ≠ T）→ 明确报错（不是静默）
-trait Foo<T> {}
+```rust
+# use batch_impl::batch_impl;
+// 位置式继承：trait 的 `T` 与 spec 的第一个实参配对
+#[batch_impl(<X> Store<X> usize)]
+trait Store<T>
+where
+    T: Clone,
+{}
+// → impl<X: Clone> Store<X> for usize
 ```
 
 ### 5.6 限定类型：`<T as Tr>::Assoc`
@@ -482,7 +508,7 @@ fresh 的显示名按文档序编号为 `P0, P1, ...`（与 impl 已用 ident �
 
 > **Power-user tier**：`@g_i` / `@all_fresh` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。自 0.7.2 起整个 DSL 语法面冻结（见 README），这些记号的语义不再变化。
 
-> **引用里的 `_` 是"组/位"分隔符**，不是 Rust 的数字分隔符：`@1_0` 是组 1、位 0——`@1_000` 的读法**完全相同**（组 1、位 0），因为字面量在第一个 `_` 处切开（不带分隔符的 `@1000` 才是扁平下标 1000）。想要扁平下标就写 `@1000`。
+> **引用里的 `_` 是"组/位"分隔符**，不是 Rust 的数字分隔符：`@1_0` 是组 1、位 0。想要扁平下标就写 `@1000`（不带分隔符）；`@1_000` 的读法见参考手册 §5 的边界材料。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -805,7 +831,7 @@ trait T { fn tag(&self) -> &'static str; }
 
 ### 8.3 谓词继承与 `@N` 引用
 
-trait 级 where 谓词自动并入 impl；`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..=M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义）；包进元组也没用（谓词内 splat 不展开）——分开写谓词。
+trait 级 where 谓词按**位置替换**并入 impl：改名的参数照样保留它的谓词，谓词文本跟随同一位置上的实参（§5.5、参考手册 §7.2）。谓词指到 impl 没声明的东西时逐字通过，因此由 rustc 报未知类型。`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..=M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义）；包进元组也没用（谓词内 splat 不展开）——分开写谓词。
 
 ### 8.4 `impl{...}` shape template 形状模板（0.8.0）
 
@@ -907,6 +933,28 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 - 每个重复块末尾的 `,` 是分隔符，每轮输出——**并列块之间不要再写逗号**（每个块已自带元素分隔）；也可把分隔符写在 `)` 与 `..` 之间（`@(x),..`），这样只在轮**间**输出、最后一轮之后不输出；`{...}` 代码块内的逗号按普通 Rust 规则——上述 DSL 分隔符只作用于重复块，不作用于代码块 body；
 - 嵌套块独立轮次（笛卡尔积语义）——输出是各层轮数的乘积，按 body 封顶 65536 个输出 token（超限报 `repeat-block expansion produces N tokens (limit 65536)`）；
 - 块外 body 中出现 `@` 报错；段元素没有 `@{...}` 拼写——该形式只承载 **fresh 位置引用**：`@{0}` 是本 impl 的第一个 fresh 泛型（显示名 `P0`）。body 里的 `@{N}` 需要声明 body 槽——`impl{@{}}`，或 fresh 绑定开关 `impl{@0..}`（其轮次消费 `@{N}`）——"用必先声明"规则。`@{@N}` 是**逐轮**形态：游标 `@N` 变成 `N + round`，纯游标块每轮命名自己的 fresh——`(@(@{@N}::foo()),..)` 在三个 fresh 上展开为 `(P0::foo(), P1::foo(), P2::foo())`。
+
+少了该声明时看到什么（四条都是实测）：
+
+```text
+body 里写 @{0}，完全没有模板
+  → batch-impl: a `@{N}` fresh reference in the body requires the `impl{@{}}`
+    body-slot switch (declare it on the spec, e.g. `impl{@{}}`); without it,
+    `@` in a body starts a repeat block
+
+有 `impl{@{}}`，但这个 impl 没有 fresh 可指
+  → batch-impl: `@0` is out of range — this impl has 0 fresh generics
+    (numbered from 0 in document order; user-written params are addressed by name)
+
+有 `impl{@{}}` 但没有 fresh 绑定开关，却写了纯游标块
+  → batch-impl: a repeat block needs a driving segment or a fresh-binding
+    switch (`impl{@0..}`) to determine its length
+
+完全没有模板，却写了纯游标块
+  → 没有 DSL 诊断——块原样到达 rustc，由它报
+    expected one of `.`, `;`, `?`, `}`, or an operator, found `,`
+    （由 tests/ui/impl_shape_repeat_no_driver.rs 锁定）
+```
 
 纯游标块生成元素引用而不用写类型名——元组到元组的整形场景：
 

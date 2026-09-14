@@ -258,6 +258,7 @@ A value is stored as **verbatim tokens** and expanded where it is referenced. Re
 | `Box<@1.5>` | "`@` in a type must be followed by a position digit (e.g. `@0` or `@0_1`)" — only `@N`/`@g_i` are references |
 | `Box<@5>` with no fresh generics | targeted error (ui `at_num_in_type`) |
 | `Box<0>` | a bare integer **is** a type in the DSL (renders `Box<0>`); only `@` introduces a reference |
+| `@1_000` | the `_` is the group/position separator, not a digit separator: `@1_000` is group 1, position 0 — the literal is split at its **first** `_`, so write `@1000` for the flat index 1000 |
 | `@trait` inside `where{...}` | expanded — measured `<T> TrW<T> u8 where{@trait<T>: Sized}` → `where TrW<T>: Sized` |
 | `@trait` inside `impl{...}` | expanded — measured `Box<u8> impl{@trait<u8>}` → `impl TrI for Box<u8>` |
 | `@all*` families as directive arguments | the directive domain's own input — measured `u8 #fill(@all_methods){7}` fills every method of the trait |

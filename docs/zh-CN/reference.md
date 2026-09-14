@@ -258,6 +258,7 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 | `Box<@1.5>` | "`@` in a type must be followed by a position digit (e.g. `@0` or `@0_1`)"——只有 `@N`/`@g_i` 是引用 |
 | 没有 fresh 时写 `Box<@5>` | 定向错误（ui `at_num_in_type`） |
 | `Box<0>` | 裸整数在 DSL 里**就是**类型（渲染 `Box<0>`）；只有 `@` 才引入引用 |
+| `@1_000` | `_` 是"组/位"分隔符而非数字分隔符：`@1_000` 是组 1、位 0——字面量在**第一个** `_` 处切开，扁平下标 1000 请写 `@1000` |
 | `where{...}` 里的 `@trait` | 会展开——实测 `<T> TrW<T> u8 where{@trait<T>: Sized}` → `where TrW<T>: Sized` |
 | `impl{...}` 里的 `@trait` | 会展开——实测 `Box<u8> impl{@trait<u8>}` → `impl TrI for Box<u8>` |
 | `@all*` 家族作指令参数 | 指令域自己的输入——实测 `u8 #fill(@all_methods){7}` 填满该 trait 的每个方法 |

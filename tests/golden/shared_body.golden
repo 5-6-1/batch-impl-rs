@@ -1,0 +1,97 @@
+trait
+Tagged
+{
+  fn
+  zero
+  (
+  )
+  -
+  >
+  Self
+  ;
+  fn
+  name
+  (
+    &
+    self
+  )
+  -
+  >
+  &
+  '
+  static
+  str
+  ;
+}
+impl
+Tagged
+for
+usize
+{
+  fn
+  name
+  (
+    &
+    self
+  )
+  -
+  >
+  &
+  '
+  static
+  str
+  {
+    "usize"
+  }
+  fn
+  zero
+  (
+  )
+  -
+  >
+  Self
+  {
+    Default
+    :
+    :
+    default
+    (
+    )
+  }
+}
+impl
+Tagged
+for
+isize
+{
+  fn
+  name
+  (
+    &
+    self
+  )
+  -
+  >
+  &
+  '
+  static
+  str
+  {
+    "isize"
+  }
+  fn
+  zero
+  (
+  )
+  -
+  >
+  Self
+  {
+    Default
+    :
+    :
+    default
+    (
+    )
+  }
+}

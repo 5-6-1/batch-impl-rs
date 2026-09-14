@@ -11,6 +11,47 @@
 > diagnostics and AST-structure fixes, the splat-coverage and message corrections,
 > and the documentation split into a tutorial plus a reference manual.
 
+- **External tutorial review (seven findings, each verified against the tree before
+  fixing)** — §5.5's "renaming errors explicitly" was the last stale rename text
+  *and* lived in one of the tutorial's two `rust,ignore` blocks, so no doctest could
+  catch it: it now states positional inheritance and is a **compilable** example
+  (`<X> Store<X> usize` + `trait Store<T> where T: Clone` → `impl<X: Clone>
+  Store<X> for usize`, measured with `batch_preview!`). §8.3's weaker version was
+  corrected too, and the remaining `ignore` block **must stay ignored**: §7.5's
+  open-extension example calls `batch_preprocess_test!`, the reference implementation
+  of the protocol, which is documented as the pattern to copy rather than something a
+  doctest can assert.
+  - **§3's comment drift**: the shared-body example's `// →` lines now show the body
+    the render actually splices (`fn zero() -> Self { Default::default() }` in every
+    impl). The class of drift is now pinned where it can be: a new golden
+    (`tests/golden/shared_body.golden`, `BLESS=1 cargo test --lib golden`) locks this
+    render — the golden locks the render, not the prose, which is the closest cheap
+    guard (prose-vs-render stays a review concern).
+  - **Full-width punctuation**: 26 CJK full-width characters on 13 lines of the
+    English tutorial's code comments became ASCII, via a std-only Rust helper
+    (dry-run report first, write-back with a self-check that the char count is
+    unchanged); both zh mirrors verified untouched (1255 / 1181 full-width chars
+    still present).
+  - **§0 and navigation**: the constant-system row now says the custom `@name=...`
+    section is `batch_trait!`-only, and a task-first index ("if you want to… → §")
+    was added at the top.
+  - **Switch counterexamples (§8.4)**, all four measured: `@{0}` with no template →
+    "requires the `impl{@{}}` body-slot switch"; `impl{@{}}` but no fresh → "`@0` is
+    out of range — this impl has 0 fresh generics"; a cursor-only block with
+    `impl{@{}}` but no fresh switch → "needs a driving segment or a fresh-binding
+    switch (`impl{@0..}`)"; a cursor-only block with **no** template → no DSL
+    diagnostic, rustc's parse error (ui `impl_shape_repeat_no_driver`). The `@1_000`
+    reading moved out of the tutorial's main line into the reference's §5 boundary
+    table.
+  - **New guard** `cross_document_section_references_resolve`: every citation of the
+    form `tutorial §N[.M]` / `reference §N[.M]` (both languages, `README.md`
+    included, changelogs excluded as history) must resolve to a real label in the
+    target's numbered skeleton; falsified by pointing one citation at `§7.9`, which
+    failed with `docs/tutorial.md: reference §7.9`.
+  - **Evidence**: lib **161**, features **300**, no_panic 6, UI **105 + 3**,
+    doc_consistency **5 → 6**, doctests **95** (the §5.5 example became a doctest),
+    the 9 previous goldens plus the new `shared_body`, `fmt`/`clippy`/`doc` clean.
+
 - **Development guide** (`docs/development-guide.md` + zh-CN) — the project's
   conventions collected in one place (commit convention, quality gate, release
   flow with the Unreleased-placeholder rule, architecture contracts, bilingual
