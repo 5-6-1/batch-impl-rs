@@ -1085,7 +1085,16 @@ trait Slices {}
 
 ## 11. 入口
 
-六个入口共用同一套 spec 文法；对照表在 `docs/zh-CN/reference.md` §9，各入口的完整参数语义在 rustdoc（`src/doc/`）。两个容易读错的点：`#[batch_impl_only]` 用 `# 路径::到::Trait:` 前缀声明外部 trait（要求至少一个 `::`），而 `batch_trait!` 拿不到 trait 定义，因此**不支持** `#` 指令。
+六个入口共用同一套 spec 文法；各入口的完整参数语义在 rustdoc（`src/doc/`），规则（`# 路径::到::Trait:` 前缀、impl 入口继承什么、`batch_trait!` 没有 `#` 指令）在参考手册 §9。
+
+| 入口 | 形态 | 说明 |
+|---|---|---|
+| `#[batch_impl]` | 属性宏，挂在 `trait` 定义上 | 重发 trait 定义 + 生成 impl |
+| `#[batch_impl]` | 属性宏，挂在 `impl` 块上（**impl 入口**，0.8.0） | 从一个手写 impl × 形状模板批量实例化 |
+| `#[batch_impl_only]` | 属性宏，挂在 `trait` 定义上 | 只生成 impl，trait 来自外部（改名前缀 `# path::To::Trait:`） |
+| `batch_trait!` | 函数式宏 | 分段 + 自定义 `@name=值;` 常量段；**不支持** `#` 指令 |
+| `batch_preprocess_test!` | 测试用 | 只跑预处理、不断言生成物 |
+| `batch_preview!` | 诊断通道 | 把展开结果作为 `compile_error!` 文本打印（唯一稳定的终端通道） |
 
 ```rust
 # use batch_impl::batch_impl_only;
@@ -1122,7 +1131,7 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **具体类型实参遇 `=`/`:`**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）与 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；其余位置定向报错（`Assoc<Item = u32>` 配 struct 报 "binding args are only valid on a trait path … or in a bound"）
 - **`<>` 声明块里的关联类型 binding**：声明块声明的是**参数**，因此 `<Item = u8> Target` 报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"。可用的写法是 trait 应用那种（它的 binding 会被提升进 impl body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`）
 - **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型
-- **`<>` 声明块里的 fresh 生成器**：报出可用写法（把生成器写在类型上，如 `T^()^2`）——那个块**就是** impl 的参数表，其 fresh 会被声明却永不被使用
+- **`<>` 声明块里的 fresh 生成器**：报出可用写法（把生成器写在类型上，如 `T.*().2` 把生成的参数拼进去，或 `T<()2>` 把它们保持为一个元组实参）——那个块**就是** impl 的参数表，其 fresh 会被声明却永不被使用
 
 ## 13. 实战：仓库里那三个示例
 

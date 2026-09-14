@@ -307,6 +307,62 @@ fn reference_names_every_ui_fixture() {
     }
 }
 
+/// The catalog must quote the **exact** wording. For every
+/// `tests/ui/**/*.stderr`, its first line with the `error: ` /
+/// `error[EXXXX]: ` prefix stripped has to appear verbatim in §10 of both
+/// mirrors — the name check above only proves a fixture is mentioned, this one
+/// proves the message a reader is promised is the message the compiler prints
+/// (a re-blessed snapshot would otherwise leave the doc describing the old one).
+#[test]
+fn reference_quotes_every_diagnostic_verbatim() {
+    fn walk(dir: &Path, out: &mut Vec<(String, String)>) {
+        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "stderr") {
+                let text = fs::read_to_string(&path).unwrap_or_default();
+                let first = text.lines().next().unwrap_or_default();
+                let msg = first
+                    .strip_prefix("error[")
+                    .and_then(|rest| rest.split_once("]: ").map(|(_, m)| m.to_string()))
+                    .or_else(|| first.strip_prefix("error: ").map(str::to_string))
+                    .unwrap_or_else(|| first.to_string());
+                let stem = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+                out.push((stem, msg));
+            }
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut snapshots = vec![];
+    walk(&root.join("tests/ui"), &mut snapshots);
+    assert!(
+        snapshots.len() >= MIN_UI_FIXTURES,
+        "the snapshot walk found only {} files (floor {MIN_UI_FIXTURES})",
+        snapshots.len()
+    );
+
+    for doc in ["docs/reference.md", "docs/zh-CN/reference.md"] {
+        let text = fs::read_to_string(root.join(doc)).unwrap_or_else(|e| panic!("{doc}: {e}"));
+        let catalog = text
+            .split_once("## 10.")
+            .and_then(|(_, rest)| rest.split_once("## 11."))
+            .map(|(catalog, _)| catalog)
+            .unwrap_or_else(|| panic!("{doc}: no `## 10.` … `## 11.` catalog section"));
+        let missing = snapshots
+            .iter()
+            .filter(|(_, msg)| !msg.is_empty() && !catalog.contains(msg.as_str()))
+            .map(|(stem, msg)| format!("{stem}: {msg}"))
+            .collect::<Vec<_>>();
+        assert!(
+            missing.is_empty(),
+            "{doc} does not quote these diagnostic messages verbatim:\n  {}",
+            missing.join("\n  ")
+        );
+    }
+}
+
 /// The repo-relative file paths a doc body mentions, in two spellings: `src/…`
 /// (the authoritative one, used in prose and tables) and a backticked
 /// `dir/file.rs` (a relative path with a directory is unambiguous; a bare

@@ -52,6 +52,22 @@ Four fixed passes, and the order decides what may be written into what:
 
 **Pass-through guard**: the bodies of `ident![...]` macros and `#[...]` attributes are arbitrary Rust and none of the four recursive entries enters them (decided in `scan::bracket_is_passthrough`; in 0.5.7 a missing guard wrongly expanded a `#name` inside `#[...]`).
 
+### 1.4 Notation in one table
+
+Only the notations that have no section of their own — `@`, `#`, `<>`, the splat and the power are documented by their sections.
+
+| Notation | Meaning |
+|---|---|
+| `.` / space | the two associativities of one apply: `.` nests (right-assoc) and the space accumulates (left-assoc); also the element boundary before an absolute-path target (§3.2, §1.2) |
+| `[...]` / `[A, B]` | a set: one impl per element, and a slice or array when it is a type (§3.3) |
+| `(...)` / `(A)` | a tuple / a transparent group — one **argument** when applied (§3.2) |
+| `&` `&mut` `*const` `*mut` `unsafe` `self` `#[...]` `!` | prefixes and modifiers, each applying to the block that follows: `self` is the identity, `unsafe.fn(A) -> B` marks the impl while `unsafe fn(A) -> B` is a fn type, `!` is a return type (§3.5) |
+| `{body}` / `where{...}` / `impl{...}` | the three attachment blocks, allowed in any order (§7, §8) |
+| `;` | separates the specs of one attribute argument; separators alone are not content (§1.1) |
+| `,` | separates list, tuple, argument and directive-argument elements |
+| `-name` | an exclusion, in directive argument lists only (§6.2) |
+| `.N` / `()N` | the power: `T.*().2` splices the generated parameters, `T<()2>` keeps them as one tuple argument. A caret is **not** an operator — `(u8, u16)^2` is rejected as "unexpected `^` after the type" (§3.4) |
+
 ## 2. Position × Construct
 
 The same construct is legal in different places because the gate is a property of the **position** (`parse::generic::ArgsPosition` plus `parse::Ctx { trait_name, bound }`), not of the list's shape.
@@ -198,7 +214,7 @@ A splat splices a container or a generator into the enclosing **parameter-positi
 ### 5.2 Notation by class
 
 | Class | Notation | Expands into | Detail |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Name families | `@u*` `@i*` `@f*` `@num` `@scalar` | a **list** of types | the closed, language-defined sets (tutorial §6.1) |
 | Range families | `@u8..u128` `@i8..i128` `@f32..f64` | a **list** — the contiguous run, inclusive | either endpoint may be omitted (`@..u128` = `@u8..u128`); `usize`/`isize` are not in any range family |
 | Trait | `@trait` | the trait path (in `batch_trait!`, the segment's own path) | the only constant whose meaning is per-entry (§5.3) |
@@ -259,7 +275,7 @@ A directive copies signatures from the trait definition, fills bodies in bulk, g
 What a directive produces decides where it may stand:
 
 | Output | Directives | Attach to a type | Stand alone as a spec |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **single group** | `#name`, `#fill`, `#delegate`, and the `{...}` group of an open extension | ✓ (`T {body}`) | ✓ |
 | **multi-token** (carries its own generics, target and delegation) | `#blanket` | ✗ — attaching it is meaningless | ✓ |
 
@@ -324,33 +340,65 @@ Worth knowing: there is **no typo guard on directive names**, so a mistyped buil
 
 ## 7. `where`
 
-### 7.1 The three forms
+A `where` clause constrains the generated impl. Beyond plain Rust predicates the DSL adds three things: it **substitutes the trait's arguments positionally**, it **fills three kinds of marker**, and it **checks the finished predicate** before rendering it. This section states the system.
 
-| Form | Spelling | Note |
+### 7.1 Forms
+
+| Form | Spelling | Rules |
 |---|---|---|
-| Suffix | `Trait<A> Target where{P1, P2}` | an attachment block — free order |
-| Bare | `Trait<A> Target where P1 { body }` | the predicate is followed directly by the body; no `{...}` is `where_missing_body` |
-| Inherited | a `where` on the annotated trait definition | merged into every impl (7.2) |
+| Suffix attachment | `Trait<A> Target where{P1, P2}` | a block like `{body}` and `impl{...}`, so the order among them is free |
+| Bare | `Trait<A> Target where P1 { body }` | the predicate is followed directly by the body; without that block it is "``where`` predicates are missing a code block {...}" (`where_missing_body`) |
+| Inherited | a `where` on the annotated trait definition | merged into every impl (§7.2) |
 
-### 7.2 Inheritance is positional, not by name
+A predicate list is split at **depth-0 commas**, so a bound that carries its own comma keeps it: `where{@0: Semi<Additive, Multiplicative>, @1: Clone}` is two predicates, because the angle group is paired before this pass.
 
-The trait's own parameters are paired with the spec's trait arguments **by position**, which decides three things:
+### 7.2 Inheritance: positional substitution
 
-- a predicate mentioning a trait parameter follows that position, so **renaming a trait parameter is fine**: `trait Store<T, K> where T: Clone` with `<X, Y> Store<X, Y> usize` yields `impl<X: Clone, Y> Store<X, Y> for usize` (locked by `features::dsl_where::subst_renamed_generics`) — the pre-0.9 "renaming breaks inheritance" rejection no longer exists;
-- a **single-type-parameter** predicate (`T: Clone`) merges into that parameter's **inline bound**; every other predicate passes through verbatim with the substitution applied (`HashMap<T, K>: Send` → `HashMap<X, Y>: Send`);
-- the trait's inline parameter bounds are inherited the same way.
+The trait's own parameters are paired with the spec's trait arguments **by position**, not by name. That decides three things:
 
-### 7.3 What is filled before rendering
+- a predicate mentioning a trait parameter follows that position, so **renaming a parameter is fine**: `trait Store<T, K> where T: Clone` with `<X, Y> Store<X, Y> usize` renders `impl<X: Clone, Y> Store<X, Y> for usize` (locked by `features::dsl_where::subst_renamed_generics`; `features::dsl_where_rename` covers a renamed lifetime, a `const` parameter and a multi-parameter trait);
+- a **single-type-parameter predicate** (`T: Clone`) merges into that parameter's **inline bound**; every other predicate passes through verbatim with the substitution applied (`HashMap<T, K>: Send` → `HashMap<X, Y>: Send`);
+- the trait's **inline** parameter bounds (`trait B<T: IntoIter>`) are inherited the same way, through the same position mapping.
 
-| Marker | Filled from | Rule |
+### 7.3 The three fill sources
+
+| Marker | Filled from | Rules |
 |---|---|---|
-| `Trait<>` | this spec's trait arguments | the sync (§1.3) |
-| `@N` / `@g_i` / ranges | the impl's fresh generics | §5.3; `@N..` becomes **several** predicates |
-| `impl{...}` slots | the shape mapping | §8.3 |
+| `Trait<>` | this spec's trait arguments | the `X<>` sync (§13.2); a predicate may carry the marker wherever a type may, including inside a bound |
+| `@N` / `@g_i` / `@N..=M` / `@N..` | the impl's fresh generics | `@N..` expands to **one predicate per covered fresh** — `where{@0..: Clone}` on a two-fresh impl renders `P0: Clone, P1: Clone`; past the end it contributes **no** predicate (measured, no error) |
+| `impl{...}` slots | the shape mapping | a slot is substituted into the predicates like anywhere else (§8.3) |
 
 ### 7.4 The final check
 
-Once every fill has run, the predicates are parsed as **Rust predicates** and a failure is reported by the DSL (§10.8). Rejected: a missing `:` (`where{ A B }`), a splat (`(*(A,B)): Trait`, `X: Trait<*(A,B)>` — no stage expands a splat inside a predicate), a bare splat subject (`where_splat_bad`), an empty exclusive range (`where_empty_exclusive_range`).
+Once every fill has run, the predicates are parsed as **Rust predicates** and a failure is reported by the DSL (§10.8) instead of reaching rustc among the impl's tokens:
+
+| Shape | What it reports |
+|---|---|
+| a missing `:` — `where{ A B }` | "a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out" (`where_not_a_predicate`) |
+| a splat inside a predicate — `(*(A,B)): Trait`, `X: Trait<*(A,B)>` | the same message: no stage expands a splat inside a predicate, so the check is what reports it |
+| a bare splat subject — `where{*(A,B): Trait}` | "a splat cannot be a where-predicate subject (`*(A,B): Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`)" (`where_splat_bad`) |
+| an empty exclusive range — `where{@2..2: Clone}` | "empty exclusive range `@2..2` (start not below end)" (`where_empty_exclusive_range`) |
+
+### 7.5 Boundaries
+
+| Shape | What happens |
+|---|---|
+| `where{T: Clone,}` | the trailing comma is accepted (measured: renders `where T : Clone`) |
+| `where{}` | legal — the impl simply gets no `where` clause (measured) |
+| a predicate followed by no body block | `where_missing_body` |
+| `where{@5..: Clone}` on a two-fresh impl | no predicate, no error (measured) |
+| `where{@5: Clone}` or `where{@0..=5: Clone}` on a two-fresh impl | the out-of-range error: "`@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name)" (`at_num_in_type`); a closed *range* past the end reports the same class (`at_range_in_type`) |
+| a lifetime / `for<'a>` / a projection / several bounds in one predicate | plain Rust — the check parses it as such |
+
+### 7.6 Crossings
+
+- **× `<>`**: the sync fills `Trait<>` inside predicates as it does in every other type position (§13.2).
+- **× templates**: the shape mapping is substituted into the predicates, and a variadic template's segment name may appear in them without breaking the depth-0 split (`features::shape_template_boundary`).
+- **× directives**: a **blanket** wrapper's `where` clause is the one place where `@0` means the **target generic** (the blanket's only fresh) rather than the first fresh of the impl — `#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}` (`features::dsl_macro_meta`).
+- **× the impl entry**: the handwritten impl's **own** `where` clause is the inheritance source there, and placeholders in it are rewritten like anywhere else (`features::impl_entry_basic`).
+- **× `@` selectors on the entry**: `where @0..: SomeTrait` constrains every fresh the spec's generator declares (`features::impl_entry_basic`).
+
+The system-wide crossings (pass order, `@` × `<>`, `#` × the type domain and so on) are collected in §11.
 
 ## 8. `impl{...}` Shape Templates
 
@@ -411,16 +459,12 @@ Typical shape: one spec with a template carrying the segment covers every arity 
 
 ## 9. Entries
 
-| Entry | Form | Note |
-|---|---|---|
-| `#[batch_impl]` | attribute macro on a `trait` definition | re-emits the trait and generates impls |
-| `#[batch_impl]` | attribute macro on an `impl` block (the **impl entry**, 0.8.0) | batch-instantiates a hand-written impl from a shape template × matrix |
-| `#[batch_impl_only]` | attribute macro on a `trait` definition | generates impls only, the trait comes from outside (prefix `# path::To::Trait:` to rename) |
-| `batch_trait!` | function-like macro | sections plus custom `@name=value;` constant sections; **no** `#` directives |
-| `batch_preprocess_test!` | test-only | runs preprocessing only, asserts nothing about the output |
-| `batch_preview!` | diagnostic channel | prints the expansion as `compile_error!` text (the only stable terminal channel) |
+Six entry points share the spec grammar of §1. The comparison to read first is the tutorial's §11; each entry's full argument semantics live in rustdoc (`src/doc/`). What is *rule*-shaped here:
 
-The full argument semantics of each entry are in `src/doc/` (`batch_impl_only.md`, `batch_trait.md`, `batch_preprocess_test.md`, `batch_preview.md`).
+- **`# path::To::Trait:`** is a spec prefix, not a directive: it declares the external trait's real path for `batch_impl_only` and needs at least one `::`, after which `@trait` and every path reference use it. A trailing ident that differs from the trait name is `path_prefix_mismatch` (`src/doc/batch_impl_only.md`).
+- **The impl entry** derives from what you wrote: the handwritten impl's own `where` clause is the inheritance source there (§7.6), its body is the source of the generated bodies, and the spec's `impl{...}` template is what instantiates a shape family (§8).
+- **`batch_trait!`** takes sections, custom `@name=value;` definitions (§5.5) and **no** `#` directives — it never sees a trait definition.
+- **An empty spec list on the impl entry** re-emits the block unchanged: the entry is a derivation, and nothing derived means the original.
 
 ## 10. Diagnostics Catalog
 
@@ -431,178 +475,224 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 ### 10.1 Type and spec syntax
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `array_and_punct` | `[u8; 3; 4]` / `[u8;]` | array length `[T; N]` missing or malformed (write `[u8; 3]`) | DSL |
-| `leading_comma` | `,A` | spec list cannot start with `,` | DSL |
-| `dangling_operator` | `A.` | missing operand after `.` (e.g. `T.U`) | DSL |
-| `leading_operator` | `.A` | missing operand before `.` (e.g. `T.U`) | DSL |
-| `num_as_left_operand` | `0.T` | number `0` cannot be a left operand; use it on the right (e.g. `T.0`) | DSL |
-| `literal_and_range` | `1.5` / `1..x` | a bare literal in a type position must be an integer (usize); a range needs integer endpoints | DSL |
-| `decl_generator_splat` | `<*().3> Vec<u8>` | a fresh generator cannot be declared here — write the generator on the type instead (e.g. `T^()^2`) | DSL |
-| `semi_in_spec` | a stray `;` after a type | unexpected `;` after the type | DSL |
-| `plus_at_type_start` | `+A` | `+` is not valid at the start of a type (it belongs in a bound) | DSL |
-| `star_misuse` | a bare `*` | `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
-| `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | unexpected `#` in a type position | DSL |
-| `lifetime_as_operand` | `'a T` | a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`) | DSL |
-| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | a `::`-tail segment is a plain Rust path — DSL tokens are not allowed | DSL |
-| `global_path_no_ident` | a trailing `::` | `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
-| `path_prefix_mismatch` | `# path::Other: Trait` | path prefix `#...Other` has a trailing ident that differs from the trait name | DSL |
-| `group_angle_bare` | `<...>` inside `(...)` | a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form | DSL |
-| `bare_impl_trait_target` | `impl Trait` as a target | a bare `impl` in the spec is a shape template — an `impl <trait-object>` target is not | DSL |
-| `error_aggregation` | several bad specs in one attribute | number `0` cannot be a left operand (every error is reported, not just the first) | DSL |
-| `trait_path_no_ident` | `batch_trait! { 1: ... }` | `batch_trait!` expects an ident as the trait name | macro |
-| `only_semicolon` | `batch_trait! { ; }` | `batch_trait!` expects a trait name | macro |
-| `missing_colon` | `batch_trait! { Tr ... }` | `batch_trait!` expects ':' to separate the trait name and impl-specs | macro |
+| --- | --- | --- | --- |
+| `array_and_punct` | `[u8; 3; 4]` / `[u8;]` | batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`) | DSL |
+| `leading_comma` | `,A` | batch-impl: spec list cannot start with `,` | DSL |
+| `dangling_operator` | `A.` | batch-impl: missing operand after `.` (e.g. `T.U`) | DSL |
+| `leading_operator` | `.A` | batch-impl: missing operand before `.` (e.g. `T.U`) | DSL |
+| `num_as_left_operand` | `0.T` | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
+| `literal_and_range` | `1.5` / `1..x` | batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types | DSL |
+| `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T^()^2`) | DSL |
+| `semi_in_spec` | a stray `;` after a type | batch-impl: unexpected `;` after the type | DSL |
+| `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
+| `star_misuse` | a bare `*` | batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
+| `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: unexpected `#` in a type position | DSL |
+| `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
+| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…`) are not allowed there | DSL |
+| `global_path_no_ident` | a trailing `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
+| `path_prefix_mismatch` | `# path::Other: Trait` | batch-impl: path prefix `#...Other` has a trailing ident that differs from the trait name `MyTrait`; the two must be identical | DSL |
+| `group_angle_bare` | `<...>` inside `(...)` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |
+| `bare_impl_trait_target` | `impl Trait` as a target | batch-impl: a bare `impl` in the spec is a shape template — an `impl <trait-object>` target type is not supported; write the trait object directly (e.g. `dyn Fn() -> u8`) or use an `impl{...}` template | DSL |
+| `error_aggregation` | several bad specs in one attribute | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
+| `trait_path_no_ident` | `batch_trait! { 1: ... }` | batch_trait! expects an ident as the trait name | macro |
+| `only_semicolon` | `batch_trait! { ; }` | batch_trait! expects a trait name | macro |
+| `missing_colon` | `batch_trait! { Tr ... }` | batch_trait! expects ':' to separate the trait name and impl-specs | macro |
 
 ### 10.2 Depth ceilings
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `deep_nesting` | 129 nested groups | nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
-| `nested_bracket_too_deep` | 130 nested `[` groups | nesting depth exceeds 128 levels | DSL |
-| `chain_too_deep` | a 129-level operator chain | operator chain exceeds 129 levels (limit 128); split the chain | DSL |
-| `segments_too_deep` | a 129-level space chain | space-application chain exceeds 129 levels (limit 128) | DSL |
-| `attach_too_deep` | 129 attachments | space-application chain exceeds 129 levels (limit 128) | DSL |
-| `impl_attach_too_deep` | the same through the impl entry | space-application chain exceeds 129 levels (limit 128) | DSL |
-| `const_value_deep_nesting` | a constant value nested 129 deep | nesting depth exceeds 128 levels in a constant value | DSL |
+| --- | --- | --- | --- |
+| `deep_nesting` | 129 nested groups | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
+| `nested_bracket_too_deep` | 130 nested `[` groups | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
+| `chain_too_deep` | a 129-level operator chain | batch-impl: operator chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
+| `segments_too_deep` | a 129-level space chain | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
+| `attach_too_deep` | 129 attachments | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
+| `impl_attach_too_deep` | the same through the impl entry | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
+| `const_value_deep_nesting` | a constant value nested 129 deep | batch-impl: nesting depth exceeds 128 levels in a constant value (perhaps an accidental extra bracket) | DSL |
 
 ### 10.3 `@` constants, references and ranges
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `const_unknown` | `@unknown` | unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` … | DSL |
-| `const_cycle` | `@a=@a` | constant `@a` references unknown `@a` (undefined or defined later) | DSL |
-| `const_forward` | `@a=@b` before `@b` | constant `@a` references unknown `@b` (undefined or defined later) | DSL |
-| `const_bare_endpoint` | `@a=@u8` (no `..`) | constant `@a` references unknown `@u8` — a bare range endpoint is not a constant | DSL |
-| `const_range_bad` | `@u32..u8` | range start is greater than end: `u32..u8` | DSL |
-| `const_reserved_all` | `@all = ...` | constant name `@all` is a reserved `@all` selector; please rename | DSL |
-| `const_attr_unsupported` | a custom `@name=value;` on `#[batch_impl]` | custom constants are not supported by `#[batch_impl]` / `#[batch_impl_only]` | DSL |
-| `generic_family_batch_trait` | `@all_type_params` inside `batch_trait!` | `@all_type_params` is supported only by `#[batch_impl]` / `#[batch_impl_only]` | DSL |
-| `at_num_in_type` | `Box<@5>` with two freshs | `@5` is out of range — this impl has 2 fresh generics | DSL |
-| `at_group_in_type` | `@2_0` in a type | `@2_0` does not match a generated generic — this impl has no group 2 position | DSL |
-| `at_group_out_of_range` | the same, a different position | `@2_0` does not match a generated generic — this impl has no group 2 position | DSL |
-| `at_range_in_type` | `Vec<@0..=2>` with none | `@0..=2` out of range — this scope has 0 fresh generics | DSL |
-| `at_empty_range_in_angle` | `Box<@2..1>` | empty exclusive range `@2..1` (start not below end) | DSL |
-| `at_open_range_bare` | a top-level `A@..` | range constant `@..` must name the family's maximum endpoint (e.g. `@..u128`) | DSL |
-| `at_binding_splat` | `Tr<Item = *(A,B)>` | a splat cannot be an associated-type binding value | DSL |
-| `at_segment_carrier_in_body` | a `@{...}` carrier in a body | `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`) | DSL |
-| `error_aggregation_codegen` | several dangling `@N` references | `@5` is out of range — this impl has 2 fresh generics (all reported) | DSL |
-| `empty_range` | an empty numeric range in a spec | range `3..2` is empty (start not below end); no impls will be generated | DSL |
-| `expand_limit` | `(...).2000` | `tuple .2000` expands to 2000 impls (limit 1024) | DSL |
-| `bound_gen_over_limit` | a bound-generator product of 29791 | bound-generator distribution expands to 29791 impls (limit 1024) | DSL |
+| --- | --- | --- | --- |
+| `const_unknown` | `@unknown` | batch-impl: unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` `@num` `@scalar` and ranges `@u8..u128` `@..u128` `@u16..` | DSL |
+| `const_cycle` | `@a=@a` | batch-impl: constant `@a` references unknown `@a` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
+| `const_forward` | `@a=@b` before `@b` | batch-impl: constant `@a` references unknown `@b` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
+| `const_bare_endpoint` | `@a=@u8` (no `..`) | batch-impl: constant `@a` references unknown `@u8` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
+| `const_range_bad` | `@u32..u8` | batch-impl: range start is greater than end: `u32..u8` | DSL |
+| `const_reserved_all` | `@all = ...` | batch-impl: constant name `@all` is a reserved `@all` selector; please rename | DSL |
+| `const_attr_unsupported` | a custom `@name=value;` on `#[batch_impl]` | batch-impl: custom constants are not supported by `#[batch_impl]` / `#[batch_impl_only]` — write the type matrix directly with `.` / space / `*` instead | DSL |
+| `generic_family_batch_trait` | `@all_type_params` inside `batch_trait!` | batch-impl: `@all_type_params` is supported only by `#[batch_impl]` / `#[batch_impl_only]` (needs a trait definition to read its generic parameters; `batch_trait!` is a function-like macro without one) | DSL |
+| `at_num_in_type` | `Box<@5>` with two freshs | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `at_group_in_type` | `@2_0` in a type | batch-impl: `@2_0` does not match a generated generic — this impl has no group 2 position 0 (groups and positions number from 0); use `@N` for the N-th fresh generic in document order | DSL |
+| `at_group_out_of_range` | the same, a different position | batch-impl: `@2_0` does not match a generated generic — this impl has no group 2 position 0 (groups and positions number from 0); use `@N` for the N-th fresh generic in document order | DSL |
+| `at_range_in_type` | `Vec<@0..=2>` with none | batch-impl: `@0..=2` out of range — this scope has 0 fresh generics (numbered from 0 in document order) | DSL |
+| `at_empty_range_in_angle` | `Box<@2..1>` | batch-impl: empty exclusive range `@2..1` (start not below end) | DSL |
+| `at_open_range_bare` | a top-level `A@..` | batch-impl: range constant `@..` must name the family's maximum endpoint (e.g. `@..u128`, `@..f64`) | DSL |
+| `at_binding_splat` | `Tr<Item = *(A,B)>` | batch-impl: a splat cannot be an associated-type binding value (`Item = *(A,B)` — bindings take exactly one type; distribute via a spec list like `[Tr<Item=A>, Tr<Item=B>]`) | DSL |
+| `at_segment_carrier_in_body` | a `@{...}` carrier in a body | batch-impl: `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are referenced through repeat blocks (`@A`) or an explicit template name (`impl{(A0, @A..)}`), never as `@{...}` | DSL |
+| `error_aggregation_codegen` | several dangling `@N` references | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `empty_range` | an empty numeric range in a spec | batch-impl: range `3..2` is empty (start not below end); no impls will be generated | DSL |
+| `expand_limit` | `(...).2000` | batch-impl: `tuple .2000` expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
+| `bound_gen_over_limit` | a bound-generator product of 29791 | batch-impl: bound-generator distribution expands to 29791 impls (limit 1024); reduce the range sizes | DSL |
 
 ### 10.4 Bindings, bounds and function types
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `concrete_binding` | `Assoc<Item = u32>` (plain type args) | binding args (`Item = u32`) are only valid on a trait path | DSL |
-| `concrete_bound` | `Wrap<u8: Clone>` | bound args (`T: Clone`) are only valid on a trait path, in a generic declaration | DSL |
-| `declaration_binding` | `<Item = u8> Target` | an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target` | DSL |
-| `binding_bound_empty` | `Conv<Item =>` / `Conv<T:>` | binding `Item =` missing a value (write `Item = u32`) | DSL |
-| `fn_named_param_missing_type` | `fn(x:)` | named parameter `x:` is missing a type (write `x: u8`) | DSL |
-| `fn_sugar_named_param` | `Fn(x: u8)` | the `Fn(…)` trait sugar does not support named parameters | DSL |
-| `hrtb_binder_type_param` | `for<u8>` | a `for<…>` binder holds lifetimes (`for<'a>`) — a type parameter is declared on the impl | DSL |
-| `dyn_bound_missing` | `dyn Send +` | a `+` in a `dyn` bound list needs a bound after it | DSL |
+| --- | --- | --- | --- |
+| `concrete_binding` | `Assoc<Item = u32>` (plain type args) | batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a bound (`T: Iterator<Item = u8>`) — a concrete type's args are a plain type list | DSL |
+| `concrete_bound` | `Wrap<u8: Clone>` | batch-impl: bound args (`T: Clone`) are only valid on a trait path, in a generic declaration (`<T: Clone> Foo`) or in a bound — a concrete type's args are a plain type list | DSL |
+| `declaration_binding` | `<Item = u8> Target` | batch-impl: an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`, not `<Item = u8> Target` (a `<>` block declares parameters) | DSL |
+| `binding_bound_empty` | `Conv<Item =>` / `Conv<T:>` | batch-impl: binding `Item =` missing a value (write `Item = u32`) | DSL |
+| `fn_named_param_missing_type` | `fn(x:)` | batch-impl: named parameter `x:` is missing a type (write `x: u8`) | DSL |
+| `fn_sugar_named_param` | `Fn(x: u8)` | batch-impl: the `Fn(…)` trait sugar does not support named parameters (`Fn(x: u8)`) — remove the name (a named parameter is only valid in a `fn(x: u8)` pointer type) | DSL |
+| `hrtb_binder_type_param` | `for<u8>` | batch-impl: a `for<…>` binder holds lifetimes (`for<'a>`) — a type or const parameter is declared on the impl, not in the binder | DSL |
+| `dyn_bound_missing` | `dyn Send +` | batch-impl: a `+` in a `dyn` bound list needs a bound after it (e.g. `dyn Iterator<Item = u8> + Send`) | DSL |
 
 ### 10.5 Directives
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `fill_empty_args` | `#fill()` | the directive's argument list cannot be empty | DSL |
-| `fill_bad_comma` | `#fill(,a)` | in directive arguments, a comma is in an illegal position | DSL |
-| `minus_empty` | `#fill(@all,-)` | directive arguments cannot be empty | DSL |
-| `minus_bad_target` | `#fill(-1)` | in directive arguments, after `-` expected an identifier or `[...]` list | DSL |
+| --- | --- | --- | --- |
+| `fill_empty_args` | `#fill()` | batch-impl: the directive's argument list cannot be empty | DSL |
+| `fill_bad_comma` | `#fill(,a)` | batch-impl: in directive arguments, a comma is in an illegal position (no leading/trailing/consecutive commas) | DSL |
+| `minus_empty` | `#fill(@all,-)` | batch-impl: directive arguments cannot be empty | DSL |
+| `minus_bad_target` | `#fill(-1)` | batch-impl: in directive arguments, after `-` expected an identifier or `[...]` list (e.g. `-foo`, `-[a,b]`) | DSL |
 | `directive_bad_follow` | `#m` with no args/body | `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
-| `single_name_not_found` | `#name` for an unknown item | item `T` not found in trait `no_such` | DSL |
-| `delegate_on_non_fn` | `#delegate` on a const | #delegate only works on methods; `HasConst` in trait `VALUE` is not a method | DSL |
-| `delegate_const` | the same on another const | #delegate only works on methods; `ConstApi` in trait `LIMIT` is not a method | DSL |
-| `delegate_double_rename` | `#delegate(size=a, size=b)` | #delegate method `size` is renamed twice | DSL |
-| `delegate_rename_missing_left` | `#delegate(=foo)` | #delegate rename `X = Y` needs identifiers on both sides | DSL |
-| `blanket_ptr` | `#blanket(*const T)` | #blanket does not support `*const`/`*mut` wrappers | DSL |
-| `blanket_self_return` | a blanket method returning bare `Self` | #blanket method `NewT::new` takes/returns `Self` | DSL |
-| `blanket_self_in_group` | a `Self` inside a group | #blanket method `GroupSelf::f` takes/returns `Self` | DSL |
-| `blanket_bad_depth` | `#blanket(...:abc)` | after #blanket `:abc` must come a number (e.g. `Box.Arc:2`) | DSL |
-| `blanket_bad_empty_depth` | `#blanket(...:)` | after #blanket `:` must come a number (e.g. `Box.Arc:2`) | DSL |
-| `blanket_bad_huge_depth` | `#blanket(...:999999)` | #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
+| `single_name_not_found` | `#name` for an unknown item | batch-impl: item `T` not found in trait `no_such` | DSL |
+| `delegate_on_non_fn` | `#delegate` on a const | batch-impl: #delegate only works on methods; `HasConst` in trait `VALUE` is not a method | DSL |
+| `delegate_const` | the same on another const | batch-impl: #delegate only works on methods; `ConstApi` in trait `LIMIT` is not a method | DSL |
+| `delegate_double_rename` | `#delegate(size=a, size=b)` | batch-impl: #delegate method `size` is renamed twice (`size=...` appears more than once); a method can delegate to only one target | DSL |
+| `delegate_rename_missing_left` | `#delegate(=foo)` | batch-impl: #delegate rename `X = Y` needs identifiers on both sides (e.g. `#delegate(size = len)`) | DSL |
+| `blanket_ptr` | `#blanket(*const T)` | batch-impl: #blanket does not support `*const`/`*mut` wrappers (deref is unsafe, cannot delegate); write #delegate by hand | DSL |
+| `blanket_self_return` | a blanket method returning bare `Self` | batch-impl: #blanket method `NewT::new` takes/returns `Self` (bare or `Self::Assoc` projection); blanket delegation forwards the inner type, which cannot match the wrapper's `Self` — write a `#name{...}` body for this wrapper instead | DSL |
+| `blanket_self_in_group` | a `Self` inside a group | batch-impl: #blanket method `GroupSelf::f` takes/returns `Self` (bare or `Self::Assoc` projection); blanket delegation forwards the inner type, which cannot match the wrapper's `Self` — write a `#name{...}` body for this wrapper instead | DSL |
+| `blanket_bad_depth` | `#blanket(...:abc)` | batch-impl: after #blanket `:abc` must come a number (e.g. `Box.Arc:2`) | DSL |
+| `blanket_bad_empty_depth` | `#blanket(...:)` | batch-impl: after #blanket `:` must come a number (e.g. `Box.Arc:2`) | DSL |
+| `blanket_bad_huge_depth` | `#blanket(...:999999)` | batch-impl: #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
 
 ### 10.6 Shape templates, repeat blocks and variadic segments
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `impl_template_dsl_ops` | DSL operators inside `impl{...}` | the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
-| `impl_template_range_constant` | a range constant inside a template | the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
-| `impl_shape_mismatch` | a template that does not match the target | `impl{...}` template cannot destructure the target type (generic argument shape …) | DSL |
-| `impl_shape_fn_bound` | `fn(A) -> B` in a template | `impl{...}` template cannot destructure the target type (template `fn(A) -> …`) | DSL |
-| `impl_shape_lifetime_arg` | a lifetime argument differs | `impl{...}` template cannot destructure the target type (generic argument …) | DSL |
-| `impl_shape_varseg_duplicate` | the same `A@..` twice | `impl{...}` template cannot destructure the target type (duplicate variadic segment …) | DSL |
-| `impl_shape_varseg_outside_tuple` | a varseg outside a tuple | `impl{...}` template cannot destructure the target type (a variadic segment …) | DSL |
-| `impl_shape_varseg_uneven` | uneven variadic segments | `impl{...}` template cannot destructure the target type (variadic segments c…) | DSL |
-| `impl_inconsistent_binding` | two templates binding `X` differently | binding slot `X` is bound to different subtrees across merged `impl{...}` templates | DSL |
-| `impl_shape_repeat_unknown` | `@X` with no such segment | repeat block references unknown variadic segment `@X` | DSL |
-| `impl_shape_repeat_unequal` | segments of length 2 vs 3 | repeat block segments have different lengths (2 vs 3) | DSL |
-| `impl_shape_repeat_driver_conflict` | driver `@A` vs inner `@B` | repeat block driver `@A` conflicts with the inner segment reference `@B` | DSL |
-| `impl_shape_repeat_bare_at` | a bare `@foo` in a body | `@` inside an impl body must start a repeat block `@(...)..` | DSL |
-| `impl_shape_repeat_cursor_multi` | a cursor-only block with several templates | a cursor-only repeat block needs a driving segment | DSL |
-| `impl_shape_repeat_invalid_switch` | `impl{@2..1}` | invalid fresh-binding switch — the range covers no fresh | DSL |
-| `impl_shape_repeat_invalid_switch_closed` | `impl{@2..=1}` | invalid fresh-binding switch — the range covers no fresh | DSL |
+| --- | --- | --- | --- |
+| `impl_template_dsl_ops` | DSL operators inside `impl{...}` | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
+| `impl_template_range_constant` | a range constant inside a template | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
+| `impl_shape_mismatch` | a template that does not match the target | batch-impl: `impl{...}` template cannot destructure the target type (generic argument shape differs at segment `Rc`) | DSL |
+| `impl_shape_fn_bound` | `fn(A) -> B` in a template | batch-impl: `impl{...}` template cannot destructure the target type (template `fn(A) -> B` does not match target `fn(u8) -> u16`) | DSL |
+| `impl_shape_lifetime_arg` | a lifetime argument differs | batch-impl: `impl{...}` template cannot destructure the target type (generic argument differs (template `'_` vs target `u8`)) | DSL |
+| `impl_shape_varseg_duplicate` | the same `A@..` twice | batch-impl: `impl{...}` template cannot destructure the target type (duplicate variadic segment prefix `A` (each `ident@..` in one template must be unique)) | DSL |
+| `impl_shape_varseg_outside_tuple` | a varseg outside a tuple | batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`ident@..`) in a generic argument needs a tuple target (`A<(T@..)>` against `A<(P0, P1)>`)) | DSL |
+| `impl_shape_varseg_uneven` | uneven variadic segments | batch-impl: `impl{...}` template cannot destructure the target type (variadic segments cannot be split evenly: target tuple has 3 elements after 0 fixed, split across 2 segments) | DSL |
+| `impl_inconsistent_binding` | two templates binding `X` differently | batch-impl: binding slot `X` is bound to different subtrees across merged `impl{...}` templates (`Box < u32 >` vs `Box`) | DSL |
+| `impl_shape_repeat_unknown` | `@X` with no such segment | batch-impl: repeat block references unknown variadic segment `@X` (the `impl{...}` template declares no `X@..`) | DSL |
+| `impl_shape_repeat_unequal` | segments of length 2 vs 3 | batch-impl: repeat block segments have different lengths (2 vs 3); all referenced segments must be equal-length | DSL |
+| `impl_shape_repeat_driver_conflict` | driver `@A` vs inner `@B` | batch-impl: repeat block driver `@A` conflicts with the inner segment reference `@B` (they must be the same) | DSL |
+| `impl_shape_repeat_bare_at` | a bare `@foo` in a body | batch-impl: `@` inside an impl body must start a repeat block `@(...)..` (or `@ident(...)..` with the driving segment declared) | DSL |
+| `impl_shape_repeat_cursor_multi` | a cursor-only block with several templates | batch-impl: a cursor-only repeat block needs a driving segment — with several template segments write `@ident(...)..` declaring the driver | DSL |
+| `impl_shape_repeat_invalid_switch` | `impl{@2..1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
+| `impl_shape_repeat_invalid_switch_closed` | `impl{@2..=1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
 | `impl_shape_repeat_no_driver` | a cursor-only body block with no switch | expected one of `.`, `;`, `?`, `}`, or an operator, found `,` | rustc |
 
 ### 10.7 Entries and top-level blocks
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `implentry_at_num_banned` | `@0` on an impl-entry spec with no fresh | `@0` is out of range — this impl has 0 fresh generics | DSL |
-| `implentry_direct_not_type` | a directive where a type belongs | the direct form takes exactly one type after the generic declaration | DSL |
-| `implentry_hash_banned` | `#fill` on the impl entry | `#` directives are not supported on the ItemImpl entry | DSL |
-| `top_level_block_not_last` | `{! m!{…}}` before other blocks | a `{! ...}` top-level block must be the last block | DSL |
-| `top_level_manual_not_last` | the manual top-level form, not last | a `{! ...}` top-level block must be the last block | DSL |
-| `top_level_without_attach` | a top-level block with no attached type | a top-level `{! ...}` block needs an attached type | DSL |
+| --- | --- | --- | --- |
+| `implentry_at_num_banned` | `@0` on an impl-entry spec with no fresh | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `implentry_direct_not_type` | a directive where a type belongs | batch-impl: the direct form takes exactly one type after the generic declaration (e.g. `<T> Box<T>`) | DSL |
+| `implentry_hash_banned` | `#fill` on the impl entry | batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly) | DSL |
+| `top_level_block_not_last` | `{! m!{…}}` before other blocks | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
+| `top_level_manual_not_last` | the manual top-level form, not last | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
+| `top_level_without_attach` | a top-level block with no attached type | batch-impl: a top-level `{! ...}` block needs an attached type (the spec body is prepended to the macro input) | DSL |
 
 ### 10.8 `where`
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `where_missing_body` | a bare `where` with no `{...}` | `where` predicates are missing a code block {...} | DSL |
-| `where_not_a_predicate` | `where{ A B }` | a where predicate must be a Rust predicate — write `T: Bound` | DSL |
-| `where_splat_bad` | `where{*(A,B): Clone}` | a splat cannot be a where-predicate subject | DSL |
-| `where_empty_exclusive_range` | `where{@2..2: Clone}` | empty exclusive range `@2..2` (start not below end) | DSL |
+| --- | --- | --- | --- |
+| `where_missing_body` | a bare `where` with no `{...}` | batch-impl: `where` predicates are missing a code block {...} | DSL |
+| `where_not_a_predicate` | `where{ A B }` | batch-impl: a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out | DSL |
+| `where_splat_bad` | `where{*(A,B): Clone}` | batch-impl: a splat cannot be a where-predicate subject (`*(A,B): Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`) | DSL |
+| `where_empty_exclusive_range` | `where{@2..2: Clone}` | batch-impl: empty exclusive range `@2..2` (start not below end) | DSL |
 
 ### 10.9 Preview channel
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `preview_ok` | `batch_preview! { #[batch_impl(usize, isize)] trait Pv {} }` | batch-impl preview: 2 impl(s) generated | channel |
 | `preview_miswrite` | a mis-written preview body | batch-impl preview: 1 impl(s) generated | channel |
 
 ### 10.10 Known leaks (rustc writes the wording)
 
 | Fixture | Trigger | Locked message | Source |
-|---|---|---|---|
-| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope (E0425; the return type is a type position, so `C` is applied to `B` — with primitive names that application is rustc's E0109, and `-> Box u8` = `Box<u8>` depends on the same fold) | rustc |
-| `impl_trait_sync_body_negative` | a body `X<>` without a `Tr<>`-carrying template | trait takes 1 generic argument but 0 generic arguments were supplied (E0107) | rustc |
+| --- | --- | --- | --- |
+| `fn_return_reapply` | `fn(A) -> B C` | cannot find type `A` in this scope | rustc |
+| `impl_trait_sync_body_negative` | a body `X<>` without a `Tr<>`-carrying template | trait takes 1 generic argument but 0 generic arguments were supplied | rustc |
 | `unsafe_non_fn` | `unsafe` on a non-unsafe trait | implementing the trait `T` is not unsafe | rustc |
 
 The **3 `pass` fixtures** are the other half of the lock: `constant_named_type_arg` (a type parameter merely *named* `constant` is never a `const` parameter), `tests/ui/pass/basic.rs` and `tests/ui/pass/impl_entry_empty_attribute.rs` must keep compiling.
 
-## 11. Ceilings and Guarantees
+## 11. Crossings
 
-| Item | Value | Source |
+The systems are not independent: each pass runs on what the previous one produced, and the operators share one spec chain. This chapter states the interactions in one place; the sections above keep the system-local rules (see §7.6 and §8.6).
+
+### 11.1 The pass order *is* the composition order
+
+`@` constants → `<>` pairing → `#` directives → `where` processing. What that buys and forbids:
+
+| Pass | What the later passes therefore see | Example |
 |---|---|---|
-| Impls per spec | **1024** (shared by `.N` powers / ranges / Cartesian products) | `src/ast/op.rs` (`MAX_EXPAND`), ui `expand_limit` / `bound_gen_over_limit` |
-| Nesting depth | **128** (groups, chains, attachments and constant values share `MAX_NEST_DEPTH`) | `src/util/mod.rs`, ui `deep_nesting` and friends |
-| Repeat-block output budget | **65536 tokens** (`MAX_REPEAT_TOKENS`) | `src/codegen/repeat.rs` |
-| Expansion cost | a 1024-impl matrix is sub-second (measured around 0.2 ms/impl) | `src/testing/perf.rs` (`cargo test --lib perf`) |
-| Fuzz memory guard | 256 MiB (`GUARD_LIMIT`) | `src/testing/mod.rs` |
-| No panicking paths | no `unwrap`/`expect`/`panic!`/`unreachable!`/`debug_assert!`/`assert!` in production code; invariant violations go through diagnostics | clippy deny family plus `tests/no_panic/main.rs` |
-| MSRV / edition | 1.95.0 / edition 2024 | `Cargo.toml` |
-| UI snapshot platform | trybuild wording is locked on Linux stable in CI only (skipped on Windows) | CI and `tests/ui.rs` |
-| Published package | only what the build reads: `README.md` + `docs/tutorial.md` + `docs/reference.md` + `src/doc/*.md`; `docs/zh-CN/`, `docs/dev-changelog.md` and `tests/` are excluded | `Cargo.toml`'s `exclude` |
+| `@` | values may contain **flat** `<...>`, which is paired afterwards | `@all_type_params` expands to a flat declaration that the pairing pass turns into a group |
+| `<>` pairing | directive arguments and predicates see `<...>` as **groups**, never as flat punctuation | a two-argument bound keeps its comma at depth 0 |
+| `#` | directives see the structure `@` produced, and their output joins the type chain | `#fill(@all_methods, -foo)` receives the family's list |
+| `where` | the last pass splits predicates and treats `impl{...}` as a boundary | a predicate may name an `@`-filled or `<>`-filled type |
 
-## 12. Stability
+Two consequences worth keeping: `@` is the **only** pass that runs before pairing, so it is the only place where a flat `<...>` may be written; and the `X<>` **sync** is not one of these four passes — it is a Ty-level codegen pass behind all of them (§13.2), which is why a marker is filled only after `@`, `#` and `where` have had their say.
 
-- **Syntax freeze (0.7.2)**: the semantics of every existing token are **final** — later releases only **add** (new directives / constants / tools), refine diagnostics and polish docs; changing existing semantics requires a deliberate breaking release.
-- **The `@N` stability commitment** now covers the whole surface: `@N` numbering (document order) will not change.
-- **Docs are part of the surface**: the examples in this manual and in the tutorial must be true — readers and reviewers check them item by item, so any expansion is measured before it is written. When a doc and the code disagree, the **measurement** wins and the changelog records the correction.
+### 11.2 `@` × `<>`
+
+- a constant's value may contain flat `<...>` (11.1);
+- an `@N` reference inside an angle chunk is resolved before that chunk is consumed as a declaration or an argument list — `<@0..>` declares every covered fresh;
+- a list-valued constant **distributes** like any list, and a splat is what keeps it in one container (measured): `(@u8..u16,)` is two impls (`(u8,)` and `(u16,)`), while `(*(@u8..u16),)` is one impl over both members.
+
+### 11.3 `#` × the type domain, and × `@`
+
+- directive arguments belong to the directive domain: `,` lists, `-name` exclusions, `@all` families and literal `[a, b]` lists. Type-domain operators written inside them are **not** interpreted — `#fill(@all_methods, -nope)` parses an exclusion, not a DSL expression (measured: an exclusion that matches nothing is not an error);
+- the `@all*` families and `@trait` feed the scope, which is why *selection* lives in the macro-meta layer and *action* in the directive;
+- a directive's output is a **block** in the spec chain: a single-group output attaches to a type or stands alone, while `#blanket`'s multi-token output may only stand alone (§6.1).
+
+### 11.4 splat × the others
+
+- a splat's elements may be `@` constants (11.2) or generators (`*().N`);
+- a splat inside an `impl{...}` template is a DSL operator, and a template must be a standard Rust type — rejected (§8.1);
+- a splat in a **body** is not interpreted at all (`a * b` stays a multiplication);
+- the same splat means "declarations" in a declaration block and "arguments" in an argument list: one construct, and the consumer decides (§2).
+
+### 11.5 `where` × the others
+
+The predicates are filled by the `X<>` sync, by `@N` references and by shape slots, and they are the last thing validated. §7.6 lists the interactions with templates, with the blanket's `@0` = target generic, and with the impl entry.
+
+### 11.6 `impl{...}` × the others
+
+The template is parsed behind the sync, expanded into by `@`, a boundary for `where`, and substituted into the target, the predicates and the body — §8.6 lists them.
+
+### 11.7 Attachments × the entry points
+
+| Entry | `{body}` | `where{...}` | `impl{...}` | `#` directives |
+|---|---|---|---|---|
+| `#[batch_impl]` on a trait | ✓ | ✓ | ✓ | ✓ |
+| `#[batch_impl]` on an impl (the impl entry) | the handwritten impl's body is the source | ✓ — the source is the impl's own `where` | ✓ — the entry *is* template × matrix | ✓, except a direct `#` in the spec (`implentry_hash_banned`) |
+| `#[batch_impl_only]` | ✓ | ✓ | ✓ | ✓ |
+| `batch_trait!` | ✓ | ✓ | ✓ | ✗ — it never sees a trait definition |
+
+A body's `X<>` is synced only through a **switch template** (`impl{@trait<>}` / `impl{Tr<>}`): without one the marker reaches rustc (E0107), the behaviour locked by `impl_trait_sync_body_negative`.
+
+## 12. Ceilings
+
+| Ceiling | Value | What you see when you exceed it |
+|---|---|---|
+| Impls per spec | **1024**, shared by `.N` powers, ranges and Cartesian products (`src/ast/op.rs`) | a targeted error naming the product and the limit: "… expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo" (`expand_limit`, `bound_gen_over_limit`) |
+| Nesting depth | **128**, shared by groups, chains, attachments and constant values (`src/util/mod.rs`) | "nesting depth exceeds 128 levels (perhaps an accidental extra bracket)" (`deep_nesting`, `nested_bracket_too_deep`, `chain_too_deep`, `attach_too_deep`, `const_value_deep_nesting`) |
+| Repeat-block output | **65536 tokens** (`src/codegen/repeat.rs`) | the budget guard reports the block that ran away |
+| `#blanket` deref depth | **128** | "`:999999` is too large (deref depth must be ≤ 128)" (`blanket_bad_huge_depth`) |
+
+**Guarantees that hold under every ceiling**: an error **replaces** the impl — there is never a half-built impl next to a diagnostic; the macro never panics (a panic inside a proc macro is a compiler ICE), so invariant checks report a targeted error instead; and no input silently produces zero impls. A 1024-impl matrix expands in well under a second (measured around 0.2 ms per impl), so these ceilings are about accidental blowups rather than about a slow normal case.
 
 ## 13. Semantics: What Each Stage Guarantees
 
@@ -653,19 +743,7 @@ The pass order is not a convention but a **type-level** state machine (`preproce
 - **No leaked internal names**: display names only; a dangling `@N` is intercepted in the macro, never surfaced as rustc's E0412.
 - **No new reserved symbols**: the DSL reserves `@`, `#` and the documented operator set; generated names stay inside `P0…` and are collision-checked against everything you wrote.
 
-## 14. Ceilings and Failure Modes in Depth
-
-| Ceiling | Value | Source | What you see when you exceed it |
-|---|---|---|---|
-| Impls per spec | 1024 | `src/ast/op.rs` (`MAX_EXPAND`) | a targeted error naming the product and the limit — "likely exponential/range/Cartesian typo" |
-| Nesting depth | 128 | `src/util/mod.rs` (`MAX_NEST_DEPTH`) | "nesting depth exceeds 128 levels (perhaps an accidental extra bracket)"; groups, chains, attachments and constant values share the counter |
-| Repeat-block output | 65536 tokens | `src/codegen/repeat.rs` (`MAX_REPEAT_TOKENS`) | the budget guard reports the block that ran away |
-| `#blanket` deref depth | 128 | the same depth rule | "`:999999` is too large (deref depth must be ≤ 128)" |
-| Fuzz allocation guard | 256 MiB | `src/testing/mod.rs` (test-only) | turns a runaway allocation into a catchable panic during fuzzing instead of an abort |
-
-**Guarantees that hold under every ceiling**: an error **replaces** the impl (there is never a half-built impl next to a diagnostic — a stale snapshot used to emit one); the macro never ICEs; and no input silently produces zero impls.
-
-## 15. Counterintuitive Cases
+## 14. Counterintuitive Cases
 
 Each of these is a question the surface invites, answered with the rule that produces it.
 
@@ -685,7 +763,7 @@ Each of these is a question the surface invites, answered with the rule that pro
 
 **Why is `where{@5..: Clone}` not an error on a two-fresh impl?** An open range past the end contributes nothing — an arity-dependent spec must not fail just because a shorter case has fewer freshs.
 
-**Why is a fresh generator in a `<>` block an error?** The block *is* the impl's parameter list, so its freshs would be declared and never used (E0392). Write the generator on the type (`T^()^2`) — and note that a plain splat there is fine (`<*(A,B)>` → `<A, B>`).
+**Why is a fresh generator in a `<>` block an error?** The block *is* the impl's parameter list, so its freshs would be declared and never used (E0392). Write the generator on the type instead: `T.*().2` splices the generated parameters, while `T<()2>` keeps them as one tuple argument (both measured) — and a plain splat there is fine (`<*(A,B)>` → `<A, B>`).
 
 **Why does an impl-entry spec list with nothing in it re-emit the block?** The entry is a *derivation* (`0..N` impls per spec), so an empty list is the identity: the block you wrote comes back unchanged.
 
@@ -696,53 +774,4 @@ Each of these is a question the surface invites, answered with the rule that pro
 **Why is a body `X<>` sometimes left unsynced?** Body sync is opt-in: only a switch template (`impl{@trait<>}` / `impl{Tr<>}`) turns it on, so a template without it leaves the body's marker to rustc (E0107), which is the documented behaviour (§13.2).
 
 **Why is `#[batch_impl(1.5)]` an error rather than a type alias?** Only an integer is a type in the DSL (it is how `@N` and powers are counted), so a float/string/char literal is reported as such (see §10.1).
-
-## 16. Notation Glossary
-
-Every token the surface uses, in one place.
-
-| Notation | Name | Meaning / where legal |
-|---|---|---|
-| `.` | right-assoc apply | `A.B` = `A<B>`; also the element boundary before an absolute-path target (§1.2, §3) |
-| (space) | left-assoc apply | `HashMap K V` = `HashMap<K, V>`; accumulates arguments |
-| `[...]` | list | a set: one impl per element (`[Box, Rc] u8`); a slice when it is a target (`[u8]`) |
-| `[...; N]` | array type | `[u8; 3]` |
-| `(...)` | tuple | `(A, B)` — a *sequence*, appends under a splat |
-| `(A)` | transparent group | the same type as `A` (but `(*(a,b))` is the container holding a splat) |
-| `<>` | angle brackets | generic args after an ident, a declaration block at the start of a spec, or a qualified head with a depth-0 `as` (§1.2) |
-| `A<>` | the sync marker | "this spec's trait arguments" — filled in where/when templates/bounds/target (§13.2) |
-| `^N` / `^[A,B]` | power | distribute over a value or a list: `(u8, u16)^2` = four impls |
-| `*(...)` / `*[...]` | splat | splice a container/generator into the enclosing parameter list; one layer; left operand keeps its source bracket's semantics (§4) |
-| `*()N` | generator splat | hoists fresh declarations and splices the fresh tuple |
-| `@` | macro-meta namespace | constants and positional references; resolved lexically, first pass (§5) |
-| `#` | directive namespace | `#name` / `#fill` / `#delegate` / `#blanket` / the open extension (§6) |
-| `;` | spec separator | splits the attribute argument into specs; a separator alone is not content (§1.1) |
-| `,` | list separator | in lists, tuples, args and directive argument lists |
-| `-name` | exclusion | directive argument lists only |
-| `!` | never type | as an `fn` return type (`fn(A) -> !`) |
-| `&` / `&mut` | reference prefix | `& Box<T>` |
-| `*const` / `*mut` | raw-pointer prefix | `*const T` |
-| `unsafe` | unsafe marker | `unsafe.fn(A) -> B` marks the **impl**; `unsafe fn(A) -> B` is a fn *type* |
-| `self` | identity prefix | `self T` = `T`; the bare-type placeholder in a matrix |
-| `#[...]` | attribute | attached to the generated impl; never entered by the DSL |
-| `{body}` | body attachment | the implementation block (a block, any order) |
-| `where{...}` | predicate attachment | Rust predicates with `@N`, `X<>` and shape slots (§7) |
-| `impl{...}` | shape template attachment | a standard Rust type matched against the target (§8) |
-| `@N` | positional reference | the N-th fresh generic, document order (`@0` → `P0`) |
-| `@g_i` | group reference | fresh `i` of generator group `g`; stable across distribution |
-| `@N..=M` / `@N..` | ranges | inclusive / open-to-last; `@N..` is empty past the end |
-| `@all_fresh` | deprecated | write `@0..` |
-| `@trait` | trait path | the annotated trait; per-entry meaning (local / external / segment) |
-| `@u*` `@i*` `@f*` `@num` `@scalar` | name families | expand to their member lists |
-| `@u8..u128` `@i8..i128` `@f32..f64` | range families | a contiguous run, either endpoint omittable |
-| `@all_methods` … `@all_static_methods` | member families | a selected item set for directive arguments |
-| `@all_type_params` `@all_const_params` `@all_lifetimes` | parameter families | a flat `<...>` declaration copied from the trait |
-| `@Cow` | wrapper constant | `#blanket` packing |
-| `@name=value;` | custom constant | `batch_trait!` leading section only |
-| `#name{body}` | single-item directive | one trait item's implementation |
-| `#fill(scope){body}` | bulk-fill directive | one body, many signatures |
-| `#delegate(scope){target}` | delegation directive | generated forwarding calls |
-| `#blanket(scope){wrappers}` | blanket directive | one complete impl per wrapper |
-| `{! m!{...}}` | open extension | hands the spec body to your macro (top level only) |
-| `# path::To::Trait:` | external-path prefix | declares the real path of a foreign trait (`batch_impl_only`) |
 

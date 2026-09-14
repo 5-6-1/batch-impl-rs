@@ -1194,7 +1194,16 @@ trait NeverRet { fn call(&self, x: u8) -> !; }
 
 ## 11. Entry Points
 
-Six entry points share one spec grammar; the comparison table is in `docs/reference.md` §9, and each entry's complete argument semantics are in rustdoc (`src/doc/`). The two readings that trip people up: `#[batch_impl_only]` takes a `# path::To::Trait:` prefix for the external trait (at least one `::`), and `batch_trait!` never sees a trait definition, so it supports **no** `#` directives.
+Six entry points share one spec grammar; each one's complete argument semantics are in rustdoc (`src/doc/`), and the reference's §9 carries the rules (the `# path::To::Trait:` prefix, what the impl entry inherits, and `batch_trait!`'s lack of directives).
+
+| Entry | Form | Note |
+|---|---|---|
+| `#[batch_impl]` | attribute macro on a `trait` definition | re-emits the trait and generates impls |
+| `#[batch_impl]` | attribute macro on an `impl` block (the **impl entry**, 0.8.0) | batch-instantiates a hand-written impl from a shape template × matrix |
+| `#[batch_impl_only]` | attribute macro on a `trait` definition | generates impls only, the trait comes from outside (prefix `# path::To::Trait:` to rename) |
+| `batch_trait!` | function-like macro | sections plus custom `@name=value;` constant sections; **no** `#` directives |
+| `batch_preprocess_test!` | test-only | runs preprocessing only, asserts nothing about the output |
+| `batch_preview!` | diagnostic channel | prints the expansion as `compile_error!` text (the only stable terminal channel) |
 
 ```rust
 # use batch_impl::batch_impl_only;
@@ -1235,8 +1244,10 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
   `Self::Assoc` **return** (`fn iter(&self) -> Self::Iter`) is fine — the
   inner `T` carries the same associated type
 - **A fresh generator in a `<>` declaration block**: reported with the spelling
-  that works (write the generator on the type, e.g. `T^()^2`) — the block *is*
-  the impl's parameter list, so its freshs would be declared and never used
+  that works (write the generator on the type, e.g. `T.*().2` to splice the
+  generated parameters, or `T<()2>` to keep them as one tuple argument) — the
+  block *is* the impl's parameter list, so its freshs would be declared and never
+  used
 
 ## 13. Real Scenarios: the Three Bundled Examples
 

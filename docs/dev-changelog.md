@@ -1665,6 +1665,42 @@
   `self`, where the apply stops (the trait/target split) and a boundary table.
   - **Evidence**: doc_consistency **4**, doctests **94**, `fmt`/`doc` clean.
 
+- **The reference restructure is finished — the manual is rule systems, crossings
+  and inventories** (both mirrors). One round for the remainder:
+  - **§7 `where` is a rule system now**: the forms (suffix / bare / inherited), the
+    positional inheritance (renaming is fine; a single-type-parameter predicate
+    merges into that parameter's inline bound and the rest passes through with the
+    substitution applied), the three fill sources with measured behaviour (`@N..`
+    renders one predicate per covered fresh and none past the end), the final check
+    with its exact messages, a boundary table (a trailing comma is accepted, an
+    empty group is legal, a closed reference past the end is the out-of-range error)
+    and the crossings (a blanket's `@0` is the target generic; the impl entry
+    inherits its own `where`).
+  - **§11 Crossings is new**: the pass order *is* the composition order; `@` × `<>`
+    (a list-valued constant distributes while a splat keeps it in one container —
+    measured: `(@u8..u16,)` is two impls, `(*(@u8..u16),)` is one); `#` × the type
+    domain and × `@`; splat × the others; `where` / `impl{...}` pointers; and the
+    attachment × entry-point matrix, including the body-sync switch.
+  - **§10 quotes the exact wording**: all 104 snapshots now appear verbatim (first
+    line, `error: ` / `error[EXXXX]: ` stripped) in both mirrors. The new guard
+    `reference_quotes_every_diagnostic_verbatim` fails when a re-blessed message
+    stops matching — falsified by corrupting one cell, watching it name the fixture
+    and the expected wording, then reverting.
+  - **Removals and renumbering**: the six-entry comparison moved into the tutorial's
+    §11 (the reference keeps the rules only), `## 12. Stability` and the duplicated
+    ceilings section are gone (policy lives in `README.md`), the project-metadata
+    rows left too (MSRV, edition, UI-snapshot platform, packaging, the test-only
+    fuzz guard — they live in `README.md` / `docs/development-guide.md` /
+    `Cargo.toml`), the notation glossary was folded into a compact §1.4, and both
+    mirrors now run 1..14 with no holes. The intermediate numbering that the two
+    entries above describe is superseded by this one.
+  - **`^` residuals fixed**: the FAQ guidance and the tutorial's §12 bullet name the
+    working spellings (`T.*().2` splices the generated parameters, `T<()2>` keeps
+    them as one tuple argument). The one surviving `T^()^2` in §10 is the compiler's
+    own message text, quoted verbatim — production wording, owned by the message fix.
+  - **Evidence**: doc_consistency **5**, doctests **94**, `fmt`/`clippy`/`doc`
+    clean; the reference is **777 (EN) / 778 (zh)** lines.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic
