@@ -630,14 +630,7 @@ trait Semiring<Oa, Om> {}
 // → …… arity 2（P1 同谓词）
 ```
 
-它填充 **where 谓词**、`impl{...}` 模板、impl 泛型 bound 以及**目标类型**（含
-`dyn … + X<>` 尾巴）——凡是标记出现在 impl 类型结构里的地方。`@trait<>` 等价
-（`@trait` 先展开为 trait 路径）。该标记**不看名字**：填进去的是本 spec 的实参，
-所以 `Other<>` 会变成 `Other<…spec 实参…>`（那里的元数不匹配由 rustc 报）；无泛型
-参数的 trait 同步为裸名（`Tr<>` → `Tr`）。**body 内部**
-通过**开关模板** `impl{Tr<>}` 同步——只含空括号 trait 的模板，不参与
-Self 匹配，仅声明 body 里的 `Tr<>` 引用也同步（body 是任意 Rust，`Vec<>`
-不是 trait 引用）。
+它把标记填在类型所在的任何位置，`@trait<>` 等价（`@trait` 先展开为 trait 路径）。写它时要知道两件事：该标记**不看名字**——填进去的是本 spec 的实参，所以 `Other<>` 会变成 `Other<…spec 实参…>`，那里的元数不匹配由 rustc 报；**body 内部**只有通过**开关模板** `impl{Tr<>}` 才同步（body 是任意 Rust，`Vec<>` 不是 trait 引用）。全部会同步的表面在 `docs/zh-CN/reference.md` §13.2。
 
 ### 6.5 bound 生成器：impl 泛型 bound 里的 Fn 族类型
 
@@ -831,9 +824,9 @@ trait T {}
 trait T { fn tag(&self) -> &'static str; }
 ```
 
-### 8.3 谓词继承与 `@N` 引用
+### 8.3 谓词继承
 
-trait 级 where 谓词按**位置替换**并入 impl：改名的参数照样保留它的谓词，谓词文本跟随同一位置上的实参（§5.5、参考手册 §7.2）。谓词指到 impl 没声明的东西时逐字通过，因此由 rustc 报未知类型。`@N` 在谓词中引用 fresh 名（`where{@0: Clone}`）；`@N..=M` 批量引用范围。裸 splat 作谓词主体明确报错（`where{*(A,B): Trait}` 无定义语义）；包进元组也没用（谓词内 splat 不展开）——分开写谓词。
+trait 级 where 谓词按**位置替换**并入 impl：改名的参数照样保留它的谓词，谓词文本跟随同一位置上的实参（§5.5、参考手册 §7.2）。谓词指到 impl 没声明的东西时逐字通过，因此由 rustc 报未知类型。谓词里允许什么——`@N` 引用、`Trait<>` 填充、终检会拒掉什么——见 `docs/zh-CN/reference.md` §7。
 
 ### 8.4 `impl{...}` shape template 形状模板（0.8.0）
 
@@ -865,28 +858,7 @@ trait Make { fn mk(x: u32) -> Self; }
 - 多个 `impl{...}` 合并为单一映射——同形冗余绑定合法、异形冲突报错。
 - 模板内 `@trait` 在匹配前展开为 trait path。
 
-模板块内是**标准 Rust 类型**——DSL 算子被拒绝；`_` 是**通配**，匹配任意
-东西且保持 `_`（详见下方模板匹配表）。
-
-#### 模板匹配：哪些能绑定、哪些不能
-
-模板与叶子按**结构递归**匹配——每种 `syn::Type` 形态都被识别并递归：
-
-| 模板形态                                     | 行为                                                                    |
-|----------------------------------------------|-------------------------------------------------------------------------|
-| `T`（裸 ident）                              | 绑定整个叶子子树                                                        |
-| `Rc<T>` / `std::rc::Rc<T>`（路径，多段也可） | base/段 ident：相同→字面、不同→槽；泛型实参递归                         |
-| `&A` / `&mut A` / `*const A` / `*mut A`      | 引用/指针的生命周期与可变性只做结构比较；元素绑定                       |
-| `[A]`（切片）、`(A, B, C)`（元组）           | 逐位绑定元素                                                            |
-| `[A; 3]`（定长数组，字面长度）               | 长度逐字比较；元素绑定                                                  |
-| `[A; N]`（定长数组，const 参数长度）         | 长度**绑定**叶子长度（`N := 3`；body 可用 `N`）                         |
-| `[A; ()]`                                    | **保留形状**——变长段的内部标记（数组长度为 `()`，不可能出现在可编译代码中），不要在模板里手写 |
-| `Cow<'_, A>`（生命周期实参）                 | `'_'` 是**通配**，匹配任意生命周期；`'a` vs `'b` 逐字；类型实参照常绑定 |
-
-不能绑定（保持逐字比较——定向诊断而非静默误绑）：
-
-- **fn 指针 / trait 对象模板内部**（`fn(A) -> B`、`dyn A + Send`）：整体逐字比较，只有完全相同的模板能匹配自身；
-- **跨类实参绑定**（`Cow<'_, A>` 拆 1 实参的 `Box<u8>` 叶子；`Foo<A>` 拆 `Foo<3>`）：生命周期/const 实参不能绑定类型实参，arity 错位也无法对齐。改为每个形状族一个原型模板（下节）。
+模板块内是**标准 Rust 类型**——DSL 算子被拒绝，`_` 是通配（匹配任何东西），数组长度可以绑定 const 参数（`impl{[A; N]}` 绑定 `N := 3`，body 里可用）。完整的绑定表——每种类型形态、保留形态 `[A; ()]`、以及**逐字比较而不绑定**的形态（fn 指针与 trait 对象模板、跨类实参）——在 `docs/zh-CN/reference.md` §8.2。
 
 #### 原型实现模式
 
@@ -1008,55 +980,40 @@ impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
 一句话：**写一个带占位符的 impl，每个矩阵格子得到一个 impl——与 §8.4
 相同的匹配与替换，只是作用于整个块而非仅 body。**
 
-- attr 语法：shape 形态 `A<B> : [Box,Rc] [usize,isize]`（模板 `:` 矩阵）或直接形态
-  `<T> Box<T>`（泛型声明 + for-type，N = 1）；`;` 分隔多个 spec（`W:u8; W:u16`），
-  单 spec 为常见形态；
-- `@trait`（→ impl 的 trait path）允许在泛型声明 bound 与 where 谓词中；自定义
-  `@` 常量与 `#` 指令在本入口拒绝。spec 里的生成器会把 fresh 泛型提升到 impl 上，
-  `@N..` where 选择器据此解析（没有生成器时 `@N` 无可指对象，报越界）；
-- impl 自带的泛型 / where 子句 / `unsafe` 保留；裸 where 谓词区域也以深度 0 `;`
-  或（ItemImpl 仅）流末尾终止。
-- **空** spec 列表（`#[batch_impl]`、`#[batch_impl()]`、`#[batch_impl(;)]`）是
-  **无操作**：属性只负责从该块**派生** impl，没有可派生内容时原块被原样发射，而不是被扣下。
-- **属性堆叠是同一次派生的多个 stage。** 块上方的第二个（第三个……）`#[batch_impl]`
-  不是又一份 spec 列表：rustc 先展开**最外层**属性并把其余属性交给它，本入口把它们重新发射到
-  自己派生的 impl 上，编译器随后在**那些 impl 上**展开下一步——于是各步按**源码顺序**
-  （自上而下）作用于**累积中的块**：前一步留在原地的槽位由后一步绑定，各步合成为笛卡尔积。
-  **空** stage 是恒等元——用它可以把某一步关掉：
+本入口接受 `模板 : 矩阵`（`A<B> : [Box,Rc] [usize,isize]`）或直接形态（`<T> Box<T>`），用 `;` 分隔多个 spec，允许 `@trait` 出现在泛型声明 bound 与 `where` 谓词里（自定义 `@` 常量与 `#` 指令在这里被拒），并保留块自己的泛型、`where` 子句与 `unsafe`。**空** spec 列表是无操作：属性只从该块**派生** impl，没有可派生内容时原块原样回来。规则在 `docs/zh-CN/reference.md` §9.2–§9.3。
 
-  ```rust
-  # use batch_impl::batch_impl;
-  # struct Pair<A, B>(A, B);
-  # trait Tag { fn tag(&self) -> u32; }
-  #[batch_impl(A : [u8, u16])]      // stage 1 绑定 `A`
-  #[batch_impl(B : [u32, u64])]     // stage 2 绑定 stage 1 留下的 `B`
-  impl Tag for Pair<A, B> { fn tag(&self) -> u32 { 0 } }
-  // → impl Tag for Pair<u8,u32> / Pair<u8,u64> / Pair<u16,u32> / Pair<u16,u64>
-  ```
-- **栈里属性的落点。** 写在两步之间的普通属性属于它所在的**展开层级**：它被发射到该 stage
-  派生出的 impl 上，后续 stage 再从这些 impl 继承它。`#[cfg]` 的作用域也正由此确定——某一层的
-  `#[cfg]` 会裁掉**该层派生的 impl 以及它下面的所有 stage**（实测：中层 `#[cfg(any())]` 时，
-  下层那个必然报错的 stage 根本没有运行）。某层下面的 `#[cfg(test)]` 即恒真形态。
-- **顺序为什么是必需的，而不只是约定。** 一个 *shape family*——头部形状各不相同的容器形态
-  （`Vec<T>`、`[T; 4]`、`Box<[T]>`、`&[T]`）——在 §8.4 的模式里每族都需要一个 prototype，
-  因为单个模板无法匹配四种不同形状的头部。用两步就能直接表达：第 1 步引入**留着元素槽的
-  形状**，第 2 步填这个槽；而第 2 步的替换会**钻进**第 1 步产出的 token 内部（`B` 落在
-  四个不同位置，其中一个在引用之后）：
+**属性堆叠是同一次派生的多个 stage。** 块上方的第二个（第三个……）`#[batch_impl]`
+不是又一份 spec 列表：rustc 先展开最外层，本入口把其余属性重新发射到它派生的 impl 上，
+下一阶段再**在那些 impl 上**展开——于是各步按源码顺序作用于累积中的块：前一步留在原地的
+槽位由后一步绑定，空 stage 就是恒等。写在两步之间的普通属性属于它所在的展开层级，那里
+`#[cfg]` 的作用域也由此确定（规则在 `docs/zh-CN/reference.md` §9.4）：
 
-  ```rust
-  # use batch_impl::batch_impl;
-  # trait Elem { fn elem_bytes(&self) -> usize; }
-  #[batch_impl(A : [Vec<B>, [B; 4], Box<[B]>, &'static [B]])]
-  #[batch_impl(B : [u8, u64])]
-  impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
-  // → impl Elem for Vec<u8> / Vec<u64> / [u8; 4] / [u64; 4]
-  //                 / Box<[u8]> / Box<[u64]> / &'static [u8] / &'static [u64]
-  ```
+```rust
+# use batch_impl::batch_impl;
+# struct Pair<A, B>(A, B);
+# trait Tag { fn tag(&self) -> u32; }
+#[batch_impl(A : [u8, u16])]      // stage 1 绑定 `A`
+#[batch_impl(B : [u32, u64])]     // stage 2 绑定 stage 1 留下的 `B`
+impl Tag for Pair<A, B> { fn tag(&self) -> u32 { 0 } }
+// → impl Tag for Pair<u8,u32> / Pair<u8,u64> / Pair<u16,u32> / Pair<u16,u64>
+```
 
-  把两条属性对调就会坏掉：元素在块还没提到它时就被绑定，随后形状那一步又引入了一个
-  **没有人再绑定的** `B`——实测是四条 `E0425: cannot find type `B``（每个形状叶子一条），
-  而不是八个可用 impl。正是 stage 顺序让"先形状、后元素"这件事可表达，而这个顺序就是 rustc
-  属性展开给出的顺序（最外层先）——由 `tests/features/impl_entry_chain.rs` 锁定。
+**顺序为什么是必需的，而不只是约定**（规则在 `docs/zh-CN/reference.md` §9.5）。一个 *shape family*——头部形状各不相同的容器形态（`Vec<T>`、`[T; 4]`、`Box<[T]>`、`&[T]`）——在 §8.4 的模式里每族都需要一个 prototype，因为单个模板无法匹配四种不同形状的头部。用两步就能直接表达：第 1 步引入**留着元素槽的形状**，第 2 步填这个槽；而第 2 步的替换会**钻进**第 1 步产出的 token 内部（`B` 落在四个不同位置，其中一个在引用之后）：
+
+```rust
+# use batch_impl::batch_impl;
+# trait Elem { fn elem_bytes(&self) -> usize; }
+#[batch_impl(A : [Vec<B>, [B; 4], Box<[B]>, &'static [B]])]
+#[batch_impl(B : [u8, u64])]
+impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
+// → impl Elem for Vec<u8> / Vec<u64> / [u8; 4] / [u64; 4]
+//                 / Box<[u8]> / Box<[u64]> / &'static [u8] / &'static [u64]
+```
+
+把两条属性对调就会坏掉：元素在块还没提到它时就被绑定，随后形状那一步又引入了一个
+**没有人再绑定的** `B`——实测是四条 `E0425: cannot find type `B``（每个形状叶子一条），
+而不是八个可用 impl。正是 stage 顺序让"先形状、后元素"这件事可表达，而这个顺序就是 rustc
+属性展开给出的顺序（最外层先）——由 `tests/features/impl_entry_chain.rs` 锁定。
 
 ## 9. 元组生成与矩阵
 
@@ -1182,8 +1139,6 @@ batch_trait! {
     B: <T> B<T> Vec<T>;
 }
 ```
-
-> **限制**：`batch_trait!` **不支持 `#` 指令**（`#fill`/`#delegate`/`#blanket`/开放扩展）——指令需要 trait 定义作签名真相源，而 `batch_trait!` 是函数式宏、拿不到 trait 定义。需要指令时请改用 `#[batch_impl]` / `#[batch_impl_only]`。
 
 ## 12. 错误提示
 

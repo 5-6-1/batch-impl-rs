@@ -9,6 +9,13 @@
 
 > Diagnostics-and-docs patch: the one semantic unification is `@N..M` end-exclusive in every position (a position that contradicted the documentation, so it is a bug fix under the syntax freeze) — plus `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
 
+- **The reference manual is organized around rule systems, and the tutorial points at
+  it.** The apply, splat, `@`, `#`, `where` and `impl{...}` chapters each state their
+  rules, their boundary cases and their crossings; the impl-entry grammar, the staged
+  attributes and the full shape-template bind table now live there (with the exact
+  diagnostic wording in §10), while the tutorial keeps the progressive path, the
+  worked examples and a task-first index.
+
 - **A third review — the docs read against the source — corrected four false claims
   and closed two guard gaps.** The `#blanket` examples showed impls the macro never
   generates (`Box<u32>`, `Cow<'_, str>`; the output is one generic impl,

@@ -9,7 +9,44 @@
 
 > Review-driven patch rounds since 0.9.7: the typestate preprocessing pipeline, the
 > diagnostics and AST-structure fixes, the splat-coverage and message corrections,
-> and the documentation split into a tutorial plus a reference manual.
+> the documentation split into a tutorial plus a reference manual, and the
+> reference restructured around rule systems.
+
+- **The reference now owns the rule material, and the tutorial points at it** (same
+  reviewer's fourth round): the **impl-entry grammar** (the two spec forms, `;`
+  separation, `@trait` allowed vs custom `@`/`#` rejected, the block's own
+  generics/where/unsafe preserved, the empty spec list as the identity), **stacked
+  attributes as stages** (source order over the accumulating block, `#[cfg]` scoping,
+  the shape-family ordering rule with its measured E0425 ×4 failure) and the **full
+  template bind table** (every type form, the `[A; N]` const-length binding, the
+  reserved `[A; ()]` shape, the `_`/`'_'` wildcards, and the forms compared verbatim)
+  moved from the tutorial into `docs/reference.md` §8.2 and §9.1–§9.5; the tutorial
+  keeps the narrative and the worked examples.
+- **The reference was stripped of what its own rules exclude**: version-history
+  asides ("the 0.8.0 peel loop is gone", "the attribute-macro form was reverted in
+  0.8.0"), internal identifiers (`MAX_NEST_DEPTH`, `angle_collect`,
+  `scan::bracket_is_passthrough`, `parse::Ctx`, `preprocess/stream.rs`), a
+  self-referential sentence about "the commit this section is part of", changelog
+  narration ("used to", "were fixed") and a duplicated expansion-cost figure (it now
+  points at `README.md`). §13.4 collapsed into a pointer to §8.
+- **Duplication resolved by choosing homes**: the tutorial stated
+  "`batch_trait!` has no `#` directives" three times (§6.3 keeps it; the §11
+  blockquote is gone), and the `X<>` surface list now lives in reference §13.2 only
+  (the tutorial keeps the two pitfalls and points there; the "no generic arguments →
+  bare name" case moved into the reference with it).
+- **Two more guard gaps closed, each falsified once**: `DOC_PAIRS` now includes
+  `development-guide.md`, and a new `language_mirrors_share_their_heading_skeleton`
+  compares the heading **level sequence** of the `README` / `CHANGELOG` /
+  `dev-changelog` / `development-guide` pairs (it would have caught the guide's own
+  "five files" heading disagreeing with its "Six files × two languages" body).
+  The guide's §5 also records two debts honestly: the **zh mirrors are not compiled**
+  by the suite (with the 2026-09-14 measurement that 59 zh blocks pass when included
+  as crate docs, and why a doctest-only module cannot reference files excluded from
+  the package) and `UNLOCKED_DIAGNOSTICS`'s 59 entries as tracked debt.
+- **Two mirror drifts fixed**: tutorial §8.3 had grown extra content in zh only
+  (aligned, predicate rules point at reference §7), and `docs/zh-CN/README.md`
+  carried an unverifiable claim the English lacked ("alga has been unmaintained
+  since 2020" — dropped).
 
 - **A third review read the docs against the source and found four false claims plus
   two guard gaps** (the reviewer compiled or parsed every claim it could):

@@ -22,7 +22,7 @@ Two rules shape how this manual is written:
 | Spec shape | `[<declarations>] [trait application] target`, plus attachments in any order |
 | Attachments | `{body}` (the implementation), `where{...}` (predicates), `impl{...}` (the Self shape template) |
 
-Attachments are **blocks**: since 0.9.0 they are folded by the space/`.` chain (the 0.8.0 "peel the trailing suffix" loop is gone), their order is free, and a chain is capped by `MAX_NEST_DEPTH = 128` (`src/util/mod.rs`, ui `attach_too_deep`).
+Attachments are **blocks**: they compose with the spec chain in any order, and a chain is capped at 128 levels (ui `attach_too_deep`).
 
 ### 1.2 Where the head ends and the target begins: element boundary vs path continuation
 
@@ -50,7 +50,7 @@ Four fixed passes, and the order decides what may be written into what:
 - `#` arguments may reference lists expanded from `@`;
 - `where` sees the complete structure last; it treats `impl{...}` as a predicate-region boundary (`@trait` is still expanded into `impl{...}` by `expand_consts`).
 
-**Pass-through guard**: the bodies of `ident![...]` macros and `#[...]` attributes are arbitrary Rust and none of the four recursive entries enters them (decided in `scan::bracket_is_passthrough`; in 0.5.7 a missing guard wrongly expanded a `#name` inside `#[...]`).
+**Pass-through guard**: the bodies of `ident![...]` macros and `#[...]` attributes are arbitrary Rust and none of the four recursive entries enters them — a `#name` written inside an attribute is never a directive.
 
 ### 1.4 Notation in one table
 
@@ -70,7 +70,7 @@ Only the notations that have no section of their own — `@`, `#`, `<>`, the spl
 
 ## 2. Position × Construct
 
-The same construct is legal in different places because the gate is a property of the **position** (`parse::generic::ArgsPosition` plus `parse::Ctx { trait_name, bound }`), not of the list's shape.
+The same construct is legal in different places because the gate is a property of the **position**, not of the list's shape.
 
 | Position | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | generator `().N` | `@` refs | `X<>` sync |
 |---|---|---|---|---|---|---|
@@ -118,7 +118,7 @@ The power is written `.N`, attached to the value it repeats: `T.N` expands a tup
 
 `*().N` re-wraps its fresh parameters into a splat so a following operand can append them: `T.*().2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
 
-**The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected with the retired-operator message quoted in §10.1 (`caret_power_retired`) — one error, on the caret itself, naming the `.N` spelling that works. A caret in a **bound** position used to be dropped silently (`<T: Tr^u8>` rendered `<T: Tr>`) and now reports the same message. Older docs and changelog entries spell the power with `^`, so write `.N`.
+**The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected with the retired-operator message quoted in §10.1 (`caret_power_retired`) — one error, on the caret itself, naming the `.N` spelling that works. The same message covers a caret in a **bound** position (`<T: Tr^u8>`). Older docs spell the power with `^`, so write `.N`.
 
 ### 3.5 `self` and the bare-type placeholder
 
@@ -234,7 +234,7 @@ A splat splices a container or a generator into the enclosing **parameter-positi
 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | ✓ | ✓ | ✗ targeted error (ui `generic_family_batch_trait`) | copied from the trait's own parameters |
 | `@Cow` | ✓ (`#blanket` only) | ✓ (`#blanket` only) | ✗ | a wrapper-packing constant, not a type alias |
 | `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | ✓ | ✓ | ✓ | resolved later than `@trait`, in codegen |
-| `@name=value;` | ✗ targeted error (ui `const_attr_unsupported`) | ✗ same | ✓ | the attribute-macro form was reverted in 0.8.0 |
+| `@name=value;` | ✗ targeted error (ui `const_attr_unsupported`) | ✗ same | ✓ | `batch_trait!` only |
 
 ### 5.4 Addresses
 
@@ -411,7 +411,7 @@ A template holds a **standard Rust type** (`impl{Container<U>}`): DSL operators 
 
 ### 8.2 Matching, position by position
 
-The template is matched against the **leaf target type**, position by position:
+The template is matched against the **leaf target type** by structural recursion over the type form:
 
 | Template vs target at that position | Result |
 |---|---|
@@ -419,6 +419,27 @@ The template is matched against the **leaf target type**, position by position:
 | an ident **different** | a **slot**, bound to the target's subtree there |
 | several templates in one spec | merged into **one mapping** — identical re-bindings are legal and redundant, conflicting ones are `impl_inconsistent_binding` |
 | a shape the template cannot destructure | `impl_shape_mismatch`, naming the shape: an arity/kind difference, a `fn` bound (`impl_shape_fn_bound`), a different lifetime argument (`impl_shape_lifetime_arg`), a duplicate variadic segment (`impl_shape_varseg_duplicate`), a segment outside a tuple (`impl_shape_varseg_outside_tuple`), uneven segments (`impl_shape_varseg_uneven`) |
+
+Which forms bind:
+
+| Template form | Behaviour |
+|---|---|
+| `T` (bare ident) | binds the whole leaf subtree (`impl{T}` over `i32` → `T := i32`) |
+| `Rc<T>` / `std::rc::Rc<T>` (path, multi-segment) | base and segment idents: equal → literal, different → slot; generic arguments recurse (`impl{Rc<T>}` over `Rc<i32>` binds only `T`) |
+| `&A` / `&mut A` / `*const A` / `*mut A` | the reference/pointer shape is structural; the element binds |
+| `[A]` (slice), `(A, B, C)` (tuple) | elements bind position by position |
+| `[A; 3]` (literal length) | the length compares verbatim; the element binds |
+| `[A; N]` (const-parameter length) | the length **binds** to the leaf's length (`N := 3`; the body may use `N`) |
+| `[A; ()]` | a **reserved shape** (an array length of `()` cannot exist in compilable code) — the variadic-segment marker; never write it by hand |
+| `Cow<'_, A>` | `'_'` is a **wildcard** matching any lifetime; `'a` against `'b` compares verbatim; the type argument binds |
+| `_` | a **wildcard** that matches anything and stays `_` |
+
+Not bindable — compared verbatim, with a targeted diagnostic instead of a silent mis-bind:
+
+| Template form | Why |
+|---|---|
+| a slot inside a **fn-pointer / trait-object** template (`fn(A) -> B`, `dyn A + Send`) | these forms are compared verbatim: only an identical template matches itself |
+| a **cross-class** argument (`Cow<'_, A>` against a one-argument `Box<u8>` leaf, `Foo<A>` against `Foo<3>`) | a lifetime or const argument cannot bind to a type argument, and mismatched arities cannot align — write one prototype per shape family |
 
 So the pattern reads "same ⇒ literal, different ⇒ slot": `impl{Container<U>}` over a `Vec<i16>` target makes `Container` = `Vec` and `U` = `i16`, while a template that repeats the target's own ident keeps that position fixed.
 
@@ -460,12 +481,38 @@ Typical shape: one spec with a template carrying the segment covers every arity 
 
 ## 9. Entries
 
-Six entry points share the spec grammar of §1. The comparison to read first is the tutorial's §11; each entry's full argument semantics live in rustdoc (`src/doc/`). What is *rule*-shaped here:
+Six entry points share the spec grammar of §1; the comparison to read first is the tutorial's §11. This section holds the rules.
 
-- **`# path::To::Trait:`** is a spec prefix, not a directive: it declares the external trait's real path for `batch_impl_only` and needs at least one `::`, after which `@trait` and every path reference use it. A trailing ident that differs from the trait name is `path_prefix_mismatch` (`src/doc/batch_impl_only.md`).
-- **The impl entry** derives from what you wrote: the handwritten impl's own `where` clause is the inheritance source there (§7.6), its body is the source of the generated bodies, and the spec's `impl{...}` template is what instantiates a shape family (§8).
-- **`batch_trait!`** takes sections, custom `@name=value;` definitions (§5.5) and **no** `#` directives — it never sees a trait definition.
-- **An empty spec list on the impl entry** re-emits the block unchanged: the entry is a derivation, and nothing derived means the original.
+### 9.1 Rules that hold for every entry
+
+- **`# path::To::Trait:`** is a spec prefix, not a directive: it declares the external trait's real path for `batch_impl_only` and needs at least one `::`, after which `@trait` and every path reference use it. A trailing ident that differs from the trait name is `path_prefix_mismatch`.
+- **`batch_trait!`** takes sections, custom `@name=value;` definitions and **no** `#` directives — it never sees a trait definition.
+- **An empty spec list** on the attribute entry (`#[batch_impl]`, `#[batch_impl()]`, `#[batch_impl(;)]`) re-emits the item unchanged: the attribute derives impls, and nothing to derive means the original. (The impl entry behaves the same way, §9.4.)
+
+### 9.2 The impl entry: the two spec forms
+
+| Form | Spelling | Meaning |
+|---|---|---|
+| shape form | `A<B> : [Box, Rc] [usize, isize]` | `template : matrix` — every matrix leaf is matched against the block's for-type and the slots are substituted into the whole block |
+| direct form | `<T> Box<T>` | a generic declaration plus the for-type, for the one-spec case |
+
+`;` separates several specs (`A : u8; A : u16`); an empty spec list is the identity (§9.1).
+
+### 9.3 The impl entry: what it allows and preserves
+
+- `@trait` (the block's own trait path) is allowed in generic-declaration bounds and in `where` predicates; **custom `@` constants and `#` directives are rejected** on this entry (`implentry_hash_banned`, `const_attr_unsupported`).
+- A generator in the spec hoists fresh parameters onto the impl, and `@N..` where-selectors resolve against them (`@N` with no generator has nothing to refer to and is reported out of range).
+- The block's own generics, `where` clause and `unsafe` are preserved; its `where` region ends at a depth-0 `;` or the end of the input.
+
+### 9.4 The impl entry: stacked attributes are stages
+
+A second (third, …) `#[batch_impl]` above the block is **not** another spec list. Rustc expands the outermost attribute first and hands it the rest; the entry re-emits the remaining attributes on each impl it derives, and the next stage then expands on those impls. So the stages run in **source order** (top to bottom) over the **accumulating block**, a slot one stage leaves in place is bound by the next, and the stages compose into a product. An **empty stage is the identity** — a stage you can switch off.
+
+A plain attribute written between two stages belongs to the **expansion level** where it is written: it is emitted on the impls that stage derives, and a later stage inherits it from them. That is also what scopes a `#[cfg]` there — a `#[cfg]` at a level gates the impls derived at that level *and every stage below it*.
+
+### 9.5 The impl entry: why the stage order matters
+
+A **shape family** (container forms that are not the same head: `Vec<T>`, `[T; 4]`, `Box<[T]>`, `&[T]`) needs one prototype per family, because a single template cannot match four differently shaped heads. Two stages express it directly: stage 1 introduces the shape with the element slot left open, stage 2 fills that slot, and stage 2's substitution reaches *inside* what stage 1 produced. Swapping them fails — the element is bound while the block does not mention it yet, and the shape stage then introduces a slot nothing binds (measured: four `E0425` errors, one per shape leaf) — locked by `features::impl_entry_chain`.
 
 ## 10. Diagnostics Catalog
 
@@ -701,7 +748,7 @@ A body's `X<>` is synced only through a **switch template** (`impl{@trait<>}` / 
 | Repeat-block output | **65536 tokens** (`src/codegen/repeat.rs`) | the budget guard reports the block that ran away |
 | `#blanket` deref depth | **128** | "`:999999` is too large (deref depth must be ≤ 128)" (`blanket_bad_huge_depth`) |
 
-**Guarantees that hold under every ceiling**: an error **replaces** the impl — there is never a half-built impl next to a diagnostic; the macro never panics (a panic inside a proc macro is a compiler ICE), so invariant checks report a targeted error instead; and no input silently produces zero impls. A 1024-impl matrix expands in well under a second (measured around 0.2 ms per impl), so these ceilings are about accidental blowups rather than about a slow normal case.
+**Guarantees that hold under every ceiling**: an error **replaces** the impl — there is never a half-built impl next to a diagnostic; the macro never panics (a panic inside a proc macro is a compiler ICE), so invariant checks report a targeted error instead; and no input silently produces zero impls. The ceilings exist for accidental blowups, not because the normal case is slow — the measured expansion cost is in `README.md`.
 
 ## 13. Semantics: What Each Stage Guarantees
 
@@ -712,43 +759,43 @@ This is the contract behind §1.3's order — what you may rely on, and what the
 | Pass | Reads | Guarantees |
 |---|---|---|
 | `@` constants | verbatim values, recursively | a value may contain **flat** `<...>` (pairing runs after, so it is seen); cycles/forward references are rejected at the definition, so expansion terminates |
-| `<>` pairing (`angle_collect`) | flat `<` `>` punctuation | every `<...>` chunk becomes **one group**; downstream parsing never tracks `<>` depth; the `>` of `->` never participates. Destructive by design — it runs exactly once |
+| `<>` pairing | flat `<` `>` punctuation | every `<...>` chunk becomes **one group**; downstream parsing never tracks `<>` depth; the `>` of `->` never participates |
 | `#` directives | directive names + their arguments | the directive domain is parsed independently (`,` lists, `-name`, `@all` families); type-domain operators inside argument lists are **not** interpreted |
 | `where` | the complete structure | predicates are split at depth-0 commas; an `impl{...}` template is a predicate-region boundary |
 
-**Pass-through**: the bodies of `ident![...]` macros and `#[...]` attributes are arbitrary Rust. None of the four recursive entries enters them, and the decision is made in one place (`scan::bracket_is_passthrough`) — one missing guard once expanded a `#name` inside `#[...]`.
+**Pass-through**: the bodies of `ident![...]` macros and `#[...]` attributes are arbitrary Rust, and none of the four passes enters them.
 
-The pass order is not a convention but a **type-level** state machine (`preprocess/stream.rs`: `Raw → … → Ready`): a pass can only run on the state its predecessor produced, so "which order" is not re-decidable at a call site.
+The pass order is not a convention but a compiler-enforced one: each pass can only run on the state its predecessor produced, so "which order" is not re-decidable at a call site.
 
 ### 13.2 The `X<>` sync
 
-`Trait<>` (empty brackets) means "this spec's trait arguments". The sync is one pass over the **Ty structure**, so it reaches wherever a type can be:
+`Trait<>` (empty brackets) means "this spec's trait arguments". The sync is one pass over the type structure, so it reaches wherever a type can be:
 
 | Surface | Synced? |
 |---|---|
 | `where` predicates | ✓ |
 | `impl{...}` templates | ✓ (the templates are parsed **after** it — an `X<>` marker inside a template is not valid Rust before that) |
 | impl-generic bounds and the `dyn` bound tail | ✓ |
-| the target type | ✓ (its token snapshot is re-derived after the sync — a pre-sync snapshot silently dropped a filled marker) |
+| the target type | ✓ |
 | the **body** | only with a **switch template** (`impl{@trait<>}` / `impl{Tr<>}`): body sync is opt-in, and its absence is a documented rustc E0107 rather than a silent rewrite |
+
+The marker is **ident-agnostic** — the spec's arguments are what go in, so `Other<>` becomes `Other<…spec args…>` and a trait with no generic arguments syncs to the bare name (`Tr<>` → `Tr`); an arity mismatch is rustc's to report.
 
 ### 13.3 Fresh generics: naming, numbering, collisions
 
-- A construct that needs generated parameters (`().N`, `*().N`, `@0..` declarations) carries a **fresh declaration** in the Ty until codegen renames it; no internal carrier ever reaches the output.
+- A construct that needs generated parameters (`().N`, `*().N`, `@0..` declarations) carries a fresh declaration until codegen names it; no internal carrier ever reaches the output.
 - **Display names** are `P0`, `P1`, … in **document order** — the same numbering `@N` uses.
 - The **collision set** is every ident the impl already writes: the spec's parameters, their inline bounds, the target type, the trait arguments, the inherited and written where predicates, the body, the attributes and the associated types. Template placeholders are **excluded** (the shape mapping rewrites them away, so counting them would shift visible numbering).
 - `@g_i` addresses a fresh by `(group, slot)` — stable across array distribution; `@N` is the flattened document-order form; `@N..` is open and empty when past the end.
 
 ### 13.4 Shape templates, variadic segments and repeat blocks
 
-- The template is a **standard Rust type** (syn rejects DSL operators), matched against the leaf target type position by position: an ident equal to the target's is a literal, a different one is a slot bound to that subtree.
-- Substitution reaches the **target, the `where` predicates and the body** — a slot is a subtree (spliced as a value), never a text replacement.
-- A **variadic segment** (`A@..`) marks the element of a template that varies; the body's `@(…@0,)..` repeat block runs once per covered element, splicing that element's subtree. The **fresh-binding switch** (`impl{@0..}`) makes a cursor-only block run once per fresh; `impl{@{}}` enables `@{N}` references where `@` would otherwise start a block.
+The rules are in §8; the contract here is only that the substitution is a **subtree splice** (never a text replacement) and that a repeat block's rounds come from the matched segments — so a slot's value is the same wherever its name appears.
 
 ### 13.5 What the macro never does
 
 - **No panicking paths**: no `unwrap` / `expect` / `panic!` / `unreachable!` / `debug_assert!` / `assert!` in production code (a panic in a proc macro is a compiler ICE). Internal invariants report a targeted error instead — enforced by a clippy deny family plus a source-level guard test (`tests/no_panic/`).
-- **No silent empty spec**: an input that produces zero impls without a diagnostic is a bug (the `+A` case used to do exactly that).
+- **No silent empty spec**: an input that produces zero impls without a diagnostic is a bug (`-usize` and an in-list `-element` used to be exactly that).
 - **No leaked internal names**: display names only; a dangling `@N` is intercepted in the macro, never surfaced as rustc's E0412.
 - **No new reserved symbols**: the DSL reserves `@`, `#` and the documented operator set; generated names stay inside `P0…` and are collision-checked against everything you wrote.
 

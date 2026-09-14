@@ -175,22 +175,36 @@ on it.
   are already consolidated; use `syn::Error::span()` / leaf-token spans where
   available).
 
-## 5. Documentation Discipline (bilingual, five files, doctests)
+## 5. Documentation Discipline (bilingual, six files, doctests)
 
 - **Bilingual sync**: EN is the release artifact; zh-CN is written first during
   development. Six files × two languages: `README`, `tutorial`, `reference`,
   `architecture`, `dev-changelog`, `CHANGELOG`. A change to one language must be
   mirrored in the other before release, and the two language mirrors must keep
-  the **same section numbers** (`tests/doc_consistency.rs` compares them).
+  the **same section numbers** — `tests/doc_consistency.rs` compares the numbered
+  skeleton of the tutorial, the reference and this guide, and the heading
+  skeleton of `README` / `CHANGELOG` / `dev-changelog` / this guide.
 - **Tutorial code blocks are doctests**: the ```rust blocks in
   `docs/tutorial.md`, `docs/reference.md` and `README.md` are compiled by lib.rs's
-  `#![doc = include_str!]` — they must compile after any edit.
+  `#![doc = include_str!]` — they must compile after any edit. The **zh-CN
+  mirrors are not compiled by the suite** (`lib.rs` includes only the English
+  docs, and the zh files are excluded from the published crate, so a doctest-only
+  module cannot reference them without breaking `cargo doc` on the package). The
+  mirror block-count guard is the structural check; when you change a zh block,
+  re-verify by hand — including the two zh docs as crate docs in a scratch crate
+  and running `cargo test --doc` there passed 59 blocks on 2026-09-14.
 - **docs.rs first screen**: README is part of the lib.rs docs; any front-page
   restructure must keep "Why use it" + the minimal example on top and the
   version banner to one line linking the CHANGELOG.
 - **Documented examples must be true**: readers/reviewers verify them
   item by item (the splat-27 example and the `Box.Box u8` associativity were
   both caught wrong by testing). Verify any expansion you write into docs.
+- **Diagnostic messages are locked or listed**: every `batch-impl: ` literal in
+  `src/**` must appear in a `tests/ui/**/*.stderr` snapshot or in
+  `UNLOCKED_DIAGNOSTICS` (`tests/doc_consistency.rs`) — that list is a **tracked
+  debt** (59 entries on 2026-09-14): a message there is reachable but not
+  snapshot-locked, so lock a new one with a fixture rather than adding to the
+  list.
 
 ## 6. Dependencies and Toolchain
 

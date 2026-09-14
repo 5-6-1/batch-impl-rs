@@ -113,14 +113,22 @@ cargo doc --no-deps                    # 零警告
 
 - **双语同步**：EN 是发布产物，zh-CN 开发时先写。六处 × 双语：
   `README`、`tutorial`、`reference`、`architecture`、`dev-changelog`、`CHANGELOG`。
-  改一处必须同步另一语言，发布前检查；两种语言必须保持**相同的章节编号**
-  （`tests/doc_consistency.rs` 会比对这个序列）。
+  改一处必须同步另一语言，发布前检查；两种语言必须保持**相同的章节编号**——
+  `tests/doc_consistency.rs` 比对教程、参考手册与本指南的编号骨架，以及
+  `README` / `CHANGELOG` / `dev-changelog` / 本指南的标题骨架。
 - **教程代码块 = doctest**：`docs/tutorial.md`、`docs/reference.md` 与 `README.md` 的 ```rust
-  块被 lib.rs 的 `#![doc = include_str!]` 编译——改了必须能编译。
+  块被 lib.rs 的 `#![doc = include_str!]` 编译——改了必须能编译。**zh-CN 镜像不在这套编译里**
+  （`lib.rs` 只 include 英文文档，而 zh 文件被排除出发布包，所以 doctest-only 模块引用它们会让
+  包上的 `cargo doc` 失败）。结构性检查是"镜像代码块计数"守卫；改动 zh 代码块时要手工复核——
+  把两份 zh 文档当 crate doc 放进临时 crate 跑 `cargo test --doc`，2026-09-14 实测 59 块全过。
 - **docs.rs 首屏**：README 是 lib.rs 文档的一部分，首页重构须保持
   "为什么用它 + 最小示例"置顶、版本横幅一行链接 CHANGELOG。
 - **文档示例必须真实**：读者/评测员会逐条核对（splat 27 示例、`Box.Box u8`
   结合性都曾被实测抓错）。写进文档的展开结果先实测验证。
+- **诊断消息要么被锁定、要么被登记**：`src/**` 里每个 `batch-impl: ` 字面量都必须出现在某个
+  `tests/ui/**/*.stderr` 快照里，或列在 `UNLOCKED_DIAGNOSTICS`（`tests/doc_consistency.rs`）——
+  那张表是**已登记的债**（2026-09-14 为 59 条）：列在其中意味着消息可达但未被快照锁定，
+  新增诊断应当配 fixture，而不是往表里加。
 
 ## 6. 依赖与工具链
 

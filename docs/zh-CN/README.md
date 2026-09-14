@@ -49,7 +49,7 @@ trait TupleTrait {}
 ## 用 batch-impl 构建
 
 **[alga2](https://docs.rs/alga2) 是真实用户**——现代抽象代数层次库
-（[alga](https://docs.rs/alga) 的继任者，2020 起停止维护），**~900 个 impl
+（[alga](https://docs.rs/alga) 的继任者），**~900 个 impl
 由 ~80 条 batch-impl DSL 生成**，覆盖 15+ 类型（数值、元组 1–16、数组、
 `Option`、`Complex`、`Quaternion`、`ModN`、智能指针、集合）。**alga2 0.1.0
 已在 crates.io 发布**；开发全程以 batch-impl DSL 为 impl 生成器。

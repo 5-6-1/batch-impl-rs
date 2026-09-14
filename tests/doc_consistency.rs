@@ -198,10 +198,60 @@ fn current_docs_path_references_exist() {
 /// hit the missing §.
 ///
 /// `architecture.md` is not listed: its headings are unnumbered by design.
-const DOC_PAIRS: [(&str, &str); 2] = [
+const DOC_PAIRS: [(&str, &str); 3] = [
     ("docs/tutorial.md", "docs/zh-CN/tutorial.md"),
     ("docs/reference.md", "docs/zh-CN/reference.md"),
+    ("docs/development-guide.md", "docs/zh-CN/development-guide.md"),
 ];
+
+/// Pairs whose headings are **not** numbered, so only their heading *skeleton*
+/// (the sequence of levels) can be compared. A section added to one language and
+/// not the other is real drift in these documents too — the guide's own
+/// "five files" heading once disagreed with its "Six files × two languages"
+/// body, which this check would have caught the day the wording changed.
+const HEADING_PAIRS: [(&str, &str); 4] = [
+    ("README.md", "docs/zh-CN/README.md"),
+    ("CHANGELOG.md", "docs/zh-CN/CHANGELOG.md"),
+    ("docs/dev-changelog.md", "docs/zh-CN/dev-changelog.md"),
+    ("docs/development-guide.md", "docs/zh-CN/development-guide.md"),
+];
+
+/// The sequence of heading levels (`2` for `## `, `3` for `### `) of a doc.
+fn heading_levels(doc: &str) -> Vec<u8> {
+    doc.lines()
+        .filter_map(|line| {
+            if line.starts_with("## ") {
+                Some(2)
+            } else if line.starts_with("### ") {
+                Some(3)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Floor for the level-sequence comparison (README has ~9 headings, the
+/// dev-changelog ~43).
+const MIN_HEADINGS: usize = 8;
+
+#[test]
+fn language_mirrors_share_their_heading_skeleton() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (en, zh) in HEADING_PAIRS {
+        let en_levels = heading_levels(&fs::read_to_string(root.join(en)).unwrap());
+        let zh_levels = heading_levels(&fs::read_to_string(root.join(zh)).unwrap());
+        assert!(
+            en_levels.len() >= MIN_HEADINGS,
+            "{en}: only {} headings were parsed (floor {MIN_HEADINGS})",
+            en_levels.len()
+        );
+        assert_eq!(
+            en_levels, zh_levels,
+            "{en} and {zh} have different heading skeletons — a section exists in one mirror only"
+        );
+    }
+}
 
 /// The numeric section labels of a doc (`## 4.` / `### 4.6`), in order. An
 /// unnumbered heading contributes nothing — the contract is the numbered

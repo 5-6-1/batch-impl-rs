@@ -17,7 +17,7 @@ Every capability of batch-impl is built from three pillars (polished continuousl
 
 **Preprocessing order** (fixed four-stage pipeline): `@` constant expansion → `<>` angle-bracket pairing → `#` directive expansion → `where` processing. The order decides what you can write into what: `@` results may contain `<>` (paired afterwards), `#` arguments may reference `@`-expanded lists, `where` sees the complete structure last.
 
-**Where to look for what** — the task-first index. The **tier** column matches README's feature table: the core path is §1–§5, §8.1–§8.3 and §9–§13, while §6, §7 and §8.4/§8.5 are the advanced layer — read them when you need them, and the core path continues without them.
+**Where to look for what** — the task-first index. The **tier** column matches README's feature table: the core path is §1–§5, §8.1–§8.3 and §9–§13, while §6, §7 and §8.4/§8.5 are the advanced layer — read them when you need them, and the core path continues without them. (One exception: §13's walkthrough uses §7's directives, so read §7 first if you go straight to the real files.)
 
 | If you want to… | Go to | Tier |
 |---|---|---|
@@ -652,16 +652,7 @@ trait Semiring<Oa, Om> {}
 // → ... arity 2 (P1 gets the same predicate)
 ```
 
-It fills in **where predicates**, `impl{...}` templates, impl-generic bounds and
-the **target type** (including a `dyn … + X<>` tail) — anywhere the marker sits in
-the impl's type structure. `@trait<>` is equivalent (`@trait` expands to the trait
-path first). The marker is **ident-agnostic**: it is the spec's arguments that go
-in, so `Other<>` becomes `Other<…spec args…>` (an arity mismatch there is
-rustc's to report); a trait with no generic arguments syncs to the bare name
-(`Tr<>` → `Tr`). The **body** syncs via a **switch template** `impl{Tr<>}` — a
-template holding only the empty-bracket trait, which does not match Self; it only
-declares that the body's `Tr<>` references sync too (the body is arbitrary Rust,
-so a `Vec<>` there is not a trait reference).
+It fills the marker wherever a type sits, and `@trait<>` is equivalent (`@trait` expands to the trait path first). Two things to know when you write one: the marker is **ident-agnostic** — it is the spec's arguments that go in, so `Other<>` becomes `Other<…spec args…>` and an arity mismatch there is rustc's to report — and the **body** syncs only through a **switch template** `impl{Tr<>}` (the body is arbitrary Rust, so a `Vec<>` there is not a trait reference). The complete list of synced surfaces is `docs/reference.md` §13.2.
 
 ### 6.5 Bound generators: Fn-family types in impl-generic bounds
 
@@ -893,7 +884,7 @@ trait T { fn tag(&self) -> &'static str; }
 
 ### 8.3 Predicate inheritance
 
-Trait-level `where` clauses inherit into the impl by **positional substitution**: a renamed parameter keeps its predicate, and the predicate text follows the argument at the same position (§5.5, reference §7.2). A predicate naming something the impl does not declare is passed through verbatim, so rustc reports the unknown type.
+Trait-level `where` clauses inherit into the impl by **positional substitution**: a renamed parameter keeps its predicate, and the predicate text follows the argument at the same position (§5.5, reference §7.2). A predicate naming something the impl does not declare is passed through verbatim, so rustc reports the unknown type. The rules for what a predicate may contain — `@N` references, `Trait<>` fills, what the final check rejects — are in `docs/reference.md` §7.
 
 ### 8.4 The `impl{...}` shape templates (0.8.0)
 
@@ -931,36 +922,7 @@ How the match works, in plain terms:
   re-bindings are legal, conflicting ones error.
 - `@trait` inside the template expands to the trait path before matching.
 
-The template holds a **standard Rust type** — DSL operators are rejected
-inside it; `_` is a **wildcard** that matches anything and stays `_` (see
-the template-matching table below).
-
-#### Template matching: what binds and what does not
-
-The template is matched against the leaf by **structural recursion** — every
-`syn::Type` form is recognized and recursed into:
-
-| Template form | Behaviour |
-|---|---|
-| `T` (bare ident) | binds the whole leaf subtree |
-| `Rc<T>` / `std::rc::Rc<T>` (path, multi-segment ok) | base/segment idents: equal → literal, different → slot; generic args recurse |
-| `&A` / `&mut A` / `*const A` / `*mut A` | the reference/pointer lifetime & mutability are structural; the element binds |
-| `[A]` (slice), `(A, B, C)` (tuple) | elements bind position by position |
-| `[A; 3]` (fixed array, literal length) | the length compares verbatim; the element binds |
-| `[A; N]` (fixed array, const-param length) | the length **binds** to the leaf's length (`N := 3`; the body may use `N`) |
-| `[A; ()]` | **reserved shape** — the internal variadic-segment marker (an array length of `()` cannot exist in compilable code); do not write it in a template by hand |
-| `Cow<'_, A>` (lifetime arg) | `'_'` is a **wildcard** matching any lifetime; `'a` vs `'b` compares verbatim; the type arg binds |
-
-Not bindable (kept as verbatim comparison — a targeted diagnostic instead of
-a silent mis-bind):
-
-- **slots inside fn-pointer / trait-object templates** (`fn(A) -> B`,
-  `dyn A + Send`): these forms are compared verbatim — only an identical
-  template matches itself;
-- **cross-class argument binding** (`Cow<'_, A>` vs a 1-arg `Box<u8>` leaf;
-  `Foo<A>` vs `Foo<3>`): a lifetime/const argument cannot bind to a type
-  argument, and mismatched arities cannot align. Write one prototype template
-  per shape family instead (below).
+The template holds a **standard Rust type** — DSL operators are rejected inside it, `_` is a wildcard that matches anything, and an array length may bind a const parameter (`impl{[A; N]}` binds `N := 3`, usable in the body). The full bind table — every type form, the reserved `[A; ()]` shape, and the forms compared verbatim instead of bound (fn-pointer and trait-object templates, cross-class arguments) — is in `docs/reference.md` §8.2.
 
 #### The prototype-impl pattern
 
@@ -1135,70 +1097,46 @@ In one sentence: **write one impl with placeholders, get one impl per matrix
 cell — the same match-and-substitute as §8.4, applied to the whole block
 instead of just a body.**
 
-- Attr grammar: shape form `A<B> : [Box,Rc] [usize,isize]` (template `:` matrix)
-  or the direct form `<T> Box<T>` (generic declaration + for-type, N = 1);
-  `;` separates multiple specs (`W:u8; W:u16`), the single-spec case is the
-  common one;
-- `@trait` (→ the impl's trait path) is allowed in generic-decl bounds and
-  where predicates; custom `@` constants and `#` directives are rejected on this
-  entry. A generator in the spec hoists fresh generics onto the impl and `@N..`
-  where selectors resolve against them (`@N` with no generator has nothing to
-  refer to and is reported out of range);
-- the impl's own generics / where clause / `unsafe` are preserved; the bare
-  where region also ends at a depth-0 `;` or the end of the stream.
-- an **empty** spec list (`#[batch_impl]`, `#[batch_impl()]`, `#[batch_impl(;)]`)
-  is a **no-op**: the attribute only *derives* impls from the block, so with
-  nothing to derive the block is emitted unchanged instead of being withheld.
-- **Stacked attributes are stages of one derivation.** A second (third, …)
-  `#[batch_impl]` above the block is not another spec list: rustc expands the
-  **outermost** attribute first and hands it the rest, this entry re-emits them on
-  the impls it derives, and the compiler then expands the next stage **on those
-  impls** — so the stages run in **source order** (top → bottom) over the
-  **accumulating block**, and a slot one stage leaves in place is bound by the
-  next. The stages compose into a product. An **empty** stage is the identity — a
-  stage you can switch off:
+The entry takes `template : matrix` (`A<B> : [Box,Rc] [usize,isize]`) or the direct form (`<T> Box<T>`), `;`-separates several specs, allows `@trait` in generic-declaration bounds and `where` predicates (custom `@` constants and `#` directives are rejected here), and preserves the block's own generics, `where` clause and `unsafe`. An **empty** spec list is a no-op: the attribute only *derives* impls, so with nothing to derive the block comes back unchanged. The rules are in `docs/reference.md` §9.2–§9.3.
 
-  ```rust
-  # use batch_impl::batch_impl;
-  # struct Pair<A, B>(A, B);
-  # trait Tag { fn tag(&self) -> u32; }
-  #[batch_impl(A : [u8, u16])]      // stage 1 binds `A`
-  #[batch_impl(B : [u32, u64])]     // stage 2 binds the `B` stage 1 left alone
-  impl Tag for Pair<A, B> { fn tag(&self) -> u32 { 0 } }
-  // → impl Tag for Pair<u8,u32> / Pair<u8,u64> / Pair<u16,u32> / Pair<u16,u64>
-  ```
-- **Where an attribute in the stack lands.** A plain attribute written between two
-  stages belongs to the **expansion level** it is written at: it is emitted on the
-  impls that stage derives, and a later stage inherits it from them. That is also
-  what scopes a `#[cfg]` there — a `#[cfg]` at a level gates the impls derived at
-  that level *and every stage below it* (measured: with a mid-stack
-  `#[cfg(any())]`, a later stage that would have failed on those impls never ran).
-  `#[cfg(test)]` below a stage is the always-true form.
-- **Why the order is needed, not just a convention.** A *shape family* —
-  container forms that are not the same head (`Vec<T>`, `[T; 4]`, `Box<[T]>`,
-  `&[T]`) — needs one prototype per family in §8.4's pattern, because a single
-  template cannot match four differently shaped heads. Two stages say it directly:
-  stage 1 introduces the **shape with the element slot left open**, stage 2 fills
-  that slot, and stage 2's substitution reaches *inside* what stage 1 produced
-  (`B` lands in four different positions, one of them behind a reference):
+**Stacked attributes are stages of one derivation.** A second (third, …)
+`#[batch_impl]` above the block is not another spec list: rustc expands the
+outermost first, this entry re-emits the rest on the impls it derives, and the
+next stage then expands **on those impls** — so the stages run in source order
+over the accumulating block, a slot one stage leaves in place is bound by the
+next, and an empty stage is the identity. A plain attribute between two stages
+belongs to the expansion level where it is written, which is also what scopes a
+`#[cfg]` there (a rule stated in `docs/reference.md` §9.4):
 
-  ```rust
-  # use batch_impl::batch_impl;
-  # trait Elem { fn elem_bytes(&self) -> usize; }
-  #[batch_impl(A : [Vec<B>, [B; 4], Box<[B]>, &'static [B]])]
-  #[batch_impl(B : [u8, u64])]
-  impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
-  // → impl Elem for Vec<u8> / Vec<u64> / [u8; 4] / [u64; 4]
-  //                 / Box<[u8]> / Box<[u64]> / &'static [u8] / &'static [u64]
-  ```
+```rust
+# use batch_impl::batch_impl;
+# struct Pair<A, B>(A, B);
+# trait Tag { fn tag(&self) -> u32; }
+#[batch_impl(A : [u8, u16])]      // stage 1 binds `A`
+#[batch_impl(B : [u32, u64])]     // stage 2 binds the `B` stage 1 left alone
+impl Tag for Pair<A, B> { fn tag(&self) -> u32 { 0 } }
+// → impl Tag for Pair<u8,u32> / Pair<u8,u64> / Pair<u16,u32> / Pair<u16,u64>
+```
 
-  Swapping the two attributes breaks it: the element gets bound while the block
-  does not mention it yet, and the shape stage then introduces a `B` that nothing
-  binds any more — measured as four `E0425: cannot find type `B`` (one per shape
-  leaf) instead of eight working impls. The stage order is what makes "shape
-  first, element second" expressible at all, and it is the order rustc's attribute
-  expansion gives (outermost first) — locked by
-  `tests/features/impl_entry_chain.rs`.
+**Why the order is needed, not just a convention** (the rule is in `docs/reference.md` §9.5). A *shape family* — container forms that are not the same head (`Vec<T>`, `[T; 4]`, `Box<[T]>`, `&[T]`) — needs one prototype per family in §8.4's pattern, because a single template cannot match four differently shaped heads. Two stages say it directly: stage 1 introduces the **shape with the element slot left open**, stage 2 fills that slot, and stage 2's substitution reaches *inside* what stage 1 produced (`B` lands in four different positions, one of them behind a reference):
+
+```rust
+# use batch_impl::batch_impl;
+# trait Elem { fn elem_bytes(&self) -> usize; }
+#[batch_impl(A : [Vec<B>, [B; 4], Box<[B]>, &'static [B]])]
+#[batch_impl(B : [u8, u64])]
+impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
+// → impl Elem for Vec<u8> / Vec<u64> / [u8; 4] / [u64; 4]
+//                 / Box<[u8]> / Box<[u64]> / &'static [u8] / &'static [u64]
+```
+
+Swapping the two attributes breaks it: the element gets bound while the block
+does not mention it yet, and the shape stage then introduces a `B` that nothing
+binds any more — measured as four `E0425: cannot find type `B`` (one per shape
+leaf) instead of eight working impls. The stage order is what makes "shape
+first, element second" expressible at all, and it is the order rustc's attribute
+expansion gives (outermost first) — locked by
+`tests/features/impl_entry_chain.rs`.
 
 ## 9. Tuple Generation and Matrices
 
@@ -1325,8 +1263,6 @@ batch_trait! {
     B: <T> B<T> Vec<T>;
 }
 ```
-
-> **Limitation**: `batch_trait!` supports **no** `#` directives (`#fill` / `#delegate` / `#blanket` / the open extension) — a directive needs the trait definition as the signature source of truth, and `batch_trait!` is a function-like macro that never sees one. Reach for `#[batch_impl]` / `#[batch_impl_only]` when you need directives.
 
 - **`batch_trait!`** — a function-like macro for a trait that is already declared: sections, custom `@name=value;` constant sections, **no** directives (§6.3).
 - **The impl entry (0.8.0, ItemImpl)** — `#[batch_impl]` also accepts an `impl` block: batch-instantiate a hand-written impl from a shape template × matrix source (§8.5).

@@ -4,7 +4,13 @@
 
 ## 0.9.8 (2026-09-14)
 
-> 0.9.7 以来的评审驱动补丁多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正，以及文档拆成教程 + 参考手册。
+> 0.9.7 以来的评审驱动补丁多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正、文档拆成教程 + 参考手册，以及参考手册按"规则系统"重组。
+
+- **规则材料归参考手册，教程改为指向它**（同一位评审的第四轮）：**impl 入口文法**（两种 spec 形态、`;` 分隔、允许 `@trait` 而拒绝自定义 `@`/`#`、块自身的泛型/where/unsafe 保留、空 spec 列表即恒等）、**堆叠属性是阶段**（源码顺序作用于累积中的块、`#[cfg]` 作用域、形状族"先形状后元素"的规则及其实测 E0425 ×4 反例）以及**完整的模板绑定表**（每种类型形态、`[A; N]` 的 const 长度绑定、保留形态 `[A; ()]`、`_`/`'_'` 通配、逐字比较的形态）从教程移入 `docs/reference.md` §8.2 与 §9.1–§9.5；教程保留叙述与可运行示例。
+- **参考手册剥掉了它自己声明排除的内容**：版本史旁白（"0.8.0 的剥尾随后缀循环已删"、"属性宏形式已在 0.8.0 回退"）、内部标识符（`MAX_NEST_DEPTH`、`angle_collect`、`scan::bracket_is_passthrough`、`parse::Ctx`、`preprocess/stream.rs`）、自指句子（"本节所处的提交"）、changelog 口吻（"曾经"、"已修"）以及重复的展开开销数字（改为指向 `README.md`）。§13.4 收成一条指向 §8 的指引。
+- **重复按"选定归属"消解**：教程里"`batch_trait!` 不支持 `#` 指令"出现过三次（§6.3 保留，§11 的引用块删除）；`X<>` 的生效面清单只留在参考手册 §13.2（教程保留两条坑位并指向那里；"没有泛型参数时同步为裸名"这条随之移入参考手册）。
+- **又补两个守卫缺口，各证伪一次**：`DOC_PAIRS` 纳入 `development-guide.md`，并新增 `language_mirrors_share_their_heading_skeleton` 比对 `README` / `CHANGELOG` / `dev-changelog` / `development-guide` 四对镜像的**标题层级序列**（它会抓到本指南自己"five files"标题与"Six files × 双语"正文的矛盾）。指南 §5 同时如实登记两笔债：**zh 镜像不参与编译**（附 2026-09-14 的实测：把两份 zh 文档当 crate doc 引入后 59 块全过；以及为什么 doctest-only 模块不能引用被排除出发布包的文件）与 `UNLOCKED_DIAGNOSTICS` 的 59 条**已登记债**。
+- **两处镜像漂移修正**：教程 §8.3 只在 zh 侧长出了额外内容（已对齐，谓词规则指向参考手册 §7）；`docs/zh-CN/README.md` 带着英文版没有、且无法核验的断言（"alga 2020 起停止维护"——删除）。
 
 - **第三次评审把文档拿去和源码对读，查出四处假声明与两个守卫缺口**（评审把它能编译/解析的断言都验了一遍）：
   - `#blanket` 的示例画出了宏根本不会生成的 impl——`Box<u32>`（实际是 `impl<P0> NumOps for Box<P0> where P0: NumOps`）、`Cow<'_, str>` / `Cow<'_, String>`（实际是 `impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen`）——而 `&` 包装的 body 被写成 `(*self).len()`，尽管 `&` 与 `Box` 都用 `(**self)`，而那两段之下正是写着这条规则的段落。`src/doc/directive_blanket.md` 还画了一个并不存在的 `Box<dyn DynLen>` impl。教程 §7.4 与该文件已按 `batch_preview!` 实测结果更正。
