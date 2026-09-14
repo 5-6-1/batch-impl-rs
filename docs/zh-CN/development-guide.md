@@ -31,8 +31,8 @@
 cargo fmt --check                      # 先跑 cargo fmt（历史教训：漏跑导致 CI fmt job 红）
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings   # clippy 零警告
-cargo test                             # lib + dsl + UI 快照 + doctest
-cargo test --doc
+cargo test                             # 所有 target：lib + dsl + UI 快照 + no_panic + doc_consistency + doctest
+cargo test --doc                       # 单独列出：doctest 的失败形态与其它 target 不同
 cargo doc --no-deps                    # 零警告
 ```
 

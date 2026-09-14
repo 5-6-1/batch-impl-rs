@@ -39,8 +39,8 @@ Lightweight Conventional Commits:
 cargo fmt --check                      # run cargo fmt first (lesson: skipping it reddened the CI fmt job)
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings   # zero clippy warnings
-cargo test                             # lib + dsl + UI snapshots + doctests
-cargo test --doc
+cargo test                             # every target: lib + dsl + UI snapshots + no_panic + doc_consistency + doctests
+cargo test --doc                       # spelled out because a doctest's failure mode reads differently
 cargo doc --no-deps                    # zero warnings
 ```
 
