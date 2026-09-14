@@ -5,10 +5,11 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.10.0 (2026-09-14)
 
-> The typestate pipeline: the preprocessing order is enforced by the type
-> system (review-driven; this project is developed by rotating AI reviewers).
+> Review-driven rounds since 0.9.7: the typestate preprocessing pipeline, the
+> diagnostics and AST-structure fixes, the splat-coverage and message corrections,
+> and the documentation split into a tutorial plus a reference manual.
 
 - **Development guide** (`docs/development-guide.md` + zh-CN) — the project's
   conventions collected in one place (commit convention, quality gate, release

@@ -23,7 +23,7 @@
 - type 限定：`feat` / `fix` / `refactor` / `perf` / `test` / `docs` / `chore` / `build`
 - 单 crate 不写 scope
 - 示例：`feat: typestate preprocessing pipeline (Stream states enforce pass order)`
-- 发布 commit：`chore: release 0.9.7 (version + docs sync)`，正文附版本要点
+- 发布 commit：`chore: release 0.10.0 (diagnostics and docs)`，正文附版本要点
 
 ## 2. 质量门（每个改动必跑，全绿才提交）
 

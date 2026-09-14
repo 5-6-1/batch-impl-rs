@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.7** (2026-08-29) — review-fix release: golden expansion snapshots, measured expansion cost, package hygiene, Windows CI. Release notes: [CHANGELOG](CHANGELOG.md).
+**v0.10.0** (2026-09-14) — robustness, diagnostics and docs: `@N..M` unified to end-exclusive everywhere, `where` predicates validated once final, splat expansion in every parameter-position list, three misleading diagnostics fixed, the retired `^` operator diagnosed, and the documentation split into a tutorial plus a reference manual. Release notes: [CHANGELOG](CHANGELOG.md).
 
 A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
 
@@ -91,7 +91,7 @@ Pick by the grouping shape you want: use the space to list arguments side by sid
 
 ```toml
 [dependencies]
-batch-impl = "0.9.7"
+batch-impl = "0.10.0"
 ```
 
 Requires Rust 1.95 or newer (edition 2024). The MSRV is deliberate: the

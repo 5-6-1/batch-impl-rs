@@ -30,7 +30,7 @@ Lightweight Conventional Commits:
 - Allowed types: `feat` / `fix` / `refactor` / `perf` / `test` / `docs` / `chore` / `build`
 - No scope for a single-crate project.
 - Example: `feat: typestate preprocessing pipeline (Stream states enforce pass order)`
-- Release commit: `chore: release 0.9.7 (version + docs sync)` with a summary
+- Release commit: `chore: release 0.10.0 (diagnostics and docs)` with a summary
   in the body.
 
 ## 2. Quality Gate (run for every change; all green before committing)

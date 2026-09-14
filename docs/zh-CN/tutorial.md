@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.9.7**（2026-08-29）——评审修复发布：黄金展开快照（`tests/golden/`，测试体系最后一块空白）、实测展开开销（1024 个 impl 上限约 0.2 ms/impl，`cargo test --lib perf`）、打包卫生（`rust-2024-feature.md` 不再进包）、Windows（MSVC）CI job、impl entry 精确诊断 span、入口单次解析、纯文档占位宏不再静默。无 DSL 语法变化——下方 0.9.6 语法面不变。
+**v0.10.0**（2026-09-14）——健壮性、诊断与文档发布：`@N..M` 在每个位置都是排他（本次唯一的语义统一）、`where` 谓词在定型后校验、splat 在每个参数位置列表里展开、若干误导性诊断修好，本教程新增配套参考手册（`docs/reference.md`）。
 
 渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。**配套查阅文档是 `docs/zh-CN/reference.md`**（合法性矩阵、诊断目录、上限与保证）。
 

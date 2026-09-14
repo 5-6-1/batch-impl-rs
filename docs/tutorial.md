@@ -1,12 +1,6 @@
 # batch-impl Tutorial
 
-**v0.9.7** (2026-08-29) — review-fix release: golden expansion snapshots
-(`tests/golden/`, the final test-coverage gap), measured expansion cost
-(~0.2 ms/impl at the 1024-impl ceiling, `cargo test --lib perf`), package
-hygiene (`rust-2024-feature.md` no longer shipped), Windows (MSVC) CI job,
-precise diagnostic spans on the impl entry, single-parse entry dispatch,
-and non-silent doc-only placeholder macros. No DSL syntax changes — the
-0.9.6 surface below is unchanged.
+**v0.10.0** (2026-09-14) — robustness, diagnostics and docs release: `@N..M` is end-exclusive in every position (the one semantic unification), `where` predicates are validated once final, a splat expands in every parameter-position list, several misleading diagnostics are fixed (literal/range, generator wording, the retired `^` operator), and this tutorial has a companion reference manual (`docs/reference.md`).
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 

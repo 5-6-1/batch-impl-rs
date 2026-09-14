@@ -5,9 +5,9 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.10.0 (2026-09-14)
 
-> Robustness pass: no-panic fixes and a frozen-syntax semantic unification.
+> Robustness, diagnostics and docs: `@N..M` unified to end-exclusive everywhere, `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
 
 - **The retired `^` power now says so** — `(u8, u16)^2` used to report the generic
   "unexpected `^` after the type"; it now reports that `^` is no longer a type
@@ -271,13 +271,6 @@
   one path and puts the trait in type position (E0782). Write
   `@trait<u8> . ::std::string::String` → `impl Tr<u8> for ::std::string::String`;
   with a trait head, `.` and the space are equivalent.
-- **Three documented splat positions do not expand** (measured, recorded, not yet
-  fixed) — a splat inside a generic declaration block (`<T, *(A,B)>`), a fn
-  parameter list (`fn(*(u8, u16))`) or an inline bound (`<T: Tr<*(u8, u16)>>`)
-  reaches rustc as written; the same splat does expand in a `dyn` tail and is
-  reported by the DSL inside a `where` predicate. The tutorial and the reference
-  now state the measured set.
-
 - **The reference's diagnostics catalog now lists every locked message** — all 104
   `compile_fail` fixtures with their trigger and exact wording (plus the three
   `pass` fixtures), each row saying whether the DSL, rustc, the `batch_trait!`

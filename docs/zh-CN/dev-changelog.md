@@ -2,9 +2,9 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## Unreleased
+## 0.10.0 (2026-09-14)
 
-> 类型态管线：预处理顺序由类型系统强制（评审驱动；本项目由轮换 AI 评审开发）。
+> 0.9.7 以来的评审驱动多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正，以及文档拆成教程 + 参考手册。
 
 - **开发规范**（`docs/development-guide.md` + zh-CN）——项目约定收编一处（提交规范、质量门、发布流程含 Unreleased 占位规则、架构契约、双语文档纪律、依赖/工具链策略、测试布局、打包卫生、边界），让轮换的 AI 评审与未来 contributor 从单一文档接手，不必从历史反推习惯。
 - **金丝雀移到 `mark_template` 后置条件**（评审发现，根因修复）——`expand_consts` 入口的 canary 声称"输入中不应有未标记 `ident@..`"，但该不变量只在 `impl{...}` 模板内成立：顶层裸 `A@..` 是**合法用户错误路径**（`expand_consts` 报 "range constant `@..` must name the family's maximum endpoint"），`Box @..u128` 是开放范围常量——canary 在 debug 构建下对两者都 panic（proc macro 通常以 debug 构建）。移到消费方的输出：`mark_template` 现在**检查**自己的后置条件（"输出不含未标记 `ident@..`"），此处形状无歧义（开放范围的 `@` 前是 `<`/`,`/`(`，绝不可能是 ident）。标记循环与金丝雀共用同一个段形状判定（`unmarked_segment_at`）。回归守卫：新 UI fixture `tests/ui/at_open_range_bare.rs` 锁定用户错误。`angle_collect` 金丝雀仍不可行（配对产物与真实透明组同为 `Delimiter::None`）。

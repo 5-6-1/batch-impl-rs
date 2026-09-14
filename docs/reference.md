@@ -1,6 +1,6 @@
 # batch-impl Reference
 
-**v0.9.7** (2026-08-29) — the same surface as `docs/tutorial.md`; this manual describes the **current state** only, history lives in `CHANGELOG.md`.
+**v0.10.0** (2026-09-14) — the same surface as `docs/tutorial.md`; this manual states the rule systems, their crossings and their boundary cases, and §10 quotes every diagnostic verbatim. It describes the **current state** only; history lives in `CHANGELOG.md`.
 
 A **look-up document**: the complete surface, the legality matrix, the boundaries and the guarantees. The **learning path** is `docs/tutorial.md` (from a one-line impl to advanced matrix combinations) — this manual assumes you have seen the basic shape of the DSL and answers only "what is allowed / what is not / what error comes out / where the ceilings are".
 

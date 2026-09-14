@@ -1,6 +1,6 @@
 # batch-impl
 
-**v0.9.7**（2026-08-29）——评审修复发布：黄金展开快照、实测展开开销、打包卫生、Windows CI。发布说明见 [CHANGELOG](CHANGELOG.md)。
+**v0.10.0**（2026-09-14）——健壮性、诊断与文档：`@N..M` 在所有位置统一为排他、`where` 谓词在定型后校验、splat 在每个参数位置列表里展开、三条误导性诊断修好、退役的 `^` 算子现在有定向诊断，文档拆成教程 + 参考手册。发布说明见 [CHANGELOG](CHANGELOG.md)。
 
 为 Rust trait 批量生成 `impl` 块的过程宏库——**一行 DSL，展开成 N 个 impl**。
 
@@ -84,7 +84,7 @@ DSL 是过程宏——工作在编译期发生，不在运行时。用 `cargo te
 
 ```toml
 [dependencies]
-batch-impl = "0.9.7"
+batch-impl = "0.10.0"
 ```
 
 需要 Rust 1.95 及以上（edition 2024）。MSRV 是刻意的：codegen 使用了 `Cell::update` 与 match 臂 if-let guard（约 1.87/1.88 稳定），1.95 为稳定版保留宽裕余量（采纳记录见开发者变更日志）。
