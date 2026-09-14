@@ -305,6 +305,13 @@ fn validate_where_predicates(preds: &[TokenStream]) -> Option<TokenStream> {
         if p.is_empty() {
             continue;
         }
+        // A retired operator is reported as itself: `where{T: Tr^u8}` would
+        // otherwise fail as "a missing `:` is the usual cause", hiding the real
+        // cause (the clause is token-level, so this check sees the `^` before
+        // any Rust parser does).
+        if let Some(span) = caret_span(p.clone()) {
+            return Some(compile_error_str(crate::util::RETIRED_CARET, span));
+        }
         let flat = crate::preprocess::render_angles(p.clone());
         if let Err(err) = list.parse2(flat) {
             return Some(compile_error_str(
@@ -317,4 +324,14 @@ fn validate_where_predicates(preds: &[TokenStream]) -> Option<TokenStream> {
         }
     }
     None
+}
+
+/// The span of the first `^` in a token tree — the retired power operator, at
+/// any nesting depth (a predicate may carry it inside a paired `<>` group).
+fn caret_span(tokens: TokenStream) -> Option<proc_macro2::Span> {
+    tokens.into_iter().find_map(|t| match t {
+        proc_macro2::TokenTree::Punct(p) if p.as_char() == '^' => Some(p.span()),
+        proc_macro2::TokenTree::Group(g) => caret_span(g.stream()),
+        _ => None,
+    })
 }

@@ -1,0 +1,11 @@
+error: batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator)
+ --> tests/ui/caret_power_retired.rs:7:23
+  |
+7 | #[batch_impl((u8, u16)^2)]
+  |                       ^
+
+error: batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator)
+  --> tests/ui/caret_power_retired.rs:10:20
+   |
+10 | #[batch_impl(<T: Tr^u8> CaretBound<T> u8)]
+   |                    ^

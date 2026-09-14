@@ -42,6 +42,11 @@ fn ui() {
     t.compile_fail("tests/ui/leading_operator.rs");
     t.compile_fail("tests/ui/leading_comma.rs");
 
+    // the retired `^` power operator (replaced by `.N` in 0.9) reports its own
+    // message in a spec chain and — where it used to be dropped silently — in a
+    // bound position
+    t.compile_fail("tests/ui/caret_power_retired.rs");
+
     // `+` cannot start a type (belongs in a bound) — a silent empty spec
     // would generate 0 impls with no diagnostic
     t.compile_fail("tests/ui/plus_at_type_start.rs");

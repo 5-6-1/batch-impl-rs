@@ -9,6 +9,14 @@
 
 > Robustness pass: no-panic fixes and a frozen-syntax semantic unification.
 
+- **The retired `^` power now says so** — `(u8, u16)^2` used to report the generic
+  "unexpected `^` after the type"; it now reports that `^` is no longer a type
+  operator and gives the `.N` spelling that works (`(u8, u16).2` for a tuple,
+  `T.*().2` for a generator). The same message reaches every position a caret can
+  appear in — a spec chain, an angle chunk, a splat group, a `dyn` tail, a
+  declaration block and a **bound position**, where the caret used to be dropped
+  silently (`<T: Tr^u8>` rendered `<T: Tr>`).
+
 - **Exclusive `@N..M` ranges now exclude the end in every position** —
   `@0..2` covers `P0, P1` everywhere (target type, `<>` args, where
   predicates), matching the documented "normalized to inclusive" protocol;

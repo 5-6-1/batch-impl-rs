@@ -66,7 +66,7 @@ Only the notations that have no section of their own — `@`, `#`, `<>`, the spl
 | `;` | separates the specs of one attribute argument; separators alone are not content (§1.1) |
 | `,` | separates list, tuple, argument and directive-argument elements |
 | `-name` | an exclusion, in directive argument lists only (§6.2) |
-| `.N` / `()N` | the power: `T.*().2` splices the generated parameters, `T<()2>` keeps them as one tuple argument. A caret is **not** an operator — `(u8, u16)^2` is rejected as "unexpected `^` after the type" (§3.4) |
+| `.N` / `()N` | the power: `T.*().2` splices the generated parameters, `T<()2>` keeps them as one tuple argument. A caret is **not** an operator — `(u8, u16)^2` gets the retired-operator message (§3.4, §10.1) |
 
 ## 2. Position × Construct
 
@@ -118,7 +118,7 @@ The power is written `.N`, attached to the value it repeats: `T.N` expands a tup
 
 `*().N` re-wraps its fresh parameters into a splat so a following operand can append them: `T.*().2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
 
-**The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected — "unexpected `^` after the type" (§4.5 records the same boundary from the splat side). Older docs and changelog entries spell the power with `^`, so write `.N`.
+**The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected with the retired-operator message quoted in §10.1 (`caret_power_retired`) — one error, on the caret itself, naming the `.N` spelling that works. A caret in a **bound** position used to be dropped silently (`<T: Tr^u8>` rendered `<T: Tr>`) and now reports the same message. Older docs and changelog entries spell the power with `^`, so write `.N`.
 
 ### 3.5 `self` and the bare-type placeholder
 
@@ -198,7 +198,7 @@ A splat splices a container or a generator into the enclosing **parameter-positi
 |---|---|---|
 | `@` constants (§5) | `Box<*(@u*)>` | `Box<u8, u16, u32, u64, u128, usize>` — the constant is spliced first, the splat expands in codegen |
 | the power (`.N`) | `*(u8, u16).2` | eight impls: the four Cartesian pairs, each spliced into its two elements |
-| the power, caret spelling | `*(u8, u16)^2`, `Box^*()^2`, `Box<()^2>` | **rejected** — "unexpected `^` after the type"; the caret is not a DSL operator, the power is written `.N` |
+| the power, caret spelling | `*(u8, u16)^2`, `Box^*()^2`, `Box<()^2>` | **rejected** — the retired-operator message (§10.1); the caret is not a DSL operator, the power is written `.N` |
 | `#` directives (§6) | a directive whose arguments come from a spec | the directive domain parses its own argument list; the type domain never enters it, and vice versa |
 | `impl{...}` templates, variadic segments and repeat blocks (§8) | `impl{(A@..,)}` with `@(…@0,)..` | the template is standard Rust (no splat inside it); variadic segments and repeat blocks are the template system's own machinery |
 
@@ -485,6 +485,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*().2`) | DSL |
 | `semi_in_spec` | a stray `;` after a type | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
+| `caret_power_retired` | `(u8, u16)^2`, `<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator) | DSL |
 | `star_misuse` | a bare `*` | batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
 | `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: unexpected `#` in a type position | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |

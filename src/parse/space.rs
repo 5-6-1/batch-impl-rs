@@ -237,7 +237,20 @@ pub(crate) fn parse_bound_expr(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
                 }
                 left = left.apply(right);
             }
-            _ => break,
+            _ => {
+                // A retired operator must never be dropped silently: the bound
+                // fold used to break here, so `T: Tr^u8` rendered `T: Tr` and
+                // the `^u8` vanished (measured while adding the `^` retirement
+                // message). Only the retired puncts are checked — every other
+                // leftover is a legitimate boundary (`,`, `=`, the end of the
+                // chunk).
+                if let Some(t) = cursor.peek()
+                    && matches!(t, TokenTree::Punct(p) if p.as_char() == '^' || p.as_char() == '-')
+                {
+                    return crate::parse::chain::chain_boundary_error(t);
+                }
+                break;
+            }
         }
     }
     if cursor.is_punct('+') {

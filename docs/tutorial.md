@@ -1248,6 +1248,10 @@ batch-impl's errors are **compile-time diagnostics** pointing at the user-visibl
   generated parameters, or `T<()2>` to keep them as one tuple argument) — the
   block *is* the impl's parameter list, so its freshs would be declared and never
   used
+- **The retired `^` power**: `(u8, u16)^2` and `T^()^2` get their own message —
+  the power is the `.N` suffix (`(u8, u16).2`, `T.*().2`) — in a spec chain, in an
+  angle chunk, in a `dyn` tail and in a **bound position**, where the caret used
+  to be dropped silently
 
 ## 13. Real Scenarios: the Three Bundled Examples
 

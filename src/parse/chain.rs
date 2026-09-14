@@ -140,7 +140,7 @@ fn parse_dot_inner(cursor: &mut Cursor, ctx: Ctx<'_>, depth: &mut usize) -> Opti
 }
 
 /// Diagnostic for a token that cannot open a block at a chain boundary.
-fn chain_boundary_error(t: &TokenTree) -> Ty {
+pub(crate) fn chain_boundary_error(t: &TokenTree) -> Ty {
     match t {
         // `-` was retired as the infix apply operator (space took its place);
         // the prefix exclusion lives only in directive argument lists.
@@ -149,6 +149,13 @@ fn chain_boundary_error(t: &TokenTree) -> Ty {
              the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`)",
             p.span(),
         ),
+        // `^` was the power operator before 0.9; the `.N` suffix replaced it.
+        // Without this arm the old spelling fell through to the generic
+        // "unexpected `^` after the type", which names neither the operator nor
+        // the fix (the docs carried `^` examples for several releases).
+        TokenTree::Punct(p) if p.as_char() == '^' => {
+            err_ty_at(crate::util::RETIRED_CARET, p.span())
+        }
         // `where` must be written as a trailing `where{...}` attachment.
         TokenTree::Ident(id) if id == "where" => err_ty_at(
             "batch-impl: `where` is only valid as a trailing `where{...}` attachment",

@@ -247,6 +247,13 @@
   - `tests/ui/decl_generator_splat.stderr` 重新 bless；diff 恰好就是这一行（fixture 注释从未引用旧拼写，因此未改）。两版镜像 §10 的行都改成逐字引用新措辞——把快照与目录绑在一起、防止漂移的正是 `reference_quotes_every_diagnostic_verbatim` 这条守卫。
   - **证据**：doc_consistency **5**、doctest **94**、UI **104 + 3**、`fmt`/`clippy`/`doc` 干净。
 
+- **已退役的 `^` 幂算子有了自己的诊断**（`parse/chain.rs`、`parse/space.rs`、`codegen/pipeline.rs`）——0.9 用 `.N` 后缀取代了 `^`，但旧拼写只会落到通用的 "unexpected `^` after the type"（同样退役的 `-` 早就有专门消息）。链边界助手现在为 `^` 给出可用的 `.N` 拼写：一条错误、span 落在这个 `^` 上、不级联。顺带关掉两条绕行路线：
+  - **bound 位置此前静默丢弃它**——实测：`<T: Tr^u8>` 渲染成 `<T: Tr>`，`^u8` 消失。`parse_bound_expr` 现在把退役标点（`^`、`-`）交给边界助手，而不是直接跳出折叠；
+  - `where` 子句到输出全程 token 级，因此 `where{T: Tr^u8}` 此前以"漏 `:` 是最常见原因"失败。现在谓词终检直接报出这个 `^`，且任意嵌套深度都行（含配对的 `<>` 组：`where{Tr<^u8>: Sized}`）。
+  - 措辞只有一份（`util::diagnostic::RETIRED_CARET`），两条路线不会漂移。覆盖范围实测过 **十一种**拼写——spec 链、splat 操作数、`Box^()^2`、角度块、声明块、splat 组、`fn(..) -> u16^2`、内联 bound、`dyn` 尾巴与两种 `where` 形式——各一条错误。
+  - UI：新增 `tests/ui/caret_power_retired.rs`（spec 链 + 此前静默的 bound 位置），与其它退役算子 fixture 放在一起。参考手册 §10 目录逐字引用该消息、§3.4 指向它；教程 §12 清单新增一条。文档里旧的 `^` 示例在上一轮已改成 `.N`。
+  - **证据**：单测 **161**、feature 测试 **300**、UI **105 + 3**、doc_consistency **5**、doctest **94**，9 份 golden 不变，`fmt`/`clippy`/`doc` 干净。
+
 ## 0.9.7 (2026-08-29)
 
 > 外部评审 pass（P0–P3 发现）：打包卫生、CI 覆盖、诊断 span、入口分派与文档/API 打磨。

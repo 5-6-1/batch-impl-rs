@@ -1132,6 +1132,7 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 - **`<>` 声明块里的关联类型 binding**：声明块声明的是**参数**，因此 `<Item = u8> Target` 报 "an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`"。可用的写法是 trait 应用那种（它的 binding 会被提升进 impl body——Rust 里 `impl Trait<Item = u8> for X` 是 `E0229`）
 - **blanket 方法带/返回裸 `Self`**：`#blanket` 无法委托带裸 `Self` 参数或返回裸 `Self` 的方法（转发得到内部类型，匹配不上包装的 `Self`）——报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）合法——内部 `T` 携带同一关联类型
 - **`<>` 声明块里的 fresh 生成器**：报出可用写法（把生成器写在类型上，如 `T.*().2` 把生成的参数拼进去，或 `T<()2>` 把它们保持为一个元组实参）——那个块**就是** impl 的参数表，其 fresh 会被声明却永不被使用
+- **已退役的 `^` 幂**：`(u8, u16)^2` 与 `T^()^2` 有自己的消息——幂是 `.N` 后缀（`(u8, u16).2`、`T.*().2`）——spec 链、角度块、`dyn` 尾巴里都报，**bound 位置**也报（那里此前会被静默丢弃）
 
 ## 13. 实战：仓库里那三个示例
 

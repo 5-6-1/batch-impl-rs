@@ -1716,6 +1716,32 @@
   - **Evidence**: doc_consistency **5**, doctests **94**, UI **104 + 3**,
     `fmt`/`clippy`/`doc` clean.
 
+- **The retired `^` power operator has its own diagnostic** (`parse/chain.rs`,
+  `parse/space.rs`, `codegen/pipeline.rs`) — the `.N` suffix replaced `^` in 0.9,
+  but the old spelling only fell through to the generic "unexpected `^` after the
+  type" (`-`, retired the same way, already had a dedicated message). The chain
+  boundary helper now answers for `^` with the `.N` spelling that works: one error,
+  span on the caret, no cascade. Two detour routes were closed with it:
+  - **a bound position dropped it silently** — measured: `<T: Tr^u8>` rendered
+    `<T: Tr>` and the `^u8` vanished. `parse_bound_expr` now hands the retired
+    puncts (`^`, `-`) to the boundary helper instead of breaking out of the fold;
+  - the `where` clause is token-level to the output, so `where{T: Tr^u8}` used to
+    fail the predicate check as "a missing `:` is the usual cause". The check now
+    reports the caret as itself, at any nesting depth (also inside a paired `<>`
+    group: `where{Tr<^u8>: Sized}`).
+  - The wording lives once (`util::diagnostic::RETIRED_CARET`) so the two routes
+    cannot drift. Reach measured across **eleven** spellings — spec chain, splat
+    operand, `Box^()^2`, angle chunk, declaration block, splat group,
+    `fn(..) -> u16^2`, inline bound, `dyn` tail and both `where` forms — one error
+    each.
+  - UI: new `tests/ui/caret_power_retired.rs` (a spec chain plus the formerly
+    silent bound position), registered with the other retired-operator fixtures.
+    The reference's §10 catalog quotes the message verbatim and §3.4 points at it;
+    the tutorial's §12 list gained the bullet. The docs' old `^` examples were
+    already corrected to `.N` in the previous round.
+  - **Evidence**: lib **161**, features **300**, UI **105 + 3**, doc_consistency
+    **5**, doctests **94**, the 9 goldens unchanged, `fmt`/`clippy`/`doc` clean.
+
 ## 0.9.7 (2026-08-29)
 
 > External review pass (P0–P3 findings): package hygiene, CI coverage, diagnostic

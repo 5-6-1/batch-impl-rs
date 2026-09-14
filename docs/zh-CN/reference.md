@@ -66,7 +66,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | `;` | 分隔同一个属性参数里的各个 spec；只有分隔符不算内容（§1.1） |
 | `,` | 分隔列表、元组、实参与指令参数的元素 |
 | `-name` | 排除项，仅指令参数列表（§6.2） |
-| `.N` / `()N` | 幂：`T.*().2` 把生成的参数拼进去，`T<()2>` 把它们保持为一个元组实参。`^` **不是**算子——`(u8, u16)^2` 被拒，报 "unexpected `^` after the type"（§3.4） |
+| `.N` / `()N` | 幂：`T.*().2` 把生成的参数拼进去，`T<()2>` 把它们保持为一个元组实参。`^` **不是**算子——`(u8, u16)^2` 得到的是退休算子消息（§3.4、§10.1） |
 
 ## 2. 位置 × 构造
 
@@ -118,7 +118,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 `*().N` 把它的 fresh 参数包回 splat，好让后面的操作数把它们追加进去：`T.*().2` 声明两个 fresh 并用在目标里（`impl<P0, P1> … for T<P0, P1>`）。
 
-**`^` 不是算子**：`(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` 一律被拒——"unexpected `^` after the type"（§4.5 从 splat 那一侧记录了同一条边界）。更早的文档与 changelog 用 `^` 写幂，请写 `.N`。
+**`^` 不是算子**：`(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` 一律被拒，报的是 §10.1 逐字引用的退休算子消息（`caret_power_retired`）——一条错误、span 落在这个 `^` 上，并给出可用的 `.N` 拼写。**bound 位置**的 `^` 此前被静默丢弃（`<T: Tr^u8>` 渲染成 `<T: Tr>`），现在同样报出这条消息。更早的文档与 changelog 用 `^` 写幂，请写 `.N`。
 
 ### 3.5 `self` 与裸类型占位
 
@@ -198,7 +198,7 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 |---|---|---|
 | `@` 常量（§5） | `Box<*(@u*)>` | `Box<u8, u16, u32, u64, u128, usize>`——常量先被拼接，splat 在 codegen 展开 |
 | 幂（`.N`） | `*(u8, u16).2` | 八个 impl：四个笛卡尔组合，各自再拼成它的两个元素 |
-| 幂的 `^` 拼写 | `*(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` | **被拒**——"unexpected `^` after the type"；`^` 不是 DSL 算子，幂写 `.N` |
+| 幂的 `^` 拼写 | `*(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` | **被拒**——退休算子消息（§10.1）；`^` 不是 DSL 算子，幂写 `.N` |
 | `#` 指令（§6） | 参数来自 spec 的指令 | 指令域解析自己的参数列表；类型域永不进入，反之亦然 |
 | `impl{...}` 模板、变长段与重复块（§8） | `impl{(A@..,)}` 配 `@(…@0,)..` | 模板是标准 Rust（里面没有 splat）；变长段与重复块是模板系统自己的机制 |
 
@@ -485,6 +485,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*().2`) | DSL |
 | `semi_in_spec` | 类型后多写 `;` | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
+| `caret_power_retired` | `(u8, u16)^2`、`<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator) | DSL |
 | `star_misuse` | 裸 `*` | batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
 | `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | batch-impl: unexpected `#` in a type position | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |

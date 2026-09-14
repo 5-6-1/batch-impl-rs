@@ -6,6 +6,8 @@
 
 > 健壮性 pass：no-panic 修复 + 冻结语法面的语义统一。
 
+- **已退役的 `^` 幂现在会自己说话**——`(u8, u16)^2` 此前只报通用的 "unexpected `^` after the type"；现在直接说明 `^` 不再是类型算子，并给出可用的 `.N` 拼写（元组写 `(u8, u16).2`，生成器写 `T.*().2`）。同一条消息覆盖 caret 能出现的每个位置——spec 链、角度块、splat 组、`dyn` 尾巴、声明块，以及**bound 位置**（那里此前会被静默丢弃：`<T: Tr^u8>` 渲染成 `<T: Tr>`）。
+
 - **排他 `@N..M` 范围现在在所有位置都排除端点**——`@0..2` 处处覆盖 `P0, P1`（目标类型、`<>` 实参、where 谓词），符合文档化的 "normalized to inclusive" 协议；此前在类型位置覆盖 `P0, P1, P2`（与 where 谓词路径不一致）。空排他范围（`@2..1`）报定向错误。冻结语法面注：`@N..M`（排他）与 `@N..=M`（含端点）分别等价于 `@N..=M-1` 与 `@N..=M`。
 - **no-panic 修复**——`#delegate(=foo)`（重命名缺左侧）、`#blanket` 方法参数组内 `Self`（`(Self, u8)`——现在像裸 `Self` 一样被拦截并引导）、repeat 块内极端 `@N` 游标字面量都不再 panic；各自报定向错误。
 - **不再存在 panic 路径**——宏的生产代码不含 `unwrap` / `expect` / `panic!` / `unreachable!` / `debug_assert!` / `assert!`（proc macro 里的断言/panic 就是编译器 ICE）。内部不变量检查改为报定向错误：变长段残留检查（`mark_template`，已用穷举输入扫描证明不可达）与 range 长度检查。`Cursor` 的位置不变量（`bump` / `advance` 夹取到末尾）让解析层的切片在结构上免于 panic。该承诺不再只靠评审：`lib.rs` 的 clippy deny 家族加上源码级守卫测试（`tests/no_panic/main.rs`，同时拒绝用 `#[allow]` 静默该家族）会在 panic 构造重新出现时让构建失败。
