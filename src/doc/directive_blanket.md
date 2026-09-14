@@ -22,12 +22,12 @@ produces one complete impl per wrapper — the automated form of hand-writing
 #[batch_impl(#blanket(@all_methods){Box})]
 trait NumOps { fn inc(&mut self); }
 impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
-// → impl NumOps for Box<u32> { fn inc(&mut self) { (**self).inc() } }（delegates to the wrapped u32）
+// → impl<P0> NumOps for Box<P0> where P0: NumOps { fn inc(&mut self) { (**self).inc() } } (generic over the fresh: every P0: NumOps, not just u32)
 
 #[batch_impl(#blanket(@all_methods){&, Box})]
 trait Len { fn len(&self) -> usize; }
-// → impl<T: Len> Len for &T     { fn len(&self) -> usize { (*self).len() } }
-// → impl<T: Len> Len for Box<T> { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for &P0   where P0: Len { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { (**self).len() } }
 ```
 
 The fresh generic is the impl's only generic (`impl<T: Trait> Trait for
@@ -90,9 +90,9 @@ clause, so the fresh generic can be an **unsized target**:
 #[batch_impl(#blanket(@all_methods){Box@?})]
 trait DynLen { fn dlen(&self) -> usize; }
 impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
-// → impl DynLen for Box<dyn DynLen>? — the ?Sized bound lets the fresh generic
-//   (and thus the target) be unsized; without `@?`, `T: DynLen` implies Sized
-//   and a dyn target fails.
+// → impl<P0> DynLen for Box<P0> where P0: DynLen, P0: ?Sized — the ?Sized bound lets
+//   the fresh generic (and thus the target) be unsized; without `@?`, `T: DynLen`
+//   implies Sized and a dyn target fails.
 ```
 
 ## Deref delegation details
@@ -189,7 +189,8 @@ that **a constant carries reuse value only when it carries constraints**:
 trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
 impl CowLen for String { fn clen(&self) -> usize { self.len() } }
-// → impl CowLen for Cow<'_, str> ... / Cow<'_, String> ...（delegates via the packed predicates）
+// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
+//   (one generic impl over everything `Cow` wraps, delegated through the packed predicates)
 ```
 
 ## Output shape

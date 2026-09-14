@@ -65,7 +65,7 @@ spec 的骨架：
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-**规模上能省多少。** `examples/simplify.rs` 用大约 **15 行** DSL 得到 **29 个 impl**（手写约 80 行），`examples/typeclass.rs` 覆盖一个类层级外加 36 个 `From<bool>` 实例。两者都由 CI 编译，§13 逐个讲解——想在细节之前先看回报，现在就可以翻过去。
+**规模上能省多少。** `examples/simplify.rs` 用大约 **15 行** DSL 得到 **30 个 impl**（手写约 80 行），`examples/typeclass.rs` 覆盖一个类层级外加 36 个 `From<bool>` 实例。两者都由 CI 编译，§13 逐个讲解——想在细节之前先看回报，现在就可以翻过去。
 
 ## 2. 类型矩阵：空格（与 `.`）
 
@@ -753,8 +753,8 @@ trait HasSize { fn size(&self) -> usize; }
 # use batch_impl::batch_impl;
 #[batch_impl(#blanket(@all_methods){&, Box})]
 trait Len { fn len(&self) -> usize; }
-// → impl<T: Len> Len for &T { fn len(&self) -> usize { (*self).len() } }
-// → impl<T: Len> Len for Box<T> { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for &P0     where P0: Len { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { (**self).len() } }
 ```
 
 > **`:N` deref 深度**——委托体要解引用多少层才能到达内部 `T`。单层包装（`&`、`Box`、`Rc`）默认 **1**，不用写：body 解引用 N+1 次（`&`/`Box` → `**self`）。`:2` 表示包装本身嵌套两层——`Box.Arc:2` = `Box<Arc<T>>`，委托体 `***self`。只有嵌套包装才写 `:N`；单层包装什么都不用写。
@@ -774,7 +774,7 @@ trait Len { fn len(&self) -> usize; }
 #[batch_impl(#blanket(@all_methods){Box@?})]
 trait DynLen { fn dlen(&self) -> usize; }
 impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
-// → impl<T: DynLen + ?Sized> DynLen for Box<T> — T（以及目标）可以是非 Sized
+// → impl<P0> DynLen for Box<P0> where P0: DynLen, P0: ?Sized——fresh（以及目标）可以是非 Sized
 ```
 
 #### `@Cow`——携带约束的打包（示范案例）
@@ -788,7 +788,8 @@ impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
 trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
 impl CowLen for String { fn clen(&self) -> usize { self.len() } }
-// → impl CowLen for Cow<'_, str> ... / Cow<'_, String> ...（经由打包的谓词委托）
+// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
+//   （一个泛型 impl 覆盖 `Cow` 能包的一切——让类型检查通过的是那组打包谓词）
 ```
 
 ### 7.5 开放扩展（顶层宏注入）
@@ -1204,7 +1205,7 @@ batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可�
 | 示例 | 是什么 | 展示什么 |
 |---|---|---|
 | `examples/quickstart.rs`（约 320 行） | 可运行的单文件导览——`cargo run --example quickstart` 每个示例打印一行 `…: OK`，末尾给汇总 | 每个机制一个示例（§1–§8） |
-| `examples/simplify.rs`（约 170 行） | 一个小型"数据检视"库：**29 个 impl** 出自约 15 行 DSL（手写约 80 行） | 列表 + 共享 body、包装委托、元组生成、空格应用、关联类型 binding、`#name`/`#fill`/`#delegate`、指针、三个入口 |
+| `examples/simplify.rs`（约 170 行） | 一个小型"数据检视"库：**30 个 impl** 出自约 15 行 DSL（手写约 80 行） | 列表 + 共享 body、包装委托、元组生成、空格应用、关联类型 binding、`#name`/`#fill`/`#delegate`、指针、三个入口 |
 | `examples/typeclass.rs`（约 120 行） | type-class 层级（`Num` → `UNum`/`INum`/`FNum`）外加泛型分数的 `From<bool>` | `batch_trait!` 里的 `@` 家族、splat 幂（36 个实例）、trait 实参替换进抄来的 body |
 
 ### 13.1 `simplify.rs`——一个 trait 覆盖十二种数值
@@ -1241,7 +1242,7 @@ pub trait From<T>: Sized {
 }
 ```
 
-这里三个机制交汇：trait 应用 `From<bool>` **钉住**了 trait 的参数，于是抄来的签名 `fn from(value: T)` 变成 `fn from(value: bool)`（§7.2）；splat 幂 `Frac<*(*@u*).2>` 把 `@u*` 列表喂进**两个**泛型位——6 × 6 = 36 个 impl（§4）；`#from{…}` 提供整族共用的那一个 body（§6.3）。
+这里三个机制交汇：trait 应用 `From<bool>` **钉住**了 trait 的参数，于是抄来的签名 `fn from(value: T)` 变成 `fn from(value: bool)`（§7.1）；splat 幂 `Frac<*(*@u*).2>` 把 `@u*` 列表喂进**两个**泛型位——6 × 6 = 36 个 impl（§4）；`#from{…}` 提供整族共用的那一个 body（§7.1）。
 
 它上面的层级展示了这个模式的另一半：`Num` 由 `#[batch_impl]` 定义并填充，而各子类先声明、再由 `batch_trait!` 配 `@` 家族**一行一个类**地填充（§6.1）——正是 type-class 需要的形状。
 

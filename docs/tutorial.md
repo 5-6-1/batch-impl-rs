@@ -65,7 +65,7 @@ The spec skeleton:
 
 Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 
-**What this buys you at scale.** `examples/simplify.rs` gets **29 impls** out of roughly **15 lines** of DSL (hand-writing them takes ~80), and `examples/typeclass.rs` covers a class hierarchy plus 36 `From<bool>` instances. Both are compiled by CI, and §13 walks through them — worth a look now if you want the payoff before the details.
+**What this buys you at scale.** `examples/simplify.rs` gets **30 impls** out of roughly **15 lines** of DSL (hand-writing them takes ~80), and `examples/typeclass.rs` covers a class hierarchy plus 36 `From<bool>` instances. Both are compiled by CI, and §13 walks through them — worth a look now if you want the payoff before the details.
 
 ## 2. Type Matrix: the space (and `.`)
 
@@ -791,12 +791,13 @@ Wraps any type (smart pointers included); wrappers are comma-separated, and a `:
 #[batch_impl(#blanket(@all_methods){Box})]
 trait NumOps { fn inc(&mut self); }
 impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
-// → impl NumOps for Box<u32> { fn inc(&mut self) { (**self).inc() } }(delegates to the wrapped u32)
+// → impl<P0> NumOps for Box<P0> where P0: NumOps { fn inc(&mut self) { (**self).inc() } }
+//   (generic over the fresh — every `P0: NumOps`, not just `u32`)
 
 #[batch_impl(#blanket(@all_methods){&, Box})]
 trait Len { fn len(&self) -> usize; }
-// → impl<T: Len> Len for &T     { fn len(&self) -> usize { (*self).len() } }
-// → impl<T: Len> Len for Box<T> { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for &P0     where P0: Len { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { (**self).len() } }
 ```
 
 > **`:N` deref depth** — how many layers the delegation dereferences to reach the inner `T`. Default **1** for single wrappers (`&`, `Box`, `Rc`): the body derefs N+1 times (`&`/`Box` → `**self`). A `:N` of 2 means the wrapper itself is nested two deep — `Box.Arc:2` = `Box<Arc<T>>`, delegation `***self`. Write `:2` only for nested wrappers; single wrappers need nothing.
@@ -825,7 +826,7 @@ to that spec's where clause, so the fresh generic can be an unsized target:
 #[batch_impl(#blanket(@all_methods){Box@?})]
 trait DynLen { fn dlen(&self) -> usize; }
 impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
-// → impl<T: DynLen + ?Sized> DynLen for Box<T> — T (and thus the target) may be unsized
+// → impl<P0> DynLen for Box<P0> where P0: DynLen, P0: ?Sized — the fresh (and thus the target) may be unsized
 ```
 
 #### `@Cow` — a constraint-carrying packing (the case study)
@@ -844,7 +845,8 @@ the naive `(**self)` delegation can't pass type checking. `@Cow` packs
 trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
 impl CowLen for String { fn clen(&self) -> usize { self.len() } }
-// → impl CowLen for Cow<'_, str> ... / Cow<'_, String> ...(delegates via the packed predicates)
+// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
+//   (one generic impl over everything `Cow` can wrap — the packed predicates are what make it check)
 ```
 
 ### 7.5 Open extension
@@ -1349,7 +1351,7 @@ The chapters above teach one mechanism at a time. `examples/` is where they are 
 | Example | What it is | What it shows |
 |---|---|---|
 | `examples/quickstart.rs` (~320 lines) | a runnable single-file tour — `cargo run --example quickstart` prints one `…: OK` line per demo plus a summary | one demo per mechanism (§1–§8) |
-| `examples/simplify.rs` (~170 lines) | a small "data inspection" library: **29 impls** from ~15 lines of DSL (hand-written: ~80 lines) | lists + shared body, wrapper delegation, tuple generation, space application, associated-type bindings, `#name`/`#fill`/`#delegate`, pointers, three entries |
+| `examples/simplify.rs` (~170 lines) | a small "data inspection" library: **30 impls** from ~15 lines of DSL (hand-written: ~80 lines) | lists + shared body, wrapper delegation, tuple generation, space application, associated-type bindings, `#name`/`#fill`/`#delegate`, pointers, three entries |
 | `examples/typeclass.rs` (~120 lines) | a type-class hierarchy (`Num` → `UNum`/`INum`/`FNum`) plus `From<bool>` for a generic fraction | `@` families inside `batch_trait!`, splat pow (36 instances), trait arguments substituting into copied bodies |
 
 ### 13.1 `simplify.rs` — one trait for twelve numerics
@@ -1386,7 +1388,7 @@ pub trait From<T>: Sized {
 }
 ```
 
-Three mechanisms meet here: the trait application `From<bool>` **pins** the trait's parameter, so the copied signature `fn from(value: T)` becomes `fn from(value: bool)` (§7.2); the splat pow `Frac<*(*@u*).2>` feeds the `@u*` list into **both** generic positions — 6 × 6 = 36 impls (§4); and `#from{…}` supplies the single body the whole family shares (§6.3).
+Three mechanisms meet here: the trait application `From<bool>` **pins** the trait's parameter, so the copied signature `fn from(value: T)` becomes `fn from(value: bool)` (§7.1); the splat pow `Frac<*(*@u*).2>` feeds the `@u*` list into **both** generic positions — 6 × 6 = 36 impls (§4); and `#from{…}` supplies the single body the whole family shares (§7.1).
 
 The hierarchy above it shows the other half of the pattern: `Num` is defined and filled by `#[batch_impl]`, while its subclasses are declared and then filled **one line per class** by `batch_trait!` with `@` families (§6.1) — exactly what a type-class needs.
 

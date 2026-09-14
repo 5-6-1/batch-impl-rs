@@ -12,7 +12,7 @@ Hand-writing the same trait implementation for multiple types means **repetition
 - **One-line matrix**: `[...]` lists, space/`.` application, `().N` tuple generation — one DSL line describes a "type matrix", and the macro generates one impl per cell.
 - **Batch, but hand-written in feel**: `{ body }` is ordinary Rust code, `#` directives automatically copy signatures, and the generated impl is token-for-token equivalent to hand-written code — whatever rustc can verify, it can verify.
 
-A real scenario (see `examples/simplify.rs`): 12 numeric types + 4 wrapper types + 4 tuples + some miscellaneous = **29 impls from about 15 lines of DSL**, versus about 80 lines by hand.
+A real scenario (see `examples/simplify.rs`): 12 numeric types + 4 wrapper types + 4 tuples + some miscellaneous = **30 impls from about 15 lines of DSL**, versus about 80 lines by hand.
 
 ```rust
 use batch_impl::batch_impl;
@@ -29,7 +29,7 @@ trait Sortable<T> { fn is_sorted(&self) -> bool; }
 // One line generates a single 4-generic tuple impl (length ranges use `().1..=4`)
 #[batch_impl(().4)]
 trait TupleTrait {}
-// → impl<A, B, C, D> TupleTrait for (A, B, C, D) {}
+// → impl<P0, P1, P2, P3> TupleTrait for (P0, P1, P2, P3,) {}
 ```
 
 Beyond the core batch-impl DSL, the crate carries two deeper layers: a
@@ -164,7 +164,7 @@ One exception, written down because it has happened: a position that **contradic
 - **impl entry / shape template (0.8.0)**: the **ItemImpl entry** — `#[batch_impl]` also accepts an `impl` block and batch-instantiates it from a shape-template × matrix-source (tutorial §8.5); the **`impl{...}` Self-part shape templates** — bind the generated impl's target shape and write **one prototype impl per shape family** to cover a whole matrix, incl. lifetime-bearing families like `Cow` (tutorial §8.4)
 - **Variadic segments + repeat blocks (0.8.2)**: `ident@..` template segments and `@(...)..` body repetition — the alga2-style `().1..=4 where @0..: Magma impl{(A@..)} #combine{...}` covers every tuple arity with one spec (tutorial §8.4)
 - **Expansion preview**: `batch_preview!` (wrap the `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` input and read the real expansion, plus space/`.` associativity miswrite notes)
-- **Examples**: `examples/quickstart.rs` (feature demo), `examples/simplify.rs` (a real scenario with 29 impls ≈ 15 lines of DSL), `examples/typeclass.rs` (type-class style: a `Num`/`UNum`/`INum`/`FNum` hierarchy + 36 `From<bool>` impls for `Frac<T, U>`)
+- **Examples**: `examples/quickstart.rs` (feature demo), `examples/simplify.rs` (a real scenario with 30 impls ≈ 15 lines of DSL), `examples/typeclass.rs` (type-class style: a `Num`/`UNum`/`INum`/`FNum` hierarchy + 36 `From<bool>` impls for `Frac<T, U>`)
 - **Developers**: internal architecture in `docs/architecture.md`, development changelog in `docs/dev-changelog.md`
 
 ## License

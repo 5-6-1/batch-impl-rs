@@ -19,7 +19,7 @@
   生成的 impl 与手写逐 token 等价——rustc 能验证什么，它就能验证什么。
 
 一个真实场景（见 `examples/simplify.rs`）：12 个数值类型 + 4 个包装类型 +
-4 个元组 + 若干杂项 = **29 个 impl，约 15 行 DSL**，手写约 80 行。
+4 个元组 + 若干杂项 = **30 个 impl，约 15 行 DSL**，手写约 80 行。
 
 ```rust
 use batch_impl::batch_impl;
@@ -36,7 +36,7 @@ trait Sortable<T> { fn is_sorted(&self) -> bool; }
 // 一行生成单个带 4 个泛型参数的元组 impl（长度范围请用 `().1..=4`）
 #[batch_impl(().4)]
 trait TupleTrait {}
-// → impl<A, B, C, D> TupleTrait for (A, B, C, D) {}
+// → impl<P0, P1, P2, P3> TupleTrait for (P0, P1, P2, P3,) {}
 ```
 
 核心批量 DSL 之下还有两层更深的架构：**宏元层**（`@` 常量 / 选择器 /
@@ -161,7 +161,7 @@ trait Describe2 { fn describe(&self) -> String; }
 - **展开预览**：`batch_preview!`（把 `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` 原样包进去，展示真实展开 +
   `.`/空格 结合性误写提示）
 - **示例**：`examples/quickstart.rs`（特性 demo）、`examples/simplify.rs`
-  （29 个 impl ≈ 15 行 DSL 的真实场景）、`examples/typeclass.rs`
+  （30 个 impl ≈ 15 行 DSL 的真实场景）、`examples/typeclass.rs`
   （类型类风格：`Num`/`UNum`/`INum`/`FNum` 层级 + `Frac<T, U>` 的 36 个 `From<bool>` impl）
 - **开发者**：内部架构见 `docs/architecture.md`，开发变更记录见
   `docs/dev-changelog.md`

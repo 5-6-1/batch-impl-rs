@@ -1,4 +1,4 @@
-//! # A small "data inspection" library: 29 impls from ~15 lines of DSL
+//! # A small "data inspection" library: 30 impls from ~15 lines of DSL
 //!
 //! Hand-writing these impls takes ~80 lines: the signature and body copied
 //! once per numeric type, four wrapper types each repeating the
@@ -119,8 +119,8 @@ batch_trait!(
 trait PtrMarker {}
 
 // ============================================================
-// Verification: 29 impls (12 numeric + 4 wrappers + 4 tuples + 2 fn/HashMap
-// + 3 Multi/Unsafe + 2 assoc-type/const + 2 pointers)
+// Verification: 30 impls (12 numeric + 4 wrappers + 4 tuples + 2 fn/HashMap
+// + 3 Multi/Unsafe + 2 assoc-type/const + 2 pointers + 1 `#fill(name, kind)`)
 // ============================================================
 fn main() {
     // 1. Numeric
@@ -168,5 +168,5 @@ fn main() {
     _p(&c);
     _p(&m);
 
-    println!("✔ ~15 lines of DSL → 29 impls, all assertions pass");
+    println!("✔ ~15 lines of DSL → 30 impls, all assertions pass");
 }
