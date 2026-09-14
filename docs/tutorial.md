@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.10.0** (2026-09-14) — robustness, diagnostics and docs release: `@N..M` is end-exclusive in every position (the one semantic unification), `where` predicates are validated once final, a splat expands in every parameter-position list, several misleading diagnostics are fixed (literal/range, generator wording, the retired `^` operator), and this tutorial has a companion reference manual (`docs/reference.md`).
+**v0.9.8** (2026-09-14) — diagnostics-and-docs patch: `@N..M` is end-exclusive in every position (the one semantic unification — a fix to a position that contradicted the documentation, not new surface), `where` predicates are validated once final, a splat expands in every parameter-position list, several misleading diagnostics are fixed (literal/range, generator wording, the retired `^` operator), and this tutorial has a companion reference manual (`docs/reference.md`).
 
 Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
 

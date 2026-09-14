@@ -2,9 +2,9 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
-## 0.10.0 (2026-09-14)
+## 0.9.8 (2026-09-14)
 
-> 0.9.7 以来的评审驱动多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正，以及文档拆成教程 + 参考手册。
+> 0.9.7 以来的评审驱动补丁多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正，以及文档拆成教程 + 参考手册。
 
 - **外部教程评审（七条，全部先在树里复核再动手）**——§5.5 那句"改名明确报错"是最后一条过时的改名断言，而且它正落在教程两个 `rust,ignore` 块之一里，因此任何 doctest 都抓不到：现在它陈述位置式继承、并且是**可编译**示例（`<X> Store<X> usize` + `trait Store<T> where T: Clone` → `impl<X: Clone> Store<X> for usize`，用 `batch_preview!` 量过）。§8.3 的弱化版本一并更正；另一个 `ignore` 块**必须保持 ignore**：§7.5 的开放扩展示例调用 `batch_preprocess_test!`——那是该协议的参考实现，文档定位是"照着写的范本"，不是 doctest 能断言的东西。
   - **§3 注释漂移**：共享 body 示例的 `// →` 行现在与渲染真正拼接的 body 一致（每个 impl 都是 `fn zero() -> Self { Default::default() }`）。这类漂移现在锁在能锁的地方：新增 golden（`tests/golden/shared_body.golden`，`BLESS=1 cargo test --lib golden`）钉住这次渲染——golden 锁的是渲染而非正文，这是最省的守卫（正文与渲染的一致性仍属评审关注）。

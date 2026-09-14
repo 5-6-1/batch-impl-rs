@@ -1,6 +1,6 @@
 # batch-impl Internal Architecture
 
-**v0.10.0** (2026-09-14) — robustness, diagnostics and docs release: the `where` predicate check (`codegen/pipeline.rs`), splat expansion extended to callable parameter lists, declaration blocks and bound positions (`codegen/splat_expand.rs`'s `TyKind::Fn` arm, `expand_bound_splats` in `codegen/generics.rs`, `expand_tp` over a declaration block in `codegen/extract.rs`), the literal/range diagnostics (the literal block's error paths now advance the cursor), one shared retired-caret message (`util/diagnostic.rs`), and the documentation split into `docs/tutorial.md` + `docs/reference.md` (rule systems, crossings, boundary cases, and a diagnostics catalog that quotes every fixture verbatim).
+**v0.9.8** (2026-09-14) — diagnostics-and-docs patch: the `where` predicate check (`codegen/pipeline.rs`), splat expansion extended to callable parameter lists, declaration blocks and bound positions (`codegen/splat_expand.rs`'s `TyKind::Fn` arm, `expand_bound_splats` in `codegen/generics.rs`, `expand_tp` over a declaration block in `codegen/extract.rs`), the literal/range diagnostics (the literal block's error paths now advance the cursor), one shared retired-caret message (`util/diagnostic.rs`), and the documentation split into `docs/tutorial.md` + `docs/reference.md` (rule systems, crossings, boundary cases, and a diagnostics catalog that quotes every fixture verbatim).
 
 **v0.9.7** (2026-08-29) — review-fix release: golden expansion snapshots
 (`src/testing/golden.rs` + `tests/golden/`, the final test-coverage gap —

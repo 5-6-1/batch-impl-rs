@@ -5,9 +5,9 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.10.0 (2026-09-14)
+## 0.9.8 (2026-09-14)
 
-> Robustness, diagnostics and docs: `@N..M` unified to end-exclusive everywhere, `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
+> Diagnostics-and-docs patch: the one semantic unification is `@N..M` end-exclusive in every position (a position that contradicted the documentation, so it is a bug fix under the syntax freeze) — plus `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
 
 - **Tutorial corrections from an external review** — the tutorial no longer claims
   that renaming a trait parameter is an error (§5.5/§8.3): inheritance is

@@ -5,9 +5,9 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.10.0 (2026-09-14)
+## 0.9.8 (2026-09-14)
 
-> Review-driven rounds since 0.9.7: the typestate preprocessing pipeline, the
+> Review-driven patch rounds since 0.9.7: the typestate preprocessing pipeline, the
 > diagnostics and AST-structure fixes, the splat-coverage and message corrections,
 > and the documentation split into a tutorial plus a reference manual.
 

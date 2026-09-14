@@ -1,6 +1,6 @@
 # batch-impl 内部架构
 
-**v0.10.0**（2026-09-14）——健壮性、诊断与文档发布：`where` 谓词终检（`codegen/pipeline.rs`）、splat 展开覆盖到 callable 参数表 / 声明块 / bound 位置（`codegen/splat_expand.rs` 的 `TyKind::Fn` 分支、`codegen/generics.rs::expand_bound_splats`、`codegen/extract.rs` 对声明块跑 `expand_tp`）、字面量/范围诊断（字面量块的错误路径现在推进游标）、共享的 `^` 退役消息（`util/diagnostic.rs`），以及文档拆成 `docs/tutorial.md` + `docs/reference.md`（规则系统、交叉、边界情形，诊断目录逐字引用每个 fixture）。
+**v0.9.8**（2026-09-14）——诊断与文档补丁：`where` 谓词终检（`codegen/pipeline.rs`）、splat 展开覆盖到 callable 参数表 / 声明块 / bound 位置（`codegen/splat_expand.rs` 的 `TyKind::Fn` 分支、`codegen/generics.rs::expand_bound_splats`、`codegen/extract.rs` 对声明块跑 `expand_tp`）、字面量/范围诊断（字面量块的错误路径现在推进游标）、共享的 `^` 退役消息（`util/diagnostic.rs`），以及文档拆成 `docs/tutorial.md` + `docs/reference.md`（规则系统、交叉、边界情形，诊断目录逐字引用每个 fixture）。
 
 **v0.9.7**（2026-08-29）——评审修复发布：黄金展开快照（`src/testing/golden.rs` + `tests/golden/`，测试体系最后一块空白——最终渲染输出与 `BLESS=1` golden 文件锁定）、展开开销实测（`src/testing/perf.rs`，proc-macro2 层计时真实管线）、`rust-2024-feature.md` 取消跟踪（此前被打进每个 `.crate`）、Windows（MSVC）CI job（`test-windows`）、impl entry / shape 诊断精确 span（`syn::Error::span()` / leaf token span / 载体 span）、`is_impl_template` 去重归入单一权威、impl entry 提取 `chunks_to_streams()`、入口单次解析（首语义 token 扫描）。0.9.6 的入口架构不变。
 
