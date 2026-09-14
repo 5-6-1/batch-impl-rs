@@ -6,6 +6,17 @@
 
 > 0.9.7 以来的评审驱动补丁多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正，以及文档拆成教程 + 参考手册。
 
+- **第三次评审把文档拿去和源码对读，查出四处假声明与两个守卫缺口**（评审把它能编译/解析的断言都验了一遍）：
+  - `#blanket` 的示例画出了宏根本不会生成的 impl——`Box<u32>`（实际是 `impl<P0> NumOps for Box<P0> where P0: NumOps`）、`Cow<'_, str>` / `Cow<'_, String>`（实际是 `impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen`）——而 `&` 包装的 body 被写成 `(*self).len()`，尽管 `&` 与 `Box` 都用 `(**self)`，而那两段之下正是写着这条规则的段落。`src/doc/directive_blanket.md` 还画了一个并不存在的 `Box<dyn DynLen>` impl。教程 §7.4 与该文件已按 `batch_preview!` 实测结果更正。
+  - `src/doc/directive_consts.md` 声称撞名逃逸是"前缀下划线：`_P1`、`__P1`"。真实规则是**电子表格式字母后缀**（`P0A`、`P0B`…`P0AA`，双射 26 进制，`codegen/fresh_naming.rs`）——教程、参考手册与架构文档一直都是这么写的，只有 docs.rs 上那一页和谁都不一致。
+  - `examples/simplify.rs` 是 **30 个 impl** 而非 29：该文件自己的清单漏掉了 `main()` 断言其效果（`0u8.name() == "u8"`）的那个 `#fill(name, kind)` impl——"每个示例都必须为真"被一个 off-by-one 破坏。已在示例、`README.md`、教程 §1/§13 与 zh 镜像更正。
+  - `README.md` 的 `().4` 示例把 fresh 参数写成 `A, B, C, D`；实测展开是 `impl<P0, P1, P2, P3> TupleTrait for (P0, P1, P2, P3,)`，而 `P0…` 才是 crate 文档化的拼写。
+  - `docs/tutorial.md` §13.2 把 `#name` 指令与 `From<bool>` 钉参数分别引到 §7.2（`#fill`）与 §6.3（自定义常量）。两个目标**都真实存在**——这正是"只验存在"的引用守卫一直绿的原因。
+  - **新守卫** `the_two_mirrors_carry_the_same_catalog_rows`：每个 fixture 名在每版目录里必须**恰好出现一次**，且两版的行多重集相等——`docs/zh-CN/reference.md` 里 `fn_return_reapply` 出现了两次，而所有 `contains` 式检查都看不见。证伪：复制一行即失败并报出重复的 stem。
+  - **加强守卫** `section_citations_match_their_subject`：当引用窗口里出现指令标记时，被引章节的标题或正文必须与该标记相关（外带一份简短、带理由的例外表，用于一句里合法引用多节的句子）。证伪：把 `#delegate` 引到 `§6.3` 即失败。
+  - **有意留手**：`src/doc/directive_blanket.md` 的全角括号已清扫，但 `docs/dev-changelog.md` 里的中日韩标点位于中文**历史条目**内、不是英文正文，故保留。
+  - **证据**：doc_consistency **8 → 10**、lib 161 / dsl 300 / no_panic 6 / UI **112 + 3** / doctest 101，`fmt`/`clippy`/`doc` 干净。
+
 - **一次冷评审抓到两个发布阻塞项，两处缺的都是"锁"而不是已知良好的代码路径：**
   - **前导 `-` 静默产出 0 个 impl。** 退休消息此前只覆盖链中的 `-`（`chain_boundary_error`）与尖括号块里的 `-`（实参门控），而 `parse_space_chain` 的"无法开启块"分支只特判了 `+`，于是 `#[batch_impl(-usize)]` 返回空 spec、`Vec<u8>, -u16` 丢掉第二个元素——没有 impl、没有诊断，正是参考手册两段承诺绝不发生的事。现在三者共用同一个常量（`util::diagnostic::RETIRED_DASH`，沿用 `RETIRED_CARET` 的模式），`leading_operator` fixture 锁定前导与列表内两种拼写。
   - **自称"完整"的诊断目录至少缺八条可达消息**（评审给的清单；我重新推导并扩展了它）：上面的 `-` 退休消息、`#blanket :0`、`#blanket` 包装列表的空元素、一个 spec 里第二个顶层 `{! ...}` 块、作左操作数的 range、未闭合的 `<`、固有 impl 上的 `@trait`，以及教程逐字引用的那条重复块消息。八条现在都有 fixture（逐份读过 bless 后的快照）与两版 `§10` 的对应行。

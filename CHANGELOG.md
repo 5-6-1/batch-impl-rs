@@ -9,6 +9,22 @@
 
 > Diagnostics-and-docs patch: the one semantic unification is `@N..M` end-exclusive in every position (a position that contradicted the documentation, so it is a bug fix under the syntax freeze) — plus `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
 
+- **A third review — the docs read against the source — corrected four false claims
+  and closed two guard gaps.** The `#blanket` examples showed impls the macro never
+  generates (`Box<u32>`, `Cow<'_, str>`; the output is one generic impl,
+  `impl<P0> NumOps for Box<P0> where P0: NumOps`), and the `&` wrapper was drawn
+  delegating with `(*self)` although `&` and `Box` both use `(**self)` — two
+  paragraphs above the rule that says so. A fresh display name escapes a collision
+  with a **spreadsheet-style letter suffix** (`P0A`, `P0B`, … `P0AA`), not
+  underscores. `examples/simplify.rs` is **30 impls**, not 29: its own checklist had
+  missed the `#fill(name, kind)` impl that `main()` asserts exists. `README`'s
+  `().4` example now names the fresh parameters `P0…P3`, as everywhere else, and
+  tutorial §13.2 cites §7 (`#name` / `#fill`) instead of §6.3. Two guards close the
+  classes: a catalogue row must appear **exactly once** per mirror and the two
+  mirrors must carry equal row multisets (a duplicated row had survived every
+  `contains`-style check), and a `§` citation sitting next to a directive marker
+  must point at a section about that marker — both wrong citations had pointed at
+  *real* sections, which is why existence-only checks stayed green.
 - **A leading `-` is diagnosed instead of silently generating zero impls** — the
   retired operator's message existed for `Box - u8`, but `#[batch_impl(-usize)]`
   and a `-` element inside a spec list (`Vec<u8>, -u16`) produced **no impl and no
@@ -30,7 +46,7 @@
   three-fold *product*, not "tuples of length 1..=3"; §12 keeps the six errors you
   actually hit and points at the reference's verbatim §10; the reference-shaped lists
   in §4.6/§5.7 shrank to a rule plus a pointer; and §1 shows the payoff
-  (`examples/simplify.rs`: 29 impls from ~15 lines) before the details.
+  (`examples/simplify.rs`: 30 impls from ~15 lines) before the details.
 - **Five examples that only the Chinese tutorial carried now exist in both languages
   and are compiled** — two of them were **broken** (they had never been compiled):
   `#[repr(C)] u8` is illegal on a trait impl, and a `#fill(@all_methods, -name)`
@@ -316,7 +332,7 @@
   rustc-written message where a targeted one is missing.
 
 - **The tutorial ends with a real-scenario chapter** — the three bundled examples
-  (`quickstart`, `simplify`'s 29 impls from ~15 lines of DSL, `typeclass`'s
+  (`quickstart`, `simplify`'s 30 impls from ~15 lines of DSL, `typeclass`'s
   hierarchy plus 36 instances) are explained with the mechanisms they combine and
   how to run them.
 
@@ -971,7 +987,7 @@ rendering invalid code.
 ### Comments, error messages, and docs fully anglicized
 
 - **Comments and error messages are now all in English** (source, tests, ui fixtures) — a wider audience;
-  DSL markers in messages (`` `@uint` ``、`` `#fill` ``、`` `@0` ``) stay unchanged;
+  DSL markers in messages (`` `@uint` ``, `` `#fill` ``, `` `@0` ``) stay unchanged;
 - **Documentation language policy established**: during development, the Chinese docs (`docs/zh-CN/`)
   are the primary record of changes; before publishing, they are translated into English and placed in
   the English docs (`README.md`, `CHANGELOG.md`, `docs/tutorial.md`, `docs/architecture.md`,

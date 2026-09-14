@@ -11,6 +11,45 @@
 > diagnostics and AST-structure fixes, the splat-coverage and message corrections,
 > and the documentation split into a tutorial plus a reference manual.
 
+- **A third review read the docs against the source and found four false claims plus
+  two guard gaps** (the reviewer compiled or parsed every claim it could):
+  - `#blanket`'s examples drew impls the macro never generates — `Box<u32>` where the
+    output is `impl<P0> NumOps for Box<P0> where P0: NumOps`, `Cow<'_, str>` /
+    `Cow<'_, String>` where it is `impl<P0> CowLen for Cow<'_, P0> where P0: CowLen,
+    P0: ToOwned + ?Sized, P0::Owned: CowLen` — and the `&` wrapper's body was
+    `(*self).len()` although `&` and `Box` both delegate with `(**self)`, two
+    paragraphs above the rule that says so. `src/doc/directive_blanket.md` also drew a
+    `Box<dyn DynLen>` impl that does not exist. Fixed in the tutorial §7.4 and that
+    file (measured with `batch_preview!`).
+  - `src/doc/directive_consts.md` claimed collisions escape "by prefixing
+    underscores: `_P1`, `__P1`". The rule is a spreadsheet-style **letter suffix**
+    (`P0A`, `P0B`, … `P0AA`, bijective base-26, `codegen/fresh_naming.rs`) — which the
+    tutorial, the reference and the architecture already stated, so the docs.rs page
+    agreed with nobody.
+  - `examples/simplify.rs` is **30 impls**, not 29: the file's own checklist omitted
+    the `#fill(name, kind)` impl whose effect `main()` asserts (`0u8.name() == "u8"`)
+    — the "every example must be true" rule broken by an off-by-one. Corrected in the
+    example, `README.md`, the tutorial §1/§13 and the zh mirrors.
+  - `README.md`'s `().4` example named the fresh parameters `A, B, C, D`; the measured
+    expansion is `impl<P0, P1, P2, P3> TupleTrait for (P0, P1, P2, P3,)`, and the
+    `P0…` spelling is the crate's documented one.
+  - `docs/tutorial.md` §13.2 cited §7.2 (`#fill`) and §6.3 (custom constants) for the
+    `#name` directive and the `From<bool>` pinning. Both targets exist, which is
+    exactly why the existence-only citation guard was green.
+  - **New guard** `the_two_mirrors_carry_the_same_catalog_rows`: a fixture stem must
+    appear **exactly once** per mirror and the mirrors' row multisets must be equal —
+    `docs/zh-CN/reference.md` carried `fn_return_reapply` twice, invisible to every
+    `contains` check. Falsified by duplicating a row (fails with the duplicated stem).
+  - **Strengthened guard** `section_citations_match_their_subject`: when a citation's
+    window names a directive marker, the cited section's title or body must be about
+    that marker (plus a short, reasoned exception list for sentences that legitimately
+    cite several sections at once). Falsified by citing `#delegate` next to `§6.3`.
+  - Left alone deliberately: `src/doc/directive_blanket.md`'s full-width parentheses
+    were swept, but `docs/dev-changelog.md`'s CJK punctuation sits inside Chinese
+    *history* entries, not English prose, so it stays.
+  - **Evidence**: doc_consistency **8 → 10**, lib 161 / dsl 300 / no_panic 6 / UI
+    **112 + 3** / doctests 101, `fmt`/`clippy`/`doc` clean.
+
 - **A cold review found two release-blocking gaps, both in the *lock* rather than
   in the code path that was already known good:**
   - **`-` in leading position generated zero impls silently.** The retirement
