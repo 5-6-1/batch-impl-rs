@@ -452,7 +452,7 @@ TRYBUILD=overwrite cargo test --test ui
 ## 发布流程
 
 唯一权威是 `docs/development-guide.md` §3（四份 changelog 与 `## Unreleased`
-占位规则、README / tutorial / architecture 及其中英对应方的版本头同步、
+占位规则、README / tutorial / reference / architecture 及其中英对应方的版本头同步、
 `cargo package --list` 打包卫生，以及**CI 全绿后才 `cargo publish`**）。步骤顺序与
 CI job 清单在那里，不在这里。
 

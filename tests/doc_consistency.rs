@@ -513,7 +513,7 @@ fn language_mirrors_share_their_section_numbers() {
     }
 }
 
-/// Floors for the fixture inventory (104 `compile_fail` + 3 `pass` today).
+/// Floors for the fixture inventory (112 `compile_fail` + 3 `pass` today).
 const MIN_UI_FIXTURES: usize = 100;
 
 /// Every `tests/ui` fixture must be named by the reference's diagnostics catalog

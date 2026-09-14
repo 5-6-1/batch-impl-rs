@@ -381,7 +381,8 @@ TRYBUILD=overwrite cargo test --test ui
 
 The single authority is `docs/development-guide.md` §3 (four changelogs with an
 `## Unreleased` placeholder, the version-head sync across README / tutorial /
-architecture and their zh-CN counterparts, `cargo package --list` hygiene, and
+reference / architecture and their zh-CN counterparts, `cargo package --list`
+hygiene, and
 **CI fully green before `cargo publish`**). The step order and the CI job list
 live there, not here.
 
