@@ -1,0 +1,7 @@
+error: batch-impl: `@trait` is not available on an inherent impl (there is no trait to refer to)
+ --> tests/ui/at_trait_inherent_impl.rs:6:1
+  |
+6 | #[batch_impl(@trait)]
+  | ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

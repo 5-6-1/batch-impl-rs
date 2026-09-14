@@ -6,6 +6,12 @@
 
 > 0.9.7 以来的评审驱动补丁多轮：类型态预处理管线、诊断与 AST 结构修复、splat 覆盖与消息更正，以及文档拆成教程 + 参考手册。
 
+- **一次冷评审抓到两个发布阻塞项，两处缺的都是"锁"而不是已知良好的代码路径：**
+  - **前导 `-` 静默产出 0 个 impl。** 退休消息此前只覆盖链中的 `-`（`chain_boundary_error`）与尖括号块里的 `-`（实参门控），而 `parse_space_chain` 的"无法开启块"分支只特判了 `+`，于是 `#[batch_impl(-usize)]` 返回空 spec、`Vec<u8>, -u16` 丢掉第二个元素——没有 impl、没有诊断，正是参考手册两段承诺绝不发生的事。现在三者共用同一个常量（`util::diagnostic::RETIRED_DASH`，沿用 `RETIRED_CARET` 的模式），`leading_operator` fixture 锁定前导与列表内两种拼写。
+  - **自称"完整"的诊断目录至少缺八条可达消息**（评审给的清单；我重新推导并扩展了它）：上面的 `-` 退休消息、`#blanket :0`、`#blanket` 包装列表的空元素、一个 spec 里第二个顶层 `{! ...}` 块、作左操作数的 range、未闭合的 `<`、固有 impl 上的 `@trait`，以及教程逐字引用的那条重复块消息。八条现在都有 fixture（逐份读过 bless 后的快照）与两版 `§10` 的对应行。
+  - **这里记下会复发的一般教训**：trybuild 快照是**自证**的——诊断消失时 `TRYBUILD=overwrite` 祝福**缺席**，与新消息一样痛快，所以 `leading_operator.stderr` 安然锁了好几轮的沉默，而它自己的 fixture 注释却声称 `-` 会被诊断。缺席需要另一种守卫：新增的 `every_source_diagnostic_is_locked_or_listed` 扫描 `src/**` 里每一条 `batch-impl: …` 字面量，要求它要么被 UI 快照渲染、要么带理由列入 `UNREACHABLE_DIAGNOSTICS`（内部不变量、占位宏、入口输入形状检查）或 `UNLOCKED_DIAGNOSTICS`（显式的"可达但未锁"欠账，长度被断言只能缩短）。证伪：塞入一条游离字面量，守卫按文件与原文报出。
+  - **证据**：doc_consistency **6 → 8**、UI **105 + 3 → 112 + 3**、lib 161、dsl 300、doctest 95。
+
 - **教程镜像示例的守卫**（`tests/doc_consistency.rs`，`tutorial_mirrors_carry_the_same_examples`）：两版教程的每一节必须拥有相同数量的"可编译 rust 块"与 `ignore` 块。只有英文文档被 `include_str!` 进 crate，中文代码块**从不被编译**——这个守卫正是让"单边示例"（或 `ignore` 标记不一致）失败的检查。它有意不比较块的**内容**（两版在标识符名与注释上本就不同，而英文那侧才是被编译的一侧）。证伪：只往一版加一个块 → 失败并点出该节。
   - **它上线第一天就抓到三个潜在缺陷**，全都在从未被编译的中文镜像里，且都已修好：`#[repr(C)] u8`（rustc：该属性不能用在 trait impl 块上）、空 trait 上的 `#fill(@all_methods, -default_method)`（DSL 报"参数集为空"）、以及隐藏的 `trait A<T>` 与 `batch_trait!` 示例实现的 `A` 不一致（E0107）。
   - **两版重新同构**：此前只有中文那侧才有的示例（容器规则、`@all` 排除、指针/unsafe/属性、数组与切片、`batch_trait!` 段）逐条实测后补进英文——doctest 因此 95 → **101**——§11 的 `batch_trait!` 块现在两边都有。

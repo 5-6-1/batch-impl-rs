@@ -11,6 +11,38 @@
 > diagnostics and AST-structure fixes, the splat-coverage and message corrections,
 > and the documentation split into a tutorial plus a reference manual.
 
+- **A cold review found two release-blocking gaps, both in the *lock* rather than
+  in the code path that was already known good:**
+  - **`-` in leading position generated zero impls silently.** The retirement
+    message existed for a `-` inside a chain (`chain_boundary_error`) and inside an
+    angle chunk (the args gate), but `parse_space_chain`'s "cannot open a block"
+    path only special-cased `+`, so `#[batch_impl(-usize)]` returned an empty spec
+    and `Vec<u8>, -u16` dropped its second element — no impl, no diagnostic, i.e.
+    exactly what two paragraphs of the reference promise never happens. The
+    message is now one shared constant (`util::diagnostic::RETIRED_DASH`, the
+    pattern `RETIRED_CARET` established) used by all three routes, and the
+    `leading_operator` fixture locks the leading and in-list spellings.
+  - **The self-styled "complete diagnostics catalog" was missing at least eight
+    reachable messages** (the reviewer's list; I re-derived and extended it): the
+    `-` retirement above, `#blanket :0`, a `#blanket` wrapper list with an empty
+    element, a second top-level `{! ...}` block, a range as a left operand, an
+    unclosed `<`, `@trait` on an inherent impl, and the repeat-block message the
+    tutorial quotes. All eight now have fixtures (blessed snapshots read one by
+    one) and `§10` rows in both mirrors.
+  - **The general lesson, recorded because it will recur**: a trybuild snapshot is
+    *self-證* — when a diagnostic disappears, `TRYBUILD=overwrite` blesses the
+    **absence** exactly as happily as a new message, so `leading_operator.stderr`
+    happily locked the silence for several releases while its own fixture comment
+    claimed the `-` was diagnosed. Absence needs a different guard: the new
+    `every_source_diagnostic_is_locked_or_listed` scans every `batch-impl: …`
+    literal in `src/**` and requires each to be rendered by a UI snapshot or to be
+    listed with a reason (`UNREACHABLE_DIAGNOSTICS` — internal invariants, stub
+    macros, entry input-shape checks — or `UNLOCKED_DIAGNOSTICS`, the explicit
+    reachable-but-unlocked debt, whose length is asserted so it can only shrink).
+    Falsified by adding a stray literal, which the guard reported by file and text.
+  - **Evidence**: doc_consistency **6 → 8**, UI **105 + 3 → 112 + 3**, lib 161,
+    dsl 300, doctests 95.
+
 - **A guard for the tutorial mirrors' examples** (`tests/doc_consistency.rs`,
   `tutorial_mirrors_carry_the_same_examples`): every section of the two mirrors must
   carry the same number of compiled and `ignore`d rust blocks. Only the English docs

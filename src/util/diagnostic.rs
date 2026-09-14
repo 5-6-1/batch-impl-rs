@@ -16,6 +16,14 @@ use quote::quote;
 /// it). One wording, so the two routes cannot drift apart.
 pub(crate) const RETIRED_CARET: &str = "batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator)";
 
+/// The retired `-` operator's diagnostic. Three routes meet the spelling: a `-`
+/// **inside** a chain (`Box - u8`, the chain boundary helper), a `-` inside an
+/// angle chunk (`Foo<-u8>`, the chunk gate) and a `-` that **starts** a spec
+/// (`#[batch_impl(-usize)]`) — the last one used to return an empty spec, i.e.
+/// zero impls with no diagnostic, which is exactly what the reference promises
+/// never happens. One wording, so the routes cannot drift apart.
+pub(crate) const RETIRED_DASH: &str = "batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`)";
+
 /// Build `::core::compile_error!(msg);` at `span` (the token the error is
 /// about). The **absolute path** keeps the diagnostic hygienic: a user scope
 /// shadowing `compile_error` (or defining its own `core` module) cannot

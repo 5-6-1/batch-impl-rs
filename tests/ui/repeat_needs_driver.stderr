@@ -1,0 +1,7 @@
+error: batch-impl: a repeat block needs a driving segment or a fresh-binding switch (`impl{@0..}`) to determine its length
+ --> tests/ui/repeat_needs_driver.rs:7:1
+  |
+7 | #[batch_impl(u8 { fn n(&self) -> usize { @(A,).. } })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

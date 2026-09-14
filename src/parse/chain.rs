@@ -67,15 +67,24 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty>
             ));
         }
         // A token that cannot open a block at the *start* of a type gets a
-        // targeted message instead of a silent empty spec (`+A` used to
-        // generate 0 impls with no diagnostic).
-        if let Some(t) = cursor.peek()
-            && matches!(t, TokenTree::Punct(p) if p.as_char() == '+')
-        {
-            return Some(err_ty_at(
-                "batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`)",
-                t.span(),
-            ));
+        // targeted message instead of a silent empty spec (`+A` and `-A` both
+        // used to generate 0 impls with no diagnostic at all).
+        if let Some(t) = cursor.peek() {
+            match t {
+                TokenTree::Punct(p) if p.as_char() == '+' => {
+                    return Some(err_ty_at(
+                        "batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`)",
+                        t.span(),
+                    ));
+                }
+                // The retired infix operator, here in leading position: without
+                // this arm the spec parsed as empty and every guarantee about
+                // "no silent zero impls" was violated by a single `-`.
+                TokenTree::Punct(p) if p.as_char() == '-' => {
+                    return Some(err_ty_at(crate::util::RETIRED_DASH, p.span()));
+                }
+                _ => {}
+            }
         }
         return None;
     };
@@ -144,11 +153,7 @@ pub(crate) fn chain_boundary_error(t: &TokenTree) -> Ty {
     match t {
         // `-` was retired as the infix apply operator (space took its place);
         // the prefix exclusion lives only in directive argument lists.
-        TokenTree::Punct(p) if p.as_char() == '-' => err_ty_at(
-            "batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; \
-             the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`)",
-            p.span(),
-        ),
+        TokenTree::Punct(p) if p.as_char() == '-' => err_ty_at(crate::util::RETIRED_DASH, p.span()),
         // `^` was the power operator before 0.9; the `.N` suffix replaced it.
         // Without this arm the old spelling fell through to the generic
         // "unexpected `^` after the type", which names neither the operator nor

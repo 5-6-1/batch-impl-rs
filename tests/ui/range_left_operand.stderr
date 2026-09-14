@@ -1,0 +1,5 @@
+error: batch-impl: range `0..3` cannot be a left operand; it goes on the right (e.g. T.0..3)
+ --> tests/ui/range_left_operand.rs:5:14
+  |
+5 | #[batch_impl(0..3.u8)]
+  |              ^

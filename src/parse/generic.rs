@@ -258,11 +258,7 @@ fn validate_stray_punct(tokens: &[TokenTree]) -> Option<Ty> {
                 ),
                 // a lone `-` is the retired operator; `->` (the fn arrow) is
                 // parsed by parse_function
-                Some((crate::util::Op::Minus, _)) => Some(
-                    "batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; \
-                     the `-` exclusion only works in directive argument lists \
-                     like `#fill(@all, -foo)`)",
-                ),
+                Some((crate::util::Op::Minus, _)) => Some(crate::util::RETIRED_DASH),
                 // `#` is outside the operator alphabet but still stray
                 _ if p.as_char() == '#' => Some(
                     "batch-impl: `#` inside a type (attributes belong at the spec start \

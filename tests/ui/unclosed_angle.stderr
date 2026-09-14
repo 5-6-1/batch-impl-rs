@@ -1,0 +1,7 @@
+error: batch-impl: unclosed `<` (missing matching `>`)
+ --> tests/ui/unclosed_angle.rs:6:1
+  |
+6 | #[batch_impl(Vec<u8)]
+  | ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

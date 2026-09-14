@@ -645,3 +645,300 @@ fn resolves(root: &Path, candidate: &str) -> bool {
     }
     ["src", "tests", ""].iter().any(|dir| root.join(dir).join(candidate).exists())
 }
+
+// ---------------------------------------------------------------- diagnostics
+// Every `batch-impl: …` message literal in `src/` must be **locked**: either a
+// UI snapshot renders it (the rendered text is what `§10` quotes) or it is in
+// one of the tables below with a reason. The class this makes impossible is the
+// one F1 and F2 of the cold review found: a message that no fixture ever
+// exercises is free to drift, and `TRYBUILD=overwrite` blesses a *disappeared*
+// diagnostic exactly as happily as a new one.
+
+/// Message classes that are **unreachable by construction** (or not DSL
+/// diagnostics at all). Each pattern is a substring of the literal; the reason
+/// says why no fixture locks it.
+const UNREACHABLE_DIAGNOSTICS: [(&str, &str); 5] = [
+    (
+        "internal error",
+        "defensive invariants (range length, placeholder, variadic-segment residue): unreachable by construction, swept by the fuzz + module guard tests",
+    ),
+    (
+        "documentation-only entry point",
+        "the six stub macros exist solely to emit this guidance (they are doc placeholders, not code paths)",
+    ),
+    (
+        "batch_preview! expects",
+        "batch_preview! input-shape check; the pass fixture covers the happy path, a wrong shape is a caller error",
+    ),
+    (
+        "batch_preprocess_test",
+        "batch_preprocess_test! input-shape check; its pass fixture covers the happy path",
+    ),
+    (
+        "expected a trait definition",
+        "the attribute's top-level item-shape check in lib.rs (a wrong item is a caller error, not a DSL one)",
+    ),
+];
+
+/// Reachable DSL diagnostics that **no fixture locks yet**. This is explicit
+/// debt, not an excuse: the list may only shrink (the count is asserted below),
+/// and each entry names the gate it guards so whoever touches that gate adds the
+/// fixture. A cold review found this class by hand (`-` in leading position,
+/// `#blanket :0`, two top-level blocks, …) — those now have fixtures and are
+/// gone from here; what remains is the rest of the same class.
+const UNLOCKED_DIAGNOSTICS: [(&str, &str); 59] = [
+    (
+        "cannot be a left operand",
+        "left-operand gate (apply layer): a range/array/`@`/bound-list on the left",
+    ),
+    ("`fn`/`Fn` prefix", "fn-family gate: the prefix's right side must be a tuple"),
+    ("`fn` type already has a return type", "fn-family gate: a second return type"),
+    ("expansion mass of", "expansion ceiling (apply layer): the 1024-impl cap in another wording"),
+    ("the spec expands to", "expansion ceiling (entry layer): the same cap, entry wording"),
+    ("repeat block", "repeat-block gate (drivers, lengths, segment references)"),
+    ("variadic segment", "variadic-segment gate (unknown/uneven/duplicate segments)"),
+    ("position digit", "`@N` reference gate: a malformed position reference"),
+    ("must be followed by an index", "`@N` reference gate: the per-round fresh spelling"),
+    ("must be followed by a segment name", "repeat-block gate: `@ident` spelling"),
+    ("generator group", "generator-group gate: a group selector that does not exist"),
+    ("fresh reference in the body", "body-slot switch gate: `@{N}` without `impl{@{}}`"),
+    ("elements (max", "`@N` range ceiling: a range longer than the impl has freshs"),
+    ("template cannot destructure", "shape-kernel gate: template/target shape mismatch"),
+    ("binding slot", "shape-kernel gate: conflicting slot bindings across templates"),
+    ("is not a valid type", "shape/impl-entry gate: a template that is not a Rust type"),
+    ("matrix leaf", "impl-entry gate: a leaf that is not a standard Rust type"),
+    ("matrix source needs a container", "impl-entry gate: an attachment with nothing to pair with"),
+    ("`fresh!` references", "impl-entry gate: a fresh reference with no generator"),
+    ("top-level block must contain", "top-level block gate: `{! ...}` without a macro call"),
+    ("unexpected literal in a type position", "parser atom gate: a literal the DSL does not model"),
+    ("range start must be an integer", "parser atom gate: non-integer range endpoints"),
+    ("range end must be an integer", "parser atom gate: non-integer range endpoints"),
+    ("a list cannot start with", "parser atom gate: a leading comma inside `[...]`"),
+    ("lone `'` cannot start", "parser atom gate: a lifetime with no identifier"),
+    (
+        "unexpected transparent group",
+        "parser atom gate: a transparent group angle-collect should have flattened",
+    ),
+    // Gates whose messages are internally coherent families: listed at gate
+    // granularity (a new message inside the same gate is a review concern, not a
+    // silent one — the gate is named in its reason).
+    ("cannot be an apply operand", "apply-operand gate: a qualified type cannot be applied"),
+    ("range must end with a number", "`@N` reference gate: a malformed `@N..M` range"),
+    ("block without an attached type", "attachment gate: a bare `{...}` block with no type"),
+    ("repeat-block expansion produces", "repeat-block gate: the output token budget"),
+    (
+        "is out of range — this impl has",
+        "`@N` reference gate: a `@{N}` body reference out of range",
+    ),
+    ("expected at least one ident after the path prefix", "`# path::To::Trait:` prefix gate"),
+    (
+        "missing operand after the space application",
+        "parser chain gate: a trailing space application",
+    ),
+    ("`where` is only valid as a trailing", "parser chain gate: `where` in operand position"),
+    ("bound `T:` missing a bound", "args-position gate: a bound with no value"),
+    (
+        "`;` is not valid in a type",
+        "type-position residue gate: the `batch_trait!` segment separator",
+    ),
+    ("`=` is not valid in a type position", "type-position residue gate: a stray `=`"),
+    ("`@` inside a type", "type-position residue gate: a misplaced position reference"),
+    ("`#` inside a type", "type-position residue gate: a misplaced attribute/directive"),
+    ("is not valid at the start of a type", "type-start gate: `+`/`?`/`.` opening a type"),
+    ("`::` must be followed by a path segment", "`::`-tail gate: a truncated path"),
+    ("`::`-tail segment must be an identifier", "`::`-tail gate: DSL tokens in a Rust path tail"),
+    ("in a bound expression", "bound-expression gate: an unexpected token in a bound"),
+    ("extra `>`", "angle pairing gate: an unmatched `>`"),
+    ("must be followed by a constant name", "`@` constant gate: a bare `@`"),
+    ("constant definition must appear", "`@` constant gate: a definition after a trait segment"),
+    ("range constant", "`@` constant gate: a malformed range constant"),
+    (
+        "is not available on the ItemImpl entry",
+        "`@` constant gate: a selector with no trait definition",
+    ),
+    ("is supported only by", "`@` constant gate: a family the entry does not support"),
+    ("cannot expand — trait", "`@` constant gate: a parameter family the trait cannot fill"),
+    ("reserved marker", "`@` constant gate: a custom name that shadows a marker"),
+    ("user constant", "`@` constant gate: a name colliding with a built-in"),
+    ("constant definition `", "`@` constant gate: a definition missing its `;`"),
+    ("invalid open-left range", "`@` constant gate: a malformed open range value"),
+    ("#blanket", "blanket gate: forwarding/`Self`/unknown-item/invalid-depth messages"),
+    ("by-value method(s)", "blanket gate: a by-value forward across a shared wrapper"),
+    ("#delegate", "delegate gate: rename and parameter-pattern messages"),
+    ("expected an identifier, comma", "directive name-list gate: a malformed scope element"),
+    (
+        "`impl` is missing a template or code block",
+        "attachment gate: `impl` with neither `{}` nor `impl{}`",
+    ),
+];
+
+const MIN_DIAGNOSTIC_LITERALS: usize = 150;
+
+/// The message text of a `batch-impl: …` string literal, with `\`-continuations
+/// joined and every `{}` placeholder collapsed to `\u{1}` (matched as a wildcard
+/// against the rendered snapshot text).
+fn normalise_diagnostic(raw: &str) -> String {
+    let mut out = String::new();
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.peek() {
+                Some('\n') => {
+                    chars.next();
+                    while matches!(chars.peek(), Some(' ') | Some('\t') | Some('\n')) {
+                        chars.next();
+                    }
+                    if !out.ends_with(' ') {
+                        out.push(' ');
+                    }
+                }
+                Some('"') => {
+                    chars.next();
+                    out.push('"');
+                }
+                Some('\\') => {
+                    chars.next();
+                    out.push('\\');
+                }
+                _ => out.push(c),
+            },
+            '{' => {
+                for c2 in chars.by_ref() {
+                    if c2 == '}' {
+                        break;
+                    }
+                }
+                out.push('\u{1}');
+            }
+            c if c.is_whitespace() => {
+                if !out.ends_with(' ') {
+                    out.push(' ');
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out.trim().to_string()
+}
+
+/// `\u{1}` in `pattern` matches any run of characters in `text`.
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    let mut rest = text;
+    for (i, part) in pattern.split('\u{1}').enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        match rest.find(part) {
+            Some(pos) => rest = &rest[pos + part.len()..],
+            None => return i == 0 && false,
+        }
+    }
+    true
+}
+
+fn collect_files(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBuf>) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(&path, ext, out);
+        } else if path.extension().is_some_and(|e| e == ext) {
+            out.push(path);
+        }
+    }
+}
+
+/// Every `batch-impl: ` message literal in a Rust source, with its file name.
+fn source_diagnostics(text: &str) -> Vec<String> {
+    let mut out = vec![];
+    let bytes = text.as_bytes();
+    let mut from = 0usize;
+    while let Some(pos) = text[from..].find("batch-impl: ") {
+        let start = from + pos;
+        let mut j = start;
+        let mut escaped = false;
+        let mut end = None;
+        while j < bytes.len() {
+            let c = bytes[j] as char;
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                end = Some(j);
+                break;
+            }
+            j += 1;
+        }
+        match end {
+            Some(e) => {
+                out.push(normalise_diagnostic(&text[start..e]));
+                from = e;
+            }
+            None => break,
+        }
+    }
+    out
+}
+
+#[test]
+fn every_source_diagnostic_is_locked_or_listed() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // rendered messages: the first `batch-impl: …` line of every UI snapshot
+    let mut snapshots = vec![];
+    collect_files(&root.join("tests/ui"), "stderr", &mut snapshots);
+    let mut rendered = vec![];
+    for f in &snapshots {
+        let text = fs::read_to_string(f).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
+        for line in text.lines() {
+            let Some((head, rest)) = line.split_once(": ") else { continue };
+            if head.starts_with("error") && rest.starts_with("batch-impl") {
+                rendered.push(normalise_diagnostic(rest));
+            }
+        }
+    }
+
+    // every `batch-impl: …` literal in the sources
+    let mut sources = vec![];
+    collect_files(&root.join("src"), "rs", &mut sources);
+    let mut literals = vec![];
+    for f in &sources {
+        let text = fs::read_to_string(f).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
+        for lit in source_diagnostics(&text) {
+            literals.push((f.display().to_string(), lit));
+        }
+    }
+    assert!(
+        literals.len() >= MIN_DIAGNOSTIC_LITERALS,
+        "the scan found only {} diagnostic literals (floor {MIN_DIAGNOSTIC_LITERALS}) — the scan or the source set is broken",
+        literals.len()
+    );
+    // The debt list may only shrink: raising this number means adding a message
+    // that no fixture locks, which is exactly what the guard exists to prevent.
+    assert!(
+        UNLOCKED_DIAGNOSTICS.len() <= 59,
+        "UNLOCKED_DIAGNOSTICS grew to {} entries — lock the new message with a UI fixture instead",
+        UNLOCKED_DIAGNOSTICS.len()
+    );
+
+    let mut unlocked = vec![];
+    for (file, lit) in &literals {
+        if rendered.iter().any(|r| wildcard_match(lit, r)) {
+            continue;
+        }
+        if UNREACHABLE_DIAGNOSTICS.iter().any(|(pat, _)| lit.contains(pat)) {
+            continue;
+        }
+        if let Some((_, reason)) = UNLOCKED_DIAGNOSTICS.iter().find(|(pat, _)| lit.contains(pat)) {
+            let _ = reason;
+            continue;
+        }
+        unlocked.push(format!("{file}: {lit}"));
+    }
+    assert!(
+        unlocked.is_empty(),
+        "these diagnostics are neither rendered by a UI snapshot nor listed in \
+         `UNREACHABLE_DIAGNOSTICS` / `UNLOCKED_DIAGNOSTICS`:\n  {}",
+        unlocked.join("\n  ")
+    );
+}

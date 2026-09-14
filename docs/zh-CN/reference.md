@@ -480,7 +480,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `array_and_punct` | `[u8; 3; 4]` / `[u8;]` | batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`) | DSL |
 | `leading_comma` | `,A` | batch-impl: spec list cannot start with `,` | DSL |
 | `dangling_operator` | `A.` | batch-impl: missing operand after `.` (e.g. `T.U`) | DSL |
-| `leading_operator` | `.A` | batch-impl: missing operand before `.` (e.g. `T.U`) | DSL |
+| `leading_operator` | `.A`，以及前导 `-`（`-usize`、`Vec<u8>, -u16`） | batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`) | DSL |
 | `num_as_left_operand` | `0.T` | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
 | `literal_and_range` | `1.5` / `1..x` | batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types | DSL |
 | `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*().2`) | DSL |
@@ -499,6 +499,8 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `trait_path_no_ident` | `batch_trait! { 1: ... }` | batch_trait! expects an ident as the trait name | macro |
 | `only_semicolon` | `batch_trait! { ; }` | batch_trait! expects a trait name | macro |
 | `missing_colon` | `batch_trait! { Tr ... }` | batch_trait! expects ':' to separate the trait name and impl-specs | macro |
+| `unclosed_angle` | `Vec<u8>` 没有 `>` | batch-impl: unclosed `<` (missing matching `>`) | DSL |
+| `range_left_operand` | `0..3.u8` | batch-impl: range `0..3` cannot be a left operand; it goes on the right (e.g. T.0..3) | DSL |
 
 ### 10.2 深度上限
 
@@ -536,6 +538,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `empty_range` | spec 里的空数字区间 | batch-impl: range `3..2` is empty (start not below end); no impls will be generated | DSL |
 | `expand_limit` | `(...).2000` | batch-impl: `tuple .2000` expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
 | `bound_gen_over_limit` | bound 生成器乘积 29791 | batch-impl: bound-generator distribution expands to 29791 impls (limit 1024); reduce the range sizes | DSL |
+| `at_trait_inherent_impl` | 在固有 `impl Vec<u8> {}` 上写 `@trait` | batch-impl: `@trait` is not available on an inherent impl (there is no trait to refer to) | DSL |
 
 ### 10.4 binding / bound 与函数类型
 
@@ -570,6 +573,8 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `blanket_bad_depth` | `#blanket(...:abc)` | batch-impl: after #blanket `:abc` must come a number (e.g. `Box.Arc:2`) | DSL |
 | `blanket_bad_empty_depth` | `#blanket(...:)` | batch-impl: after #blanket `:` must come a number (e.g. `Box.Arc:2`) | DSL |
 | `blanket_bad_huge_depth` | `#blanket(...:999999)` | batch-impl: #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
+| `blanket_depth_zero` | `#blanket(@all_methods){Box:0}` | batch-impl: #blanket `:0` is meaningless (deref depth must be ≥ 1) | DSL |
+| `blanket_wrapper_empty` | `#blanket(@all_methods){Box,}` | batch-impl: #blanket wrapper list contains an empty element (e.g. `&,Box`); separate elements with `,` | DSL |
 
 ### 10.6 形状模板、重复块与变长段
 
@@ -592,6 +597,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `impl_shape_repeat_invalid_switch` | `impl{@2..1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
 | `impl_shape_repeat_invalid_switch_closed` | `impl{@2..=1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
 | `impl_shape_repeat_no_driver` | 无开关的纯游标 body 块 | expected one of `.`, `;`, `?`, `}`, or an operator, found `,` | rustc |
+| `repeat_needs_driver` | `u8 { fn n(&self) -> usize { @(A,).. } }` | batch-impl: a repeat block needs a driving segment or a fresh-binding switch (`impl{@0..}`) to determine its length | DSL |
 
 ### 10.7 入口与顶层块
 
@@ -603,6 +609,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `top_level_block_not_last` | `{! m!{…}}` 不是最后一个块 | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
 | `top_level_manual_not_last` | 手工顶层形式不在最后 | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
 | `top_level_without_attach` | 顶层块没有附着类型 | batch-impl: a top-level `{! ...}` block needs an attached type (the spec body is prepended to the macro input) | DSL |
+| `top_level_two_blocks` | 一个 spec 里两个 `{! ...}` 块 | batch-impl: at most one top-level `{! ...}` block per spec | DSL |
 
 ### 10.8 `where`
 

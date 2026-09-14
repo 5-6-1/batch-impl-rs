@@ -9,6 +9,19 @@
 
 > Diagnostics-and-docs patch: the one semantic unification is `@N..M` end-exclusive in every position (a position that contradicted the documentation, so it is a bug fix under the syntax freeze) — plus `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
 
+- **A leading `-` is diagnosed instead of silently generating zero impls** — the
+  retired operator's message existed for `Box - u8`, but `#[batch_impl(-usize)]`
+  and a `-` element inside a spec list (`Vec<u8>, -u16`) produced **no impl and no
+  diagnostic**, contradicting the documented guarantee that no input silently
+  yields zero impls. All three positions now report the retirement message.
+- **Seven reachable diagnostics the catalog claimed were complete are now locked
+  by fixtures** — `#blanket :0`, a `#blanket` wrapper list with an empty element,
+  an unclosed `<`, a range as a left operand, a second top-level `{! ...}` block,
+  a repeat block with no driver, and `@trait` on an inherent impl. A new guard
+  scans every `batch-impl: …` message in the sources and requires each to be
+  rendered by a UI snapshot or listed with a reason, so the class cannot come
+  back silently.
+
 - **The tutorial got a second review pass** — the task index in §0 now carries
   README's **tier** column; §6, §7 and §8.4/§8.5 announce themselves as the skippable
   advanced layer, so the core path (§1–§5, §8.1–§8.3, §9–§13) reads as one line; §9

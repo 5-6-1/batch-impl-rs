@@ -1,0 +1,7 @@
+error: batch-impl: #blanket `:0` is meaningless (deref depth must be ≥ 1)
+ --> tests/ui/blanket_depth_zero.rs:9:1
+  |
+9 | #[batch_impl(<T: Num> T #blanket(@all_methods){Box:0})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

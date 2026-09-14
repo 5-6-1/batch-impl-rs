@@ -259,6 +259,20 @@ fn ui() {
     t.compile_fail("tests/ui/implentry_at_num_banned.rs");
     t.compile_fail("tests/ui/implentry_direct_not_type.rs");
 
+    // diagnostics the catalog claimed were complete but that no fixture locked
+    // (a message without a snapshot is free to drift, and `TRYBUILD=overwrite`
+    // blesses a *disappeared* diagnostic exactly like a new one): the `#blanket`
+    // depth/empty-element gates, the angle pairing, a range as a left operand, a
+    // second top-level `{! ...}` block, a repeat block with no driver and
+    // `@trait` on an inherent impl
+    t.compile_fail("tests/ui/blanket_depth_zero.rs");
+    t.compile_fail("tests/ui/blanket_wrapper_empty.rs");
+    t.compile_fail("tests/ui/unclosed_angle.rs");
+    t.compile_fail("tests/ui/range_left_operand.rs");
+    t.compile_fail("tests/ui/top_level_two_blocks.rs");
+    t.compile_fail("tests/ui/repeat_needs_driver.rs");
+    t.compile_fail("tests/ui/at_trait_inherent_impl.rs");
+
     // one path, ensuring normal cases are not broken
     t.pass("tests/ui/pass/basic.rs");
 

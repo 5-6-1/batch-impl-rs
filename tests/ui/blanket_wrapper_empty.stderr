@@ -1,0 +1,7 @@
+error: batch-impl: #blanket wrapper list contains an empty element (e.g. `&,Box`); separate elements with `,`
+ --> tests/ui/blanket_wrapper_empty.rs:9:1
+  |
+9 | #[batch_impl(<T: Num> T #blanket(@all_methods){Box,})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
