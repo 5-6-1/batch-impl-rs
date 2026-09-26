@@ -3,9 +3,9 @@
 //!
 //! Syntax (at the token-stream level):
 //! - **Name families**: `@u*` / `@i*` / `@f*` / `@num` / `@scalar`
-//! - **Range families**: `@u8..u128` / `@i8..i128` / `@f32..f64` (inclusive;
-//!   width validated), with either endpoint omittable — the family's minimum
-//!   / maximum fills in (`@..u128` ≡ `@u8..u128`, `@u16..` ≡ `@u16..u128`;
+//! - **Range families**: `..` excludes the endpoint and `..=` includes it,
+//!   with either endpoint omittable — the family's minimum / maximum fills
+//!   in (`@..u128` ≡ `@u8..u128`, `@u16..` ≡ `@u16..=u128`;
 //!   at least one concrete endpoint must anchor the family)
 //! - **User-defined** (only `batch_trait!`): a leading `@name=value;` segment
 //!   whose value is any DSL expression (may reference built-in constants;
@@ -48,14 +48,21 @@ pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
     }
 }
 
-/// Renders a list of type names as a Bracket list group (`[u8, u16, ...]`).
-/// Generic over the name iterator item (`&str` or `String` both work).
-pub(crate) fn render_list<S: ToString>(names: impl IntoIterator<Item = S>) -> TokenTree {
+/// Renders names as a Bracket list group. Only a singleton type family needs
+/// a comma to distinguish `[u8,]` from the slice `[u8]`. Keep selectors and
+/// longer lists unchanged: open-extension macros may match their exact tokens.
+pub(crate) fn render_list<S: ToString>(
+    names: impl IntoIterator<Item = S>, singleton_is_type: bool,
+) -> TokenTree {
     let idents = names
         .into_iter()
         .map(|s| Ident::new(&s.to_string(), Span::call_site()))
         .collect::<Vec<_>>();
-    Group::new(delimiter![[]], quote!(#(#idents),*)).into()
+    let contents = match idents.as_slice() {
+        [only] if singleton_is_type => quote!(#only,),
+        _ => quote!(#(#idents),*),
+    };
+    Group::new(delimiter![[]], contents).into()
 }
 
 /// Expands `@` constant references in a token stream (built-in + user table).
@@ -209,6 +216,14 @@ pub(crate) fn collect_user_consts(
             return Err(compile_err!(
                 "batch-impl: constant name `@trait` is a reserved marker \
                  (segment-level substitution into a trait path); please rename"
+            ));
+        }
+        // Context constants share a reserved namespace even on entries
+        // without that context; a user value must not shadow `@Self`.
+        if name_str == "Self" {
+            return Err(crate::util::compile_error_str(
+                "batch-impl: constant name `@Self` is reserved for the input impl's self type; please rename",
+                name.span(),
             ));
         }
         // `@all` / `@all_*` are reserved item selectors (methods / types /

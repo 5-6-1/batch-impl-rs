@@ -190,11 +190,17 @@ pub(crate) fn generate_parts(
         };
     // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
-    // rewrites (where predicates + body here; the target type at render,
-    // where the final tokens are in hand). An empty template list is the
-    // no-op case. Variadic segments (`ident@..`) additionally drive the
-    // body's repeat blocks (`@(...)..`), which expand before the slot
-    // mapping rewrites the resulting segment names.
+    // rewrites to where predicates + body. The matrix leaf is already final
+    // and is not rewritten. Bound const slots also update declarations and
+    // their dependent type surfaces below. An empty template list is a no-op.
+    // Variadic segments (`ident@..`) drive body repeat blocks (`@(...)..`),
+    // which splice bound values before the fixed-slot lexical rewrite.
+    let declared_consts = parts
+        .impl_generics
+        .iter()
+        .filter(|(name, _)| ParamKind::of_name(name).is_const())
+        .map(|(name, _)| ParamKind::bare_name(name).to_string())
+        .collect();
     let (shape_map, var_segs) = if parts.shape_templates.is_empty() {
         (Mapping::default(), Vec::new())
     } else {
@@ -204,11 +210,18 @@ pub(crate) fn generate_parts(
             .next()
             .map(|t| t.span())
             .unwrap_or_else(proc_macro2::Span::call_site);
-        match render::collect_shape_mapping(&target_tokens, &parts.shape_templates) {
+        match render::collect_shape_mapping(
+            &target_tokens,
+            &parts.shape_templates,
+            &declared_consts,
+        ) {
             Ok((m, s)) => (m, s),
             Err(e) => return compile_error_str(&e.message(), target_span),
         }
     };
+    // Only declared const slots affect the attribute's declarations and trait
+    // application. Ordinary matrix types are already in the destination domain.
+    apply_bound_const_slots(&mut parts, &shape_map.select_slots(&declared_consts));
     if !shape_map.slots().is_empty() {
         where_resolved =
             where_resolved.iter().map(|p| apply_mapping(p.clone(), &shape_map)).collect();
@@ -280,7 +293,6 @@ pub(crate) fn generate_parts(
         target_tokens,
         Some(trait_name),
         is_unsafe_trait,
-        &shape_map,
         Some(&fresh_ctx),
     )
 }

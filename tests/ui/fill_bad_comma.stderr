@@ -1,7 +1,95 @@
-error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/trailing/consecutive commas)
- --> tests/ui/fill_bad_comma.rs:9:1
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+ --> tests/ui/fill_bad_comma.rs:5:1
   |
-9 | #[batch_impl(usize #fill(m,,n){0})]
+5 | #[batch_impl(usize #fill(m,,n){0})]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:11:1
+   |
+11 | #[batch_impl(usize #fill(,m){0})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:16:1
+   |
+16 | #[batch_impl(usize #fill([,m]){0})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:21:1
+   |
+21 | #[batch_impl(usize #fill(@all, -[m,,]){0})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:26:1
+   |
+26 | #[batch_impl(usize #delegate(,m){self})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:31:1
+   |
+31 | #[batch_impl(usize #delegate(m,,n){self})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:37:1
+   |
+37 | #[batch_impl(usize #delegate(,m=target){self})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:42:1
+   |
+42 | #[batch_impl(usize #delegate(m=target,,){self})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:47:1
+   |
+47 | #[batch_impl(#blanket(,m){Box})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:52:1
+   |
+52 | #[batch_impl(#blanket([m,,]){Box})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:57:1
+   |
+57 | #[batch_impl(usize #fill(,){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas)
+  --> tests/ui/fill_bad_comma.rs:60:1
+   |
+60 | #[batch_impl(usize #delegate(,){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

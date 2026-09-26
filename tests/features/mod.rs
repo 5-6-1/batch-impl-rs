@@ -8,13 +8,18 @@
 //! helper types/macros live next to their tests.
 
 pub(crate) mod block_model;
+pub(crate) mod dsl_assoc_adaptation;
 pub(crate) mod dsl_at_refs;
 pub(crate) mod dsl_basic;
 pub(crate) mod dsl_blanket;
 pub(crate) mod dsl_blanket_generic;
 pub(crate) mod dsl_bound_bindings;
 pub(crate) mod dsl_bound_generator;
+pub(crate) mod dsl_const_ranges;
 pub(crate) mod dsl_consts;
+pub(crate) mod dsl_delegate_template;
+pub(crate) mod dsl_delegate_template_scopes;
+pub(crate) mod dsl_directive_scopes;
 pub(crate) mod dsl_directives;
 pub(crate) mod dsl_distribution;
 pub(crate) mod dsl_dyn_for;
@@ -44,11 +49,13 @@ pub(crate) mod impl_entry_conflicts;
 pub(crate) mod impl_entry_extras;
 pub(crate) mod impl_entry_inherent;
 pub(crate) mod impl_entry_nested;
+pub(crate) mod impl_entry_self;
 pub(crate) mod impl_entry_trait_where;
 pub(crate) mod regression_arrays_prefix;
 pub(crate) mod regression_basics;
 pub(crate) mod regression_consistency;
 pub(crate) mod regression_macros_path;
+pub(crate) mod shape_template_adaptation;
 pub(crate) mod shape_template_advanced;
 pub(crate) mod shape_template_basic;
 pub(crate) mod shape_template_boundary;

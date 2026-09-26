@@ -1,21 +1,29 @@
+Documentation-only guide to `#delegate`: use the directive inside `#[batch_impl(...)]`; do not invoke `batch_impl_delegate!`.
+
 # The `#delegate` Directive — Delegate Calls
 
-`#delegate(args){target}` generates one delegation call per selected method:
-each becomes `fn m(&self, ...) -> R { (target).m(...) }`. The `self` argument
-is skipped; the remaining arguments are forwarded. The signature is copied
-from the trait definition; only the call body is generated.
+`#delegate(args){...}` copies each selected method's signature and forwards
+its arguments. Without `.#call`, the content is a target expression: each
+method becomes `fn m(&self, ...) -> R { (target).m(...) }`. With a recognized
+`receiver.#call`, the entire content becomes the method body, and each marker
+generates that delegation call at its own position.
 
 ## Syntax
 
 ```text
 #delegate(scope){target-expression}
+#delegate(scope){ ... receiver.#call ... }
 ```
 
 - `scope` — the method set (`@all`-family markers, name lists, `-`
   subtraction — the same directive-domain argument parser as `#fill`);
 - `target-expression` — a Rust expression the methods delegate to (usually
   `self.0`, `self.inner`, `**self`, ...). The expression is emitted verbatim
-  inside `( ... )`, so precedence is always safe.
+  inside `( ... )`, so precedence is always safe;
+- `receiver.#call` — a complete call to the current method's target name,
+  with its arguments forwarded automatically. No `()` is needed for forwarding;
+  the marker includes the call, not just its method name. No separate body-mode
+  marker is needed.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -26,6 +34,64 @@ from the trait definition; only the call body is generated.
 trait MyLen { fn d_len(&self) -> usize; }
 // → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
 ```
+
+The scope accepts one trailing comma, empty arguments (`#delegate(){self}`),
+and valid empty selections. An empty selection generates no methods. Every
+explicitly included or excluded trait method must exist; a rename's left
+side names the trait method, while Rust checks the right-side target name.
+
+## Calls inside a method body
+
+Use `receiver.#call` when different branches need different receiver types,
+or when the result needs further processing. The call stays inside its branch;
+the receivers do not need a common type:
+
+```rust
+# use batch_impl::batch_impl;
+enum Buffer { Text(String), Bytes(Vec<u8>) }
+
+#[batch_impl(Buffer #delegate(@all_methods, size = len){
+    match self {
+        Self::Text(inner) => inner.#call,
+        Self::Bytes(inner) => inner.#call,
+    }
+})]
+trait BufferOps {
+    fn size(&self) -> usize;
+    fn truncate(&mut self, len: usize);
+}
+
+let mut text = Buffer::Text("abcd".into());
+let mut bytes = Buffer::Bytes(vec![1, 2, 3, 4]);
+text.truncate(2);
+bytes.truncate(3);
+assert_eq!(text.size(), 2);
+assert_eq!(bytes.size(), 3);
+```
+
+For `size`, both markers become `inner.len()`; for `truncate`, they become
+`inner.truncate(len)`. Each call uses the same rename and argument-forwarding
+rules as the target-expression form. Ordinary method and field names in your
+body are not placeholders.
+
+Receivers may be fields, method results or parenthesized expressions:
+`self.inner.#call`, `self.inner.as_ref().#call`, `(choose_receiver()).#call`.
+The generated call is an ordinary expression, so `inner.#call.into()` and
+`inner.#call.field` operate on its result. Appending `()` also calls the
+result, so `inner.#call()` only makes sense when that result is callable.
+Rust checks receiver borrowing, moves, argument types and the final return
+type; no arguments are cloned. Forwarding uses the method's parameters even
+when a branch or closure binds local variables with the same names.
+
+Only expression-position `.#call` inside this `#delegate` body is recognized.
+Macro token bodies, attribute payloads and nested item definitions are left
+alone; markers there do not select the method-body form. Ordinary calls named
+`call` and top-level `#call(args){body}` open extensions retain their meaning.
+Without a recognized marker, the whole content remains the target expression,
+including when that expression itself contains a `match`.
+
+The macro does not add `.await` automatically. An async delegation body must
+write it explicitly, for example `self.inner.#call.await`.
 
 ## Argument forwarding
 
@@ -65,6 +131,11 @@ trait WildcardOuter {
 
 An unsupported pattern (one that cannot be forwarded and was not renamed
 successfully) reports a targeted error naming the offending pattern.
+
+Method type and const parameters are forwarded explicitly in declaration order:
+`fn make<T, const N: usize>(&self)` calls `receiver.make::<T, N>()`.
+Lifetime parameters remain inferred. This applies to both delegation forms,
+including when a type parameter cannot be inferred from ordinary arguments.
 
 ## Method renaming: `foo = call_foo`
 
@@ -164,9 +235,11 @@ model).
 ## Differences from `#blanket`
 
 `#delegate` targets an **arbitrary expression** you write
-(`#delegate(m){self.inner}`); `#blanket` targets **every wrapper around a
+(`#delegate(m){self.inner}`), or places calls inside your body with
+`receiver.#call`; `#blanket` targets **every wrapper around a
 fresh generic** (`#blanket(@all_methods){&, Box}` — one impl per wrapper,
 delegating through deref). Renaming only makes sense for `#delegate`:
-`#blanket`'s target is `T: Trait` itself, whose method names always match.
+`#blanket` explicitly calls the same trait and method, using the dereferenced
+receiver for instance methods and the fresh generic for static methods.
 
 **Documentation marker only — never call this function.**

@@ -5,7 +5,7 @@
 //! (`@ident` → the segment's i-th bound element, spliced directly — the
 //! `$(...)*` semantics; `@N` → `N + i`).
 
-use proc_macro2::{Group, Literal, Punct, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Group, Literal, TokenStream, TokenTree};
 
 use crate::codegen::VarSeg;
 /// Repairs the float-literal tokenization of `数字.@`: the tokenizer reads
@@ -17,21 +17,14 @@ pub(super) fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
     let mut out = vec![];
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
-        if let TokenTree::Literal(lit) = cur {
-            let s = lit.to_string();
-            // `strip_suffix` rather than `ends_with('.')` + `s[..s.len() - 1]`: the slice was
-            // the one production member of the indexing/slicing family the crate-level deny
-            // could not see (`clippy::string_slice` is a separate lint), and it also carried a
-            // raw `- 1` whose safety rested on the `ends_with` check.
-            if let Some(stripped) = s.strip_suffix('.')
-                && is_punct_at(&tokens, i + 1, '@')
-                && let Ok(n) = stripped.parse::<u64>()
-            {
-                out.push(TokenTree::Literal(Literal::u64_unsuffixed(n)));
-                out.push(TokenTree::Punct(Punct::new('.', Spacing::Alone)));
-                i += 1;
-                continue;
-            }
+        if let TokenTree::Literal(lit) = cur
+            && is_punct_at(&tokens, i + 1, '@')
+            && let Some((field, dot)) = crate::util::split_tuple_field_dot(lit)
+        {
+            out.push(TokenTree::Literal(field));
+            out.push(TokenTree::Punct(dot));
+            i += 1;
+            continue;
         }
         if let TokenTree::Group(g) = cur {
             let inner = fix_literal_at(g.stream().into_iter().collect::<Vec<_>>());

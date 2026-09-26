@@ -1,174 +1,210 @@
 # batch-impl
 
-**v0.9.8** (2026-09-14) — diagnostics-and-docs patch (the one semantic unification: `@N..M` end-exclusive everywhere, which is a fix to a position that contradicted the documentation): `where` predicates validated once final, splat expansion in every parameter-position list, three misleading diagnostics fixed, the retired `^` operator diagnosed, and the documentation split into a tutorial plus a reference manual. Release notes: [CHANGELOG](CHANGELOG.md).
+Repository sources (GitHub `main`): English | [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)
 
-A procedural macro crate that batch-generates `impl` blocks for Rust traits — **one line of DSL, expanded into N impls**.
+**v0.10.0 — in development (unreleased).** Breaking changes and migration from 0.9.7 are in the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
+
+Repository-source links open public `main`, which may not contain local changes.
+Run `cargo doc --no-deps --open` locally for this checkout's English documentation;
+its top navigation stays within that build. Read the Chinese tutorial and
+reference from the same source checkout.
+
+A procedural macro crate that generates Rust trait implementations for a list or matrix of types.
 
 ## Why use it
 
-Hand-writing the same trait implementation for multiple types means **repetition**: the signature is copied N times, the body is copied N times, generic parameters and associated types are each written separately, and changing one place misses three. batch-impl puts the **quantity** of impls into a description outside the human brain:
+- **Keep related implementations together.** Write which types share a body; changing that body updates the whole group.
+- **Copy signatures from your trait.** `#method{body}` fills in the named method's signature, so your implementation only supplies its body.
+- **Grow from lists to families.** Add generic containers, tuple lengths or delegated wrappers when the task needs them. The generated implementations are ordinary Rust, checked by rustc.
 
-- **One source of truth**: the trait definition is written only once (signature/generics/bound/where constraints), the DSL only writes "which types × what implementation", and the macro fills in the rest — signatures, generic bounds, associated type bindings, and even trait-level where constraints are **automatically inherited** from the trait definition, fully equivalent to hand-written code.
-- **One-line matrix**: `[...]` lists, space/`.` application, `().N` tuple generation — one DSL line describes a "type matrix", and the macro generates one impl per cell.
-- **Batch, but hand-written in feel**: `{ body }` is ordinary Rust code, `#` directives automatically copy signatures, and the generated impl is token-for-token equivalent to hand-written code — whatever rustc can verify, it can verify.
-
-A real scenario (see `examples/simplify.rs`): 12 numeric types + 4 wrapper types + 4 tuples + some miscellaneous = **30 impls from about 15 lines of DSL**, versus about 80 lines by hand.
-
-```rust
-use batch_impl::batch_impl;
-# use std::rc::Rc;
-
-// One body, one impl for each of the 4 types
-#[batch_impl(<T> Sortable<T> [Box, Rc].Vec<T> where T: Ord  {
-    fn is_sorted(&self) -> bool { self.windows(2).all(|w| w[0] <= w[1]) }
-})]
-trait Sortable<T> { fn is_sorted(&self) -> bool; }
-// → impl<T> Sortable<T> for Box<Vec<T>> where T: Ord { ... }
-// → impl<T> Sortable<T> for Rc<Vec<T>>  where T: Ord { ... }
-
-// One line generates a single 4-generic tuple impl (length ranges use `().1..=4`)
-#[batch_impl(().4)]
-trait TupleTrait {}
-// → impl<P0, P1, P2, P3> TupleTrait for (P0, P1, P2, P3,) {}
-```
-
-Beyond the core batch-impl DSL, the crate carries two deeper layers: a
-**macro-meta layer** (`@` constants / selectors / positional references — a
-small meta-language for composing generated generics) and an **open directive
-system** (`#fill` / `#delegate` / `#blanket` + user `#name` macros, including
-top-level macro injection `{! ...}`). Think of it as a batch impl generator
-with a pluggable codegen protocol — the "one line" story covers the common
-case; the layers below it cover the composing cases (dispatch matrices,
-blanket delegation, custom codegen).
-
-## Built with batch-impl
-
-**[alga2](https://docs.rs/alga2) is a real user** — a modern abstract-algebra
-hierarchy for Rust (the successor to [alga](https://docs.rs/alga)), with
-**~900 impls generated from ~80 batch-impl DSL blocks** across 15+ types
-(numbers, tuples 1–16, arrays, `Option`, `Complex`, `Quaternion`, `ModN`,
-smart pointers, collections). **alga2 0.1.0 is released** on
-crates.io; the batch-impl DSL has been its impl generator throughout
-development.
-
-## Expansion cost
-
-The DSL is a proc macro — the work happens at compile time, not runtime.
-Measured with `cargo test --lib perf -- --nocapture` (stable Rust, author's
-machine, 9 runs): a 1024-impl spec at the expansion ceiling
-(`(u8, u16, u32, u64).5` Cartesian tuple power) expands in **0.10–0.20 ms/impl**
-(105–209 ms total, the spread is machine load), and a typical 4-impl spec in
-**0.6–2.6 ms**. The test prints both numbers on every run and only asserts a loose
-order-of-magnitude bound, so treat the ranges as a snapshot, not a contract.
-The measurement runs the same pipeline the attribute entry uses, at
-proc-macro2 level (rustc's own type-checking is not included).
-
-## Mental model
-
-What you write is **a description of a "type matrix"**, and batch-impl generates an impl for every cell of the matrix:
-
-```text
-#[batch_impl( <impl-generics> TraitName<trait-generics> target-type matrix { body }? )]
-```
-
-| Symbol     | Meaning                                           | Intuition                        |
-|------------|---------------------------------------------------|----------------------------------|
-| space / `.` | apply: apply the left container/modifier to the right type | **the same operation**, only associativity differs |
-| `[A, B]`   | list                                              | horizontal expansion (Cartesian product) |
-| `(A, B)`   | tuple                                             | permutations (ordered pairs)     |
-| `*[...]` / `*(...)` | splat: flatten into the enclosing list | `[a, *[b,c]]` = `[a,b,c]`; left `*[...]` distributes / `*(...)` appends |
-| `#name`    | directive: auto-copy the item signature from the trait definition | the body doesn't hand-write signatures; `-` exclusion in directive args (`#fill(@all, -foo)`) is the only surviving use of the retired `-` operator |
-
-**The space (adjacency) is the natural way to apply**: the left side is the modifier/container/trait, the right side the target type, and chaining accumulates arguments left-associatively — `HashMap u32 String` = `HashMap<u32, String>`, `fn(A, B) C` = `fn(A, B) -> C`, `Tr u8` = `impl Tr for u8` (a bare trait name applies as the impl trait; the trait name is identified by the annotated trait). Write `Tr<u8>` for the type `Tr<u8>`.
-
-`. ` is the same operation with **right-associative** grouping, for **nesting** only: `Box.Box.u8` = `Box<Box<u8>>`, `HashMap<K> String` = `HashMap<K, String>` (space works here too). In a mixed expression the dot binds **before** the space: `Box Vec . u8` = `Box<Vec<u8>>` (the dot nests `Vec . u8` first), whereas `Box Vec u8` = `Box<Vec, u8>` — the space lists both as separate arguments.
-
-Pick by the grouping shape you want: use the space to list arguments side by side, use `.` to nest.
-
-`[A, B] [X, Y]` = a 2×2 matrix (4 impls); `(T1, T2).2` = permutations (4 ordered pairs).
+If you already have an ordinary Rust `impl`, you can [reuse that implementation](#reuse-an-existing-impl), including for an external trait, without a signature mirror. For signature-copying, filling or delegation directives, a local trait supplies its annotated definition; an external trait needs a mirror maintained through `batch_impl_only`. See [entry choices](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#11-entry-points).
 
 ## Quick start
 
-```toml
-[dependencies]
-batch-impl = "0.9.8"
+Requires **Rust 1.95 or newer**. This page describes the **unreleased 0.10.0 source tree**. To try the published 0.9.7 instead, use its [versioned documentation](https://docs.rs/batch-impl/0.9.7/batch_impl/).
+
+To try this checkout, create a small application next to it:
+
+```text
+work/
+  batch-impl/    # this source checkout
+  demo/         # your new application
 ```
 
-Requires Rust 1.95 or newer (edition 2024). The MSRV is deliberate: the
-codegen uses `Cell::update` and match-arm if-let guards (stabilized around
-1.87/1.88), and 1.95 keeps a comfortable stable margin (see the developer
-changelog for the exact adoption record).
+Run `cargo new demo` from `work/`. In `demo/Cargo.toml`, replace the existing empty `[dependencies]` section with:
+
+```toml
+[dependencies]
+batch-impl = { path = "../batch-impl" }
+```
+
+Use the checkout containing the changes you want to test. Local uncommitted changes are available through this path dependency; a Git dependency cannot retrieve them. There is no published `batch-impl = "0.10.0"` release yet.
+
+Copy this complete program into `demo/src/main.rs`:
 
 ```rust
 use batch_impl::batch_impl;
 
-// 1. Define the trait; the method signature is written only once
-trait Describe { fn describe(&self) -> String; }
+#[batch_impl([u8, u16, u32] #describe{format!("number: {self}")})]
+trait Describe {
+    fn describe(&self) -> String;
+}
 
-// 2. Write one DSL line: target type + body (the signature is auto-copied from the trait via #name)
-#[batch_impl(
-    [usize, isize] #name{"number"},
-    String #name{"string"}
-)]
-trait Tagged { fn name(&self) -> &str; }
-// → impl Tagged for usize  { fn name(&self) -> &str { "number" } }
-// → impl Tagged for isize  { fn name(&self) -> &str { "number" } }
-// → impl Tagged for String { fn name(&self) -> &str { "string" } }
-
-// 3. 0.6.2: one-line blanket — delegation impls for every wrapper type
-//    (instance methods forward via deref; @all_ref_methods selects only
-//    reference-receiver methods, by-value ones keep the trait default)
-# use std::rc::Rc;
-#[batch_impl(#blanket(@all_ref_methods){&, Box, Rc})]
-trait Describe2 { fn describe(&self) -> String; }
-// → impl<T> Describe2 for &T    where T: Describe2 { fn describe(&self) -> String { (**self).describe() } }
-// → impl<T> Describe2 for Box<T> where T: Describe2 { ... }
-// → impl<T> Describe2 for Rc<T>  where T: Describe2 { ... }
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(12u16.describe(), "number: 12");
+    assert_eq!(300u32.describe(), "number: 300");
+    println!("{}", 7u8.describe());
+}
 ```
+
+Run `cargo run` from `demo/`. All three assertions pass and the program prints `number: 7`.
+
+When reducing the targets, write `u8` for one type or `[u8,]` for a one-element list; **`[u8]` means the slice type**. Lists allow a trailing comma.
+
+`[u8, u16, u32]` selects three types. `#describe{...}` copies the signature of `Describe::describe` and gives each implementation the same body. The name after `#` is your trait's member name, not a fixed keyword. One of the three generated implementations is:
+
+```text
+impl Describe for u8 {
+    fn describe(&self) -> String { format!("number: {self}") }
+}
+```
+
+## Reuse an existing impl
+
+If you already have an implementation, add the attribute to it. Here is another complete program:
+
+```rust
+use batch_impl::batch_impl;
+
+struct UserId(u64);
+struct OrderId(u64);
+
+#[batch_impl(@Self: [UserId, OrderId])]
+impl std::fmt::Display for UserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "id:{}", self.0)
+    }
+}
+
+fn main() {
+    assert_eq!(UserId(7).to_string(), "id:7");
+    assert_eq!(OrderId(12).to_string(), "id:12");
+}
+```
+
+`@Self` denotes the input impl's self type (`UserId` here); the list supplies the generated targets. The generated implementations replace the original impl, so include `UserId` to keep its implementation. This entry reuses complete methods and needs neither `#fmt` nor a signature mirror of `Display`.
+
+The fields, methods, constructors and bounds used by the implementation must work for every target; here both types have a displayable `.0` field. See the tutorial's [entry choices](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#11-entry-points) for the details.
+
+## Continue with the same trait
+
+Return to the quick start's `Describe` and replace that program with this extension. It adds a generic `Vec<T>` implementation and delegates `Box<T>` to any inner `T` that implements `Describe`:
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")},
+    <T> Vec<T> #describe{format!("{} items", self.len())},
+    #blanket(@all_ref_methods){Box}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(vec![1, 2, 3].describe(), "3 items");
+    assert_eq!(Describe::describe(&Box::new(7u8)), "number: 7");
+}
+```
+
+The `<T> Vec<T>` entry declares an impl generic. `#blanket` generates `impl<T: Describe> Describe for Box<T>`; its reference-receiver methods forward to the inner value. The last assertion calls that wrapper implementation explicitly.
+
+For a type with different behavior, give it a separate spec and let the remaining types share a body. **Local and shared bodies merge; neither overrides the other.** Supplying the same method twice is an error. The [continuous exercise](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#1-implement-and-call-one-method) walks through adding types, methods, special behavior, generic bounds and wrapper forwarding.
+
+For a wrapper you own, `#delegate` forwards through a field. For an enum with different inner types, `inner.#call` forwards inside each branch. Continue in the [delegation tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#7-the-directive-system-).
+
+## When the result is unexpected
+
+Temporarily put the attribute and its trait or impl inside `batch_impl::batch_preview!`:
+
+```text
+batch_impl::batch_preview! {
+    #[batch_impl([u8, u16, u32] #describe{format!("number: {self}")})]
+    trait Describe { fn describe(&self) -> String; }
+}
+```
+
+Run `cargo check` and read the generated Rust in the diagnostic. **The preview deliberately reports a compile error to display its output.** Compare it with the implementation you intended, adjust the DSL, then remove the preview wrapper and compile normally. The [preview tool](https://github.com/5-6-1/batch-impl-rs/blob/main/src/doc/batch_preview.md) also provides complete examples for `batch_impl_only` and ordinary impl entries.
+
+For example, `Box.Vec u32` expands to `Box<Vec, u32>`. Rust may complain about missing generic arguments or `allocator_api`; the diagnostic need not show the whole generated type. To express nesting, write `Box (Vec u32)`, `Box.Vec.u32`, or the ordinary Rust type `Box<Vec<u32>>`.
+
+## Reading type expressions
+
+Start with ordinary Rust types and lists. Space applies arguments from left to right; `.` groups from the right for nesting:
+
+| Writing | Meaning |
+|---|---|
+| `[u8, u16]` | One implementation for each type |
+| `Vec u8` | `Vec<u8>` |
+| `HashMap u32 String` | `HashMap<u32, String>` |
+| `Box (Vec u8)` / `Box.Vec.u8` | `Box<Vec<u8>>` |
+| `[Box, Vec] [u8, u16]` | Four container/type combinations |
+| `().3` | One generic three-element tuple implementation |
+
+Space and `.` remain left- and right-associative respectively; `.` binds before space. Parentheses make the intended grouping explicit. The [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md) develops these rules through examples; the [reference](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) records their boundaries.
 
 ## Feature overview
 
-**Core (80% of use cases — start here):** side-by-side lists, space/`.` application, `where{...}`, tuple generation, and the splat cover most real matrices; §1–§5 of the tutorial are enough. Everything below the core line is a deeper layer (macro-meta `@`, directives, shape templates) — useful when you need it, ignorable when you don't.
+The first learning path is lists and a shared method body, then generics, constraints and delegation. The rest is available as needed; compact expressions are optional.
 
-| Feature                                          | In one sentence                              | Tutorial chapter | Tier |
-|--------------------------------------------------|----------------------------------------------|------------------|------|
-| Side-by-side lists `[A, B]`                      | Implement for multiple types at once, body reused | §3 | core |
-| space / `.` operators                          | Left/right associativity of the same operation: accumulation vs. nesting | §2 | core |
-| `where{...}`                                     | Unified constraint container (`<>` keeps only names), blanket constraints merged side by side | §8 | core |
-| Tuple generation                                 | `().3`, `(T,).N`, Cartesian product, ranges  | §9 | core |
-| Splat `*` prefix                                | Flatten containers/generators into the enclosing list — in-list splice, `.` right-operand flat append, generic multi-arg; left operand `*[...]` distribute / `*(...)` append | §4 | core |
-| Generic automation                               | `A<>` copied as-is, same-name inheritance, trait where-clause inheritance | §5 | core |
-| Associated type bindings                         | `Iter<Item=T>` → `type Item = T;` — accepted on a trait path, in a declaration **and in a bound** (`T: Iterator<Item = u8>`, `dyn Iterator<Item = u8>`) | §5.3, §5.7 | core |
-| fn types / unsafe / pointers / attributes        | Full support for type-level modifiers (`unsafe fn` is the fn type; `unsafe.fn` marks the impl unsafe), including named parameters (`fn(x: u8) -> u8`) | §5.7, §10 | core |
-| `@` constants                                    | Built-in families `@u*`/`@scalar`/`@u8..u128` + `@trait`/`@all` family/`@Cow` + `batch_trait!` leading `@name=value;` custom sections (lazy expansion, chained references; attribute macros do not support them — write matrices directly) | §6 | advanced |
-| Generic parameter families                     | `@all_type_params` / `@all_const_params` / `@all_lifetimes` — generic declarations copy the trait's formal params (bounds via same-name inheritance) | §6 | advanced |
-| Unified macro-meta layer `@`                      | `#` keeps only directive names; scope selection (`@all` family, incl. required/default and receiver filters) and positional references (`@N`, `@g_i`, `@all_fresh`, `@N..=M`) belong to the macro-meta layer | §6 | advanced |
-| Directive system `#name`/`#fill`/`#delegate`     | Auto-copy signatures, batch-fill bodies, delegate calls | §7 | advanced |
-| Blanket delegation `#blanket`                    | Generate delegated impls from a wrapper matrix in one line (any wrapper + `:N`, generic traits, assoc projections, wrapper where predicates, static methods forwarded via `t`) | §7 | advanced |
-| Open extension                                   | Unknown `#name(args){body}` becomes a top-level macro call: your same-named macro receives `{spec}(args){body}trait` and emits its own impl | §7 | advanced |
-| Variadic segments + repeat blocks                | `ident@..` in `impl{...}` templates (cover every remaining tuple position) + `@(...)..` body repetition (`@ident` names, `@N` index cursors) — one spec covers every tuple arity | §8.4 | advanced |
-| Shape templates `impl{...}`                      | Batch-instantiate a prototype impl: bind its Self shape to a template, and slot substitution rewrites the target, the `where` predicates and the body | §8.4 | advanced |
-| impl entry (ItemImpl)                            | `#[batch_impl]` on an `impl` block: derive impls from a spec list, with stacked attributes running as stages in source order (a later stage binds the slots an earlier one left) | §8.5 | advanced |
+| Feature | Use it for | Tutorial source (GitHub main) |
+|---|---|---|
+| Lists and `#method{body}` | Give several types one implementation body | [§1](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#1-implement-and-call-one-method), [§3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#3-lists-and-body) |
+| Ordinary impl entry | Apply an implementation you already wrote to several targets | [§11](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#11-entry-points) |
+| Space / `.` and grouping | Apply generic arguments and nest containers | [§2](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#2-type-matrix-the-space-and-) |
+| Generic inheritance and associated types | Reuse trait parameters, bounds and associated-type bindings | [§5](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#5-generics-) |
+| `where` | Add constraints to a group of implementations | [§8.1–§8.3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#8-where-clauses) |
+| `#fill`, `#delegate`, `#blanket` | Fill several members or forward methods to inner types | [§7](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#7-the-directive-system-) |
+| Splat `*` | Flatten lists and append groups of arguments | [§4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#4-splat---the-flatten-operator-the-protagonist-of-070) |
+| `@` constants and positional references | Select type families or refer to generated parameters | [§6](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#6-the--constant-system-macro-meta-layer) |
+| Tuple lengths and Cartesian powers | Generate tuple families and type combinations | [§9](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#9-tuple-generation-and-matrices) |
+| Shape templates | Instantiate an implementation pattern across nested types | [§8.4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#84-the-impl-shape-templates-080) |
+| Type modifiers | References, pointers, function types, attributes and unsafe impls | [§10](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#10-the-modifier-gallery) |
+| Open directives and repeat blocks | Extend generation or repeat a body over tuple positions | [§7](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#7-the-directive-system-), [§8.4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#84-the-impl-shape-templates-080) |
 
-> **Shorthand**: a single method `#fill([foo]){body}` equals `#foo{body}` (`docs/reference.md` §6.3 / §6.4).
-> **Bare form**: predicates plus a code block can be written `where predicates { code block }` (`docs/reference.md` §7.1).
+For shared code, choose the spelling that makes the generated implementations easiest to review. Use a named type, explicit generic arguments or parentheses when they communicate the task better than a compressed matrix expression.
 
-## Syntax-freeze commitment (0.7.2)
+## Built with batch-impl
 
-The semantics of every existing token are **final** — `.`/space, `[]`/`()`/`<>`, `where`, the `#` directives, the `@` constants, and the splat will not change behavior again. Future releases only **add** (new directives / constants / tools), refine diagnostics, and polish docs; any change to existing semantics is a deliberate breaking release (the `@N` stability commitment, now extended to the whole surface). `@g_i` / `@all_fresh` / `@N..M` are power-user tier (tutorial §6.4) — start from `@u*` / `@all_methods` / `@0`.
+[alga2](https://docs.rs/alga2) uses batch-impl for an abstract-algebra hierarchy across numbers, tuples, arrays, smart pointers and other types. The repository's [simplify example](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs) shows a smaller complete case: **30 implementations from about 15 lines of DSL**.
 
-One exception, written down because it has happened: a position that **contradicts the documented behaviour** is a bug, and fixing it is a normal release — the changelog names the spelling that changed and what it means now (example: `@N..M` became end-exclusive in type positions so that all positions agree with the where-predicate path). A change to the *surface* itself — dropping, renaming, or re-meaning a token in a way the docs do not already imply — stays a deliberate breaking release.
+The library is most useful when many implementations follow the same rules or need coordinated updates. For a few independent implementations, compare the amount of repetition with what your teammates would need to learn. External traits used through `batch_impl_only` also carry the cost of maintaining their signature mirrors.
+
+## Expansion cost
+
+The macro runs at compile time. `cargo test --lib perf -- --nocapture` measures the expansion pipeline, excluding rustc's type checking. On the author's machine, nine stable-Rust runs measured a 1024-impl Cartesian spec at **0.10–0.20 ms/impl** and a typical four-impl spec at **0.6–2.6 ms**. These are observations, not performance guarantees; the test prints current measurements when run.
+
+## Compatibility and migration
+
+Existing token semantics are covered by the syntax-freeze commitment introduced in 0.7.2. Compatible releases add capabilities, improve diagnostics and correct behavior that contradicts the documented rules. Deliberate syntax changes require a compatibility boundary and migration notes.
+
+This development cycle targets **0.10.0**, rather than the previously planned 0.9.8, because it includes deliberate breaking changes. Cargo's `"0.9.7"` requirement permits 0.9.8 but excludes 0.10.0; see [Cargo's version rules](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements).
+
+- Replace removed `@all_fresh` with `@0..`.
+- Rename custom constants named `Self`; `@Self` is now reserved for the impl entry's input self type.
+- Named type-family ranges follow Rust's endpoint convention: `@u8..u16` selects only `u8`; use `@u8..=u16` to keep both. Omitted upper endpoints still include the family's final member.
+
+The [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) records the full migration. The source and docs on `main` describe ongoing development; use a release's versioned documentation when maintaining that release.
 
 ## Next steps
 
-- **Full tutorial**: `docs/tutorial.md` (progressive, from a one-line impl to advanced matrix combinations)
-- **Reference manual**: `docs/reference.md` (look-up: the position × construct legality matrix, the complete diagnostics catalog with the fixture that locks each message, ceilings and guarantees)
-- **Entry points**: `#[batch_impl]` (includes the trait) / `#[batch_impl_only]` (impls only) / `batch_trait!` (batch-generate for an already declared trait, multi-section support) — plus the impl entry, `batch_preprocess_test!` and `batch_preview!` (reference §9)
-- **impl entry / shape template (0.8.0)**: the **ItemImpl entry** — `#[batch_impl]` also accepts an `impl` block and batch-instantiates it from a shape-template × matrix-source (tutorial §8.5); the **`impl{...}` Self-part shape templates** — bind the generated impl's target shape and write **one prototype impl per shape family** to cover a whole matrix, incl. lifetime-bearing families like `Cow` (tutorial §8.4)
-- **Variadic segments + repeat blocks (0.8.2)**: `ident@..` template segments and `@(...)..` body repetition — the alga2-style `().1..=4 where @0..: Magma impl{(A@..)} #combine{...}` covers every tuple arity with one spec (tutorial §8.4)
-- **Expansion preview**: `batch_preview!` (wrap the `#[batch_impl(...)] trait` / `#[batch_impl(...)] impl` input and read the real expansion, plus space/`.` associativity miswrite notes)
-- **Examples**: `examples/quickstart.rs` (feature demo), `examples/simplify.rs` (a real scenario with 30 impls ≈ 15 lines of DSL), `examples/typeclass.rs` (type-class style: a `Num`/`UNum`/`INum`/`FNum` hierarchy + 36 `From<bool>` impls for `Frac<T, U>`)
-- **Developers**: internal architecture in `docs/architecture.md`, development changelog in `docs/dev-changelog.md`
+- [Tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md): start with one useful implementation, then follow the task-based reading route.
+- [Reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md): syntax rules, legal positions, diagnostics and limits.
+- [Runnable quickstart](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/quickstart.rs), [simplify](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs), and [typeclass](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/typeclass.rs): complete examples; run with `cargo run --example quickstart` (or the other example name).
+- [Architecture](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/architecture.md), [development guide](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/development-guide.md), and [developer changelog](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/dev-changelog.md): contributor documentation.
 
 ## License
 

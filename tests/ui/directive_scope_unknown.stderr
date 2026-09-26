@@ -1,0 +1,87 @@
+error: batch-impl: item `typo` not found in trait `RemovedUnknown`
+ --> tests/ui/directive_scope_unknown.rs:6:1
+  |
+6 | #[batch_impl(usize #fill(typo, -typo){unused})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: item `typo` not found in trait `UnknownExclusion`
+  --> tests/ui/directive_scope_unknown.rs:11:1
+   |
+11 | #[batch_impl(usize #fill(@all, -typo){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: item `typo` not found in trait `UnknownEmptyExclusion`
+  --> tests/ui/directive_scope_unknown.rs:16:1
+   |
+16 | #[batch_impl(usize #fill([], -[typo,]){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: item `typo` not found in trait `NestedUnknownExclusion`
+  --> tests/ui/directive_scope_unknown.rs:21:1
+   |
+21 | #[batch_impl(usize #fill([known, -[typo,],]){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: item `typo` not found in trait `RemovedUnknownRename`
+  --> tests/ui/directive_scope_unknown.rs:26:1
+   |
+26 | #[batch_impl(usize #delegate(typo=target, -typo,){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: item `typo` not found in trait `UnknownBeforeRename`
+  --> tests/ui/directive_scope_unknown.rs:31:1
+   |
+31 | #[batch_impl(usize #delegate(typo known=target, -typo,){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: item `typo` not found in trait `UnknownDelegateExclusion`
+  --> tests/ui/directive_scope_unknown.rs:36:1
+   |
+36 | #[batch_impl(usize #delegate([], -typo,){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: item `typo` not found in trait `UnknownBlanketExclusion`
+  --> tests/ui/directive_scope_unknown.rs:41:1
+   |
+41 | #[batch_impl(#blanket(@all, -typo,){Box})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: in directive arguments, expected an identifier, comma, `[...]` list, or `-` exclusion, got `7`
+  --> tests/ui/directive_scope_unknown.rs:46:1
+   |
+46 | #[batch_impl(usize #delegate(7 known=target){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: #delegate rename `X = Y` needs a single identifier on the right (e.g. `#delegate(size = len)`)
+  --> tests/ui/directive_scope_unknown.rs:51:1
+   |
+51 | #[batch_impl(usize #delegate(known=target extra){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: #delegate rename `X = Y` needs identifiers on both sides (e.g. `#delegate(size = len)`)
+  --> tests/ui/directive_scope_unknown.rs:56:1
+   |
+56 | #[batch_impl(usize #delegate(-known=target){unused})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,15 +1,16 @@
 //! The `impl{...}` shape templates: shape-match coverage for the full range of `syn::Type` forms:
 //! slices `[A]`, fixed arrays with literal lengths `[A; 3]`, tuples
 //! `(A, B, C)`, references with lifetimes `&'static A`, parenthesized
-//! types, nested arrays, multi-segment paths, and verbatim forms that must
-//! match themselves exactly (fn pointers / trait objects — the verbatim
-//! fallback binds nothing, so only identical templates work there).
+//! types, nested arrays, multi-segment paths, function pointers, and verbatim
+//! forms that must match themselves exactly (trait objects — the fallback
+//! binds nothing, so only identical templates work there).
 //!
+//! A bare const name in an array length binds (`[A; N]` vs `[u8; 3]`
+//! binds `A` to `u8` and `N` to `3`); literal lengths compare verbatim.
 //! What CANNOT be bound today (see `tests/ui/impl_*` for the locked
-//! diagnostics): the length of a fixed array (`[A; N]` vs `[u8; 3]` — the
-//! length compares verbatim), a lifetime argument vs a type argument
-//! (`Cow<'_, A>` vs `Pair<u8, u16>` — `'_` cannot bind `u8`), and slot
-//! binding inside fn-pointer / trait-object templates (verbatim fallback).
+//! diagnostics): a lifetime argument vs a type argument (`Cow<'_, A>`
+//! vs `Pair<u8, u16>` — `'_` cannot bind `u8`), and slot binding inside
+//! trait-object templates (verbatim fallback).
 
 use batch_impl::batch_impl;
 use std::borrow::Cow;
@@ -109,8 +110,8 @@ fn shape_multi_segment_path() {
 }
 
 // ------------------------------------------------------------
-// 8. fn-pointer type — verbatim fallback: an identical template matches
-//    itself (zero bindings), a templated one cannot bind
+// 8. fn-pointer type — an identical signature matches with zero bindings;
+//    parameter/return adaptation is covered by shape_template_adaptation.
 // ------------------------------------------------------------
 #[batch_impl(fn(u8) -> u16 impl{fn(u8) -> u16} { fn invoke(&self, x: u8) -> u16 { self(x) } })]
 trait ShapeFn {

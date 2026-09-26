@@ -55,8 +55,8 @@ pub(crate) struct TraitBounds {
 
 /// Collect generic param names (Lifetime → `'a`, Type/Const → ident).
 ///
-/// Reused by `A<>` arg copying (empty_generics.rs) and `#blanket` generic args
-/// (blanket.rs) — the two line-by-line isomorphic implementations converge here.
+/// Reused by `A<>` arg copying (empty_generics.rs) and `#blanket` trait/GAT
+/// applications (blanket.rs). Declarations and bounds stay at their own sites.
 /// Note: quote interpolation does not support field access (`#tp.ident` would treat
 /// `.ident` as a literal), so take a reference before interpolating.
 pub(crate) fn generic_param_names(generics: &syn::Generics) -> Vec<TokenStream> {
@@ -64,7 +64,10 @@ pub(crate) fn generic_param_names(generics: &syn::Generics) -> Vec<TokenStream> 
         .params
         .iter()
         .map(|p| match p {
-            syn::GenericParam::Lifetime(ld) => quote!(#ld),
+            syn::GenericParam::Lifetime(ld) => {
+                let lifetime = &ld.lifetime;
+                quote!(#lifetime)
+            }
             syn::GenericParam::Type(tp) => {
                 let id = &tp.ident;
                 quote!(#id)

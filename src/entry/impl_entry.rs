@@ -44,8 +44,8 @@ use syn::ItemImpl;
 use crate::ast::TyKind;
 use crate::ast::reset_fresh_counter;
 use crate::codegen::{
-    FreshCtx, Mapping, apply_mapping, collect_used_surfaces, expand_range_refs, hoist_type_params,
-    match_shape, resolve_where_predicates, used_ident_set,
+    FreshCtx, Mapping, apply_type_mapping, collect_used_surfaces, expand_range_refs,
+    hoist_type_params, match_shape, resolve_where_predicates, used_ident_set,
 };
 use crate::entry::impl_spec::{
     assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
@@ -114,8 +114,12 @@ pub(crate) fn expand_impl_entry(
     // bare-`where` rewrite. The stream's states enforce the order; the
     // ItemImpl tail is `Paired → DirectivesResolved → WhereDone` ----
     let trait_path_ts = trait_path.as_ref().map(|p| p.to_token_stream());
+    let self_ty_ts = item.self_ty.to_token_stream();
     let paired = stream_new(attr_vec)
-        .preprocess(ConstCtx::ItemImpl { trait_path: trait_path_ts.as_ref() })?
+        .preprocess(ConstCtx::ItemImpl {
+            trait_path: trait_path_ts.as_ref(),
+            self_ty: &self_ty_ts,
+        })?
         .reject_directives()?
         .where_process()?;
     let paired = paired.into_tokens();
@@ -151,9 +155,10 @@ fn expand_one_spec(
 }
 
 /// Shape form: `shape-template : new-generic-decl? matrix-source?` — the
-/// template matches each matrix leaf; the slot mapping is **textually
-/// applied** to the impl's for-Type / where predicates / body (the for-Type
-/// need not mirror the template ident-for-ident).
+/// template matches each matrix leaf; the mapping rewrites the impl's for-Type,
+/// trait arguments, where predicates and body. Type-position rewrites preserve
+/// fn parameter labels; body rewriting is lexical. The for-Type need not mirror
+/// the template ident-for-ident.
 fn expand_shape_form(
     spec: &[TokenTree], colon: usize, where_preds: &[TokenTree], item: &ItemImpl,
     trait_path: Option<&syn::Path>,
@@ -299,8 +304,32 @@ fn expand_leaf(
             e.span(),
         )
     })?;
-    let (mut m, mut template_segs) =
-        match_shape(template, &leaf_ty).map_err(|e| compile_error_str(&e.message(), leaf_span))?;
+    let mut declared_consts = item
+        .generics
+        .params
+        .iter()
+        .filter(|p| crate::ast::ParamKind::of_generic_param(p).is_const())
+        .map(crate::ast::name_of_generic_param)
+        .collect::<HashSet<_>>();
+    if let Some(declaration) = new_gen
+        && let Ok(generics) = syn::parse2::<syn::Generics>(quote!(<#declaration>))
+    {
+        declared_consts.extend(
+            generics
+                .params
+                .iter()
+                .filter(|p| crate::ast::ParamKind::of_generic_param(p).is_const())
+                .map(crate::ast::name_of_generic_param),
+        );
+    }
+    declared_consts.extend(
+        fresh_decls
+            .iter()
+            .filter(|(name, _)| crate::ast::ParamKind::of_name(name).is_const())
+            .map(|(name, _)| crate::ast::ParamKind::bare_name(name).to_string()),
+    );
+    let (mut m, mut template_segs) = match_shape(template, &leaf_ty, &declared_consts)
+        .map_err(|e| compile_error_str(&e.message(), leaf_span))?;
     // The leaf's own templates (`impl{...}`) match the same leaf and merge:
     // their slots must agree (inconsistent bindings error), their segments
     // (the `T@..` driving the body's `fresh!`) join. The same merge the
@@ -314,13 +343,13 @@ fn expand_leaf(
         let lt_ty: syn::Type = syn::parse2(lt_tokens).map_err(|e| {
             compile_error_str("batch-impl: the `impl{...}` template is not a valid type", e.span())
         })?;
-        let (m2, segs2) =
-            match_shape(&lt_ty, &leaf_ty).map_err(|e| compile_error_str(&e.message(), lt_span))?;
+        let (m2, segs2) = match_shape(&lt_ty, &leaf_ty, &declared_consts)
+            .map_err(|e| compile_error_str(&e.message(), lt_span))?;
         m.merge(m2).map_err(|e| compile_error_str(&e.message(), lt_span))?;
         template_segs.extend(segs2);
     }
     // for-Type: slot names rewritten to the bound leaf subtrees.
-    let for_ty = apply_mapping(item.self_ty.to_token_stream(), &m);
+    let for_ty = apply_type_mapping(item.self_ty.to_token_stream(), &m);
     // where predicates: the template region's (peel_where) plus this leaf's
     // `where{...}` attachments — each resolves independently against the
     // leaf's fresh names.

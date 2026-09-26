@@ -19,10 +19,12 @@ pub(crate) fn split_range_endpoint(s: &str) -> Option<(char, u32)> {
     legal.contains(&width).then_some((fam, width))
 }
 
-/// Built-in range families: `@u8..u128` (inclusive) → type list in ascending
-/// width. Mismatched endpoint families or start > end return `Err` (the
-/// caller builds the diagnostic).
-pub(crate) fn builtin_range(start: &str, end: &str) -> Result<Vec<String>, String> {
+/// Built-in range families in ascending width: `..` excludes the endpoint,
+/// `..=` includes it. Invalid, reversed and empty ranges are diagnosed like
+/// the DSL's other finite ranges; the caller adds the diagnostic prefix.
+pub(crate) fn builtin_range(
+    start: &str, end: &str, inclusive: bool,
+) -> Result<Vec<String>, String> {
     let Some((fam1, w1)) = split_range_endpoint(start) else {
         return Err(format!(
             "`@{}` has an invalid width (legal: u/i are 8/16/32/64/128, \
@@ -43,20 +45,27 @@ pub(crate) fn builtin_range(start: &str, end: &str) -> Result<Vec<String>, Strin
     if w1 > w2 {
         return Err(format!("range start is greater than end: `{}..{}`", start, end));
     }
+    if !inclusive && w1 == w2 {
+        return Err(format!("empty exclusive range `{start}..{end}` (start not below end)"));
+    }
     let widths: &[_] = match fam1 {
         'u' | 'i' => &[8, 16, 32, 64, 128],
         _ => &[32, 64],
     };
-    Ok(widths.iter().filter(|&&w| w >= w1 && w <= w2).map(|w| format!("{}{}", fam1, w)).collect())
+    Ok(widths
+        .iter()
+        .filter(|&&w| w >= w1 && (w < w2 || inclusive && w == w2))
+        .map(|w| format!("{}{}", fam1, w))
+        .collect())
 }
 
 /// Range families with **omitted endpoints**: `@..u128` (family minimum) /
 /// `@u16..` (family maximum). At least one concrete endpoint must anchor the
-/// family; the omitted side resolves to the family's minimum (`start`) or
-/// maximum (`end`), then the full [`builtin_range`] validation runs — error
-/// wording and width checks stay in one place.
+/// family. An omitted start uses its minimum; an omitted end includes the
+/// family's maximum, while an explicit end obeys `inclusive`. Validation is
+/// shared with [`builtin_range`].
 pub(crate) fn builtin_range_open(
-    start: Option<&str>, end: Option<&str>,
+    start: Option<&str>, end: Option<&str>, inclusive: bool,
 ) -> Result<Vec<String>, String> {
     let anchor = start.or(end).ok_or_else(|| "`@..` names no family".to_string())?;
     let (fam, _) = split_range_endpoint(anchor).ok_or_else(|| {
@@ -71,7 +80,7 @@ pub(crate) fn builtin_range_open(
         Some(e) => e.to_string(),
         None => format!("{fam}{max_w}"),
     };
-    builtin_range(&s, &e)
+    builtin_range(&s, &e, end.is_none() || inclusive)
 }
 
 #[cfg(test)]
@@ -80,34 +89,62 @@ mod range_open_tests {
 
     #[test]
     fn open_left_resolves_family_min() {
-        // endpoint semantics match `@u8..u128` exactly — usize is a member
+        // Endpoint semantics match `@u8..=u128` exactly — usize is a member
         // of the `@u*` name family but NOT a range-family endpoint
         assert_eq!(
-            builtin_range_open(None, Some("u128")).unwrap(),
+            builtin_range_open(None, Some("u128"), true).unwrap(),
             ["u8", "u16", "u32", "u64", "u128"]
         );
-        assert_eq!(builtin_range_open(None, Some("i64")).unwrap(), ["i8", "i16", "i32", "i64"]);
-        assert_eq!(builtin_range_open(None, Some("f64")).unwrap(), ["f32", "f64"]);
+        assert_eq!(
+            builtin_range_open(None, Some("i64"), true).unwrap(),
+            ["i8", "i16", "i32", "i64"]
+        );
+        assert_eq!(builtin_range_open(None, Some("f64"), true).unwrap(), ["f32", "f64"]);
     }
 
     #[test]
     fn open_right_resolves_family_max() {
-        assert_eq!(builtin_range_open(Some("u16"), None).unwrap(), ["u16", "u32", "u64", "u128"]);
-        assert_eq!(builtin_range_open(Some("f32"), None).unwrap(), ["f32", "f64"]);
+        assert_eq!(
+            builtin_range_open(Some("u16"), None, false).unwrap(),
+            ["u16", "u32", "u64", "u128"]
+        );
+        assert_eq!(builtin_range_open(Some("f32"), None, false).unwrap(), ["f32", "f64"]);
     }
 
     #[test]
     fn both_endpoints_delegate_to_full_validation() {
-        assert_eq!(builtin_range_open(Some("u8"), Some("u32")).unwrap(), ["u8", "u16", "u32"]);
+        assert_eq!(
+            builtin_range_open(Some("u8"), Some("u32"), true).unwrap(),
+            ["u8", "u16", "u32"]
+        );
         // family mismatch still errors through the delegated path
-        assert!(builtin_range_open(None, Some("i128")).is_ok());
-        assert!(builtin_range_open(Some("u8"), None).is_ok());
+        assert!(builtin_range_open(None, Some("i128"), false).is_ok());
+        assert!(builtin_range_open(Some("u8"), None, false).is_ok());
     }
 
     #[test]
     fn no_anchor_errors() {
-        assert!(builtin_range_open(None, None).is_err());
-        assert!(builtin_range_open(None, Some("u9")).is_err());
-        assert!(builtin_range_open(Some("x8"), None).is_err());
+        assert!(builtin_range_open(None, None, false).is_err());
+        assert!(builtin_range_open(None, Some("u9"), false).is_err());
+        assert!(builtin_range_open(Some("x8"), None, false).is_err());
+    }
+
+    #[test]
+    fn explicit_endpoints_obey_rust_range_operators() {
+        for (start, end) in [("u8", "u16"), ("i8", "i16"), ("f32", "f64")] {
+            assert_eq!(builtin_range(start, end, false).unwrap(), [start]);
+            assert_eq!(builtin_range(start, end, true).unwrap(), [start, end]);
+            assert_eq!(builtin_range_open(None, Some(end), false).unwrap(), [start]);
+            assert_eq!(builtin_range(start, start, true).unwrap(), [start]);
+        }
+    }
+
+    #[test]
+    fn empty_and_reversed_ranges_remain_diagnostics() {
+        assert!(builtin_range("u8", "u8", false).unwrap_err().contains("empty exclusive range"));
+        assert!(builtin_range_open(None, Some("u8"), false).is_err());
+        assert!(builtin_range("u32", "u8", false).is_err());
+        assert!(builtin_range("u32", "u8", true).is_err());
+        assert!(builtin_range("u8", "i16", false).is_err());
     }
 }

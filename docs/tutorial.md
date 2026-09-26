@@ -1,56 +1,398 @@
 # batch-impl Tutorial
 
-**v0.9.8** (2026-09-14) — diagnostics-and-docs patch: `@N..M` is end-exclusive in every position (the one semantic unification — a fix to a position that contradicted the documentation, not new surface), `where` predicates are validated once final, a splat expands in every parameter-position list, several misleading diagnostics are fixed (literal/range, generator wording, the retired `^` operator), and this tutorial has a companion reference manual (`docs/reference.md`).
+**v0.10.0 — in development (unreleased).** This tutorial describes the development working tree. See [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) for pending changes and migration notes.
 
-Progressive DSL learning: from a one-line impl to advanced matrix combinations. All examples are compilable code (the code blocks of this English tutorial double as doctests), and every step's output is plain Rust — the generated impls are token-equivalent to handwritten ones.
+**Repository sources (GitHub main)**: English · [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) · [Reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md)
 
-## 0. Three systems + one operator
+The GitHub links above and throughout this page open repository sources;
+public `main` may not yet match this local working tree. Links between this
+tutorial's sections stay on the current page.
 
-Every capability of batch-impl is built from three pillars (polished continuously from 0.0 to 0.6) plus one operator (0.7.0):
+Start by implementing a method for one type, then extend the same program
+through five changes. The macro generates ordinary Rust impls; if you
+already have a complete impl, you can start from that instead.
 
-| Part | Notation | Role |
-|---|---|---|
-| **apply system** | `.` / space / `[]` / `()` | Type matrix: apply the left container/modifier to the right type, lists expand into multiple impls |
-| **directive system** | `#name` / `#fill` / `#delegate` / `#blanket` | Copy signatures from the trait definition, fill bodies in bulk, delegate calls, blanket delegation |
-| **constant system** | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | Macro-meta layer: name and reuse type-matrix entries, pure lexical substitution — the listed families work everywhere, while custom `@name=...` sections are **`batch_trait!`-only** (§6.3) |
-| **`*` operator** | `*[...]` / `*(...)` | Flatten: splice a container/generator into the enclosing list — new in 0.7.0, effective in every position |
+## 0. Choose a Reading Path
 
-**Preprocessing order** (fixed four-stage pipeline): `@` constant expansion → `<>` angle-bracket pairing → `#` directive expansion → `where` processing. The order decides what you can write into what: `@` results may contain `<>` (paired afterwards), `#` arguments may reference `@`-expanded lists, `where` sees the complete structure last.
+For a first pass, complete [§1's continuous task](#1-implement-and-call-one-method):
+add types, add a method, give a special type its own spec, add a generic
+bound, and forward a wrapper's methods. If you already have an ordinary
+impl, or are implementing an external trait, start with
+[the impl entry in §1.6](#16-start-from-an-ordinary-display-impl).
+Both are everyday routes; neither requires shape templates or generators.
 
-**Where to look for what** — the task-first index. The **tier** column matches README's feature table: the core path is §1–§5, §8.1–§8.3 and §9–§13, while §6, §7 and §8.4/§8.5 are the advanced layer — read them when you need them, and the core path continues without them. (One exception: §13's walkthrough uses §7's directives, so read §7 first if you go straight to the real files.)
+Use the remaining chapters by topic. Learn ordinary types and generics
+before splat, which becomes useful when you need to fill several type
+arguments at once. The task already introduces signature copying and simple
+delegation. Consult complete directive rules, generators and custom
+extensions when needed, rather than reading every chapter in order.
+
+With the dependency configured as described in the
+[README](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md), each complete
+program in §1 can replace `src/main.rs`; run it with `cargo run`. Steps
+§1.1–§1.5 preserve the previous behavior and introduce only their stated
+change; §1.6 is a separate program for the other entry route.
+Code blocks from §2 onward are independent examples. Some include lines starting with `# ` for
+rustdoc's hidden setup: when copying Markdown source, remove that prefix
+and keep the rest of the line. It is a documentation convention, not DSL
+syntax. The English Rust blocks are doctests unless marked `ignore`;
+diagnostic demonstrations below use `text` blocks.
 
 | If you want to… | Go to | Tier |
 |---|---|---|
-| implement one method for many types | §1, §3 | core |
-| wrap a matrix of types (space, `.`, lists) | §2 | core |
-| give several types one shared body | §3 | core |
-| splice a container/generator into a list (`*`) | §4 | core |
-| declare generics, inherit or add bounds, use a qualified type | §5 | core |
-| constrain with `where` | §8.1–§8.3 | core |
-| generate tuples, every arity, and Cartesian matrices | §9 | core |
-| reach for references, pointers, `unsafe`, attributes, `!`, `self` | §10 | core |
-| pick between the entry macros | §11 | core |
-| see what an error means | §12 | core |
-| read a whole real file | §13 | core |
-| address generated parameters (`@N` / `@g_i` / ranges) | §6 | advanced |
-| copy signatures, delegate, blanket-delegate, extend with your own macro | §7 | advanced |
-| prototype with `impl{...}`, batch an existing `impl` | §8.4, §8.5 | advanced |
+| extend one working program step by step | [§1](#1-implement-and-call-one-method) | basic |
+| batch an ordinary impl, including one for an external trait | [§1.6](#16-start-from-an-ordinary-display-impl) | basic |
+| maintain targets, signatures and exceptions | [§1.7](#17-maintain-the-same-describe-trait) | as needed |
+| wrap a matrix of types (space, `.`, lists) | [§2](#2-type-matrix-the-space-and-) | basic |
+| combine independent and shared bodies | [§3](#3-lists-and-body) | basic |
+| declare generics, inherit or add bounds, use a qualified type | [§5](#5-generics-) | basic |
+| use ordinary Rust `where` bounds | [§8.1–§8.3](#81-where-predicates) | basic |
+| consult complete directive rules | [§7](#7-the-directive-system-) | as needed |
+| splice a container/generator into a list (`*`) | [§4](#4-splat---the-flatten-operator-the-protagonist-of-070), after generics | as needed |
+| generate tuples, every arity, and Cartesian matrices | [§9](#9-tuple-generation-and-matrices) | as needed |
+| use references, pointers, `unsafe`, attributes, `!`, `self` | [§10](#10-the-modifier-gallery) | as needed |
+| pick between the entry macros | [§11](#11-entry-points) | as needed |
+| see what an error means | [§12](#12-error-hints) | as needed |
+| read a whole real file | [§13](#13-real-scenarios-the-three-bundled-examples) | as needed |
+| address generated parameters (`@N` / `@g_i` / ranges) | [§6](#6-the--constant-system-macro-meta-layer) | advanced |
+| extend impls with shape templates and staged substitution | [§8.4–§8.5](#84-the-impl-shape-templates-080) | advanced |
 
-## 1. Starting from a One-Line impl
+## 1. Implement and Call One Method
 
-`#[batch_impl(...)]` annotates a trait definition; every spec in its argument generates one impl:
+Start by giving `u8` a callable `describe` method:
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl(usize, isize, f32, f64)]
-trait Numeric {}
-// → impl Numeric for usize {}
-// → impl Numeric for isize {}
-// → impl Numeric for f32 {}
-// → impl Numeric for f64 {}
+use batch_impl::batch_impl;
+
+#[batch_impl(u8 #describe{format!("number: {self}")})]
+trait Describe {
+    fn describe(&self) -> String;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    println!("{}", 7u8.describe());
+}
 ```
 
-The spec skeleton:
+Run `cargo run`: the assertions pass and the program prints `number: 7`.
+`u8` is the target type. `#describe{...}` copies `Describe::describe`'s
+signature into the impl and supplies its body; `self` is the value receiving
+the call.
+
+The name after `#` is the trait member's actual name. `#describe` fills
+`describe`; the notation `#name{body}` in documentation means “put the member
+name here,” not a fixed keyword named `name`. The trait stays available for
+ordinary Rust method calls.
+
+### 1.1 Add Types
+
+Replace the single `u8` with `[u8, u16, u32]` and add assertions for the
+new types. Every step supplies a complete program: replace the previous
+version and run `cargo run` again.
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    println!("{}", 7u8.describe());
+}
+```
+
+To return to one target, write `u8` or `[u8,]`. **In a type position,
+`[u8]` is a slice type, not a list containing only `u8`**; `[u8; 3]` is a
+fixed-length array. Directive member selectors are a different context:
+for example, `#fill([describe])` does not need a trailing comma.
+
+### 1.2 Add a Method
+
+Add `kind` to the same trait and supply its implementation with `#kind`.
+The three existing `describe` implementations stay unchanged. Both methods
+are called through ordinary Rust syntax.
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    println!("{}", 7u8.describe());
+}
+```
+
+The two directives fill two separate members. Each body contains only its
+return expression; the trait still supplies the signatures. See
+[§7.1](#71-namebody--single-item-assignment)
+for the complete form.
+
+### 1.3 Give a Special Type Its Own Spec
+
+`bool` needs a different description and kind, so give it a separate spec,
+separated from the numeric spec by a comma. Do not put it in a list with a
+shared `describe` body and expect its local body to override that method:
+**combining bodies appends members; it does not override them. Rust rejects
+duplicate definitions of the same member.**
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"},
+    bool #describe{format!("bool: {self}")} #kind{"boolean"}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(true.describe(), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    println!("{}", 7u8.describe());
+}
+```
+
+The integers share one implementation, while `bool` gets another; the two
+sets of targets do not overlap. Independent and shared bodies can add
+different members. See [§3](#3-lists-and-body)
+for a complete example of combining them.
+
+### 1.4 Add a Generic Bound
+
+Now add a spec for `Vec<T>`. `<T: std::fmt::Debug>` declares the impl's
+generic parameter and bound. The `format!("{self:?}")` expression needs
+elements that implement `Debug`, so the bound serves a purpose. Keep the
+existing integer and `bool` implementations.
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"},
+    bool #describe{format!("bool: {self}")} #kind{"boolean"},
+    <T: std::fmt::Debug> Vec<T> #describe{format!("{self:?}")} #kind{"list"}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(true.describe(), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    assert_eq!(vec![1u8, 2].describe(), "[1, 2]");
+    assert_eq!(vec![1u8, 2].kind(), "list");
+    println!("{}", 7u8.describe());
+}
+```
+
+This spec generates `impl<T: std::fmt::Debug> Describe for Vec<T>`.
+The declaration uses an ordinary Rust bound; generated parameter names and
+positional references are not needed. More rules for ordinary generics are
+in [§5](#5-generics-).
+
+### 1.5 Forward Box Methods
+
+Finally add `#blanket(@all_ref_methods){Box}`. It forwards both reference
+receiver methods on `Box<T>` to the inner `T`. The generated impl requires
+`T: Describe`, so the previous integers, `bool` and `Vec<T>` can all be
+wrapped.
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"},
+    bool #describe{format!("bool: {self}")} #kind{"boolean"},
+    <T: std::fmt::Debug> Vec<T> #describe{format!("{self:?}")} #kind{"list"},
+    #blanket(@all_ref_methods){Box}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(true.describe(), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    assert_eq!(vec![1u8, 2].describe(), "[1, 2]");
+    assert_eq!(vec![1u8, 2].kind(), "list");
+    let boxed = Box::new(vec![1u8, 2]);
+    assert_eq!(Describe::describe(&boxed), "[1, 2]");
+    assert_eq!(Describe::kind(&boxed), "list");
+    println!("{}", 7u8.describe());
+}
+```
+
+The two `Describe::...(&boxed)` calls explicitly check the trait impl for
+`Box` itself, so method-call autoderef cannot hide a missing wrapper impl.
+This step changes neither the trait nor the two method signatures.
+[§7.4](#74-blanketall_methodswrapper-matrix--blanket-delegation)
+covers other receivers and associated items.
+
+**You can start using the library here.** Lists, member bodies, separate
+specs, ordinary generics and simple forwarding cover many batches of impls.
+For an existing complete impl, see [§1.6](#16-start-from-an-ordinary-display-impl);
+for later maintenance, see [§1.7](#17-maintain-the-same-describe-trait).
+Consult the remaining chapters when a task calls for them.
+
+Space application is a normal spelling (`Vec u8`); make nesting explicit
+with parentheses, as in `Box (Vec u8)`, or use `Box.Vec.u8`. Put each spec
+on its own line and indent longer method bodies. `rustfmt` does not
+guarantee formatting that understands this DSL's macro arguments, so check
+the grouping and layout of a matrix yourself.
+
+### 1.6 Start from an Ordinary Display Impl
+
+If you already have an ordinary impl, adding an attribute to it is another
+everyday starting point. This separate, complete program reuses a `Display`
+implementation for local `UserId` and `OrderId` types. Its signatures come
+from the impl you wrote; no copy of the external trait definition is needed.
+
+```rust
+use batch_impl::batch_impl;
+
+use std::fmt;
+
+struct UserId(u64);
+struct OrderId(u64);
+
+#[batch_impl(@Self: [UserId, OrderId])]
+impl fmt::Display for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+fn main() {
+    assert_eq!(UserId(7).to_string(), "7");
+    assert_eq!(OrderId(12).to_string(), "12");
+}
+```
+
+In the added attribute, `@Self` reads the input impl's self type, `UserId`;
+the list on the right supplies its two targets. The generated impls replace
+the input block, so include `UserId` to keep its implementation. The `fmt`
+signature, field access and `write!` are ordinary Rust. Both types have the
+same `.0` field, making the body suitable for both; Rust's orphan rules and
+other checks still apply.
+
+Choose a local trait definition with `#method{body}`, or an existing complete
+impl with `@Self: target list`, according to the code you already have.
+Explicit shape templates and staged substitution are further techniques,
+covered in [§8.5](#85-the-impl-entry-080-itemimpl).
+
+### 1.7 Maintain the Same Describe Trait
+
+Continue from [§1.5](#15-forward-box-methods), rather than the separate
+`Display` example. Suppose you now need `u64`, a prefix argument for the
+description, and a special format for `u32`:
+
+| Requirement | Change by hand | What the macro still handles |
+|---|---|---|
+| Add `u64` | Add it to the integer target list | Generate the same members for it |
+| Add `prefix: &str` to `describe` | Change the trait signature, use `prefix` in each business body, and supply the argument at call sites | Copy the new signature; `Box` delegation forwards the new argument |
+| Give `u32` a special format | Remove `u32` from the shared list and give it a separate spec | Generate each target's impl without conflicting implementations for one type |
+
+Copying a signature does not rewrite business logic or callers. The final
+program keeps `kind` unchanged and updates the bodies that need the new
+format. The existing `#blanket` needs no change:
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u64] #describe{format!("{prefix}number: {self}")} #kind{"integer"},
+    u32 #describe{format!("{prefix}wide number: {self}")} #kind{"integer"},
+    bool #describe{format!("{prefix}bool: {self}")} #kind{"boolean"},
+    <T: std::fmt::Debug> Vec<T> #describe{format!("{prefix}{self:?}")} #kind{"list"},
+    #blanket(@all_ref_methods){Box}
+)]
+trait Describe {
+    fn describe(&self, prefix: &str) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe("value: "), "value: number: 7");
+    assert_eq!(8u16.describe(""), "number: 8");
+    assert_eq!(10u64.describe(""), "number: 10");
+    assert_eq!(9u32.describe("value: "), "value: wide number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(9u32.kind(), "integer");
+    assert_eq!(true.describe(""), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    assert_eq!(vec![1u8, 2].describe(""), "[1, 2]");
+    assert_eq!(vec![1u8, 2].kind(), "list");
+    let boxed = Box::new(vec![1u8, 2]);
+    assert_eq!(Describe::describe(&boxed, "value: "), "value: [1, 2]");
+    assert_eq!(Describe::kind(&boxed), "list");
+    assert_eq!(
+        Describe::describe(&Box::new(9u32), "value: "),
+        "value: wide number: 9"
+    );
+    println!("{}", 7u8.describe(""));
+}
+```
+
+Targets retaining their existing business logic keep the previous format
+with an empty prefix. The new `u32` format also passes through `Box<u32>`
+delegation. The assertions cover the added target,
+changed signature, special implementation and argument forwarding.
+
+### Inspecting the Expansion
+
+Once the program works, use expansion preview when a changed type expression or
+signature is hard to diagnose. Temporarily wrap the annotated trait in
+`batch_impl::batch_preview!`:
+
+```text
+batch_impl::batch_preview! {
+    #[batch_impl([u8, u16, u32] #describe{format!("number: {self}")})]
+    trait Describe { fn describe(&self) -> String; }
+}
+```
+
+Run `cargo check`. Preview deliberately reports the generated Rust through
+`compile_error!`, so a failed compilation here is expected; it does not by
+itself mean the DSL input is invalid. Check the target types and method
+signatures in the output, restore the ordinary attribute form, and rerun
+`cargo run`. Preview is a temporary inspection step.
+
+For a method-free marker trait, the targets alone are enough. For more
+involved impls, the spec can also name generics and the trait application:
 
 ```text
 <impl-generics> TraitName<trait-generics> TargetType { body }?
@@ -61,21 +403,25 @@ The spec skeleton:
 | `<impl-generics>`     | `<T>`, `<T: Clone>`, `<const N: usize>` | when the impl block needs generic params |
 | `TraitName<trait-generics>` | `MyTrait<T>`, `MyTrait<Vec<T>>` | when the trait definition has generic params |
 | Target type           | `usize`, `Vec<T>`, `&str`            | required                  |
+| `#method{body}`        | `#describe{format!("number: {self}")}` | to copy that method's signature and supply its body |
 | `{ body }`            | `{ fn m(&self) -> usize { 0 } }`     | when a custom body is needed |
 
 Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 
-**What this buys you at scale.** `examples/simplify.rs` gets **30 impls** out of roughly **15 lines** of DSL (hand-writing them takes ~80), and `examples/typeclass.rs` covers a class hierarchy plus 36 `From<bool>` instances. Both are compiled by CI, and §13 walks through them — worth a look now if you want the payoff before the details.
+**What this buys you at scale.** [simplify.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs) gets **30 impls** out of roughly **15 lines** of DSL (hand-writing them takes ~80), and [typeclass.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/typeclass.rs) covers a class hierarchy plus 36 `From<bool>` instances. Both are compiled by CI, and §13 walks through them when you are ready for a larger example.
 
 ## 2. Type Matrix: the space (and `.`)
 
 **The space is the natural way to apply**: write the container/modifier and the types it takes side by side — chaining accumulates arguments left-associatively.
 
-> **What the space actually is**: a space is **not a token** — it is the *gap between tokens* (proc-macro2 strips whitespace, so the DSL sees only adjacency). A space application therefore means "these tokens are adjacent, apply them" (`Box u8` = `Box<u8>`), which is exactly how Rust itself reads type syntax (`Box<u8>` is `Box` adjacent to `<u8>`). No explicit operator symbol is needed — the absence of a separator *is* the operator.
+`Box u32` supplies one argument to `Box`. `HashMap u32 String` supplies
+two arguments to `HashMap`. To make an argument itself a composed type,
+group it: `Box (Vec u32)` gives `Box<Vec<u32>>`.
 
 | Writing                    | Expansion                            |
 |----------------------------|--------------------------------------|
 | `Box u32`                  | `Box<u32>`                           |
+| `Box (Vec u32)`            | `Box<Vec<u32>>` (grouped inner type) |
 | `HashMap u32 String`       | `HashMap<u32, String>` (left-associative accumulation) |
 | `fn(A,B) C`                | `fn(A,B)->C` (or write `fn(A,B) -> C`) |
 | `&u8`                      | `&u8` (chained modifiers)            |
@@ -85,32 +431,40 @@ Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 | `Box [u8, u16]`            | `Box<u8>, Box<u16>` (list distributes) |
 | `[Box, Vec] [u8, u16]`     | Cartesian product, 4 entries         |
 
-**`.` is the same operation with right-associative grouping** — reach for it only when you want **nesting** instead of accumulation. Space accumulation puts arguments side by side (`Box Box u8` = `Box<Box, u8>` — a typo for most containers); `.` nesting composes them (`Box.Box.u8` = `Box<Box<u8>>`):
+**`.` is the same operation with right-associative grouping.** It provides
+another way to write nesting: `Box.Vec.u32` and `Box (Vec u32)` both give
+`Box<Vec<u32>>`. Without grouping, spaces accumulate arguments:
+`Box Vec u32` gives `Box<Vec, u32>`.
 
 | Writing                    | Expansion                            |
 |----------------------------|--------------------------------------|
 | `Box.Box.u8`               | `Box<Box<u8>>` (right-associative nesting) |
+| `Box.Vec.u32`              | `Box<Vec<u32>>` (same as `Box (Vec u32)`) |
 | `&Box u8`                  | `&Box<u8>` (modifier over the nested type) |
 | `[Box, Vec] T`             | `Box<T>, Vec<T>`                     |
 | `Box [T1, T2]`             | `Box<T1>, Box<T2>`                   |
 | `[HashMap<K>, Vec<K>] V`   | `HashMap<K, V>, Vec<K, V>`           |
 
-> **When to use which**: one container/modifier + one type — write them side by side (`Box u8`, `&u8`, `HashMap<u8> String`). When the type itself needs to be a composed type (`Box<Box<u8>>`, `&Box<u8>`), join the composition with `.` — the space would treat each part as a separate argument.
+> **When to use which**: write a container and its arguments side by side
+> (`Box u8`, `HashMap<u8> String`). For nested containers, group the inner
+> type with parentheses (`Box (Vec u32)`) or use dots (`Box.Vec.u32`).
 
 **The bare trait name** applies as the impl trait: `Tr u8` = `impl Tr for u8`, `Tr<A> u8` = `impl Tr<A> for u8`. Write `Tr<u8>` for the **type** `Tr<u8>`. In general, a bare `Tr` is not recommended.
 
 Precedence from low to high: `;` < `,` < space < `.`; `()` grouping sits above all operators.
 
-> **Note**: `Box.Vec u32` is wrong (it parses as `Box<Vec, u32>`); write `Box.Vec.u32` instead. When you miswrite it, rustc's E0107 error prints the rendered `Box<Vec, u32>` verbatim — the mistake is self-evident.
+> **Mixed grouping**: in `Box.Vec u32`, the dot groups first, then the space
+> adds another argument, producing `Box<Vec, u32>`. If you meant
+> `Box<Vec<u32>>`, write `Box (Vec u32)` or `Box.Vec.u32`.
 
 > **Operand strictness**: both sides of `.`/space/`,` must have operands — `A.`, `.A`, `,A`, `A,,B` all report `compile_error!`; only **trailing commas** (`A,` / `[A, B,]`) are allowed, and `()`/`[]` brackets are real tokens, not empty operands. `;` stays lenient as a `batch_trait!` section boundary.
 
 ```rust
-# use batch_impl::batch_impl;
-# use std::collections::HashMap;
-#[batch_impl(Box.Vec.u32, HashMap<u8> String)]
+use batch_impl::batch_impl;
+use std::collections::HashMap;
+#[batch_impl(Box (Vec u32), HashMap<u8> String)]
 trait T {}
-// → impl T for Box<Vec<u32>> {}   ← `.` nesting: Box applied to Vec<u32>
+// → impl T for Box<Vec<u32>> {}   (also written Box.Vec.u32)
 // → impl T for HashMap<u8, String> {}
 ```
 
@@ -118,17 +472,19 @@ trait T {}
 
 ### Side-by-side lists `[A, B]`
 
-One body is reused for all target types:
+One body is reused for all target types. This is an alternative to §1.1's
+`#describe` form: writing a complete method in the shared body gives the
+same three implementations.
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl([usize, isize, f32] {
-    fn tag(&self) -> &'static str { "number" }
+use batch_impl::batch_impl;
+#[batch_impl([u8, u16, u32] {
+    fn describe(&self) -> String { format!("number: {self}") }
 })]
-trait Tagged { fn tag(&self) -> &'static str; }
-// → impl Tagged for usize { fn tag(&self) -> &'static str { "number" } }
-// → impl Tagged for isize { ... }
-// → impl Tagged for f32   { ... }
+trait Describe { fn describe(&self) -> String; }
+// → impl Describe for u8 { fn describe(&self) -> String { format!("number: {self}") } }
+// → impl Describe for u16 { ... }
+// → impl Describe for u32 { ... }
 ```
 
 **Distribution propagation**: `[A, B]` lists are distribution sources — beyond being targets/operands, nested positions propagate too:
@@ -148,11 +504,17 @@ trait V {}
 // → impl V for Vec<u32> {}
 ```
 
-Rule: `[A, B]` inside a tuple/generic-arg position → Cartesian-product distribution (all combinations of multiple arrays); nested arrays recurse to leaves (`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`); combos of `(X, [A,B]).N` containing arrays are covered by the outer distribution. Note: concrete generators combined with fresh generators may overlap (E0119 — same fresh count/structure); rustc catches it — use generators with different fresh counts to avoid.
+`[A, B]` in a tuple or generic argument distributes over the target types;
+multiple lists produce all combinations. Nested lists expand too:
+`Vec<[[A,B], C]>` generates `Vec<A>`, `Vec<B>` and `Vec<C>`.
+For a list reduced to one type, keep `[A,]` or write `A`; `[A]` is a slice type.
 
 ### Independent/shared body merging
 
-List items may carry independent bodies, merged with the shared body — different items coexist (writing the same item twice is a user error rustc reports):
+List items may carry independent bodies that combine with the shared body.
+The members are appended to the same impl, without replacement by name;
+Rust rejects duplicate definitions of one member. Here the independent
+`name` and shared `zero` are different members, so they can be combined:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -168,6 +530,11 @@ trait Tagged { fn zero() -> Self; fn name(&self) -> &'static str; }
 // → impl Tagged for isize { fn zero() -> Self { Default::default() } fn name... "isize" }
 // → impl Tagged for f32   { fn zero() -> Self { Default::default() } fn name... "f32" }
 ```
+
+For a type that needs a different implementation of the same method, split
+it into a separate spec as in
+[§1.3](#13-give-a-special-type-its-own-spec),
+so each target receives only one definition.
 
 ## 4. splat `*` — the Flatten Operator (the protagonist of 0.7.0)
 
@@ -190,7 +557,8 @@ trait Matrix27 {}
 // → 27 impls: T<A,A,A> / T<A,A,B> / ... / T<C,C,C>(same as T [A,B,C] [A,B,C] [A,B,C])
 ```
 
-`*[...]` / `*(...)` splices a container/generator into the enclosing list. A splat stays a **whole unit** through parse/apply/expand and only flattens into its elements at codegen — one code path for every position.
+`*[...]` / `*(...)` splices a container/generator into the enclosing list.
+The supported positions are listed in §4.6.
 
 ### 4.1 In-list / in-tuple splicing
 
@@ -208,7 +576,9 @@ trait U {}
 
 ### 4.2 Left operand: distribute vs append
 
-`[]` is a **set** and `()` is a **sequence** — splat just mirrors the source bracket, so `*[A,B] T` distributes (each element applies `T`, keeping set semantics) and `*(A,B) T` appends (keeping list semantics). This is not a new rule; it preserves the underlying container's behavior, and `TySplat::Array`/`TySplat::Tuple` mirror `TyArray`/`TyTuple`.
+The source brackets determine what a left splat does. `*[A,B] T`
+**distributes**: each element receives `T`, giving `*[A.T,B.T]`.
+`*(A,B) T` **appends**: `T` joins the sequence, giving `*(A,B,T)`.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -248,7 +618,9 @@ trait Pow {}
 
 ### 4.4 Container rule
 
-A group whose content is a lone splat parses as the container holding the splat as one element — `(*(a,b))` = `( *(a,b) )`, `[*(a,b)]` = `[ *(a,b) ]`; the splat element expands only in codegen, so the rendered result is a plain tuple or array.
+The outer brackets remain when their only contents are a splat:
+`(*(a,b))` gives `(a, b)`, and `[*(a,b)]` gives `[a, b]`.
+Without a splat, `(a)` is a transparent group and `[a]` is a slice type.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -273,7 +645,7 @@ trait GenSpl {}
 
 A splat is a **parameter-position list**: it splices into generic and trait-application args, tuple and array elements, a callable's parameter list, a `<>` declaration block, an inline bound, the `dyn` bound tail and spec lists. The one position that does **not** expand is a `where` predicate, where the DSL reports the splat instead of leaking it (§8). A fresh generator in a `<>` declaration block is a targeted error, and a bare `*` that is neither a splat nor a raw pointer errors too.
 
-**The position × construct matrix — which of these is legal where, and what each position reports instead — is `docs/reference.md` §2 and §4.**
+**The position × construct matrix — which of these is legal where, and what each position reports instead — is in the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md), §2 and §4.**
 
 ## 5. Generics `<>`
 
@@ -305,7 +677,7 @@ trait A<T, const N: usize> {}
 
 This shorthand belongs to the **spec head** (the trait application): it is what
 declares those formals. Written anywhere else — e.g. on the target — an empty
-`<>` is the *sync marker* of §6.5 instead, which fills in the spec's arguments
+`<>` is the *sync marker* of §6.4 instead, which fills in the spec's arguments
 (`Swap2<>` → `Swap2<T>`); it never emits a declaration in the middle of a spec.
 
 ### 5.3 Args: multi-args, nesting, bindings
@@ -317,13 +689,17 @@ struct A; struct B; struct C;
 struct Wrap<X>(X);
 #[batch_impl(Map<A, B>)]                 // multi-args
 trait M1 {}
-#[batch_impl(Map<Map<A, B>, C>)]         // nested structure preserved (TyGeneric nesting)
+#[batch_impl(Map<Map<A, B>, C>)]         // the nested type stays one argument
 trait M2 {}
 #[batch_impl(Conv<u8, Item = u8> Wrap<u8>)]  // associated-type binding (trait path)
 trait Conv<T> { type Item; }
 ```
 
 ### 5.4 Operations inside `<>` (programmable in 0.7.0)
+
+> **Optional extension.** Ordinary generics only need parameter declarations
+> and uses. The following forms generate combinations inside arguments;
+> if you do not need generators yet, continue to §5.5.
 
 Generic-argument positions accept full DSL expressions — the structural landing of 0.7.0:
 
@@ -448,7 +824,10 @@ With a trait head the space and `.` are equivalent, and in edition 2024 `::name`
 
 `@` is the DSL's reserved **library-owned constant namespace** — `#` is taken by the directive mechanism, so `@` provides "name and reuse type-matrix entries". It is pure **lexical substitution** (the macro-meta layer): the expanded result enters the pipeline and participates in no in-domain parsing.
 
-> **Advanced layer — skippable.** §6 and §7 address generated parameters and automate signatures; the core path continues at §8 (`where`), §9 (tuples and matrices) and §10 (modifiers). Come back when a matrix needs `@N`-style addressing or a directive.
+> **Read as needed.** §6 covers constants and addressing generated parameters.
+> The basic signature-copying directives from §1 are detailed in §7.1–§7.2;
+> delegation and extensions in §7.3–§7.5 can wait. For ordinary bounds,
+> tuples and modifiers, continue to §8.1–§8.3, §9 and §10.
 
 ### 6.1 Built-in constants
 
@@ -469,12 +848,17 @@ trait BoxRc {}
 // → impl BoxRc for Box<u8> {} / Box<u16> / ... / Box<usize>
 ```
 
-**Range families**: `@u8..u128`, `@i8..i128`, `@f32..f64` (inclusive) — the
-contiguous run of one family (`@u8..u128` → `u8, u16, u32, u64, u128`).
-Either endpoint may be **omitted**: `@..u128` ≡ `@u8..u128`, `@u16..` ≡
-`@u16..u128`, `@f32..` ≡ `@f32..f64` (the omitted side resolves to the
-family's minimum/maximum; at least one endpoint anchors the family).
+**Range families** select a contiguous run of one family. As in Rust,
+`..` excludes the written upper endpoint and `..=` includes it:
+`@u8..u16` → `u8`, while `@u8..=u16` → `u8, u16`.
+`@u8..=u128`, `@i8..=i128`, and `@f32..=f64` select their full width families.
+Either endpoint may be **omitted**: `@..u16` ≡ `@u8..u16`,
+`@..=u16` ≡ `@u8..=u16`, `@u16..` ≡ `@u16..=u128`, and
+`@f32..` ≡ `@f32..=f64`. At least one endpoint anchors the family;
+`..=` always requires an upper endpoint.
 `usize`/`isize` only enter name families, not range families.
+Descending ranges and empty exclusive ranges such as `@u8..u8` or `@..u8`
+are reported; they do not silently produce an empty type matrix.
 
 ### 6.2 Lazy expansion and references
 
@@ -507,7 +891,6 @@ batch_trait! {
 |---|---|---|
 | `@g_i` | **primitive** — group g, slot i (stable across array distribution) | the i-th fresh of generator group g (`@0_0` → the first fresh of the first generator) |
 | `@N` | `@g_i` flattened by document order within one impl | the N-th fresh generic name (`@0` → `P0` in a `where{@0: Clone}` predicate) |
-| `@all_fresh` | all fresh generics | every fresh name, one predicate each (≡ `@0..`); **deprecated**, write `@0..` |
 | `@N..=M` | a contiguous run | the fresh names N..=M, comma-separated (`@0..=1` → `P0, P1`) |
 | `@N..` | an **open** run to the last fresh | every fresh name from N to the last, comma-separated (`@1..` → `P1, P2, ...`); **empty** when N is past the end (an arity-1 impl contributes no such predicate, no error) |
 
@@ -517,7 +900,7 @@ suffixes: `P0A`, `P0B`, ... `P0Z`, `P0AA`) — the expansion splices the names w
 predicate subject, a target tuple element, a generic argument), so a range
 becomes several names and a `where` tail is copied per fresh.
 
-> **Power-user tier**: `@g_i` / `@all_fresh` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. The whole DSL surface is frozen since 0.7.2 (see README); these notations will not change semantics again.
+> **Power-user tier**: `@g_i` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. See the [README](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) for the compatibility policy and the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) for explicit migration notes.
 
 > **The `_` in a reference is the group/position separator**, not Rust's digit
 > separator: `@1_0` is group 1, position 0. Write `@1000` (no separator) when you
@@ -530,7 +913,7 @@ becomes several names and a `where` tail is copied per fresh.
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(()3 where @0..: Copy)]       // = @all_fresh (from 0 to the last fresh)
+#[batch_impl(()3 where @0..: Copy)]       // from 0 to the last fresh
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
@@ -540,9 +923,8 @@ trait OpenRange {}
 // (an arity-1 impl contributes no predicate — `@1..` is empty there)
 ```
 
-`@all_fresh` and `@0..` are equivalent; **`@all_fresh` is deprecated** — the
-`@N..` family is the preferred spelling (`@0..` covers the whole run, `@1..`
-its tail). Existing specs keep working; new code should write `@0..`.
+**`@all_fresh` has been removed**: replace existing uses with `@0..`.
+The `@N..` family covers the whole run with `@0..`, or its tail with `@1..`.
 
 **Ranges work anywhere a single `@N` can** (0.9.2): beyond the where
 predicates above, the range's tail may be an associated-type path, copied
@@ -598,7 +980,8 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
 //     where P2: Clone, P3: Clone, P4: Clone   ← group 1 only (P0,P1 unconstrained)
 ```
 
-`@L_N..` (open to the group's end), `@L_N..M` and `@L_N..=M` (closed) all
+`@L_N..` (open to the group's end), `@L_N..M` (excluding M), and
+`@L_N..=M` (including M) all
 work; an unknown group errors like `@g_i`.
 
 `@N` also resolves in **value positions** — the type after `:` may carry
@@ -635,8 +1018,9 @@ On the other axis (value classes):
 | Notation | Class | Use |
 |---|---|---|
 | `@trait` | **identity** — the current trait name/path (section-level in batch_trait) | package "generic declaration + trait name" across sections |
+| `@Self` | **input type** — the self type received by this impl attribute | reuse the prototype as a template or type argument (§8.5) |
 | `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus its inherent constraints (`@0: ToOwned + ?Sized, @0::Owned: @trait`) | blanket-usable `Cow` delegation (see §7.4) |
+| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus its packaged constraints (`@0: ToOwned + ?Sized, @0::Owned: @trait`) | blanket-usable `Cow` delegation (see §7.4) |
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
@@ -738,7 +1122,15 @@ trait Markers {
 // → impl Markers for u8 { fn marker(&self) -> u8 { 0 } }   (the excluded `extra` keeps its default)
 ```
 
-### 7.3 `#delegate(methods){target}` — delegate calls
+The shared scope syntax accepts a trailing comma (`#fill([marker,],){0}`)
+and empty selections: `#fill(){...}`, `#fill([]){...}`, an empty `@all`
+family, or a subtraction that removes every selected item. `#fill` and
+`#delegate` then generate no members; `#blanket` still generates its wrapper
+impls. Rust checks any required members left unimplemented. Every explicitly
+named trait item must exist, including names being excluded; subtraction
+cannot hide a typo such as `#fill(typo, -typo){...}`.
+
+### 7.3 `#delegate(methods){...}` — delegate calls
 
 ```rust
 # use batch_impl::batch_impl;
@@ -749,6 +1141,49 @@ trait Markers {
 trait MyLen { fn d_len(&self) -> usize; }
 // → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
 ```
+
+For delegation inside a branch, write `receiver.#call`. It is a complete
+call to the current method, including automatically forwarded arguments;
+no `()` is needed. If a recognized marker appears, the whole directive content
+becomes the method body. Without one, it remains the target expression shown
+above. No separate template marker is needed.
+
+```rust
+# use batch_impl::batch_impl;
+enum Buffer { Text(String), Bytes(Vec<u8>) }
+
+#[batch_impl(Buffer #delegate(@all_methods, size = len){
+    match self {
+        Self::Text(inner) => inner.#call,
+        Self::Bytes(inner) => inner.#call,
+    }
+})]
+trait BufferOps {
+    fn size(&self) -> usize;
+    fn truncate(&mut self, len: usize);
+}
+
+let mut text = Buffer::Text("abcd".into());
+let mut bytes = Buffer::Bytes(vec![1, 2, 3, 4]);
+text.truncate(2);
+bytes.truncate(3);
+assert_eq!(text.size(), 2);
+assert_eq!(bytes.size(), 3);
+```
+
+The two receiver types stay in their own branches. `size = len` makes each
+call in `size` use `inner.len()`; `truncate` uses `inner.truncate(len)`.
+Receivers can also be expressions such as `self.inner.as_ref().#call`, and
+`inner.#call.into()` continues from the call result. Method type/const
+parameters are forwarded explicitly; lifetimes stay inferred. No `.await`
+is added automatically: write `inner.#call.await` when required.
+Appending `()` would call the result itself, so `inner.#call()` requires a
+callable return value.
+
+Recognition is limited to this delegate body's expressions. Macro tokens,
+attributes and nested item definitions are not rewritten and do not trigger
+the body form. Ordinary `.call(...)` methods and open-extension directive
+names are unchanged. See reference §6.5 for the complete rules.
 
 #### Renaming the delegated target: `foo = call_foo` (0.9.4)
 
@@ -786,32 +1221,42 @@ Wraps any type (smart pointers included); wrappers are comma-separated, and a `:
 #[batch_impl(#blanket(@all_methods){Box})]
 trait NumOps { fn inc(&mut self); }
 impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
-// → impl<P0> NumOps for Box<P0> where P0: NumOps { fn inc(&mut self) { (**self).inc() } }
+// → impl<P0> NumOps for Box<P0> where P0: NumOps { fn inc(&mut self) { <_ as NumOps>::inc(&mut **self) } }
 //   (generic over the fresh — every `P0: NumOps`, not just `u32`)
 
 #[batch_impl(#blanket(@all_methods){&, Box})]
 trait Len { fn len(&self) -> usize; }
-// → impl<P0> Len for &P0     where P0: Len { fn len(&self) -> usize { (**self).len() } }
-// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for &P0     where P0: Len { fn len(&self) -> usize { <_ as Len>::len(&**self) } }
+// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { <_ as Len>::len(&**self) } }
 ```
 
-> **`:N` deref depth** — how many layers the delegation dereferences to reach the inner `T`. Default **1** for single wrappers (`&`, `Box`, `Rc`): the body derefs N+1 times (`&`/`Box` → `**self`). A `:N` of 2 means the wrapper itself is nested two deep — `Box.Arc:2` = `Box<Arc<T>>`, delegation `***self`. Write `:2` only for nested wrappers; single wrappers need nothing.
+Calls explicitly name the current trait, so same-named supertrait methods cannot make delegation ambiguous. Receiver types are inferred from the actual dereferenced value; static methods use `<T as Trait>::method(...)`. Async methods append `.await`, and method type/const arguments are passed explicitly, for example `<_ as Trait>::read::<U, N>(&**self, value).await`; lifetimes remain inferred.
 
-> **By-value receivers**: `fn consume(self)` forwards as `(*self).consume()` — a by-value `self` IS the wrapper, one deref fewer (`&self` methods use `(**self)`: through the reference, then the wrapper). Moving out cannot type-check for shared wrappers (`&`/`Rc`); the generated impls carry a `#[doc]` note (proc macros have no stable warning channel, E0658). Skip such methods with `@all_ref_methods` (the trait default stays) or hand-write `#name{...}`.
+> **`:N` deref depth** — how many wrapper layers to dereference. Default **1** for single wrappers (`&`, `Box`, `Rc`): a reference receiver needs N+1 derefs plus an explicit borrow (`&**self` or `&mut **self`). `Box.Arc:2` = `Box<Arc<T>>`, with a shared call such as `<_ as Trait>::method(&***self)`. An arbitrary wrapper's deref target need not be its type parameter. Single wrappers need no depth suffix.
+
+> **By-value receivers**: `fn consume(self)` forwards as `<_ as Trait>::consume(*self)` — a by-value `self` IS the wrapper, one deref fewer. The wrapper must permit moving out the value, or the inner value must be `Copy`; generated impls carry a `#[doc]` note. Skip such methods with `@all_ref_methods` (the trait default stays) or hand-write `#name{...}`. Explicit `self: &Self` / `self: &mut Self` use the corresponding reference rule.
 
 #### GATs, `Self`, and unsized targets (0.9.4)
 
 **Generic associated types** are delegated by projection with their own
-params — `trait Iterable { type Iter<'a> where Self: 'a; }` becomes
+parameter names — `trait Iterable { type Iter<'a>: Clone where Self: 'a; }` becomes
 `type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;` (the bare
 projection would be missing the lifetime argument, E0107). Plain assoc
-types/consts keep their existing `<T as Trait>::Item` projection.
+types/consts keep their existing `<T as Trait>::Item` projection. Result
+bounds such as `: Clone` stay on the trait declaration; impl definitions
+keep the GAT parameter declarations and `where` predicates, and pass only
+lifetime/type/const names to the projection. `#fill` and `#name` use the same
+associated-type declaration rule.
 
-**Bare `Self`** in a method's parameters or return cannot be blanket-
-delegated (the forward emits the inner type, which cannot match the
-wrapper's `Self`) — a targeted error with a `#name{...}` suggestion. A
-`Self::Assoc` **return** (`fn iter(&self) -> Self::Iter`) passes — the
-inner `T` carries the same associated type.
+**Bare `Self`** in a method's ordinary parameters, return, or generic
+constraints cannot be blanket-delegated: the wrapper and inner type differ.
+This includes `U: Marker<Self>`, `where U: Marker<Self>`, and
+`where Self: Marker<U>`; the error suggests a `#name{...}` body.
+Receiver `Self`, `where Self: Sized`, and outlives conditions such as
+`Self: 'a` or `Self: Sized + 'a` remain allowed, with Rust checking the
+delegated target's obligations. `Self::Assoc` is allowed in parameters,
+returns, and constraints: forwarding the associated item makes the two
+projections equal. Attribute payloads are not read as constraints.
 
 **`@?` unsized suffix**: a wrapper ending in `@?` (`Box@?`) adds `T: ?Sized`
 to that spec's where clause, so the fresh generic can be an unsized target:
@@ -827,11 +1272,11 @@ impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
 #### `@Cow` — a constraint-carrying packing (the case study)
 
 `@Cow` is a **built-in `#blanket` wrapper constant** (usable only in the
-`#blanket` wrapper list). `Cow<'_>`'s deref target is `T::Owned`, not `T` —
-the naive `(**self)` delegation can't pass type checking. `@Cow` packs
-`Cow<'_>` **plus** the inherent constraint predicates (`@0: ToOwned + ?Sized,
-`@0::Owned: @trait`), making it blanket-usable. This is the demonstration that
-**a constant carries reuse value only when it carries constraints**:
+`#blanket` wrapper list). It packs `Cow<'_>` with
+`@0: ToOwned + ?Sized` and `@0::Owned: @trait`. `Cow<'_, T>` dereferences
+to `T`; `T::Owned: Trait` is an additional constraint included by this
+constant. The wrapper and packaged predicates enter the ordinary blanket
+pipeline together:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -841,19 +1286,40 @@ trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
 impl CowLen for String { fn clen(&self) -> usize { self.len() } }
 // → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
-//   (one generic impl over everything `Cow` can wrap — the packed predicates are what make it check)
+//   (one generic impl over the targets satisfying these packaged constraints)
 ```
 
 ### 7.5 Open extension
 
-An unknown `#name(args){body}` becomes a top-level macro call — DSL fills the spec body, you write the rest. **The deliverable of this extension point is the protocol shape itself**: batch-impl does not implement your codegen, it only guarantees the four-part input `{spec}(args){body}trait_def` reaches your same-named macro.
+A `#name(args){body}` whose name is not `fill`, `delegate` or `blanket` calls
+a function-like macro with that name, even if the trait has a member with
+the same name. The form without `(args)`, `#name{body}`, assigns a member.
+This example uses the
+library's reference open-extension macro, `batch_preprocess_test!`, to
+generate two method implementations. It is not just a preprocessing or
+token-display tool.
 
-```rust,ignore
-# use batch_impl::batch_impl;
-# use batch_impl::batch_preprocess_test;
-#[batch_impl(u16 {! batch_preprocess_test!{(add,inc){*self+3} trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }}})]
-trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
+```rust
+use batch_impl::{batch_impl, batch_preprocess_test};
+
+#[batch_impl(u16 #batch_preprocess_test(add,inc){*self + 3})]
+trait AddIncU16 {
+    fn add(&self) -> Self;
+    fn inc(&self) -> Self;
+}
+
+fn main() {
+    assert_eq!(5u16.add(), 8);
+    assert_eq!(5u16.inc(), 8);
+}
 ```
+
+batch-impl passes the target, selected method names, body and trait
+definition through the four-part `{spec}(args){body} trait_def` protocol.
+The reference macro copies signatures from the trait, uses `*self + 3` as
+the return value, and emits a complete impl. For your own extension, your
+macro decides what code to generate. The manual four-part form is described
+in the [open-extension API documentation (repository source)](https://github.com/5-6-1/batch-impl-rs/blob/main/src/doc/directive_open.md).
 
 > **The protocol has converged to one shape**: the legacy **in-impl form** `T {m!{...}}` (no `!`, the call lands in the impl body as associated items) is **deprecated** since 0.7.2 (kept for compatibility — no warning channel exists, so the deprecation lives in the docs). Write new extensions against the top-level `{! m!{...}}` four-segment protocol `{spec}(args){body} trait` only.
 
@@ -876,7 +1342,7 @@ trait T {}
 
 ### 8.2 Bare `where predicate {code block}`
 
-Rust-style constraint/body separation (the `{...}` code block after the predicate is required):
+Rust-style constraint/body separation (when a body is present, its `{...}` follows the predicates):
 
 > Equivalently, `where{predicates} {code block}` (the §8.1 suffix + a chained body) can be written bare as `where predicates {code block}`, saving one `{}` layer.
 
@@ -892,7 +1358,10 @@ Trait-level `where` clauses inherit into the impl by **positional substitution**
 
 ### 8.4 The `impl{...}` shape templates (0.8.0)
 
-> **Advanced layer — skippable.** §8.1–§8.3 (`where`) are core; the shape template and the impl entry are the deepest layer of the surface. Skip to §9 (tuples and matrices) if you do not need "one prototype impl per shape family", and come back when a hand-written impl should be batch-instantiated.
+> **Advanced layer — skippable.** §8.1–§8.3 cover ordinary `where` bounds;
+> this section goes further into shape templates. For batching an ordinary
+> impl, §1.6 already gives the common entry. Read these matching rules when
+> you need to substitute individual parts of a type into an implementation.
 
 **The idea in one sentence: pattern matching + text substitution.** You write
 one `impl{...}` block holding a **prototype type**, and the macro *matches*
@@ -926,7 +1395,7 @@ How the match works, in plain terms:
   re-bindings are legal, conflicting ones error.
 - `@trait` inside the template expands to the trait path before matching.
 
-The template holds a **standard Rust type** — DSL operators are rejected inside it, `_` is a wildcard that matches anything, and an array length may bind a const parameter (`impl{[A; N]}` binds `N := 3`, usable in the body). The full bind table — every type form, the reserved `[A; ()]` shape, and the forms compared verbatim instead of bound (fn-pointer and trait-object templates, cross-class arguments) — is in `docs/reference.md` §8.2.
+The template holds a **standard Rust type** — DSL operators are rejected inside it, `_` is a wildcard that matches anything, and an array length may bind a const parameter (`impl{[A; N]}` binds `N := 3`, usable in the body). Function-pointer parameter and return types match recursively; trait-object templates still compare verbatim. In generic arguments, a declared const name can bind a const value (`Wrap<N>` with `const N: usize` against `Wrap<3>`); declarations distinguish it from a type name, and actual type/lifetime/const kinds do not cross-bind. The full table, including the reserved `[A; ()]` shape, is in `docs/reference.md` §8.2.
 
 #### The prototype-impl pattern
 
@@ -1059,7 +1528,7 @@ trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
 ```
 
 The alga2-style end-to-end — one spec covers every tuple arity, with
-`@0..` (≡ `@all_fresh`) constraining every fresh generic:
+`@0..` constraining every fresh generic:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -1076,30 +1545,34 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 
 ### 8.5 The impl entry (0.8.0, ItemImpl)
 
-> **Advanced layer — skippable** (the same note as §8.4): this is the way to batch-instantiate an `impl` block you already wrote; the core path continues at §9.
+> **Further uses of the entry.** See
+> [§1.6](#16-start-from-an-ordinary-display-impl)
+> for its everyday form. This section adds explicit templates, inheritance
+> rules and staged substitution; they are not prerequisites for using it.
 
-**Same idea, bigger template: the whole impl block becomes the pattern.**
-Instead of a separate `impl{...}` attachment, you hand `#[batch_impl]` an
-ordinary `impl` block whose for-Type holds the placeholder slots
-(`impl Make for A<B>`), plus a `template : matrix` source. Every matrix leaf
-is matched against the for-Type (`A<B>`), the slots (`A := Box, B := usize`)
-are substituted into the whole block — for-Type, where predicates and body —
-and one impl per leaf is emitted. The original impl (holding the slots) is
-withheld:
+**The whole impl block becomes the prototype.** Hand `#[batch_impl]` an
+ordinary Rust impl and write `@Self: matrix`. The constant copies its input
+self type as the template. Each matrix leaf is matched against that template;
+the resulting replacements reach the self type, trait arguments, where
+predicates and body. The generated impls replace the input block:
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
 # trait Make { fn make() -> Self; }
-#[batch_impl(A<B> : [Box, Rc] [usize, isize])]
-impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
-// → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
+#[batch_impl(@Self: [Box, Rc] [usize, isize])]
+impl Make for Box<u8> { fn make() -> Self { Box::new(u8::default()) } }
+// → impl Make for Box<usize> { fn make() -> Self { Box::new(usize::default()) } }
 // → ... × 4
+# assert_eq!(*<Box<usize> as Make>::make(), 0);
+# assert_eq!(*<Rc<isize> as Make>::make(), 0);
 ```
 
-In one sentence: **write one impl with placeholders, get one impl per matrix
-cell — the same match-and-substitute as §8.4, applied to the whole block
-instead of just a body.**
+An explicit template (`A<B>: matrix`, or `(A, B): pairs`) can still describe
+positions across the block independently of its self type. `@Self` is the
+input type; ordinary Rust `Self` keeps its Rust meaning. Each stacked
+attribute reads its own input type, and later shape mapping treats a copied
+type just like the same tokens written by hand (reference §9.2).
 
 The entry takes `template : matrix` (`A<B> : [Box,Rc] [usize,isize]`) or the direct form (`<T> Box<T>`), `;`-separates several specs, allows `@trait` in generic-declaration bounds and `where` predicates (custom `@` constants and `#` directives are rejected here), and preserves the block's own generics, `where` clause and `unsafe`. An **empty** spec list is a no-op: the attribute only *derives* impls, so with nothing to derive the block comes back unchanged. The rules are in `docs/reference.md` §9.2–§9.3.
 
@@ -1145,6 +1618,15 @@ expansion gives (outermost first) — locked by
 ## 9. Tuple Generation and Matrices
 
 ### 9.1 Tuple generators, arities and the power suffix
+
+Here, *fresh* means a generic parameter generated by the macro, such as
+`P0` or `P1`. Concrete and generic generators may cover the same target,
+especially with matching parameter counts and type structures; Rust reports
+E0119 for overlapping impls. Check for overlap when combining generators,
+and separate their target structures or arities.
+
+Lists inside generators still distribute: combinations produced by
+`(X, [A,B]).N` continue expanding their lists into the final targets.
 
 Four spellings, all measured:
 
@@ -1238,7 +1720,13 @@ trait Slices {}
 
 ## 11. Entry Points
 
-Six entry points share one spec grammar; each one's complete argument semantics are in rustdoc (`src/doc/`), and the reference's §9 carries the rules (the `# path::To::Trait:` prefix, what the impl entry inherits, and `batch_trait!`'s lack of directives).
+The table distinguishes generation entries from helper macros.
+`batch_impl`, `batch_impl_only` and `batch_trait` offer different trait/impl
+inputs. `batch_preprocess_test!` consumes the open-extension protocol,
+while `batch_preview!` accepts a macro invocation or an annotated Rust item
+to preview; these do not share one complete input grammar. Each entry's
+argument rules are in rustdoc, with trait-path and inheritance rules in
+reference §9.
 
 | Entry | Form | Note |
 |---|---|---|
@@ -1246,7 +1734,7 @@ Six entry points share one spec grammar; each one's complete argument semantics 
 | `#[batch_impl]` | attribute macro on an `impl` block (the **impl entry**, 0.8.0) | batch-instantiates a hand-written impl from a shape template × matrix |
 | `#[batch_impl_only]` | attribute macro on a `trait` definition | generates impls only, the trait comes from outside (prefix `# path::To::Trait:` to rename) |
 | `batch_trait!` | function-like macro | sections plus custom `@name=value;` constant sections; **no** `#` directives |
-| `batch_preprocess_test!` | test-only | runs preprocessing only, asserts nothing about the output |
+| `batch_preprocess_test!` | reference open-extension macro | consumes protocol input and emits a complete impl; the legacy in-impl input emits associated items |
 | `batch_preview!` | diagnostic channel | prints the expansion as `compile_error!` text (the only stable terminal channel) |
 
 ```rust
@@ -1273,7 +1761,11 @@ batch_trait! {
 
 ## 12. Error Hints
 
-batch-impl's errors are **compile-time diagnostics** pointing at the user-visible token closest to the root (macro-generated artifacts fall back to the macro-call line) — one error, no cascade. The ones you will actually hit:
+batch-impl's errors are **compile-time diagnostics** that try to point at a
+relevant user-visible token; without an available source location they may
+point at the macro call. One invocation can collect several independent
+errors, and Rust may issue further diagnostics. Fix the first specific
+error and compile again. Common cases include:
 
 - **Missing operand**: `A.` / `.A` / `,A`
 - **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count, or a missing `@2_0` group — the fresh generics are numbered from 0 in document order and print as `P0`, `P1`, …; a dangling reference is intercepted in the macro, never a raw rustc E0412
@@ -1309,7 +1801,11 @@ trait Describe {
 }
 ```
 
-One list and one body → **12 impls**: the list expands into impls (§3), `{…}` is the shared body, and each signature is copied from the trait definition (§7). `Self::default()` is zero for every numeric type, which is why a single expression covers all twelve.
+One list and one body → **12 impls**: the list expands into impls (§3),
+and the complete methods explicitly written in `{…}` are used for every
+target. This example does not use signature-copying directives; `#describe`
+and `#is_zero` from §7 would be an alternative. `Self::default()` is zero
+for every numeric type, so a single expression covers all twelve.
 
 The rest of the file covers four wrappers delegating to the inner value in one line (`[&, Box, Rc, Arc].T`, §7.3), tuple generation `().1..=4`, left-associative space application (`fn(i32, u32) String`, `HashMap u8 u16`), an associated-type binding with `#name{…}` for a single const, `#fill(name, kind){"u8"}` for one body shared by two methods, a `batch_trait!` segment, and `*const` / `*mut` targets.
 
@@ -1334,6 +1830,6 @@ The hierarchy above it shows the other half of the pattern: `Num` is defined and
 
 ### 13.3 Where to go next
 
-- mechanisms: §1–§12 above, then `docs/reference.md` for legality, diagnostics and ceilings;
-- the raw API: `src/doc/*.md` (one file per entry point and per directive);
-- the internal map: `docs/architecture.md`.
+- mechanisms: §1–§12 above, then the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) for legality, diagnostics and ceilings;
+- the API documentation: [entry point and directive guides](https://github.com/5-6-1/batch-impl-rs/tree/main/src/doc);
+- the internal map: [architecture](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/architecture.md).

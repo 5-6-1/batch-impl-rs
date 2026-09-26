@@ -1,15 +1,22 @@
-# `#[batch_impl_only]` — Batched Impls Without the Trait Definition
+# `#[batch_impl_only]` — Batched Impls for an Existing Trait
 
 Same DSL as `#[batch_impl]`, but **discards the annotated trait definition**
-and only emits `impl` blocks. The annotated trait serves purely as the
-"signature source of truth" for the directive system.
+and only emits `impl` blocks. The annotated declaration is a local signature
+mirror supplied to the macro; the macro does not read the existing trait's
+definition from another module or dependency.
 
 ## When to use it
 
-- The trait is **already defined elsewhere** (another crate, another module)
-  and you only need batched impl generation here;
-- You want the trait definition to stay at its real home, not duplicated at
-  every batch site.
+Use it when the trait is **already defined elsewhere** (another crate or
+module) and you need batched impl generation without emitting another trait
+definition. You still provide the signatures used by generation at the batch
+site.
+
+If you already have a complete `impl` and only need to reuse its code for
+other types, apply `#[batch_impl(@Self: [UserId, OrderId])]` to that impl
+instead. This works for external traits without a signature mirror. Each
+target must support the fields, methods and constraints used by the shared
+implementation; see the [impl-entry preview example](crate::batch_preview).
 
 The syntax is identical to `#[batch_impl]` — same DSL: type matrix
 (`.` / space / `[]` / `()` / splat / `<>` / `where{...}` / `{body}`),
@@ -26,6 +33,12 @@ are emitted. It feeds the directive system:
   whole trait) to your same-named function-like macro;
 - `@all`-family selectors and `@all_type_params` etc. extract item / generic
   lists from it.
+
+Keep the supplied signatures, generics and constraints aligned with the real
+trait. Rust checks the generated impl against that trait, but this is not a
+complete mirror-consistency check. For example, a new default method in the
+external trait may leave the impl valid while remaining absent from the
+mirror's `@all` selection.
 
 ```rust
 # use batch_impl::batch_impl_only;

@@ -5,7 +5,263 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.8 (2026-09-14)
+## Unreleased
+
+> Target: **0.10.0**, the next version after the published 0.9.7. Development is
+> continuing; no release date is set.
+
+- Third reader review: four ignored English doctests left public extension
+  examples unverified. Fix integer-valued bodies for unit-returning methods;
+  receive the general protocol with repeated spec `tt`s and a complete
+  `$trait:item`, without consuming `trait` twice or accepting only one target
+  token. Run the examples as ordinary doctests, checking multi-token targets
+  and the four-part input with preceding body tokens. Separate the reference
+  consumer's plain-target/non-generic-trait limits from general input capture.
+  Add a basic-route stopping point and a maintenance case (types, signature,
+  exception); correct the claim that `batch_preprocess_test!` only preprocesses.
+  Put all six documentation-only macro notices in the summary paragraph and
+  replace lib.rs's obsolete no-op comment with the actual diagnostic behavior.
+  Add current-build rustdoc navigation and stable anchors, keep tutorial
+  self-links on the page, and label cross-file links as public repository
+  sources. Extend the existing navigation guard to standalone Markdown and
+  repository-source anchors while retaining rendered-page acceptance; local
+  target validity does not establish remote synchronization. Update the guide
+  and Cargo's stale ignore note. No parsing or expansion semantics change.
+
+- Third-review validation (2026-09-23): Windows stable 1.98.1 passes 172 unit,
+  350 feature, six no-panic and 14 documentation tests (542 total). English
+  doctests pass 123 with zero ignored; the separate Chinese documentation
+  crate passes 74 with zero ignored. Eight new/repaired complete programs
+  run unchanged from Markdown; the previous 20 programs retain their block
+  hashes, and all 91 source files match the consumer's dependency copy byte
+  for byte. In an isolated copy, the navigation guard passes before replacing
+  one local anchor with a missing target, then fails for that target as intended.
+  Linux stable 1.98.1 passes all 125 UI fixtures without overwriting snapshots.
+  Formatting, all-target check, Clippy and rustdoc pass. All 605 local links
+  across 22 generated pages and 58 same-page references across 16 Markdown
+  files resolve; the three unique `bi-*` entries stay on the current page,
+  and all six placeholder summaries state they cannot be called. The 46
+  unique repository URLs were resolved against this worktree only, not taken
+  as evidence that remote `main` is synchronized. The final 108-file package
+  builds offline, with 97 source/doc files byte-identical to the worktree.
+  Version 0.10.0 remains Unreleased; no commit, tag, push or publish was performed.
+
+- Second reader review: retain singleton-slice and body-append semantics while
+  teaching their spellings and separate specs for special behavior up front.
+  Add a complete ordinary `Display` impl reuse program to README. Tutorial §1
+  now carries five successive edits and assertions; ordinary impl reuse is
+  separate from advanced shape templates. Remove internal names from the basic
+  route and move generator-overlap guidance to its topic. Link the bilingual
+  task navigation and README feature tables. Correct the sync-marker chapter,
+  the explicit-method example's signature explanation, and the single-error,
+  no-cascade promise: independent spec errors can aggregate and rustc can add
+  subsequent diagnostics. Preview API docs cover all three entries, distinguish
+  retained traits from discarded mirrors, and explain that displayed entry
+  attributes may remain; restore the original attribute program to compile
+  instead of treating the display as directly executable final expansion.
+  Extend acceptance to first edits and actual preview output. No parse or
+  expansion behavior changes in this round.
+
+- Second-review validation (2026-09-22): Windows stable 1.98.1 passes 172 unit,
+  350 feature, six no-panic and 14 documentation tests (542 total), plus 117
+  English doctests (four ignored). The separate Chinese documentation crate
+  passes 72 examples (one ignored). Twenty complete bilingual README/tutorial
+  entry programs run unchanged, alongside two single-target edits (`u8` and
+  `[u8,]`) and two README previews: 24 independent consumer checks. All 91
+  source files in the dependency copy are byte-identical to the worktree.
+  Three API previews check trait retention/removal and both generated targets;
+  the three restored programs pass six runtime assertions. Linux stable
+  1.98.1 passes all 125 UI fixtures without snapshot rewrites. Formatting,
+  all-target check, Clippy and rustdoc pass. After fixing one English heading
+  anchor, 575 local references across 22 generated pages and 61 unique
+  repository URLs have no broken targets. The final 108-file package builds
+  offline; 97 source/doc files match the worktree byte for byte, with tests
+  and local verification artifacts excluded. Version 0.10.0 remains
+  Unreleased; no commit, tag, push or publish was performed.
+
+- Reader-entry review: move the unreleased target from 0.9.8 to 0.10.0 to
+  respect Cargo's compatibility boundary for the approved breaking changes.
+  Replace README's disconnected examples with two standalone programs using
+  one trait, and explain the path dependency for this unpublished worktree.
+  Front-load the tutorial's member directive and move implementation details
+  out of its entry path without renumbering the reference sections. Replace
+  the claim that rustc makes associativity errors self-evident with a preview
+  workflow and both grouped-space and dot nesting. Add language/navigation
+  links that survive the existing rustdoc includes; retain those includes and
+  clarify that external-trait signatures are maintained mirrors.
+  Add two reader-entry guards in `tests/doc_consistency/reader_entry.rs`:
+  parse the exact first README Rust block as a file with `main`, and reject
+  source-relative navigation in merged docs while checking repository link
+  targets. Update the release checklist to require raw-copy and rendered-link
+  checks as well as doctests. Earlier dated validation records below describe
+  the previous 0.9.8 working state, not a published release.
+
+- Reader-entry validation (2026-09-22): Windows Rust 1.98.1 and MSRV 1.95.0
+  each pass 172 unit, 350 feature, six no-panic and 14 documentation tests
+  (542 total), plus 108 English doctests (four ignored). The separate Chinese
+  README/tutorial/reference crate passes 65 examples (one ignored). Starting
+  with `cargo new`, six unchanged Markdown programs run successfully through
+  the documented path dependency; both preview snippets report the expected
+  three impls. The instructions explicitly replace Cargo's existing empty
+  dependency table. Isolated negative probes confirm the new guards reject
+  hidden setup lines, relative CHANGELOG links and nonexistent repository paths.
+  Rustdoc builds without warnings: all 223 local references and the 19 targets
+  of 23 distinct repository URLs resolve, including cross-document anchors.
+  Linux stable 1.98.1 passes all 122 compile-fail and three compile-pass UI
+  fixtures without overwrite. The final copy wording and a Chinese expansion
+  comment were clarified afterwards; production logic and fixtures did not
+  change. Formatting, all-target check and zero-warning Clippy pass. The final
+  108-file package builds offline and includes no test or local-check artifacts.
+  Version 0.10.0 remains Unreleased; no commit, tag, push or publish was run.
+
+- Add the author-selected postfix `receiver.#call` to delegate bodies. The
+  motivating case is a heterogeneous enum: each match arm must invoke its own
+  receiver, because returning different receiver types from one target
+  expression cannot unify. A recognized marker selects a full method body;
+  no marker preserves the existing target-expression expansion. No explicit
+  template-mode marker or new top-level directive is introduced. Calls share
+  the existing rename map and argument normalization, and explicitly forward
+  method type/const parameters while leaving lifetimes inferred. Macro token
+  bodies, attribute payloads and nested items are outside the rewrite domain;
+  automatic async adaptation is outside this change. Document the two forms
+  and their boundaries in the bilingual manuals and directive rustdoc, with
+  an enum example covering shared/mutable receivers, renaming and forwarding.
+  Preserve body tokens until codegen so repeat-block DSL remains available;
+  local argument projections retain method-parameter bindings under shadowing
+  without moving or borrowing arguments before receiver evaluation. Reuse
+  the tuple-field dot splitter for `self.0.#call` and the shared depth ceiling.
+  Isolate nested `const fn` items, distinguish unary `!` from macro calls,
+  and keep leading inner attributes before the generated argument helper.
+- Correct the stale reference §11.3 claim that an unknown exclusion is harmless:
+  all explicit names must exist before set subtraction, including a name not
+  present in the selected set. This documents the already implemented rule.
+
+- Delegate-template validation (2026-09-22): Windows stable Rust 1.98.1 passes
+  formatting, all-target check, zero-warning Clippy, 172 unit tests, 350 feature
+  tests, six no-panic guards and all 12 documentation-consistency guards.
+  MSRV Rust 1.95.0 passes the same 540 functional/guard tests. Both versions
+  pass 108 English doctests (four ignored); the separate Chinese
+  tutorial/reference crate passes 63 (one ignored). Rustdoc builds without
+  warnings. Linux stable 1.98.1 passes all 122 compile-fail and three
+  compile-pass fixtures without snapshot overwrite; the four new delegate
+  fixtures cover marker diagnostics, nesting depth, moves and nested items.
+  The 108-file package builds offline and excludes tests, probes and local
+  toolchains. Keep 0.9.8 Unreleased for author review; no commit, tag, push or
+  publish was run.
+
+- Unify type-family `..` / `..=` endpoints through the shared `read_op`
+  classifier and an explicit inclusive flag in `builtin_range`. Remove the
+  now-unused span-adjacency helper. Omitted right endpoints retain the family
+  maximum; empty exclusive ranges have a dedicated diagnostic. Render singleton
+  type lists with a trailing comma so they stay matrix entries, not slices;
+  preserve selectors and longer lists for existing open-extension macro matchers.
+  The author approved changing bounded `..` from inclusive to exclusive;
+  current examples needing the old result move to `..=`, historical entries
+  remain unchanged.
+- Let the common directive scope parser accept empty lists/results and trailing
+  commas, validating both positive and negative item names before subtraction.
+  Normalize delegate renames without dropping intervening names or punctuation;
+  delegate call generation, including async handling, is unchanged this round.
+  Replace two obsolete empty-scope UI cases with positive coverage; add
+  unknown-scope and empty-type-range UI fixtures and extend illegal-comma cases.
+- Adapt associated-type definitions by clearing their result bounds and colon
+  while retaining GAT declarations and where clauses. Blanket projections reuse
+  `generic_param_names`, which now emits lifetime identifiers without declaration
+  bounds. Correct swapped diagnostic arguments and use the item's available
+  span for missing-item errors. Add 17 feature regressions in three modules, an open-extension
+  compatibility regression and two range unit tests; no new syntax for generic
+  application or paired expansion.
+
+- Scope/range review validation (2026-09-19): Windows Rust 1.98.0 passes
+  formatting, all-target check, zero-warning Clippy, 172 unit tests, 334 feature
+  tests, six no-panic guards and all 12 documentation-consistency guards.
+  English doctests pass 106 examples (four ignored); the separate Chinese
+  tutorial/reference crate passes 62 (one ignored). The first doctest run
+  lacked Windows SDK library paths; setting `LIB` for that command to the
+  installed MSVC/SDK libraries fixes the linker environment without changing
+  project configuration. Rustdoc builds without warnings. Linux stable 1.98.1
+  passes all 118 compile-fail and three compile-pass fixtures without overwrite
+  after reviewing seven snapshot changes; all 407 compilation/test inputs match
+  the worktree byte-for-byte. The 107-file package builds offline and contains
+  no test/probe/toolchain artifacts. No commit, tag, push or publish was run.
+
+- Release-state correction: crates.io and GitHub both publish 0.9.7 as their
+  latest release. Keep Cargo's 0.9.8 as the development target, merge the
+  prematurely dated 0.9.8 notes into Unreleased, and mark current manuals as
+  unreleased. A local version heading is not evidence of publication.
+
+- Remove both `@all_fresh` compatibility paths (constant-pass bypass and fresh
+  carrier normalization), migrate current examples/tests to `@0..`, and keep
+  historical release entries unchanged. The author approved this removal;
+  it is recorded as a deliberate breaking change under the syntax-freeze rule.
+- `#blanket` awaits calls from async signatures and forwards method type/const
+  arguments through syn's turbofish renderer, excluding lifetimes with the
+  shared `ParamKind` classifier. A runtime regression covers shared/mutable
+  receivers, static calls, nested wrappers, const/type arguments and a borrowed
+  result. The removed alias is rejected through both the entry and resolver.
+- Implement `@Self` through `ConstCtx::ItemImpl` in the existing constant
+  phase. It copies this invocation's input self type, including on inherent
+  impls; later shape mapping treats it like hand-written tokens. Sibling specs
+  share an input and stacked attributes read each stage's input. Rust bodies,
+  macro payloads and later attributes keep their existing boundaries. Nine
+  feature tests cover these distinctions and `Self` enters the fuzz vocabulary.
+  Trait attributes and `batch_trait!` report a context error. Reserving the
+  custom name `Self` is an author-approved breaking change, alongside the alias
+  removal. `where` remains standard Rust predicates and `@?` stays supported.
+- Fix both reproduced shape defects. `Mapping` stores same-position literals
+  separately from replacement slots, checks conflicts in either order and on
+  merge, and does not remove unchanged generic declarations. The renderer now
+  accepts a final target: a matrix leaf from a trait entry, or the impl entry's
+  once-mapped prototype. `(u8, u8): (u8, u16)` reports a conflict;
+  `(u8, u16)` matched to `(u16, u32)` preserves the requested result.
+- Match const generic arguments using declarations classified by `ParamKind`,
+  with kind checks in both directions. Trait-entry bound const slots update
+  declarations, dependent bounds, trait arguments and associated bindings
+  together, without mapping the final target. Function-pointer matching
+  recurses into parameter/return types and checks safety, ABI, variadic shape
+  and lifetimes. Type-position substitution preserves fn parameter labels;
+  ordinary body substitution retains its lexical contract. `shape_args.rs`
+  separates argument/function matching; `shape_tests.rs` holds kernel tests.
+- Qualify blanket calls with the current applied trait. Receiver calls infer
+  the actual deref target (`<_ as Trait>::method`), while static calls use the
+  fresh type explicitly. Expand the bare-`Self` guard to generic constraints,
+  excluding receiver and attribute payloads; retain projections, sizedness
+  gates and outlives gates. Runtime regressions cover same-name supertraits,
+  an unrelated Deref target, typed receivers and borrowed projected values.
+- Correct both references using compiled probes: parentheses nest space
+  application, nonempty bare where predicates need no following body, and
+  impl-entry matching uses the explicit shape template. The
+  `where_missing_body` fixture actually ends immediately after `where`; its
+  existing message is retained. Correct the stale array-length test comment,
+  the constant-context comments denying impl-entry fresh refs, and the blanket
+  page's false ban on projection parameters. Update the tutorial to use an
+  ordinary Rust prototype with `@Self`, and document the phase boundaries and
+  the new const/function matching rules. Correct the old Cow explanation:
+  `Cow<'_, T>` dereferences to `T`; the existing packing's extra `T::Owned`
+  predicate remains unchanged.
+
+- Earlier review's Windows Rust 1.98.0 validation: formatting, all-target check and zero-warning
+  Clippy, 170 unit tests, 316 feature tests and six no-panic guards pass.
+  English doctests pass (106 run, four intentionally ignored), as do the
+  separate Chinese tutorial/reference doctests (62 run, one ignored).
+  `cargo doc --no-deps` is warning-free. Package listing contains 107 intended
+  files, and `cargo package --allow-dirty --offline` builds the packaged crate;
+  temporary probes, the local Linux toolchain, tests and Chinese development
+  docs stay outside the archive. No commit, tag, push or publish is performed.
+- Linux stable Rust 1.98.1 UI verification passes all 121 fixtures (118
+  compile-fail, three compile-pass), with seven new snapshots and two corrected
+  blanket messages. The final run does not enable snapshot overwrite. Its 405
+  source/test/build/doc inputs match the workspace byte-for-byte; the suite
+  runs from Linux's native filesystem to avoid Windows-mount overhead.
+  All 12 documentation-consistency guards pass after snapshot synchronization.
+
+- Align the reference's grammar table, notation table and entry introduction
+  with the existing trait/impl entry parsers. Keep the impl entry's semicolon
+  grammar distinct from the trait entry's comma grammar.
+- Remove the false blanket E0119 claim for standalone splats from the apply
+  boundary table and the FAQ. Add matching EN/zh-CN reference examples with
+  trait-bound checks, so doctests verify every documented generated impl.
+  These reference corrections do not change macro behavior or UI snapshots.
 
 > Review-driven patch rounds since 0.9.7: the typestate preprocessing pipeline, the
 > diagnostics and AST-structure fixes, the splat-coverage and message corrections,
@@ -4026,4 +4282,3 @@
   mechanical but large-diff; near-miss names (`where_process` vs
   `where_at`, dual `splat.rs`) documented instead of renamed; `wip/`
   scratch stays ignored.
-

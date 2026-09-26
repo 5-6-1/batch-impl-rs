@@ -51,3 +51,61 @@ fn open_extension_fn_like_macro() {
     assert_eq!(5u8.add(), 7);
     assert_eq!(5u8.inc(), 7);
 }
+
+// These extension macros intentionally accept the original comma-separated
+// token shape without an optional trailing comma. They generate real impls,
+// so changes to @all/type-family rendering must preserve this public input.
+macro_rules! implement_selected {
+    ({$target:ty} ([$($method:ident),*]) {$value:expr}
+        trait $name:ident {$($declaration:tt)*}) => {
+        impl $name for $target {
+            $(fn $method() -> usize { $value })*
+        }
+    };
+}
+
+#[batch_impl(u8 #implement_selected(@all){61})]
+trait EmptySelection {}
+
+#[batch_impl(u16 #implement_selected(@all){62})]
+trait SingleSelection {
+    fn only() -> usize;
+}
+
+#[batch_impl(u32 #implement_selected(@all){63})]
+trait MultipleSelection {
+    fn first() -> usize;
+    fn second() -> usize;
+}
+
+macro_rules! sum_family_sizes {
+    ({$target:ty} ([$($member:ty),*]) {$method:ident}
+        trait $name:ident {$($declaration:tt)*}) => {
+        impl $name for $target {
+            fn $method() -> usize {
+                [$(core::mem::size_of::<$member>()),*].into_iter().sum()
+            }
+        }
+    };
+}
+
+#[batch_impl(u8 #sum_family_sizes(@u*){bytes})]
+trait NamedFamilySizes {
+    fn bytes() -> usize;
+}
+
+#[batch_impl(u16 #sum_family_sizes(@u8..=u16){bytes})]
+trait RangeFamilySizes {
+    fn bytes() -> usize;
+}
+
+#[test]
+fn open_extension_constant_lists_keep_their_token_contract() {
+    fn accepts_empty<T: EmptySelection>() {}
+    accepts_empty::<u8>();
+    assert_eq!(<u16 as SingleSelection>::only(), 62);
+    assert_eq!(<u32 as MultipleSelection>::first(), 63);
+    assert_eq!(<u32 as MultipleSelection>::second(), 63);
+    assert_eq!(<u8 as NamedFamilySizes>::bytes(), 31 + core::mem::size_of::<usize>());
+    assert_eq!(<u16 as RangeFamilySizes>::bytes(), 3);
+}

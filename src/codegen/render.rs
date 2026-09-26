@@ -49,6 +49,7 @@ pub(crate) fn parse_impl_templates(
 /// the resolved variadic segments.
 pub(crate) fn collect_shape_mapping(
     target_tokens: &TokenStream, templates: &[syn::Type],
+    declared_consts: &std::collections::HashSet<String>,
 ) -> Result<(Mapping, Vec<VarSeg>), ShapeError> {
     let target = syn::parse2(target_tokens.clone()).map_err(|_| {
         ShapeError::ShapeMismatch(
@@ -59,7 +60,7 @@ pub(crate) fn collect_shape_mapping(
     let mut merged = Mapping::default();
     let mut segs = vec![];
     for template in templates {
-        let (m, s) = match_shape(template, &target)?;
+        let (m, s) = match_shape(template, &target, declared_consts)?;
         merged.merge(m)?;
         segs.extend(s);
     }
@@ -72,8 +73,8 @@ pub(crate) fn collect_shape_mapping(
 /// type with its fresh references already resolved to display names (resolved in
 /// `generate_parts`, before the shape kernel needs valid-Rust leaf tokens); the
 /// shape-template slot mapping was applied to the where predicates and body by
-/// the caller — the target gets the mapping here, where the final tokens are in
-/// hand.
+/// the caller. The target is already final: an attribute entry supplies its
+/// matrix leaf, and an impl entry supplies its once-rewritten prototype type.
 ///
 /// `trait_name` is `None` for an **inherent** impl (the `for` section is
 /// omitted), which only the impl entry can produce. `fresh_ctx` is `None` when
@@ -82,8 +83,7 @@ pub(crate) fn collect_shape_mapping(
 /// it has no placeholders.
 pub(crate) fn render_impl(
     parts: ImplParts, where_resolved: Vec<TokenStream>, target_tokens: TokenStream,
-    trait_name: Option<&TokenStream>, is_unsafe_trait: bool, shape_map: &Mapping,
-    fresh_ctx: Option<&FreshCtx>,
+    trait_name: Option<&TokenStream>, is_unsafe_trait: bool, fresh_ctx: Option<&FreshCtx>,
 ) -> TokenStream {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
 
@@ -122,17 +122,9 @@ pub(crate) fn render_impl(
         trait_gen = quote!(<#(#names),*>);
     }
 
-    // target type — shape template slot mapping applied here (the resolved
-    // leaf tokens are in hand; slot names in the target are replaced with
-    // the bound subtrees, e.g. `A<B>` → `Box<usize>`). References were
-    // already resolved in `generate_parts`. Only the slots channel applies
-    // — segment values splice into bodies during the repeat expansion and
-    // never pass through the mapping.
-    let target = if shape_map.slots().is_empty() {
-        target_tokens
-    } else {
-        crate::codegen::shape::apply_mapping(target_tokens, shape_map)
-    };
+    // A resolved matrix leaf is not a template. Mapping it again could turn
+    // (u16, u32) into (u32, u32) for the prototype (u8, u16).
+    let target = target_tokens;
 
     // impl body: associated types + user body. Fresh-range placeholders in
     // the body were already re-opened by the codegen postprocess

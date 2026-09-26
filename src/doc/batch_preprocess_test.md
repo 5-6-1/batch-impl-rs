@@ -3,8 +3,9 @@
 The **reference implementation of the open-extension protocol** (and the
 test consumer): a function-like macro that parses the open-extension input
 `name!{ {spec}(method name list){body} trait T {...} }` and emits a full
-`impl Trait for {spec}` — the pattern to copy when writing your own
-`#name(args){body}` extensions.
+`impl Trait for {spec}` for a plain target type and a non-generic trait.
+It demonstrates how to receive the protocol when writing your own
+`#name(args){body}` extensions; it is not a general spec parser.
 
 ## The protocol shape it consumes
 
@@ -17,31 +18,41 @@ same-named macro with this input (see the `directive_open` doc block in
 ```
 
 1. `{spec}` — the spec body (target type + preceding blocks, merged in
-   chain order) — **top-level form only**;
+   chain order, without the preceding blocks' outer braces) — **top-level
+   form only**;
 2. `(args)` — the method name list (parenthesized group);
 3. `{body}` — the directive body (Brace group);
 4. `trait` — the whole trait definition.
 
 `batch_preprocess_test!` parses these four segments and emits a full
-`impl Trait for {spec}` with one `fn signature { body }` per method (the
-signature reused from the trait).
+`impl Trait for {spec}` with one `fn signature { body }` per selected method
+(the signature reused from the trait). Its top-level form expects `{spec}`
+to contain only a Rust target type, such as `u16` or `Vec<u8>`, and the
+trait to have no generic parameters. It does not interpret preceding body
+items or impl generic declarations inside that first segment. Extensions
+that need those inputs must parse and generate them themselves.
 
 ## Usage
 
-```rust,ignore
-# use batch_impl::batch_impl;
-# use batch_impl::batch_preprocess_test;
-#[batch_impl(u16 {! batch_preprocess_test!{(add,inc){*self+3} trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }}})]
-trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
-// → impl AddIncU16 for u16 {
-//     fn add(&mut self, x: u16) { *self + 3 }   (signature from the trait, body yours)
-//     fn inc(&mut self) { *self + 3 }
-//   }
+```rust
+use batch_impl::{batch_impl, batch_preprocess_test};
+
+#[batch_impl(u16 #batch_preprocess_test(add, inc){*self + 3})]
+trait AddInc {
+    fn add(&self) -> Self;
+    fn inc(&self) -> Self;
+}
+
+fn main() {
+    assert_eq!(5u16.add(), 8);
+    assert_eq!(5u16.inc(), 8);
+}
 ```
 
-(The `*self + 3` bodies above are illustrative — a real delegation would
-use the params; the point is the protocol shape: four segments, signature
-from the trait, body from the block.)
+Both methods return `u16`, so the shared expression matches their copied
+`-> Self` signatures. The unknown directive supplies all four protocol
+segments to `batch_preprocess_test!`; no duplicate trait declaration is
+needed at the call site.
 
 ## Top-level vs deprecated in-impl form
 
@@ -62,9 +73,10 @@ function-like macro in an impl-body position is expanded by rustc into
 associated items.
 
 **It is a working reference implementation, not a stub** — `batch_preprocess_test!`
-is exercised by the open-extension UI/functional tests and can be copied
-verbatim as the starting point for your own `#name(args){body}` extension
-(rename it and adjust the emitted item). The doc blocks of
+is exercised by the open-extension UI/functional tests. Its source is a
+starting point for an extension with the target and trait restrictions
+above; a more general generator must handle its own spec and trait forms.
+The doc blocks of
 `batch_impl_delegate!` / `batch_impl_fill!` / `batch_impl_blanket!` /
 `batch_impl_name!` / `batch_impl_open!` / `batch_impl_consts!` are
 documentation-only entry points for the directive docs — those six are

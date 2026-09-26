@@ -94,21 +94,6 @@ fn range_where_combined() {
 }
 
 // ============================================================
-// 6. `@all_fresh` remains equivalent to `@0..`.
-// ============================================================
-#[batch_impl(Wrap2<*().2> where{@all_fresh: Clone} { fn m(&self) {} })]
-#[allow(dead_code)]
-trait RangeAllFreshEq {
-    fn m(&self);
-}
-
-#[test]
-fn range_all_fresh_equivalence() {
-    fn check<T: RangeAllFreshEq>(_: &T) {}
-    check(&Wrap2(0u8, 1u16));
-}
-
-// ============================================================
 // 7. `@0..` in the impl-generic **declaration** position: `<@0..>` declares
 //    every fresh the range covers as an impl param. The fresh list comes
 //    from the trait-arg generator (`GenConv<*().2>`); the declaration and

@@ -20,8 +20,8 @@ use crate::util::compile_err;
 /// `#blanket(@all){&,Box,Rc}` — blanket delegation: emits one complete spec
 /// per wrapper type.
 ///
-/// Equivalent to hand-writing `<T: Trait> wrapper.T #delegate(selected){*…*self}`
-/// for each wrapper — no wrapper matrix or delegation bodies to write.
+/// Forwards to the inner type's implementation of the same trait, including
+/// async calls and method generics — no delegation bodies to write.
 /// Wrapper elements are **arbitrary type expressions** (`&`/`&mut`/`Box`/`Rc`/
 /// `Arc`/`MyPtr`/`Box.Arc`/`Cow<'_>` etc.), applied to a fresh generic via
 /// `.T`: target type = wrapper expression + `.T` (`Box.Arc:2` → `Box<Arc<T>>`,
@@ -122,12 +122,13 @@ pub(crate) fn expand_blanket(
             &param_names,
         )
     };
-    // The `T as Trait<X>` form for assoc-item projections
-    let as_trait = if param_names.is_empty() {
-        quote!(#t as #trait_full_path)
+    // Body paths use ordinary Rust angle brackets, not the DSL's paired groups.
+    let applied_trait = if param_names.is_empty() {
+        trait_full_path.clone()
     } else {
-        quote!(#t as #trait_full_path < #(#param_names),*>)
+        quote!(#trait_full_path < #(#param_names),*>)
     };
+    let as_trait = quote!(#t as #applied_trait);
 
     // By-value receiver methods (`fn consume(self)`): the deref forward
     // moves the inner value out of the wrapper, which only type-checks for
@@ -197,26 +198,18 @@ pub(crate) fn expand_blanket(
         for name in &method_names {
             let item = get_trait_item(trait_def, name)?;
             match item {
-                // Method: deref delegation; static methods (no receiver)
-                // delegate through the fresh generic `t` — the same forwarding
-                // as assoc items (`t::make(...)`), valid because the blanket
-                // impl carries the `t: Trait` bound.
+                // Qualify the current trait for both receiver and static calls:
+                // supertraits can declare methods with the same name.
                 syn::TraitItem::Fn(f) => {
                     let sig = f.sig.clone();
-                    // `Self` in the signature (parameters **or** return)
-                    // breaks delegation: the body forwards the inner value
-                    // (`(**self).m()` / `t::m()`), whose parameter/return
-                    // types are the inner `T`, but the impl's `Self` is the
-                    // wrapper — `fn new() -> Self` through `Box` used to emit
-                    // `t::new()` and fail with rustc's E0308 at the generated
-                    // impl; `fn cmp(&self, other: Self)` has the same problem
-                    // in the parameters. Report with guidance.
+                    // Parameters, returns and generic constraints cannot
+                    // identify the wrapper's bare `Self` with the inner type.
                     if crate::preprocess::directives::blanket_helpers::sig_refs_bare_self(&f.sig) {
                         return Err(compile_err!(
-                            "batch-impl: #blanket method `{}::{}` takes/returns \
-                             `Self` (bare or `Self::Assoc` projection); blanket delegation \
-                             forwards the inner type, which cannot match the wrapper's \
-                             `Self` — write a `#name{{...}}` body for this wrapper instead",
+                            "batch-impl: #blanket method `{}::{}` references bare `Self` \
+                             in a parameter, return type, or generic constraint; delegation \
+                             cannot equate the wrapper's `Self` with the inner type \
+                             — write a `#name{{...}}` body for this wrapper instead",
                             trait_def.ident,
                             name
                         ));
@@ -230,23 +223,23 @@ pub(crate) fn expand_blanket(
                             pat
                         )
                     })?;
-                    let body = if f.sig.receiver().is_none() {
-                        quote! { #t :: #name ( #(#call_args),* ) }
-                    } else {
+                    let generic_args =
+                        crate::preprocess::directives::blanket_helpers::method_turbofish(
+                            &sig.generics,
+                        );
+                    let await_call = sig.asyncness.map(|_| quote!(.await));
+                    let body = if let Some(receiver) = f.sig.receiver() {
+                        let borrow =
+                            crate::preprocess::directives::blanket_helpers::receiver_borrow(
+                                receiver,
+                            );
                         // `&self`/`&mut self` reach the inner through the
                         // reference AND the wrapper layers (`**self` =
                         // depth + 1 derefs); a by-value `self` IS the
                         // wrapper, so one deref fewer (`*self` = depth
                         // derefs — 0.7.2 fix: the extra star dereferenced the
                         // inner type, E0614).
-                        let derefs = if matches!(
-                            f.sig.receiver().map(|r| &r.kind),
-                            Some(syn::ReceiverKind::Value | syn::ReceiverKind::Typed(..))
-                        ) {
-                            wrapper.depth
-                        } else {
-                            wrapper.depth + 1
-                        };
+                        let derefs = wrapper.depth + usize::from(!borrow.is_empty());
                         // Build the deref chain structurally (no string
                         // parsing — the no-panic promise): N `*` puncts
                         // followed by `self`, always a valid expression.
@@ -258,28 +251,24 @@ pub(crate) fn expand_blanket(
                             derefs,
                         )
                         .collect::<TokenStream>();
-                        let self_ty = quote!(#stars self);
-                        quote! { (#self_ty) . #name ( #(#call_args),* ) }
+                        // Infer the receiver type from the dereferenced value:
+                        // an arbitrary wrapper's Deref target need not be `t`.
+                        quote! {
+                            <_ as #applied_trait>::#name #generic_args (
+                                #borrow #stars self, #(#call_args),*
+                            ) #await_call
+                        }
+                    } else {
+                        quote! { <#as_trait>::#name #generic_args ( #(#call_args),* ) #await_call }
                     };
                     methods.extend(build_from_item(item, &body));
                 }
                 // Assoc type/const: projection (not through self)
                 syn::TraitItem::Type(t) if !t.generics.params.is_empty() => {
-                    // Generic associated type (GAT): project with the GAT's
-                    // own params — `type Iter<'a> where Self: 'a` →
-                    // `type Iter<'a> where Self: 'a = <T as Trait>::Iter<'a>;`
-                    // (the bare projection would be missing the lifetime
-                    // argument, E0107).
-                    let args = t
-                        .generics
-                        .params
-                        .iter()
-                        .map(|p| match p {
-                            syn::GenericParam::Lifetime(ld) => quote!(#ld),
-                            syn::GenericParam::Type(tp) => quote!(#tp),
-                            syn::GenericParam::Const(cp) => quote!(#cp),
-                        })
-                        .collect::<Vec<_>>();
+                    // A GAT definition retains its full declaration, but its
+                    // projection applies only names: `Item<T: Clone, const N:
+                    // usize>` becomes `<TInner as Trait>::Item<T, N>`.
+                    let args = crate::analyze::generic_param_names(&t.generics);
                     let body = quote! { < #as_trait >::#name < #(#args),* > };
                     methods.extend(build_from_item(item, &body));
                 }

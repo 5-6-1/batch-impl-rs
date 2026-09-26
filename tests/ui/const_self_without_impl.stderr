@@ -1,0 +1,36 @@
+error: batch-impl: `@Self` is available only on an impl entry (it refers to the input impl's self type)
+ --> tests/ui/const_self_without_impl.rs:3:1
+  |
+3 | #[batch_impl(@Self)]
+  | ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: `@Self` is available only on an impl entry (it refers to the input impl's self type)
+ --> tests/ui/const_self_without_impl.rs:6:1
+  |
+6 | #[batch_impl_only(@Self)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl_only` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: `@Self` is available only on an impl entry (it refers to the input impl's self type)
+  --> tests/ui/const_self_without_impl.rs:10:1
+   |
+10 | / batch_trait! {
+11 | |     FunctionLike: @Self;
+12 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: `@Self` is available only on an impl entry (it refers to the input impl's self type)
+  --> tests/ui/const_self_without_impl.rs:14:1
+   |
+14 | / batch_trait! {
+15 | |     @source = @Self;
+16 | |     FunctionLike: @source;
+17 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

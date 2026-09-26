@@ -1,3 +1,5 @@
+Documentation-only guide to `@` constants: use these spellings inside batch-impl inputs; do not invoke `batch_impl_consts!`.
+
 # The `@` Macro-Meta Constant System
 
 `@` is the DSL's reserved **library-owned constant namespace** — `#` is taken
@@ -8,7 +10,7 @@ directives → `where`) and participates in no in-domain parsing.
 
 The name after `@` is looked up in a fixed order: user-defined constants
 (`batch_trait!` only) → built-in name families → range families → `@all`
-selectors → `@trait` → `@N` / `@g_i` positional references.
+selectors → context constants (`@trait`, `@Self`) → `@N` / `@g_i` positional references.
 
 ## Preprocessing position
 
@@ -48,22 +50,30 @@ trait ScalarPtr {}
 
 ## Range families
 
-`@u8..u128`, `@i8..i128`, `@f32..f64` (inclusive) — the contiguous run of
-one family, ascending by width:
+Ranges select a contiguous run of one family, ascending by width. Like
+Rust, `..` excludes the written upper endpoint and `..=` includes it:
 
 | Constant | Expands to |
 |---|---|
-| `@u8..u128` | `u8, u16, u32, u64, u128` |
-| `@i8..i128` | `i8, i16, i32, i64, i128` |
-| `@f32..f64` | `f32, f64` |
+| `@u8..u16` | `u8` (a one-element list, `[u8,]`) |
+| `@u8..=u128` | `u8, u16, u32, u64, u128` |
+| `@i8..=i128` | `i8, i16, i32, i64, i128` |
+| `@f32..=f64` | `f32, f64` |
+
+Omitting the lower endpoint starts at the family minimum (`@..u16` =
+`@u8..u16`, `@..=u16` = `@u8..=u16`). Omitting the upper endpoint reaches
+the last member (`@u16..` = `@u16..=u128`). At least one endpoint must name
+the family, and `..=` requires an upper endpoint.
 
 `usize` / `isize` only enter name families, never range families. Endpoint
 widths are validated: `@u9..u128` errors ("invalid width"), a mismatched
-family (`@u8..i32`) or a descending run (`@u128..u8`) errors too.
+family (`@u8..i32`) or a descending run (`@u128..u8`) errors too. An empty
+exclusive range (`@u8..u8` or `@..u8`) is reported rather than producing
+an empty type matrix.
 
 ```rust
 # use batch_impl::batch_impl;
-#[batch_impl(Vec @u8..u32)]  // u8, u16, u32
+#[batch_impl(Vec @u8..=u32)]  // u8, u16, u32
 trait VecOf {}
 // → impl VecOf for Vec<u8> {} / Vec<u16> {} / Vec<u32> {}
 ```
@@ -81,7 +91,7 @@ expressions:
 # trait B<T> {}
 batch_trait! {
     @uints = @u*;
-    @big = @u64..u128;
+    @big = @u64..=u128;
     A: @uints;
     B: <T> B<T> @big;
 }
@@ -103,7 +113,7 @@ Reference-visibility rules (enforced at definition time, in
 `#[batch_impl]` / `#[batch_impl_only]` **do not support custom constants**
 (the 0.7.2 attribute-macro feature was reverted in 0.8.0): write
 attribute-macro matrices directly with `.` / space / `*` instead. Constant
-names are reserved against collision: `@trait` and the whole `@all` family
+names are reserved against collision: `@trait`, `@Self` and the whole `@all` family
 cannot be redefined, and a name colliding with a built-in constant
 (`@uints` would be fine, `@u*` is not) errors.
 
@@ -117,7 +127,6 @@ like `().N`), which the user cannot know by name before expansion:
 |---|---|---|
 | `@g_i` | **primitive** — group g, slot i (stable across array distribution) | the i-th fresh of generator group g (`@0_0` → the first fresh of the first generator) |
 | `@N` | `@g_i` flattened by document order within one impl | the N-th fresh generic name (`@0` → `P0` in a `where{@0: Clone}` predicate) |
-| `@all_fresh` | all fresh generics | every fresh name, one predicate each (≡ `@0..`); **deprecated**, write `@0..` |
 | `@N..=M` | a contiguous run | the fresh names N..=M, comma-separated (`@0..=1` → `P0, P1`) |
 | `@N..` | an **open** run to the last fresh | every fresh name from N to the last, comma-separated (`@1..` → `P1, P2, ...`); **empty** when N is past the end |
 | `@L_N..` / `@L_N..M` / `@L_N..=M` | **grouped ranges** — slice within one generator group | the group's fresh names from position N, stable across array dispatch |
@@ -138,7 +147,7 @@ tail is copied per fresh.
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(()3 where @0..: Copy)]       // = @all_fresh (from 0 to the last fresh)
+#[batch_impl(()3 where @0..: Copy)]       // from 0 to the last fresh
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
@@ -147,9 +156,8 @@ trait OpenRange {}
 // → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
 ```
 
-`@all_fresh` and `@0..` are equivalent; **`@all_fresh` is deprecated** — the
-`@N..` family is the preferred spelling (`@0..` covers the whole run, `@1..`
-its tail). Existing specs keep working; new code should write `@0..`.
+**`@all_fresh` has been removed**: replace existing uses with `@0..`.
+The `@N..` family covers the whole run with `@0..`, or its tail with `@1..`.
 
 **Ranges work anywhere a single `@N` can** (0.9.2): beyond the where
 predicates above, the range's tail may be an associated-type path, copied
@@ -206,7 +214,8 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
 //     where P2: Clone, P3: Clone, P4: Clone   ← group 1 only (P0,P1 unconstrained)
 ```
 
-`@L_N..` (open to the group's end), `@L_N..M` and `@L_N..=M` (closed) all
+`@L_N..` (open to the group's end), `@L_N..M` (excluding M), and
+`@L_N..=M` (including M) all
 work; an unknown group errors like `@g_i`.
 
 **Value positions**: the type after `:` may carry `@N` inside angle groups —
@@ -244,8 +253,9 @@ On the other axis (value classes):
 | Notation | Class | Use |
 |---|---|---|
 | `@trait` | **identity** — the current trait name/path (section-level in `batch_trait!`) | package "generic declaration + trait name" across sections |
+| `@Self` | **input type** — the current impl attribute's input self type | reuse the prototype as a shape template or type argument |
 | `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus its inherent constraints (`@0: ToOwned + ?Sized, @0::Owned: @trait`) | blanket-usable `Cow` delegation |
+| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus its packaged constraints (`@0: ToOwned + ?Sized, @0::Owned: @trait`) | blanket-usable `Cow` delegation |
 
 ### `@trait`
 
@@ -255,6 +265,20 @@ In `batch_trait!` it is **segment-level**: after segmentation, each segment's
 `@trait` is replaced with that segment's trait path — enabling cross-segment
 packing reuse such as `@type_t=<T>@trait<T>` (define once, apply to every
 segment's own trait).
+
+### `@Self`
+
+On an impl entry, this constant copies the self type received by the current
+attribute invocation. `@Self: [Box, Rc] [u8, u16]` on an input impl for
+`Box<u8>` uses `Box<u8>` as its shape template. The constant works everywhere
+the existing constant pass reaches, including a direct-form `Vec<@Self>` and
+where predicates. Its value still participates in subsequent shape mapping;
+ordinary Rust `Self` is unchanged. Each stacked attribute reads its own input.
+
+Both trait and inherent impls have a self type. A trait attribute or
+`batch_trait!` does not, so referencing `@Self` there reports a context error.
+The name is reserved and cannot be defined as a custom constant. Code bodies,
+macro calls and later attributes retain their existing passthrough boundaries.
 
 ### The `@all` family
 
@@ -291,9 +315,10 @@ trait Len {
 
 ### `@Cow`
 
-A `#blanket`-only wrapper constant: expands to `Cow<'_>` plus the inherent
-constraint predicates (`@0: ToOwned + ?Sized`, `@0::Owned: @trait`) that make
-delegation through `Cow` type-check. It is a **built-in of the blanket
+A `#blanket`-only wrapper constant: expands to `Cow<'_>` plus the packaged
+predicates `@0: ToOwned + ?Sized` and `@0::Owned: @trait`. `Cow<'_, T>`
+dereferences to `T`; the `T::Owned` bound is an additional requirement of the
+current packing. It is a **built-in of the blanket
 wrapper list** — not a custom constant, and only meaningful inside
 `#blanket(...){ ... @Cow ... }`.
 
@@ -318,6 +343,8 @@ trait TraitG<T> { fn m(&self); }
 
 - `@trait` is a reserved marker (segment-level substitution) — cannot be
   used as a user constant name;
+- `@Self` is reserved for the input impl's self type, including in contexts
+  where there is no input impl; rename a previous custom `@Self` constant;
 - the whole `@all` / `@all_*` family is reserved for selectors — a user
   constant with such a name would be shadowed, rejected at definition;
 - a user constant colliding with a built-in constant name errors.
@@ -329,6 +356,6 @@ trait TraitG<T> { fn m(&self); }
   `impl{...}` shape templates are entered for `@trait` / `@`.
 - `@N` positional references are resolved by **codegen**, where the impl's
   fresh list is known — preprocessing leaves `@N` untouched.
-- `@all_fresh` is kept for compatibility but **deprecated**: write `@0..`.
+- `@all_fresh` has been removed: replace existing uses with `@0..`.
 
 **Documentation marker only — never call this function.**

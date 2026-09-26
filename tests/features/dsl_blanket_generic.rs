@@ -117,10 +117,187 @@ impl BlanketStaticT for u8 {
 fn blanket_static_delegation() {
     // Static methods (no receiver) delegate through the blanket generic `t`:
     // `impl<t> BlanketStaticT for Box<t> where t: BlanketStaticT` with
-    // `fn make() -> u8 { t::make() }` — direct, chained (Box<Box<u8>>) and
+    // a qualified `BlanketStaticT::make()` call — direct, chained (Box<Box<u8>>) and
     // argument-forwarding forms all reach the underlying impl.
     assert_eq!(<Box<u8> as BlanketStaticT>::make(), 7);
     assert_eq!(<Box<Box<u8>> as BlanketStaticT>::make(), 7);
     assert_eq!(<Box<u8> as BlanketStaticT>::pair(3, 4), 34);
     assert_eq!(<Box<Box<u8>> as BlanketStaticT>::pair(3, 4), 34);
+}
+
+trait OtherMethodForms {
+    fn read(&self) -> u16 {
+        99
+    }
+    fn width<T, const N: usize>() -> usize {
+        99
+    }
+}
+impl<T: ?Sized> OtherMethodForms for T {}
+
+#[batch_impl(#blanket(@all_methods){Box})]
+trait BlanketMethodForms: OtherMethodForms {
+    async fn read(&self) -> u16;
+    async fn add(&mut self, value: u16) -> u16;
+    async fn width<T, const N: usize>() -> usize;
+    fn borrowed_width<'a, T, const N: usize>(&self, value: &'a u8) -> (usize, &'a u8);
+}
+
+impl BlanketMethodForms for u16 {
+    async fn read(&self) -> u16 {
+        *self
+    }
+    async fn add(&mut self, value: u16) -> u16 {
+        *self += value;
+        *self
+    }
+    async fn width<T, const N: usize>() -> usize {
+        std::mem::size_of::<T>() + N
+    }
+    fn borrowed_width<'a, T, const N: usize>(&self, value: &'a u8) -> (usize, &'a u8) {
+        (std::mem::size_of::<T>() + N, value)
+    }
+}
+
+#[test]
+fn blanket_async_and_method_generics() {
+    // These futures complete on their first poll; no runtime is needed. Poll
+    // the generated forwarding bodies so a merely compiling stub cannot pass.
+    fn ready<F: std::future::Future>(future: F) -> F::Output {
+        let mut future = std::pin::pin!(future);
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut cx) {
+            std::task::Poll::Ready(value) => value,
+            std::task::Poll::Pending => panic!("the test future must complete immediately"),
+        }
+    }
+
+    let mut wrapped = Box::new(Box::new(7u16));
+    // The supertrait deliberately has the same method names: both instance
+    // and static calls must reach this trait's async, generic implementations.
+    assert_eq!(OtherMethodForms::read(&wrapped), 99);
+    assert_eq!(<Box<Box<u16>> as OtherMethodForms>::width::<u32, 3>(), 99);
+    assert_eq!(ready(BlanketMethodForms::read(&wrapped)), 7);
+    assert_eq!(ready(BlanketMethodForms::add(&mut wrapped, 5)), 12);
+    assert_eq!(**wrapped, 12);
+    assert_eq!(ready(<Box<Box<u16>> as BlanketMethodForms>::width::<u32, 3>()), 7);
+    let value = 9;
+    let (width, borrowed) = BlanketMethodForms::borrowed_width::<u64, 2>(&wrapped, &value);
+    assert_eq!(width, 10);
+    assert!(std::ptr::eq(borrowed, &value));
+}
+
+#[test]
+fn blanket_deref_target_is_not_the_wrapper_parameter() {
+    struct Redirect<T> {
+        parameter: T,
+        target: u16,
+    }
+    impl<T> std::ops::Deref for Redirect<T> {
+        type Target = u16;
+        fn deref(&self) -> &Self::Target {
+            &self.target
+        }
+    }
+    impl<T> std::ops::DerefMut for Redirect<T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.target
+        }
+    }
+    #[batch_impl(#blanket(@all){Redirect})]
+    trait ReadTarget {
+        fn read(&self) -> u16;
+        fn add(&mut self, value: u16);
+    }
+    impl ReadTarget for u16 {
+        fn read(&self) -> u16 {
+            *self
+        }
+        fn add(&mut self, value: u16) {
+            *self += value;
+        }
+    }
+    impl ReadTarget for u8 {
+        fn read(&self) -> u16 {
+            99
+        }
+        fn add(&mut self, _: u16) {}
+    }
+    let mut redirected = Redirect { parameter: 3u8, target: 7 };
+    ReadTarget::add(&mut redirected, 5);
+    assert_eq!(ReadTarget::read(&redirected), 12);
+    assert_eq!(ReadTarget::read(&redirected.parameter), 99);
+}
+
+#[test]
+// Exercise projection constraints in both inline bounds and where predicates.
+#[allow(clippy::multiple_bound_locations)]
+fn blanket_self_sized_and_projected_constraints() {
+    #[batch_impl(#blanket(@all){Box})]
+    trait Projected {
+        type Item;
+        fn convert<U: From<Self::Item>>(&self, value: Self::Item) -> U
+        where
+            U: Into<Self::Item>;
+        fn consume(self) -> u8
+        where
+            Self: Sized;
+        fn borrow<'a>(&'a self, value: &'a Self::Item) -> &'a Self::Item
+        where
+            Self: 'a;
+    }
+    impl Projected for u8 {
+        type Item = u16;
+        fn convert<U: From<Self::Item>>(&self, value: Self::Item) -> U
+        where
+            U: Into<Self::Item>,
+        {
+            U::from(value)
+        }
+        fn consume(self) -> u8
+        where
+            Self: Sized,
+        {
+            self
+        }
+        fn borrow<'a>(&'a self, value: &'a Self::Item) -> &'a Self::Item
+        where
+            Self: 'a,
+        {
+            value
+        }
+    }
+    let boxed = Box::new(7u8);
+    assert_eq!(Projected::convert::<u16>(&boxed, 42), 42);
+    let value = 42;
+    assert!(std::ptr::eq(Projected::borrow(&boxed, &value), &value));
+    assert_eq!(Projected::consume(boxed), 7);
+}
+
+#[test]
+// The explicit receiver spelling is the behavior under test, including copies
+// of those signatures in the generated blanket impl.
+#[allow(clippy::needless_arbitrary_self_type)]
+fn blanket_explicit_reference_receivers() {
+    #[batch_impl(#blanket(@all){Box})]
+    trait ExplicitRef {
+        fn read(self: &Self) -> u16;
+        fn add(self: &mut Self, value: u16);
+        fn boxed(self: Box<Self>) -> u16;
+    }
+    impl ExplicitRef for u16 {
+        fn read(self: &Self) -> u16 {
+            *self
+        }
+        fn add(self: &mut Self, value: u16) {
+            *self += value;
+        }
+        fn boxed(self: Box<Self>) -> u16 {
+            *self
+        }
+    }
+    let mut boxed = Box::new(7u16);
+    ExplicitRef::add(&mut boxed, 5);
+    assert_eq!(ExplicitRef::read(&boxed), 12);
+    assert_eq!(ExplicitRef::boxed(Box::new(boxed)), 12);
 }

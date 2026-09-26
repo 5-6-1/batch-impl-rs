@@ -86,9 +86,17 @@ use crate::util::{bracket_is_passthrough, is_punct};
 ///
 /// Only the contents of `[...]` (Bracket) groups are expanded recursively;
 /// `(...)` and `{...}` are not, to avoid wandering into directive args or
-/// bodies.
+/// bodies. The delegate handler separately scans its own body for local
+/// `receiver.#call` sites; ordinary Rust macro inputs remain opaque there.
 pub(crate) fn expand_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait, trait_full_path: &TokenStream,
+) -> Result<Vec<TokenTree>, TokenStream> {
+    expand_tokens_in(tokens, trait_def, trait_full_path, tokens)
+}
+
+fn expand_tokens_in(
+    tokens: &[TokenTree], trait_def: &ItemTrait, trait_full_path: &TokenStream,
+    naming_scope: &[TokenTree],
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
@@ -96,7 +104,8 @@ pub(crate) fn expand_tokens(
         if is_punct(cur, '#')
             && let Some(TokenTree::Ident(name)) = tokens.get(i + 1)
         {
-            let (out, consumed) = expand_directive(name, tokens, i, trait_def, trait_full_path)?;
+            let (out, consumed) =
+                expand_directive(name, tokens, i, trait_def, trait_full_path, naming_scope)?;
             result.extend(out);
             i += consumed;
             continue;
@@ -107,10 +116,11 @@ pub(crate) fn expand_tokens(
             && g.delimiter() == delimiter![[]]
             && !bracket_is_passthrough(tokens, i)
         {
-            let inner = expand_tokens(
+            let inner = expand_tokens_in(
                 &g.stream().into_iter().collect::<Vec<_>>(),
                 trait_def,
                 trait_full_path,
+                naming_scope,
             )?;
             let new_group = Group::new(g.delimiter(), inner.into_iter().collect());
             result.push(new_group.into());

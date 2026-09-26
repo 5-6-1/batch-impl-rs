@@ -34,7 +34,8 @@ pub(crate) struct ImplParts {
     /// The same templates, **parsed** (`render::parse_impl_templates`, run right
     /// after the sync) — matched against the leaf target type by
     /// `codegen::shape::match_shape`; the merged slot mapping rewrites the
-    /// target/where/body. An `X<>` marker inside a template (`impl{GenW<>}`) is the
+    /// where/body; the target is already the matrix leaf. An `X<>` marker inside
+    /// a template (`impl{GenW<>}`) is the
     /// reason the parse cannot happen earlier.
     pub(crate) shape_templates: Vec<syn::Type>,
     /// A **fresh-binding switch template** (`impl{@0..}` / `impl{@1..}` /
@@ -158,7 +159,7 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             Some(inner) => {
                 let mut parts = extract_impl_parts(*inner);
                 // Split the where group into predicates at depth-0 commas so
-                // each predicate resolves independently (`@all_fresh` /
+                // each predicate resolves independently (`@0..` /
                 // `@N..M` expansions must not swallow following predicates).
                 let tokens = ww.1.0.clone().into_iter().collect::<Vec<_>>();
                 for pred in split_at_depth0(&tokens, ',') {

@@ -8,10 +8,10 @@
 
 use proc_macro2::{TokenStream, TokenTree};
 
-use crate::preprocess::consts::ctx::ConstCtx;
+use crate::preprocess::consts::ctx::{ConstCtx, SELF_CONTEXT_ERROR};
 use crate::preprocess::{builtin_named, builtin_range_open, render_list, split_range_endpoint};
 use crate::util::{
-    compile_err, compile_err_at, compile_error_str, is_joint_punct_at, is_punct_at, span_at,
+    Op, compile_err, compile_err_at, compile_error_str, is_punct_at, read_op, span_at,
 };
 
 /// Recognizes and expands an `@` constant reference at `tokens[0]`; returns
@@ -26,6 +26,7 @@ use crate::util::{
 /// - `@` Ident `..` [`=`] Ident? → range family (`@u8..u128`, `@u16..`)
 /// - `@trait` → full trait path (attribute macro entries; batch_trait!
 ///   returns `None` to keep)
+/// - `@Self` → the input impl's self type (ItemImpl only)
 /// - `@` Ident → name family / user table
 pub(crate) fn try_expand_at(
     tokens: &[TokenTree], ctx: ConstCtx,
@@ -34,25 +35,17 @@ pub(crate) fn try_expand_at(
     // fills the omitted start. Recognized before the Ident requirement
     // (there is no leading name in this form). The operator dictionary reads
     // `..` / `..=` as one unit.
-    if let Some((crate::util::Op::DotDot, _) | (crate::util::Op::DotDotEq, _)) =
-        crate::util::read_op(tokens, 1)
-    {
-        let end_idx = if let Some(TokenTree::Punct(eq)) = tokens.get(3)
-            && eq.as_char() == '='
-        {
-            4
-        } else {
-            3
-        };
+    if let Some((op @ (Op::DotDot | Op::DotDotEq), len)) = read_op(tokens, 1) {
+        let end_idx = 1 + len;
         let Some(TokenTree::Ident(end)) = tokens.get(end_idx) else {
             return Err(compile_err!(
-                "batch-impl: range constant `@..` must name the family's \
-                 maximum endpoint (e.g. `@..u128`, `@..f64`)"
+                "batch-impl: range constant `@..` must name an end point \
+                 (e.g. `@..u128`, `@..=f64`)"
             ));
         };
-        let types = builtin_range_open(None, Some(&end.to_string()))
+        let types = builtin_range_open(None, Some(&end.to_string()), op == Op::DotDotEq)
             .map_err(|msg| compile_err!("batch-impl: {}", msg))?;
-        return Ok((vec![render_list(types.iter().map(|s| s.as_str()))], end_idx + 1).into());
+        return Ok((vec![render_list(types.iter().map(|s| s.as_str()), true)], end_idx + 1).into());
     }
     let Some(TokenTree::Ident(name)) = tokens.get(1) else {
         // `@N` position references (Literal after `@`) are codegen-resolved
@@ -93,41 +86,31 @@ pub(crate) fn try_expand_at(
         };
         return Err(compile_error_str(msg, span_at(tokens, 0)));
     }
-    // Range family: `@` Ident `..` Ident (`..` is Joint '.' + any '.';
-    // optional `=`). Endpoint resolution: an ident right after the dots
+    // Range family: the operator dictionary distinguishes exclusive `..`
+    // from inclusive `..=`. Endpoint resolution: an ident after the operator
     // whose width is legal is the endpoint (whitespace-insensitive, like
     // every pre-existing form); an ident that fails width validation is NOT
     // an endpoint — it is the next DSL item (`@i16.. Neg`) — and the open
-    // family (`@i16..` ≡ `@i16..i128`) is emitted instead, ident left
-    // unconsumed. Byte-position adjacency distinguishes glued from
-    // separated for the `=` half (the second dot of `..` lexes `Alone`
-    // either way).
-    if is_joint_punct_at(tokens, 2, '.') && is_punct_at(tokens, 3, '.') {
-        let dots_end = span_at(tokens, 3);
-        let eq_adj = matches!(tokens.get(4), Some(TokenTree::Punct(eq)) if eq.as_char() == '=')
-            && crate::util::spans_adjacent(dots_end, span_at(tokens, 4));
-        let endpoint: Option<(usize, String)> = if eq_adj {
-            tokens.get(5).and_then(|t| match t {
-                TokenTree::Ident(end) => Some((5, end.to_string())),
-                _ => None,
-            })
-        } else {
-            tokens.get(4).and_then(|t| match t {
-                TokenTree::Ident(end) => Some((4, end.to_string())),
-                _ => None,
-            })
-        };
+    // family (`@i16..` ≡ `@i16..=i128`) is emitted instead, ident left
+    // unconsumed. An explicit `..=` always requires an endpoint.
+    if let Some((op @ (Op::DotDot | Op::DotDotEq), len)) = read_op(tokens, 2) {
+        let inclusive = op == Op::DotDotEq;
+        let end_idx = 2 + len;
+        let endpoint = tokens.get(end_idx).and_then(|t| match t {
+            TokenTree::Ident(end) => Some(end.to_string()),
+            _ => None,
+        });
         let (types, consumed) = match endpoint {
             // a legal-width endpoint wins regardless of adjacency
             // (`@u8.. u128` — whitespace-insensitive like every
             // pre-existing form)
-            Some((idx, end)) if split_range_endpoint(&end).is_some() => (
-                builtin_range_open(Some(&name_str), Some(&end))
+            Some(end) if split_range_endpoint(&end).is_some() => (
+                builtin_range_open(Some(&name_str), Some(&end), inclusive)
                     .map_err(|msg| compile_err!("batch-impl: {}", msg))?,
-                idx + 1,
+                end_idx + 1,
             ),
             // `..=X` where X exists but fails width validation: a typo
-            Some((5, bad)) if eq_adj => {
+            Some(bad) if inclusive => {
                 return Err(compile_err!(
                     "batch-impl: range constant `@{}..=` has an invalid end \
                      point `{}`",
@@ -136,7 +119,7 @@ pub(crate) fn try_expand_at(
                 ));
             }
             // `..=` with nothing after: missing, not a shorthand
-            None if eq_adj => {
+            None if inclusive => {
                 return Err(compile_err!(
                     "batch-impl: range constant `@{}..=` is missing an end \
                      point (e.g. `@u16..=u64`)",
@@ -146,12 +129,21 @@ pub(crate) fn try_expand_at(
             // no usable endpoint: the open family, ident left unconsumed
             // (`@i16.. Neg` — Neg is the next DSL item)
             _ => (
-                builtin_range_open(Some(&name_str), None)
+                builtin_range_open(Some(&name_str), None, false)
                     .map_err(|msg| compile_err!("batch-impl: {}", msg))?,
-                4,
+                end_idx,
             ),
         };
-        return Ok((vec![render_list(types.iter().map(|s| s.as_str()))], consumed).into());
+        return Ok((vec![render_list(types.iter().map(|s| s.as_str()), true)], consumed).into());
+    }
+    // `@Self` is a context constant, not a shape-position alias: expand it
+    // wherever the constant walker enters, before parsing and shape mapping.
+    // Rust bodies and later attributes remain outside this walk.
+    if name_str == "Self" {
+        return ctx
+            .impl_self_type()
+            .map(|ty| Some((ty.clone().into_iter().collect(), 2)))
+            .ok_or_else(|| compile_error_str(SELF_CONTEXT_ERROR, span_at(tokens, 0)));
     }
     // `@trait`: Attribute (batch_impl/only) = full trait path (local name or
     // `#ext::Trait:` external path); ItemImpl = the impl's own trait path
@@ -181,7 +173,7 @@ pub(crate) fn try_expand_at(
                 let ids = crate::preprocess::get_trait_item_names(
                     td, kinds.0, kinds.1, kinds.2, default, receiver,
                 );
-                Ok((vec![render_list(ids.iter())], 2).into())
+                Ok((vec![render_list(ids.iter(), false)], 2).into())
             }
             None if ctx.is_item_impl() => Err(compile_err!(
                 "batch-impl: `@{}` is not available on the ItemImpl entry \
@@ -241,15 +233,9 @@ pub(crate) fn try_expand_at(
     let lookup = if star { format!("{}*", name_str) } else { name_str.clone() };
     match builtin_named(&lookup) {
         Some(types) => {
-            Ok((vec![render_list(types.iter().copied())], if star { 3 } else { 2 }).into())
+            Ok((vec![render_list(types.iter().copied(), true)], if star { 3 } else { 2 }).into())
         }
         None => {
-            // `@all_fresh` is a where-predicate selector resolved by codegen
-            // (each fresh generic gets the predicate tail) — keep it as-is
-            // here; the constant stage must not claim it.
-            if name_str == "all_fresh" {
-                return Ok(None);
-            }
             Err(compile_err_at!(
                 span_at(tokens, 0),
                 "batch-impl: unknown @ constant `@{}`; built-ins: `@u*` `@i*` `@f*` \

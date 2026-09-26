@@ -301,8 +301,7 @@ fn is_macro_generated_carrier(tokens: &[TokenTree], i: usize) -> bool {
 }
 
 /// Folds every **flat** position reference in `tokens` into the carrier form:
-/// `@0` / `@g_i` / `@N..` / `@N..M` / `@N..=M` (and the deprecated
-/// `@all_fresh`, normalized to `@{0..}`) become `@` + Brace groups. Existing
+/// `@0` / `@g_i` / `@N..` / `@N..M` / `@N..=M` become `@` + Brace groups. Existing
 /// carriers pass through untouched, so this is idempotent — the single
 /// normalization point for resolvers that may receive user-spelled input
 /// (where predicates, blanket wrapper clauses). A malformed reference reports
@@ -326,17 +325,6 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Tok
         if let Some(g) = carrier_group_at(tokens, i) {
             out.push(cur.clone());
             out.push(TokenTree::Group(g.clone()));
-            i += 2;
-            continue;
-        }
-        // Deprecated batch form: `@all_fresh` ≡ `@{0..}`.
-        if let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
-            && id == "all_fresh"
-        {
-            out.extend(fresh_ref_tokens(
-                FreshRef { group: None, start: 0, end: FreshEnd::Open },
-                at_span,
-            ));
             i += 2;
             continue;
         }
@@ -393,8 +381,8 @@ pub(crate) fn fold_flat_refs(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Tok
                 continue;
             }
         }
-        // `@` followed by anything else (a non-`all_fresh` ident, a punct, a
-        // non-Brace group, or nothing) — a malformed reference, reported like
+        // `@` followed by anything else (an ident, a punct, a non-Brace group,
+        // or nothing) — a malformed reference, reported like
         // the type-position path instead of leaking the raw `@` through.
         return Err(AtRefError::position_digit(at_span).into_stream());
     }

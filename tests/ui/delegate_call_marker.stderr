@@ -1,0 +1,15 @@
+error: batch-impl: unknown #delegate call marker; use `receiver.#call`
+ --> tests/ui/delegate_call_marker.rs:5:1
+  |
+5 | #[batch_impl(Receiver #delegate(read){ self.#other })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: #call is a postfix call marker; write `receiver.#call`
+  --> tests/ui/delegate_call_marker.rs:10:1
+   |
+10 | #[batch_impl(Receiver #delegate(read){ #call(self) })]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

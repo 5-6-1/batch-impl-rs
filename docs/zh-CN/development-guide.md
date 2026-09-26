@@ -23,7 +23,7 @@
 - type 限定：`feat` / `fix` / `refactor` / `perf` / `test` / `docs` / `chore` / `build`
 - 单 crate 不写 scope
 - 示例：`feat: typestate preprocessing pipeline (Stream states enforce pass order)`
-- 发布 commit：`chore: release 0.9.8 (diagnostics and docs)`，正文附版本要点
+- 发布 commit：`chore: release 0.10.0 (syntax and onboarding)`，正文附版本要点
 
 ## 2. 质量门（每个改动必跑，全绿才提交）
 
@@ -46,11 +46,15 @@ cargo doc --no-deps                    # 零警告
    （`CHANGELOG.md`、`docs/zh-CN/CHANGELOG.md`、`docs/dev-changelog.md`、
    `docs/zh-CN/dev-changelog.md`）。每个改动完成即记入，不攒到发布时补。
 2. **发布时**：
-   - `Cargo.toml` 版本号递增；
+   - 先确定兼容边界再更新 `Cargo.toml`：`0.y.z` 的刻意破坏性改动递增
+     `y`（如 0.9.7 → 0.10.0）；changelog 提醒无法缩小 Cargo 的依赖范围；
    - 头部版本行更新（`README.md`、`docs/tutorial.md`、`docs/reference.md`、`docs/architecture.md`
      及其 zh-CN 对应——EN 替换为 `**vX.Y.Z** (date) — 摘要`；zh-CN architecture
      按版本堆叠是**新增一行**，不替换）；
-   - README 依赖示例版本（`batch-impl = "X.Y.Z"`）同步；
+   - README 依赖示例版本（`batch-impl = "X.Y.Z"`）同步；版本未发布时，
+     应说明对应源码/路径依赖；
+   - 将开发导航链接固定到发布 tag，包括语言镜像、CHANGELOG 和示例；
+     发布前检查仓库目标及生成的 rustdoc 链接；
    - 四处 `## Unreleased` → `## X.Y.Z (date)`，保留摘要行；
    - `cargo package --list` 检查清单（无关文件不进包，历史教训：
      `rust-2024-feature.md` 曾被打进每个 `.crate`）；
@@ -126,7 +130,24 @@ cargo doc --no-deps                    # 零警告
 - **docs.rs 首屏**：README 是 lib.rs 文档的一部分，首页重构须保持
   "为什么用它 + 最小示例"置顶、版本横幅一行链接 CHANGELOG。
 - **文档示例必须真实**：读者/评测员会逐条核对（splat 27 示例、`Box.Box u8`
-  结合性都曾被实测抓错）。写进文档的展开结果先实测验证。
+  结合性都曾被实测抓错）。写进文档的展开结果先实测验证。可运行的公开
+  示例必须参加普通 doctest，并用调用断言验证生成物；不能用 `ignore`
+  遮蔽类型错误或未经验证的模板。确实依赖外部环境的例子，应写明缺失条件
+  与另行验证方法；纯协议图示使用 `text`，不要伪装成可编译程序。
+- **首次使用验收**：将 README 首个 Rust 块原样复制到按文档配置依赖的
+  独立二进制 crate 并运行，两种语言都要验证；导入与 `main` 必须可见。
+  `tests/doc_consistency/reader_entry.rs` 守卫原文解析和可移植导航，
+  doctest 继续检查编译；还须检查生成的 rustdoc HTML，源文件存在并不能
+  证明页面链接有效。同一 Markdown 内使用页内锚点，分别检查独立文件和
+  合并后 rustdoc 的目标。跨文件的仓库源码链接使用绝对 URL（开发时
+  `main`、发布时对应 tag），并标明它可能与本地构建不同；不用不会随
+  rustdoc 输出的相对 `.md` 路径。Rustdoc 自己的目录使用稳定的本版本锚点，
+  不将中文源码链接误称为包内中文页面。工作树中的目标存在不等于公开
+  `main` 已同步；验证记录须区分本地解析与远端版本检查。
+- **首次修改验收**：改动入门教程时，原样运行两种语言的连续练习，覆盖缩成
+  单目标、增加类型/方法、拆出特殊实现、泛型约束和包装转发；普通 impl
+  复用也要运行调用断言。预览示例要检查诊断中的目标与成员，再恢复普通
+  属性运行；仅有 `compile_fail` 通过不能证明预览输出正确。
 - **诊断消息要么被锁定、要么被登记**：`src/**` 里每个 `batch-impl: ` 字面量都必须出现在某个
   `tests/ui/**/*.stderr` 快照里，或列在 `UNLOCKED_DIAGNOSTICS`（`tests/doc_consistency.rs`）——
   那张表是**已登记的债**（2026-09-14 为 59 条）：列在其中意味着消息可达但未被快照锁定，

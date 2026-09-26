@@ -1,9 +1,13 @@
+Documentation-only guide to `#blanket`: use the directive inside `#[batch_impl(...)]`; do not invoke `batch_impl_blanket!`.
+
 # The `#blanket` Directive — Blanket Delegation
 
 `#blanket(args){wrapper list}` implements the trait for **every wrapper
 around a fresh generic `T`**, delegating each method by deref. One spec
-produces one complete impl per wrapper — the automated form of hand-writing
-`<T: Trait> wrapper.T #delegate(selected){*…*self}` for each wrapper.
+produces one complete impl per wrapper, forwarding to the inner type's
+implementation of the same trait. Calls name that trait explicitly, so a
+supertrait's same-named method cannot make delegation ambiguous. Async methods await the forwarded call;
+method type and const arguments are passed explicitly, with lifetimes inferred.
 
 ## Syntax
 
@@ -22,17 +26,23 @@ produces one complete impl per wrapper — the automated form of hand-writing
 #[batch_impl(#blanket(@all_methods){Box})]
 trait NumOps { fn inc(&mut self); }
 impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
-// → impl<P0> NumOps for Box<P0> where P0: NumOps { fn inc(&mut self) { (**self).inc() } } (generic over the fresh: every P0: NumOps, not just u32)
+// → impl<P0> NumOps for Box<P0> where P0: NumOps { fn inc(&mut self) { <_ as NumOps>::inc(&mut **self) } }
+//   (generic over the fresh: every P0: NumOps, not just u32)
 
 #[batch_impl(#blanket(@all_methods){&, Box})]
 trait Len { fn len(&self) -> usize; }
-// → impl<P0> Len for &P0   where P0: Len { fn len(&self) -> usize { (**self).len() } }
-// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for &P0   where P0: Len { fn len(&self) -> usize { <_ as Len>::len(&**self) } }
+// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { <_ as Len>::len(&**self) } }
 ```
 
-The fresh generic is the impl's only generic (`impl<T: Trait> Trait for
-Box<T>`); the trait's own generic params are copied first (params first,
-fresh `T` last — `T: Foo<X>` references `X`; reversed order is E0401).
+The blanket introduces one fresh generic (`impl<T: Trait> Trait for
+Box<T>`). The trait's own generic parameters are copied before it.
+
+The scope accepts one trailing comma, empty arguments (`#blanket(){Box}`),
+and valid empty selections (`[]`, an empty `@all` family, or subtraction).
+An empty selection still generates one impl per wrapper, with no delegated
+members; Rust checks any required members left unimplemented. Every included
+or excluded name must exist in the trait, even if subtraction removes it.
 
 ## Wrapper forms
 
@@ -52,7 +62,7 @@ error. Use `.` for nesting:
 # use std::sync::Arc;
 #[batch_impl(#blanket(@all_methods){Box.Arc:2})]
 trait Deep { fn deep(&self) -> u32; }
-// → impl<T: Deep> Deep for Box<Arc<T>> { fn deep(&self) -> u32 { (***self).deep() } }
+// → impl<P0> Deep for Box<Arc<P0>> where P0: Deep { fn deep(&self) -> u32 { <_ as Deep>::deep(&***self) } }
 ```
 
 ### `:N` deref depth
@@ -98,16 +108,24 @@ impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
 ## Deref delegation details
 
 - `&self` / `&mut self` methods reach the inner through the reference AND
-  the wrapper layers: `(**self)` = depth + 1 derefs;
-- **by-value** `self` methods (`fn consume(self)`) forward as `(*self).m()`
-  — a by-value `self` IS the wrapper, so one deref fewer (0.7.2 fix: the
-  extra star dereferenced the inner type, E0614). Moving the value out
-  cannot type-check for shared wrappers (`&`, `Rc`); the generated impls
+  the wrapper layers: depth + 1 derefs, followed by an explicit borrow.
+  With one wrapper, calls are `<_ as Trait>::m(&**self, ...)` or
+  `<_ as Trait>::m(&mut **self, ...)`. Rust infers `_` from the actual
+  deref target; an arbitrary wrapper's target need not be its type parameter.
+  Explicit `self: &Self` / `self: &mut Self` use the same rule;
+- **by-value** `self` methods (`fn consume(self)`) forward as
+  `<_ as Trait>::consume(*self)` — a by-value `self` IS the wrapper, so
+  one deref fewer. The wrapper must permit moving out the value, or the
+  inner value must be `Copy`; the generated impls
   carry a `#[doc]` note (proc macros have no stable warning channel, E0658).
   Skip such methods with `@all_ref_methods` or hand-write `#name{...}`;
 - **static methods** (no receiver) delegate through the fresh generic:
-  `t::make(...)` — valid because the blanket impl carries the `T: Trait`
-  bound.
+  `<T as Trait>::make(...)`, with the trait's actual generic arguments
+  included when present.
+
+Async calls append `.await`. Method type and const arguments are forwarded
+with a turbofish, while lifetimes remain inferred: for example,
+`<_ as Trait>::read::<U, N>(&**self, value).await`.
 
 ## Assorted delegations
 
@@ -115,10 +133,13 @@ impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
 self): `type Item = <T as Trait>::Item;` / `const N: Ty = <T as Trait>::N;` —
 solving "cannot delegate traits with required associated types".
 
-**Generic associated types (GATs)** project with their own params:
+**Generic associated types (GATs)** project with their own parameter names:
 `type Iter<'a> = <T as Trait>::Iter<'a> where Self: 'a;` — the GAT's
-parameters are passed through the projection (a bare projection would be
-missing the lifetime argument, E0107).
+declarations and `where` predicates stay on the impl definition. Result
+bounds such as `type Iter<'a>: Clone` stay on the trait, where Rust checks
+them. Projections pass only lifetime/type/const names: a declaration
+`Item<'a, U: Clone, const N: usize>` projects as `Item<'a, U, N>` (a bare
+projection would be missing arguments, E0107).
 
 ```rust
 # use batch_impl::batch_impl;
@@ -137,20 +158,29 @@ trait Iterable {
 
 ## `Self` in the signature
 
-A method taking or returning **bare `Self`** cannot blanket-delegate: the
-forward emits the inner type, which cannot match the wrapper's `Self`. The
+A method using **bare `Self`** in an ordinary parameter, return type, or
+generic constraint cannot blanket-delegate: the inner type and the
+wrapper's `Self` are different types. The
 macro reports a targeted error with guidance (`#name{...}` for that
 wrapper):
 
-- `fn new() -> Self` — the forward `t::new()` returns `T`, not the wrapper
+- `fn new() -> Self` — the forward `<T as Trait>::new()` returns `T`, not the wrapper
   (used to fail with rustc's E0308 at the generated impl);
 - `fn cmp(&self, other: Self)` — the parameter `other: T` mismatches the
-  wrapper's `Self` (E0308).
+  wrapper's `Self` (E0308);
+- `fn read<U: Marker<Self>>(&self)` or `where U: Marker<Self>` — a bound
+  involving the wrapper does not establish the corresponding inner bound;
+- `where Self: Marker<U>` — the wrapper and inner constraints differ too.
 
-A `Self::Assoc` **projection return** (`fn iter(&self) -> Self::Iter`) is
-fine and passes through — the inner `T` carries the same assoc type.
-`Self::Assoc` in parameters errors (the parameter type would be `T::Iter`,
-not the wrapper's).
+Receiver `Self` is forwarded by the deref rules above. The usual
+`where Self: Sized` and outlives conditions (`Self: 'a`, or
+`Self: Sized + 'a`) remain allowed; Rust checks whether the actual delegated
+target satisfies them. Attribute payloads are not interpreted as constraints.
+
+A `Self::Assoc` projection is allowed in parameters, return types, and constraints.
+When the associated item is also forwarded, the wrapper's projection is the
+inner type's projection (`type Assoc = <T as Trait>::Assoc`), so these method
+arguments and results have matching types.
 
 ## Wrapper where predicates
 
@@ -176,11 +206,11 @@ inheritance — the blanket spec's generic X has no bound, inheritance adds
 ## `@Cow` — a constraint-carrying packing
 
 `@Cow` is a **built-in `#blanket` wrapper constant** (usable only in the
-`#blanket` wrapper list). `Cow<'_>`'s deref target is `T::Owned`, not `T` —
-the naive `(**self)` delegation cannot pass type checking. `@Cow` packs
-`Cow<'_>` **plus** the inherent constraint predicates (`@0: ToOwned +
-?Sized`, `@0::Owned: @trait`), making it blanket-usable — the demonstration
-that **a constant carries reuse value only when it carries constraints**:
+`#blanket` wrapper list). It packs `Cow<'_>` with the predicates
+`@0: ToOwned + ?Sized` and `@0::Owned: @trait`. `Cow<'_, T>` dereferences
+to `T`; the `T::Owned: Trait` predicate is an additional constraint included
+by this constant. Both the wrapper and its packaged constraints enter the
+ordinary blanket pipeline:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -190,7 +220,7 @@ trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
 impl CowLen for String { fn clen(&self) -> usize { self.len() } }
 // → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
-//   (one generic impl over everything `Cow` wraps, delegated through the packed predicates)
+//   (one generic impl over the targets satisfying these packaged constraints)
 ```
 
 ## Output shape

@@ -13,6 +13,7 @@
 //! | single item | `#name{body}` | `{fn method(sig) { body }}` or `{const NAME: Type = body;}` or `{type Name = body;}` |
 //! | fill | `#fill(args){body}` | `{fn m1(sig){body} fn m2(sig){body} ...}` |
 //! | delegate | `#delegate(args){target}` | `{fn m1(sig){(target).m1(args)} ...}` |
+//! | delegate template | `#delegate(args){... receiver.#call ...}` | copies the body, inserting calls only at its marked sites |
 //! | blanket | `#blanket(args){wrapper list}` | multiple complete specs (see [`blanket::expand_blanket`]) |
 //!
 //! Expansion output: existing directives produce exactly one `{...}` group
@@ -35,7 +36,7 @@ use crate::util::compile_err;
 /// [`expand_tokens`](crate::preprocess::expand_tokens).
 pub(crate) fn expand_directive(
     name: &Ident, tokens: &[TokenTree], i: usize, trait_def: &ItemTrait,
-    trait_full_path: &TokenStream,
+    trait_full_path: &TokenStream, naming_scope: &[TokenTree],
 ) -> Result<(Vec<TokenTree>, usize), TokenStream> {
     if let Some(TokenTree::Group(args)) = tokens.get(i + 2) {
         match args.delimiter() {
@@ -67,9 +68,8 @@ pub(crate) fn expand_directive(
                 let consumed = 4;
                 match name.to_string().as_str() {
                     "fill" => expand_fill(args, body, trait_def).map(|tt| (vec![tt], consumed)),
-                    "delegate" => {
-                        expand_delegate(args, body, trait_def).map(|tt| (vec![tt], consumed))
-                    }
+                    "delegate" => expand_delegate(args, body, trait_def, naming_scope)
+                        .map(|tt| (vec![tt], consumed)),
                     "blanket" => expand_blanket(args, body, trait_def, trait_full_path)
                         .map(|v| (v, consumed)),
                     // Open extension: `#name(args){body}` → a **top-level**
@@ -145,11 +145,12 @@ fn expand_fill(
 /// `#delegate(args){target}` → `{fn m1(sig){(target).m1(params)} ...}`
 ///
 /// Generates a delegation call per method: skips the `self` argument and
-/// forwards the remaining arguments as-is. Non-identifier parameter patterns
-/// (`_`, tuple patterns like `(a, b)` — legal when the trait method has a
-/// default body — or any other pattern) are renamed to `arg0`, `arg1`, ...
-/// in both the copied signature and the delegation call, so they can be
-/// forwarded by name.
+/// forwards the remaining arguments as-is. Patterns which cannot themselves
+/// form an expression (`_`, `ref x`, etc.) are renamed in both the signature
+/// and call. Reconstructible patterns such as `(a, b)` retain their bindings.
+/// Bodies containing a local `receiver.#call` marker are complete templates;
+/// the template walker supplies hygienic calls at those sites. Without one,
+/// the original target-expression expansion is preserved.
 ///
 /// **Renaming**: an element `size=len` delegates the trait's `size` method
 /// to the target's `len` method (the call body uses `len`; the signature
@@ -157,32 +158,40 @@ fn expand_fill(
 /// the DSL's `=` binding spelling. Mixes freely with plain names and `@all`
 /// (`#delegate(@all, size=len){...}`).
 fn expand_delegate(
-    args_group: &Group, target: &Group, trait_def: &ItemTrait,
+    args_group: &Group, target: &Group, trait_def: &ItemTrait, naming_scope: &[TokenTree],
 ) -> Result<TokenTree, TokenStream> {
     let target_stream = target.stream();
     let arg_tokens = args_group.stream().into_iter().collect::<Vec<_>>();
-    // Split off `ident=ident` rename mappings; the remaining tokens (plain
-    // names / `@all`) go through the standard name-list parser.
+    // Replace each `ident=ident` mapping with its selected name. Keep every
+    // other token, including commas and names preceding a mapping, so the
+    // shared list parser validates the user's complete selection syntax.
     let mut renames: std::collections::HashMap<String, String> = Default::default();
     let mut method_tokens: Vec<TokenTree> = vec![];
-    for chunk in crate::parse::split_at_depth0(&arg_tokens, ',') {
-        if let Some(eq) =
-            chunk.iter().position(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '='))
-        {
-            // `eq == 0` (`#delegate(=foo)`) is a missing left side — the
-            // checked_sub keeps the no-panic promise (a raw `eq - 1` would
-            // overflow in debug builds).
-            let from_ident = match eq.checked_sub(1).and_then(|i| chunk.get(i)) {
-                Some(TokenTree::Ident(id)) => id.clone(),
-                _ => {
-                    return Err(compile_err!(
-                        "batch-impl: #delegate rename `X = Y` needs identifiers on \
-                         both sides (e.g. `#delegate(size = len)`)"
-                    ));
-                }
+    let invalid_rename_lhs = || {
+        compile_err!(
+            "batch-impl: #delegate rename `X = Y` needs identifiers on \
+             both sides (e.g. `#delegate(size = len)`)"
+        )
+    };
+    let mut i = 0;
+    while let Some(cur) = arg_tokens.get(i) {
+        if matches!(arg_tokens.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '=') {
+            let previous_is_minus = i
+                .checked_sub(1)
+                .and_then(|previous| arg_tokens.get(previous))
+                .is_some_and(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == '-'));
+            let from_ident = match cur {
+                TokenTree::Ident(id) if !previous_is_minus => id.clone(),
+                _ => return Err(invalid_rename_lhs()),
             };
-            let to_ident = match chunk.get(eq + 1) {
-                Some(TokenTree::Ident(id)) if eq + 2 == chunk.len() => id.clone(),
+            let to_ident = match arg_tokens.get(i + 2) {
+                Some(TokenTree::Ident(id))
+                    if arg_tokens
+                        .get(i + 3)
+                        .is_none_or(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == ',')) =>
+                {
+                    id.clone()
+                }
                 _ => {
                     return Err(compile_err!(
                         "batch-impl: #delegate rename `X = Y` needs a single \
@@ -206,11 +215,20 @@ fn expand_delegate(
             }
             renames.insert(from_ident.to_string(), to_ident.to_string());
             method_tokens.push(from_ident.into());
+            i += 3;
+        } else if matches!(cur, TokenTree::Punct(p) if p.as_char() == '=') {
+            return Err(invalid_rename_lhs());
         } else {
-            method_tokens.extend(chunk.iter().cloned());
+            method_tokens.push(cur.clone());
+            i += 1;
         }
     }
     let method_names = parse_names_from_tokens(&method_tokens, trait_def)?;
+    let template = if method_names.is_empty() {
+        None
+    } else {
+        super::delegate_template::Template::parse(target_stream.clone(), naming_scope, trait_def)?
+    };
     let mut methods = TokenStream::new();
     for name in &method_names {
         let item = get_trait_item(trait_def, name)?;
@@ -218,8 +236,8 @@ fn expand_delegate(
             return Err(compile_err!(
                 "batch-impl: #delegate only works on methods; `{}` in trait \
                  `{}` is not a method",
-                trait_def.ident,
-                name
+                name,
+                trait_def.ident
             ));
         };
         // The delegated target method: the rename mapping or the same name.
@@ -267,7 +285,11 @@ fn expand_delegate(
                 pat
             )
         })?;
-        let body = quote! { (#target_stream) . #call_name ( #(#call_args),* ) };
+        let generic_args = super::blanket_helpers::method_turbofish(&sig.generics);
+        let body = match &template {
+            Some(template) => template.render(&call_name, &generic_args, &call_args),
+            None => quote! { (#target_stream) . #call_name #generic_args ( #(#call_args),* ) },
+        };
         methods.extend(build_from_item_sig(item, Some(&sig), &body));
     }
     Ok(Group::new(delimiter![{}], methods).into())

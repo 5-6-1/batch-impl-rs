@@ -30,7 +30,7 @@ Lightweight Conventional Commits:
 - Allowed types: `feat` / `fix` / `refactor` / `perf` / `test` / `docs` / `chore` / `build`
 - No scope for a single-crate project.
 - Example: `feat: typestate preprocessing pipeline (Stream states enforce pass order)`
-- Release commit: `chore: release 0.9.8 (diagnostics and docs)` with a summary
+- Release commit: `chore: release 0.10.0 (syntax and onboarding)` with a summary
   in the body.
 
 ## 2. Quality Gate (run for every change; all green before committing)
@@ -64,13 +64,19 @@ on it.
    `docs/dev-changelog.md`, `docs/zh-CN/dev-changelog.md`). Record each change
    as it lands — never batch-write them at release time.
 2. **At release**:
-   - Bump the version in `Cargo.toml`;
+   - Choose the compatibility boundary before updating `Cargo.toml`: for
+     `0.y.z`, deliberate breaking changes increment `y` (for example,
+     0.9.7 → 0.10.0). A changelog warning cannot narrow Cargo's dependency range;
    - Update the head version line (`README.md`, `docs/tutorial.md`,
      `docs/reference.md`, `docs/architecture.md` and their zh-CN counterparts —
      EN replaces with
      `**vX.Y.Z** (date) — summary`; the zh-CN architecture **appends** a line
      per version, it does not replace);
-   - Sync the README dependency example (`batch-impl = "X.Y.Z"`);
+   - Sync the README dependency example (`batch-impl = "X.Y.Z"`); while the
+     version is unpublished, document its source/path dependency instead;
+   - Fix development navigation links to the release tag, including the
+     language mirrors, CHANGELOG and examples; verify their repository targets
+     and the generated rustdoc links before publishing;
    - Turn the four `## Unreleased` sections into `## X.Y.Z (date)`, keeping
      the summary line;
    - `cargo package --list` and eyeball the manifest (no unrelated files —
@@ -202,6 +208,33 @@ on it.
 - **Documented examples must be true**: readers/reviewers verify them
   item by item (the splat-27 example and the `Box.Box u8` associativity were
   both caught wrong by testing). Verify any expansion you write into docs.
+  Runnable public examples must take part in ordinary doctests and assert
+  behavior through calls; do not use `ignore` to hide type errors or unverified
+  templates. When an example requires an external environment, state the
+  missing conditions and how to verify it separately. Mark protocol sketches
+  as `text` instead of presenting them as compilable programs.
+- **First-use acceptance**: copy the first README Rust block unchanged into
+  an independent binary crate with the documented dependency, then run it;
+  do this for both language mirrors. Its imports and `main` must be visible.
+  `tests/doc_consistency/reader_entry.rs` guards raw Rust parsing and portable
+  navigation; doctests still check compilation. Inspect the generated rustdoc
+  HTML as well: source-file existence alone does not validate rendered links.
+  Use same-page anchors within a Markdown document, checking their targets
+  both in that standalone file and in merged rustdoc. Cross-file repository
+  source links use absolute URLs (`main` during development, the matching tag
+  for a release), with their possible difference from a local build stated;
+  avoid relative `.md` paths that rustdoc does not copy beside its output.
+  Rustdoc's own directory uses stable anchors in the current build. Do not
+  describe Chinese source links as packaged Chinese pages. A worktree target
+  does not prove public `main` is synchronized; validation records must
+  distinguish local resolution from remote version checks.
+- **First-edit acceptance**: when changing the introduction, run the continuous
+  exercises unchanged in both languages, covering a single target, added types
+  and methods, a separate special implementation, generic bounds and wrapper
+  forwarding. Run assertions for ordinary impl reuse as well. For preview
+  examples, inspect the diagnostic's targets and members, then restore the
+  ordinary attribute and run it; a passing `compile_fail` test alone cannot
+  establish that the preview output is correct.
 - **Diagnostic messages are locked or listed**: every `batch-impl: ` literal in
   `src/**` must appear in a `tests/ui/**/*.stderr` snapshot or in
   `UNLOCKED_DIAGNOSTICS` (`tests/doc_consistency.rs`) — that list is a **tracked

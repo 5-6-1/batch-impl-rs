@@ -1,0 +1,11 @@
+error: unexpected token: `#`
+  --> tests/ui/delegate_call_nested_item.rs:16:15
+   |
+16 |         inner.#call
+   |               ^
+
+error: expected one of `.`, `;`, `?`, `}`, or an operator, found `#`
+  --> tests/ui/delegate_call_nested_item.rs:16:15
+   |
+16 |         inner.#call
+   |               ^ expected one of `.`, `;`, `?`, `}`, or an operator

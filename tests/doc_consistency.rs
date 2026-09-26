@@ -21,6 +21,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+#[path = "doc_consistency/reader_entry.rs"]
+mod reader_entry;
+
 /// Every `src/**/*.rs` as a `src/`-relative path (`codegen/repeat.rs`, …).
 fn source_files(src: &Path) -> BTreeSet<String> {
     fn walk(dir: &Path, src: &Path, out: &mut BTreeSet<String>) {
@@ -177,6 +180,11 @@ fn current_docs_path_references_exist() {
             doc.split_once(section).map_or(doc.as_str(), |(_, rest)| rest)
         };
         for candidate in referenced_paths(body) {
+            // The tutorials name the reader's binary entry file when showing
+            // where to paste a program, not a source file in this proc macro.
+            if candidate == "src/main.rs" && [DOC_PAIRS[0].0, DOC_PAIRS[0].1].contains(&path) {
+                continue;
+            }
             checked += 1;
             if !resolves(root, &candidate) {
                 bad.push(format!("{path}: {candidate}"));

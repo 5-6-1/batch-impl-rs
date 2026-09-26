@@ -11,7 +11,7 @@ use std::rc::Rc;
 // ============================================================
 // 35. @ constant system: built-in name families / range families / batch_trait! custom
 // ============================================================
-#[batch_impl(@u8..u128)]
+#[batch_impl(@u8..=u128)]
 trait UintConst {}
 
 #[batch_impl(@scalar)]
@@ -66,7 +66,7 @@ trait RangeVal {}
 trait RangeValNested {}
 trait BareVal {}
 batch_trait!(
-    @rv=@u8..u128;
+    @rv=@u8..=u128;
     @nested=[bool, @rv];
     @bare=u8, u32;
     RangeVal: @rv;
@@ -120,12 +120,12 @@ fn trait_const_value_with_angles() {
 }
 
 // ------------------------------------------------------------
-// Open-ended range families: `@..u32` (family minimum) and
+// Open-ended range families: `@..=u32` (family minimum) and
 // `@i16..` (family maximum) — either endpoint omittable. The spec
 // body is shared by every generated impl.
 // ------------------------------------------------------------
 
-#[batch_impl(@..u32 { fn total(&self) -> u128 { *self as u128 } })]
+#[batch_impl(@..=u32 { fn total(&self) -> u128 { *self as u128 } })]
 trait Sum {
     fn total(&self) -> u128;
 }

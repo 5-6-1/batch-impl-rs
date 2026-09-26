@@ -1,28 +1,62 @@
 # batch-impl 参考手册
 
-**v0.9.8**（2026-09-14）—— 与 `docs/zh-CN/tutorial.md` 同一版本的表面；本手册系统性给出各规则系统、它们的交叉与边界情形，§10 逐字引用每条诊断的原文。它只描述**当前状态**，历史见 `docs/zh-CN/CHANGELOG.md`。
+**v0.10.0 — 开发中（未发布）。** 本手册描述当前工作树中的规则系统、交叉与边界，§10 列出诊断。待发布改动见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
-**查阅型文档**：完整的表面、合法性矩阵、边界与保证。**学习路径**在 `docs/zh-CN/tutorial.md`（从一行 impl 讲到矩阵组合）——本手册假定你已经见过 DSL 的基本形状，只回答"允许什么 / 不允许什么 / 报什么错 / 上限在哪"。
+仓库源码（GitHub `main`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) | 简体中文
+
+仓库链接指向公开的 `main`，可能与本地工作树不同。本地英文 rustdoc 的顶部
+导航保留当前构建版本；中文资料请阅读同一源码目录中的文件。
+
+**查阅型文档**：完整的表面、合法性矩阵、边界与保证。**学习路径**在[教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)（从一行 impl 讲到矩阵组合）——本手册假定你已经见过 DSL 的基本形状，只回答"允许什么 / 不允许什么 / 报什么错 / 上限在哪"。
 
 两条纪律决定了本手册的写法：
 
-- **一条事实只有一个真相源**：教程负责"怎么写 / 为什么"，本手册负责"合法性与边界"，每条 API 的完整参数语义在 rustdoc（`src/doc/*.md`：`batch_impl_only.md`、`batch_trait.md`、`batch_preview.md`、`directive_fill.md`、`directive_delegate.md`、`directive_blanket.md`、`directive_name.md`、`directive_open.md`、`directive_consts.md`）。三处不复制同一句话。
+- **一条事实只有一个真相源**：教程负责"怎么写 / 为什么"，本手册负责"合法性与边界"，每条 API 的完整参数语义在 rustdoc（[API 文档源码](https://github.com/5-6-1/batch-impl-rs/tree/main/src/doc)：`batch_impl_only.md`、`batch_trait.md`、`batch_preview.md`、`directive_fill.md`、`directive_delegate.md`、`directive_blanket.md`、`directive_name.md`、`directive_open.md`、`directive_consts.md`）。三处不复制同一句话。
 - **每条断言可核对**：文中"实测"指用 `batch_preview!` 或真编译量过（`cargo check` 看 rustc 诊断）；诊断措辞一律由 `tests/ui/` 的 fixture 锁定，fixture 名在本手册 §10 给出。
 
 ## 1. spec 文法
 
 ### 1.1 属性参数是一串 spec
 
-`#[batch_impl(spec; spec; ...)]`、`batch_trait!` 的分段、以及 impl 入口（`#[batch_impl]` 挂在 `impl` 块上）共用同一套 spec 文法：
+各入口共享类型矩阵语言，但外层分隔符不同：
+
+| 入口 | 外层形式 | 分隔符 |
+|---|---|---|
+| trait 上的 `#[batch_impl]` / `#[batch_impl_only]` | `#[batch_impl(u8, u16)]` | spec 之间用 `,`；非空 spec 之间的 `;` 会被拒绝（`semi_in_spec`） |
+| `batch_trait!` | `batch_trait!(First: u8, u16; Second: u32);` | trait 段之间用 `;`，每段内部的 spec 之间用 `,` |
+| impl 上的 `#[batch_impl]` | `#[batch_impl(Slot: u8; Slot: u16)]` | impl 入口的 spec 之间用 `;`；每个矩阵源使用共享的列表语法（§9.2） |
+
+```rust
+# use batch_impl::{batch_impl, batch_trait};
+#[batch_impl(u8, u16)]
+trait FromTrait {}
+
+trait FromSection {}
+trait OtherSection {}
+batch_trait!(FromSection: u8, u16; OtherSection: u32);
+
+trait FromImpl {}
+#[batch_impl(Slot: u8; Slot: u16)]
+impl FromImpl for Slot {}
+# fn both<T: FromTrait + FromSection + FromImpl>() {}
+# both::<u8>();
+# both::<u16>();
+# fn other<T: OtherSection>() {}
+# other::<u32>();
+```
 
 | 概念 | 说明 |
 |---|---|
-| 属性参数 | `;` 分隔的 spec 列表；**分隔符不算内容**——整串为空时（`#[batch_impl]` / `#[batch_impl()]` / `#[batch_impl(;)]`）属性入口原样重发该 item，impl 入口原样发射原块（恒等，0 个 impl） |
+| 空的 `#[batch_impl]` 参数 | `#[batch_impl]` / `#[batch_impl()]` 不派生 impl，保留被标注的 trait 或 impl；单独一个 `;` 也按空参数接受，但这不表示 trait 入口可以用 `;` 分隔 spec |
 | 一个 spec | 一个**类型矩阵**；矩阵的每个格子生成一个 impl |
 | spec 形状 | `[<泛型声明>] [trait 应用] 目标类型`，外加任意顺序的附件 |
 | 附件 | `{body}`（实现体）、`where{...}`（谓词）、`impl{...}`（Self 形状模板） |
 
 附件是**块**：它们以任意顺序与 spec 链组合，链条深度上限 128 层（ui `attach_too_deep`）。
+
+列表元素的局部 body 与列表外的共享 body 追加合并，没有覆盖优先级。
+不同成员可以共存；同名方法重复出现由 Rust 报错。特殊实现应拆成独立 spec，
+其余目标再共享 body，见[教程 §1.3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#13-特殊类型用独立-spec)。
 
 ### 1.2 头与目标怎么切：元素边界 vs 路径续接
 
@@ -59,12 +93,12 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | 记号 | 含义 |
 |---|---|
 | `.` / 空格 | 同一个 apply 的两种结合性：`.` 嵌套（右结合），空格累加（左结合）；也是绝对路径目标之前的元素边界（§3.2、§1.2） |
-| `[...]` / `[A, B]` | 集合：每个元素一个 impl；作类型时是切片或数组（§3.3） |
+| `[A, B]` / `[A,]` | 类型列表，每个元素一个 impl；`A` 是单个目标，`[A]` 是切片类型，`[A; N]` 是定长数组（§3.3） |
 | `(...)` / `(A)` | 元组 / 透明组——被应用时算**一个**实参（§3.2） |
 | `&` `&mut` `*const` `*mut` `unsafe` `self` `#[...]` `!` | 前缀与修饰符，各自作用于紧随其后的块：`self` 是恒等，`unsafe.fn(A) -> B` 标记 impl 而 `unsafe fn(A) -> B` 是 fn 类型，`!` 是返回类型（§3.5） |
 | `{body}` / `where{...}` / `impl{...}` | 三种附件块，顺序自由（§7、§8） |
-| `;` | 分隔同一个属性参数里的各个 spec；只有分隔符不算内容（§1.1） |
-| `,` | 分隔列表、元组、实参与指令参数的元素 |
+| `;` | 分隔 `batch_trait!` 的 trait 段或 impl 入口的 spec（§1.1）；也分隔数组的元素类型与长度（`[T; N]`） |
+| `,` | 分隔 trait 入口的 spec，包括 `batch_trait!` 每个段内的 spec（§1.1），以及列表、元组、实参与指令参数的元素 |
 | `-name` | 排除项，仅指令参数列表（§6.2） |
 | `.N` / `()N` | 幂：`T.*().2` 把生成的参数拼进去，`T<()2>` 把它们保持为一个元组实参。`^` **不是**算子——`(u8, u16)^2` 得到的是退休算子消息（§3.4、§10.1） |
 
@@ -118,7 +152,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 `*().N` 把它的 fresh 参数包回 splat，好让后面的操作数把它们追加进去：`T.*().2` 声明两个 fresh 并用在目标里（`impl<P0, P1> … for T<P0, P1>`）。
 
-**`^` 不是算子**：`(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` 一律被拒，报的是 §10.1 逐字引用的退休算子消息（`caret_power_retired`）——一条错误、span 落在这个 `^` 上，并给出可用的 `.N` 拼写。**bound 位置**的 `^`（`<T: Tr^u8>`）报同一条消息。更早的文档用 `^` 写幂，请写 `.N`。
+**`^` 不是算子**：`(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` 一律被拒，报的是 §10.1 逐字引用的退休算子消息（`caret_power_retired`）——span 落在这个 `^` 上，并给出可用的 `.N` 拼写。**bound 位置**的 `^`（`<T: Tr^u8>`）报同一条消息。更早的文档用 `^` 写幂，请写 `.N`。
 
 ### 3.5 `self` 与裸类型占位
 
@@ -136,9 +170,9 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | `(A)` 与 `A` | 同一类型；`(*(a,b))` 是把 splat 作为单元素承载的容器 |
 | `[A]` 与 `[A, B]` | 切片 vs 两个 impl |
 | `Box u8 u16` | `Box<u8, u16>`——两个实参，不是嵌套泛型 |
-| `Box Vec u8` | `Box<Vec, u8>`——空格累加；嵌套必须用 `.` |
+| `Box Vec u8` | `Box<Vec, u8>`——空格累加；用分组（`Box (Vec u8)`）或 `.`（`Box.Vec.u8`）可写出 `Box<Vec<u8>>` |
 | `& Box u8` | `&Box<u8>`——前缀吃掉后面那个块 |
-| `*(A,B)` 单独作目标 | 重复 impl（E0119）；写 `(A,B)` |
+| `*(A,B)` 单独作目标 | 每个元素一个 impl；`(A,B)` 则生成一个元组 impl（冲突规则见 §4.5） |
 | `HashMap<String, Vec<(u8, u16)>>` 这类嵌套类型 | 直接写、直接解析——不存在"透传"写法 |
 
 ### 3.8 前缀与属性
@@ -206,6 +240,21 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 | `impl{...}` 模板里的 splat | 模板必须是标准 Rust 类型，因此 DSL 算子被拒（§10.6） |
 | `where` 谓词里的 splat | 由谓词终检报出（§7） |
 
+对于 `u8` 和 `u16`，独立 splat 生成各自的实现；元组形式则将它们保持为一个类型：
+
+```rust
+# use batch_impl::batch_impl;
+#[batch_impl(*(u8, u16))]
+trait Each {}
+#[batch_impl((u8, u16))]
+trait Together {}
+# fn each<T: Each>() {}
+# each::<u8>();
+# each::<u16>();
+# fn together<T: Together>() {}
+# together::<(u8, u16)>();
+```
+
 ### 4.6 交叉
 
 | 与谁 | 拼写 | 实测 |
@@ -230,12 +279,13 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 | 类别 | 记号 | 展开成 | 细节 |
 | --- | --- | --- | --- |
 | 名字族 | `@u*` `@i*` `@f*` `@num` `@scalar` | 类型**列表** | 语言定义的闭集（教程 §6.1） |
-| 范围族 | `@u8..u128` `@i8..i128` `@f32..f64` | **列表**——闭区间连续段 | 任一端点可省（`@..u128` = `@u8..u128`）；`usize`/`isize` 不在任何范围族里 |
-| trait | `@trait` | trait 路径（`batch_trait!` 里是该段自己的路径） | 唯一随入口改变含义的常量（§5.3） |
+| 范围族 | `@u8..u16` `@u8..=u16` `@i8..=i128` `@f32..=f64` | **列表**——`..` 排除上端点，`..=` 包含上端点 | 省略下端点从族最小值开始；省略上端点（`@u16..`）包含族最大值；`usize`/`isize` 不在任何范围族里 |
+| trait | `@trait` | trait 路径（`batch_trait!` 里是该段自己的路径） | 当前入口的 trait 上下文（§5.3） |
+| 输入 impl 类型 | `@Self` | 当前属性调用收到的 impl 自身类型 | 仅 impl 入口；普通 Rust `Self` 保持原义（§9.2） |
 | trait 成员族 | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | `[a,b,c]` **组**，随后进指令参数解析 | 必需/默认与接收者过滤属于常量本身 |
 | 泛型参数族 | `@all_type_params` `@all_const_params` `@all_lifetimes` | 从 trait 拷来的扁平 `<...>` **声明** | const 参数带完整 `const N: usize`（裸名是 E0747） |
 | 包装常量 | `@Cow` | `Cow<'_>` + 该包装的约束谓词 | 仅 `#blanket` |
-| 位置引用 | `@N` `@g_i` `@0..=M` `@N..` `@all_fresh` | 一个 fresh 名，或逗号分隔的一串 | §5.4 |
+| 位置引用 | `@N` `@g_i` `@0..=M` `@N..` | 一个 fresh 名，或逗号分隔的一串 | §5.4 |
 | 自定义常量 | `@name=值;` | 值本身，逐字 | 仅 `batch_trait!` 的前导段 |
 
 ### 5.3 按入口看合法性
@@ -243,23 +293,24 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 | 记号 | `#[batch_impl]` | `#[batch_impl_only]` | `batch_trait!` | 备注 |
 |---|---|---|---|---|
 | 名字族 / 范围族 | ✓ | ✓ | ✓ | 纯词法列表 |
-| `@trait` | ✓ 本地名 | ✓ 外部路径（`# path::To::Trait:` 前缀） | ✓ **逐段**替换 | 唯一随入口改变含义的常量（`src/doc/batch_trait.md`） |
+| `@trait` | ✓ 本地名，或输入 impl 的 trait 路径 | ✓ 外部路径（`# path::To::Trait:` 前缀），或输入 impl 的 trait 路径 | ✓ **逐段**替换 | inherent impl 没有 trait 路径（`src/doc/batch_trait.md`） |
+| `@Self` | ✓ impl 上；✗ trait 上 | ✓ impl 上；✗ trait 上 | ✗ | 复制输入自身类型；名称保留，不能自定义 |
 | `@all*` 成员族 | ✓ | ✓ | ✗ 定向错误 | 它们需要 trait 定义 |
 | `@all_type_params` / `@all_const_params` / `@all_lifetimes` | ✓ | ✓ | ✗ 定向错误（ui `generic_family_batch_trait`） | 从 trait 自己的参数拷贝 |
 | `@Cow` | ✓（仅 `#blanket`） | ✓（仅 `#blanket`） | ✗ | 是包装打包常量，不是类型别名 |
-| `@N` / `@g_i` / `@0..=M` / `@N..` / `@all_fresh` | ✓ | ✓ | ✓ | 比 `@trait` 更晚解析，在 codegen |
+| `@N` / `@g_i` / `@0..=M` / `@N..` | ✓ | ✓ | ✓ | 比 `@trait` 更晚解析，在 codegen |
 | `@name=值;` | ✗ 定向错误（ui `const_attr_unsupported`） | ✗ 同上 | ✓ | 仅 `batch_trait!` |
 
 ### 5.4 地址
 
 - **编号与显示名**：fresh 泛型按**文档序**是 `P0`、`P1`……，`@N` 就是这个下标（`@0` → `P0`）。用户自己写的参数用它们自己的名字——`@N` 之所以存在，正是因为 fresh 名不是用户写的。
 - **`@g_i` 是本原**：组 `g`、槽 `i`，跨数组分发保持稳定；`@N` 是摊平形式。实测：`().2 where{@0_1: Clone}` → `where P1: Clone`。
-- **`@N..=M`** 闭区间，**`@N..`** 开到最后一个 fresh。在 where 谓词里，一串覆盖会变成**每个 fresh 一条谓词**：实测 `().2 where{@1..: Clone}` → `where P1: Clone`。
+- **`@N..M`** 不含 M，**`@N..=M`** 包含 M，**`@N..`** 开到最后一个 fresh；数字元数范围与命名类型族范围使用同一端点规则。在 where 谓词里，一串覆盖会变成**每个 fresh 一条谓词**：实测 `().2 where{@1..: Clone}` → `where P1: Clone`。
 - **排他区间在每个位置都不含末尾**：实测 `().3 where{@0..2: Clone}` → 三 fresh 的 impl 上得到 `where P0: Clone, P1: Clone`。
 - **越过末尾的开区间什么都不贡献**：实测 `().2 where{@5..: Clone}` → 没有谓词、也不报错。依赖元数的 spec 不该因为短的那个情形就失败。
 - **`@N` 越过末尾是定向错误**（ui `at_num_in_type`；spec 里闭区间的对应物是 `empty_range`）。
 - **blanket 包装的 where 子句里，`@0` 指目标泛型**：实测 `#blanket(own){Box where{@0: Copy}}` → `impl<P0> … for Box<P0> where P0: Trait, P0: Copy`。
-- **`@all_fresh` 已废弃**：写 `@0..`。
+- **`@all_fresh` 已移除**：将既有用法改为 `@0..`。
 
 ### 5.5 定义
 
@@ -296,18 +347,22 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 
 指令名后面既没有 `(args)` 也没有 `[args]` 时，`{body}` 仍然必需；光写 `#m` 是 `directive_bad_follow`："`#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)"。
 
+delegate body 表达式中的 `receiver.#call` 是单独的局部标记，不是指令调用（§6.5）。
+
 ### 6.2 作用域文法
 
 作用域由**指令域**解析，不是类型域（§6.8）：它是一个 `,` 分隔的元素列表。
 
 | 元素 | 含义 | 被拒的形态 |
 |---|---|---|
-| `name` | 按名字选一个 trait 成员 | 成员不存在 → "item `T` not found in trait `no_such`"（`single_name_not_found`） |
+| `name` | 按名字选一个 trait 成员 | 成员不存在 → "item `no_such` not found in trait `T`"（`single_name_not_found`） |
 | `@all` 家族 | 选中的成员集合（§5.2）：`@all_methods`、`@all_constants`、`@all_types`、`@all_required*`、`@all_default*`、`@all_ref_methods`、`@all_value_methods`、`@all_static_methods` | 在 `batch_trait!` 里用它（那里没有可选择的 trait 定义） |
-| `[a, b]` | 名字的字面列表 | — |
-| `-name` / `-[a, b]` | 从集合里排除 | `-` 后面什么都没有 → "after `-` expected an identifier or `[...]` list"（`minus_bad_target`）；集合被排空 → "directive arguments cannot be empty"（`minus_empty`） |
-| `,` | 分隔元素 | 前导或尾随逗号 → "a comma is in an illegal position"（`fill_bad_comma`） |
-| （什么都没有） | — | 参数表为空 → "the directive's argument list cannot be empty"（`fill_empty_args`） |
+| `[a, b]` | 名字的字面列表；接受 `[a, b,]` 与 `[]` | 不存在的成员名报错 |
+| `-name` / `-[a, b]` | 从集合里排除；接受空结果 | `-` 后面什么都没有 → "after `-` expected an identifier or `[...]` list"（`minus_bad_target`）；不存在的排除名报错 |
+| `,` | 分隔元素；接受一个尾逗号 | 拒绝前导或连续逗号（`fill_bad_comma`） |
+| （什么都没有） | 不选任何成员 | 接受，包括 `#fill()`、`#delegate()`、`#blanket()` |
+
+名字在选择、排除之前检查：`typo, -typo` 不能隐藏不存在的成员。空字面列表、结果为空的 `@all` 家族、合法地排空所有成员的差集含义相同。`#fill`、`#delegate` 不生成成员；`#blanket` 仍生成包装 impl。未实现的必需 trait 成员由 Rust 检查。delegate 改名的左侧必须是 trait 方法名；右侧是目标对象的方法名，交给 Rust 检查。
 
 ### 6.3 `#name{body}`——单个成员
 
@@ -317,28 +372,53 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 
 对每个被选中的成员，**签名从 trait 定义抄来**，`body` 成为它的实现（`#fill([add, add2]){self.0 = self.0.wrapping_add(x as u32)}` 用一个 body 填两个方法）。这是指令系统的核心承诺——声明数据、不写重复代码——也是作用域存在的理由：一个 body，宏把它复制到每个被选中的签名之下。宏**不**对 body 做类型检查；不满足签名的 body 由 rustc 对着生成的 impl 报出。
 
-### 6.5 `#delegate(scope){target}`——生成调用
+关联类型定义保留自身的泛型参数声明和 `where` 谓词，去掉 trait 声明的结果约束：`type Item: Clone;` 配 body `u8` 生成 `type Item = u8;`，Rust 通过 trait 声明检查 `Clone`。`#name`、`#blanket` 使用相同规则；blanket 的 GAT 投影只传参数名（`Item<'a, T, N>`），不传约束或 `const` 声明。
 
-每个被选中的方法生成一次委托调用：`fn m(&self, ...) -> R { (target).m(...) }`——跳过 `self`、转发其余参数，签名仍来自 trait 定义。`Box.Vec.u32 #delegate(d_len){**self}` 变成 `fn d_len(&self) -> usize { (**self).d_len() }`。
+### 6.5 `#delegate(scope){...}`——生成调用
+
+每个被选中的方法从 trait 定义复制签名。没有可识别的 `.#call` 时，内容是
+目标表达式：`fn m(&self, ...) -> R { (target).m(...) }`——跳过 `self`、
+转发其余参数。因此 `Box.Vec.u32 #delegate(d_len){**self}` 生成
+`fn d_len(&self) -> usize { (**self).d_len() }`。
+
+出现可识别的 `receiver.#call` 时，整个内容成为方法体。每个标记在当前位置
+生成一次完整调用，使用当前方法的目标名字并自动转发参数。不需要额外的
+模板标记，转发调用无需在 `.#call` 后追加 `()`。
 
 | 形态 | 规则 |
 |---|---|
-| 作用域 | 仅方法——常量或关联类型是 "`HasConst` in trait `VALUE` is not a method"（`delegate_on_non_fn`、`delegate_const`） |
-| target | 一个表达式，被拼进生成的调用（`**self`、字段、构造调用） |
+| 作用域 | 仅方法——常量或关联类型是 "`VALUE` in trait `HasConst` is not a method"（`delegate_on_non_fn`、`delegate_const`） |
+| 无 `.#call` 的 target | 一个表达式，被拼进生成的调用（`**self`、字段、构造调用）；没有标记的 `match` 也仍是目标表达式 |
+| `receiver.#call` | 一次自动转发参数的完整调用；接收者可为字段、方法结果或带括号的表达式 |
+| `match self { Self::A(inner) => inner.#call, Self::B(inner) => inner.#call }` | 各分支调用各自接收者，异构接收者无需统一类型 |
+| `inner.#call.into()` / `inner.#call.field` | 从调用结果继续链式操作 / 读取结果的字段 |
+| `inner.#call()` | 调用生成的调用表达式的结果；Rust 要求该返回值可调用 |
 | `foo = call_foo` | 把 trait 的 `foo` 委托给 target 的 `call_foo`：**签名保留 `foo`**，只有调用用另一个名字 |
 | 改名缺一侧 | "rename `X = Y` needs identifiers on both sides"（`delegate_rename_missing_left`）；同一方法改两次名是 "method `size` is renamed twice"（`delegate_double_rename`） |
 
+两种形式都按声明顺序显式转发方法的类型和 const 参数（`method::<T, N>(args)`），
+生命周期保持推断。不会自动添加 `.await`；异步 body 可以写
+`receiver.#call.await`。body 中普通名字与调用保留 Rust 含义，只有带标记
+的调用使用当前方法名及改名映射。借用、移动和结果类型由 Rust 检查。
+转发参数始终引用方法的参数，即使 body 的局部绑定使用了同样的名字。
+
+识别仅限该 delegate body 的表达式；宏 token、属性负载与内嵌 item 定义
+不改写，也不触发方法体模式。名为 `call` 的顶层开放扩展、普通 `.call(...)`
+方法及其他指令的 body 保持原义。可编译的枚举示例见教程 §7.3。
+
 ### 6.6 `#blanket(scope){wrapper list}`——每个包装一个完整 impl
 
-`#blanket` 围绕一个 fresh 泛型 `T` 为**每个包装写出一个完整 impl**，把每个被选中的方法按 deref 委托——也就是"每个包装手写一遍 `<T: Trait> wrapper.T #delegate(selected){*…*self}`"的自动化形式。
+`#blanket` 围绕一个 fresh 泛型 `T` 为**每个包装写出一个完整 impl**，每个被选中的方法都通过显式限定的当前 trait 路径委托，因此 supertrait 的同名方法不会造成歧义。引用接收者使用 `<_ as Trait>::read(&**self)` / `<_ as Trait>::add(&mut **self, value)` 这样的调用，`_` 从实际 deref 目标推断，不要求它等于包装的类型参数。静态方法使用 `<T as Trait>::method(...)`，这些路径都携带当前 trait 的泛型实参。异步方法追加 `.await`；方法的类型/const 泛型通过 turbofish 显式传递，生命周期继续推断。
 
 | 包装列表的元素 | 含义 |
 |---|---|
 | 一个类型形态 | 为它实现的那个包装，围绕 fresh `T`（`.`/空格链表达嵌套，如 `Box.Arc`） |
 | `:N` | 到达内层值的 **deref 深度**（`Box.Arc:2`）——必须是数字，上限 128（`blanket_bad_depth`、`blanket_bad_empty_depth`、`blanket_bad_huge_depth`） |
-| `@Cow` | 打包常量：`Cow<'_>` 加上它的内在约束谓词 |
+| `@Cow` | 打包常量：`Cow<'_>` 加上 `@0: ToOwned + ?Sized` 及额外的 `@0::Owned: @trait` 约束 |
 
-被拒的：`*const`/`*mut` 包装（deref 会不安全，`blanket_ptr`），以及带或返回裸 `Self` 的方法——转发得到的是内层类型而不是包装的 `Self`——报错并建议 `#name{...}`，而 `Self::Assoc` **返回**合法（`blanket_self_return`、`blanket_self_in_group`）。
+被拒的：`*const`/`*mut` 包装（deref 会不安全，`blanket_ptr`），以及方法普通参数、返回类型或泛型约束中的裸 `Self`，包括 `U: Marker<Self>`、`where U: Marker<Self>` 和 `where Self: Marker<U>`。内部类型不能与包装类型等同；诊断建议手写 `#name{...}`（`blanket_self_return`、`blanket_self_in_group`、`blanket_self_constraints`）。
+
+接收者里的 `Self` 按 deref/借用规则处理；`Self::Assoc` 投影在参数、返回值和约束中都允许。`where Self: Sized` 及 `Self: 'a` / `Self: Sized + 'a` 这类 outlives 条件仍可使用，实际目标是否满足条件交给 Rust 检查。属性负载不会被解释为约束。按值接收者少一层 deref（`<_ as Trait>::consume(*self)`）；显式 `self: &Self` / `self: &mut Self` 使用普通引用规则。
 
 ### 6.7 开放扩展 `{! m!{...}}`
 
@@ -362,7 +442,7 @@ splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 
 | 形式 | 拼写 | 规则 |
 |---|---|---|
 | 后缀附件 | `Trait<A> Target where{P1, P2}` | 与 `{body}`、`impl{...}` 同类的一个块，因此它们之间顺序自由 |
-| 裸形式 | `Trait<A> Target where P1 { body }` | 谓词直接跟着 body；没有那个块就是 "``where`` predicates are missing a code block {...}"（`where_missing_body`） |
+| 裸形式 | `Trait<A> Target where P1` 或 `Trait<A> Target where P1 { body }` | body 可省略；输入结束时，非空谓词收成 `where{...}` 附件 |
 | 继承 | 被标注 trait 定义上的 `where` | 并入每个 impl（§7.2） |
 
 谓词列表按 **depth-0 逗号**切分，因此自带逗号的 bound 不会被切开：`where{@0: Semi<Additive, Multiplicative>, @1: Clone}` 是两条谓词——尖括号组在这一趟之前就已配对。
@@ -400,7 +480,8 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 |---|---|
 | `where{T: Clone,}` | 尾随逗号被接受（实测：渲染成 `where T : Clone`） |
 | `where{}` | 合法——impl 就是没有 `where` 子句（实测） |
-| 谓词后面没有 body 块 | `where_missing_body` |
+| 输入末尾的 `where T: Clone`，后面没有 body 块 | 合法——等价于 `where{T: Clone}` |
+| 输入在裸 `where` 后立即结束 | `where_missing_body`——裸关键字后没有谓词 |
 | 两 fresh 的 impl 上 `where{@5..: Clone}` | 不产生谓词、不报错（实测） |
 | 两 fresh 的 impl 上 `where{@5: Clone}` 或 `where{@0..=5: Clone}` | 越界错误："`@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name)"（`at_num_in_type`）；闭**区间**越过末尾报同一类（`at_range_in_type`） |
 | 一条谓词里有生命周期 / `for<'a>` / 投影 / 多个 bound | 普通 Rust——终检按普通 Rust 解析 |
@@ -429,10 +510,10 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 | 该位置：模板 vs 目标 | 结果 |
 |---|---|
-| ident 与目标**相同** | 字面——原样保留 |
+| ident 与目标**相同** | 字面——原样保留；同名不能同时要求不同的替换 |
 | ident **不同** | **槽位**，绑定到目标在该位置的那棵子树 |
 | 一个 spec 里有多个模板 | 合并成**一份映射**——同形重复合法且冗余，冲突是 `impl_inconsistent_binding` |
-| 模板无法解构的形状 | `impl_shape_mismatch` 并指出形状：元数/种类不同、`fn` bound（`impl_shape_fn_bound`）、生命周期实参不同（`impl_shape_lifetime_arg`）、重复的变长段（`impl_shape_varseg_duplicate`）、段不在元组里（`impl_shape_varseg_outside_tuple`）、各段长度不齐（`impl_shape_varseg_uneven`） |
+| 模板无法解构的形状 | `impl_shape_mismatch` 并指出形状：元数/种类不同、fn 修饰不兼容（`impl_shape_fn_qualifiers`）、生命周期实参不同（`impl_shape_lifetime_arg`）、重复的变长段（`impl_shape_varseg_duplicate`）、段不在元组里（`impl_shape_varseg_outside_tuple`）、各段长度不齐（`impl_shape_varseg_uneven`） |
 
 哪些形态会绑定：
 
@@ -444,6 +525,8 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `[A]`（切片）、`(A, B, C)`（元组） | 元素逐位绑定 |
 | `[A; 3]`（字面长度） | 长度逐字比较；元素绑定 |
 | `[A; N]`（const 参数长度） | 长度**绑定**到叶子的长度（`N := 3`；body 里可以用 `N`） |
+| `Wrap<N>`，且已声明 `const N: usize` | 将 `N` 绑定到 `2` 等 const 实参；由参数声明区分 const 名与类型名 |
+| `fn(A) -> B` | 参数与返回类型递归匹配；安全性、ABI、可变参数形态与绑定生命周期必须匹配 |
 | `[A; ()]` | **保留形态**（数组长度 `()` 在可编译代码里不可能存在）——变长段的标记，不要手写 |
 | `Cow<'_, A>` | `'_'` 是**通配**，匹配任意生命周期；`'a` 与 `'b` 逐字比较；类型实参绑定 |
 | `_` | **通配**，匹配任何东西并保持 `_` |
@@ -452,14 +535,14 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 | 模板形态 | 为什么 |
 |---|---|
-| **fn 指针 / trait object** 模板里的槽位（`fn(A) -> B`、`dyn A + Send`） | 这些形态逐字比较：只有完全相同的模板才匹配自己 |
-| **跨类实参**（`Cow<'_, A>` 对一个单实参 `Box<u8>` 叶子、`Foo<A>` 对 `Foo<3>`） | 生命周期或 const 实参不能绑到类型实参，元数不同也对不齐——按形状族各写一个原型 |
+| **trait object** 模板里的槽位（`dyn A + Send`） | 逐字比较：只有完全相同的模板才匹配自己 |
+| **跨类实参**（`Cow<'_, A>` 对一个单实参 `Box<u8>` 叶子、`Foo<A>` 对 `Foo<3>` 且 `A` 不是已声明的 const 参数） | 生命周期或 const 实参不能绑到类型实参，元数不同也对不齐——按形状族各写一个原型 |
 
 所以模式读作"相同 ⇒ 字面，不同 ⇒ 槽位"：`impl{Container<U>}` 对着 `Vec<i16>` 目标会让 `Container` = `Vec`、`U` = `i16`；而模板里重复目标自己的 ident，就把那个位置钉住。
 
 ### 8.3 替换到达哪些面
 
-映射会作用到**目标类型**、**`where` 谓词**与 **body**；槽位是**子树**而不是文本 token——它的值被拼接到名字出现的地方，因此一个槽位可以代表一整个泛型实参（`Vec<i16> impl{SlotBox<T>} where{Vec<T>: Clone}` 渲染成 `where Vec<i16>: Clone`）。这条重写规则对三个面是同一个（由 `features::shape_template_advanced::slot_rewrite_reaches_where` 与 `impl_multiple_templates_merge` 锁定）。
+映射对原型的 **`where` 谓词**与 **body** 应用一次；impl 入口还会改写输入块的**自身类型**与 trait 实参。trait 入口的矩阵叶子已经是最终目标，不会再次映射。槽位是**子树**：它的值拼接到名字出现的位置（`Vec<i16> impl{SlotBox<T>} where{Vec<T>: Clone}` 渲染成 `where Vec<i16>: Clone`）。拼入的值不会递归替换，因此 `u8 → u16, u16 → u32` 是合法的同时映射。同一个源名字若要求两个不同结果，则报冲突；其中也包括某个位置要求该名字保持字面的情形。
 
 ### 8.4 变长段与重复块
 
@@ -483,7 +566,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | 引用了模板没声明的段 | "repeat block references unknown variadic segment `@X`"（`impl_shape_repeat_unknown`） |
 | 一个块里两个不同驱动 | "repeat block driver `@A` conflicts with the inner segment reference `@B`"（`impl_shape_repeat_driver_conflict`） |
 | 开关区间覆盖不到 fresh（`impl{@2..1}` / `impl{@2..=1}`） | "invalid fresh-binding switch — the range covers no fresh"（`impl_shape_repeat_invalid_switch`、`impl_shape_repeat_invalid_switch_closed`） |
-| 模板不是标准 Rust 类型 | §8.1 那条消息，一条错误、不级联 |
+| 模板不是标准 Rust 类型 | §8.1 的模板解析诊断；不再用该无效模板生成 impl |
 
 ### 8.6 交叉
 
@@ -495,10 +578,14 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 ## 9. 入口
 
-六个入口共用 §1 的 spec 文法；先读的对照表在教程 §11。本节承载规则。
+各入口共享类型矩阵语言，外层分隔符见 §1.1。本节分别说明 trait 路径、impl 实例化及多阶段展开。
 
-### 9.1 每个入口都成立的规则
+初次选择入口时，先读[教程 §11 的对照表](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#11-入口)。
 
+### 9.1 各入口的规则
+
+- **`#[batch_impl]` 标注已有 impl** 时直接复用完整实现，本地或外部 trait 都无需签名镜像。非空 spec 生成的 impl 替换原块；需要保留原类型的实现时，将它列入目标。字段、方法、构造和约束仍须对各目标成立。
+- **`#[batch_impl_only]`** 接收既有 trait 的签名镜像，并从输出中丢弃这份声明。提供的签名、泛型和约束需要与真实 trait 手工保持同步；宏不会读取依赖中的定义。Rust 检查生成的 impl，而非镜像是否完整一致：上游后来新增默认方法，不一定会触发错误。
 - **`# path::To::Trait:`** 是 spec 前缀而不是指令：它为 `batch_impl_only` 声明外部 trait 的真实路径，要求至少一个 `::`，随后 `@trait` 与所有路径引用都用它。尾部 ident 与被标注 trait 名不同则是 `path_prefix_mismatch`。
 - **`batch_trait!`** 支持分段、自定义 `@name=值;` 定义，**不支持** `#` 指令——它看不到 trait 定义。
 - **属性入口上的空 spec 列表**（`#[batch_impl]`、`#[batch_impl()]`、`#[batch_impl(;)]`）原样重发该 item：属性是派生 impls，没有可派生的就意味着原样。（impl 入口同理，见 §9.4。）
@@ -507,16 +594,55 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 | 形态 | 拼写 | 含义 |
 |---|---|---|
-| 形状形态 | `A<B> : [Box, Rc] [usize, isize]` | `模板 : 矩阵`——矩阵每个叶子与块的 for-type 匹配，槽位替换进整个块 |
+| 形状形态 | `A<B> : [Box, Rc] [usize, isize]` | `模板 : 矩阵`——矩阵每个叶子与 `:` 前的模板匹配；所得槽位改写整个块，块的 for-type 不必与模板同形 |
 | 直接形态 | `<T> Box<T>` | 泛型声明 + for-type，供单 spec 场景 |
 
 `;` 分隔多个 spec（`A : u8; A : u16`）；空 spec 列表是恒等（§9.1）。
 
+要用输入块的自身类型作为模板，直接写 `@Self`：
+
+```rust
+# use batch_impl::batch_impl;
+# use std::rc::Rc;
+trait Maximum { fn maximum() -> Self; }
+#[batch_impl(@Self: [Box, Rc] @u8..=u16)]
+impl Maximum for Box<u8> {
+    fn maximum() -> Self { Box::new(u8::MAX) }
+}
+# assert_eq!(*<Box<u8> as Maximum>::maximum(), u8::MAX);
+# assert_eq!(*<Box<u16> as Maximum>::maximum(), u16::MAX);
+# assert_eq!(*<Rc<u8> as Maximum>::maximum(), u8::MAX);
+# assert_eq!(*<Rc<u16> as Maximum>::maximum(), u16::MAX);
+```
+
+`@Self` 在常量展开阶段复制本次属性调用收到的自身类型，适用于该阶段原本可达的位置：模板、矩阵、泛型实参和 where 谓词。因此输入 impl 为 `u8` 时，直接形态 `Vec<@Self>` 就是 `Vec<u8>`。复制的 token 仍参与后续形状映射，不会被冻结。普通 Rust `Self` 保持 Rust 原义，body、宏调用与后续属性保留已有透传边界。堆叠属性各自读取本层输入（§9.4）。trait 属性与 `batch_trait!` 没有输入 impl 类型，会拒绝该常量；也不能自定义同名的 `@Self` 常量。
+
+显式模板仍适合描述块内的多个位置，例如自身类型的实参与 trait 实参；它不必与输入自身类型同形。
+
 ### 9.3 impl 入口允许什么、保留什么
 
-- `@trait`（块自己的 trait 路径）可用在泛型声明 bound 与 `where` 谓词里；**自定义 `@` 常量与 `#` 指令在这个入口被拒**（`implentry_hash_banned`、`const_attr_unsupported`）。
+- `@trait`（块自己的 trait 路径）与 `@Self`（输入自身类型）沿已有常量阶段展开。inherent impl 支持 `@Self`，但没有 `@trait`。**自定义常量定义与 `#` 指令在这个入口被拒**（`implentry_hash_banned`、`const_attr_unsupported`）。
 - spec 里的生成器会把 fresh 参数提升到 impl 上，`@N..` where 选择器据此解析（没有生成器时 `@N` 无从指代，报越界）。
 - 块自己的泛型、`where` 子句与 `unsafe` 都保留；它的 `where` 区域在 depth-0 `;` 或输入结束处终止。
+
+已声明的 const 参数可以直接特化。被绑定的参数在替换其引用时一并移除
+声明；未变化的参数仍保持泛型：
+
+```rust
+# use batch_impl::batch_impl;
+struct Bytes<const N: usize>([u8; N]);
+trait Width { fn width() -> usize; }
+#[batch_impl(@Self: [Bytes<2>, Bytes<3>])]
+impl<const N: usize> Width for Bytes<N> {
+    fn width() -> usize { N }
+}
+# assert_eq!(<Bytes<2> as Width>::width(), 2);
+# assert_eq!(<Bytes<3> as Width>::width(), 3);
+```
+
+函数指针原型同样使用普通 Rust 类型，例如
+`fn(u8) -> u16: [fn(u8) -> u16, fn(u16) -> u32]`。参数标签不是槽位；
+匹配保留调用约定与生命周期结构（§8.2）。
 
 ### 9.4 impl 入口：堆叠属性是阶段
 
@@ -530,9 +656,9 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 ## 10. 诊断目录
 
-所有诊断都是**编译期**错误，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行），**一条错误、不级联**。措辞由 `tests/ui/` 的 fixture 锁定，`cargo test --test ui` 逐条核对；**每个 fixture 都在下面出现**（漏一个会让守卫测试失败）。
+本节记录**编译期**诊断。宏自身的错误尽量指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）；独立 spec 的错误可以一起报告，不承诺只产生一条诊断。宏展开失败或生成代码不满足 Rust 规则时，rustc 还可能在调用处等位置报告后续错误。措辞由 `tests/ui/` 的 fixture 锁定，`cargo test --test ui` 逐条核对；**每个 fixture 都在下面出现**（漏一个会让守卫测试失败）。
 
-**来源**列说明这条消息是谁写的：**DSL** = 宏自己的用户语言诊断；**rustc** = 已知泄漏（宏把 token 交出去、由 rustc 抱怨）；**macro** = `batch_trait!` 前端自己的解析错误；**channel** = `batch_preview!` 的输出。
+**来源**列说明这条消息是谁写的：**DSL** = 宏自己的用户语言诊断；**rustc** = Rust 拒绝生成或保留的代码（包含有意交给 Rust 检查的边界及已知泄漏）；**macro** = `batch_trait!` 前端自己的解析错误；**channel** = `batch_preview!` 的输出。
 
 ### 10.1 类型与 spec 语法
 
@@ -574,6 +700,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `attach_too_deep` | 129 个附件 | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `impl_attach_too_deep` | 同样的链走 impl 入口 | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `const_value_deep_nesting` | 常量值嵌套 129 层 | batch-impl: nesting depth exceeds 128 levels in a constant value (perhaps an accidental extra bracket) | DSL |
+| `delegate_call_depth` | delegate body 嵌套超过 128 层组 | batch-impl: nesting depth exceeds 128 levels in a delegate template (perhaps an accidental extra bracket) | DSL |
 
 ### 10.3 `@` 常量、引用与范围
 
@@ -584,15 +711,18 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `const_forward` | `@b` 之前引用 `@b` | batch-impl: constant `@a` references unknown `@b` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
 | `const_bare_endpoint` | `@a=@u8`（无 `..`） | batch-impl: constant `@a` references unknown `@u8` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
 | `const_range_bad` | `@u32..u8` | batch-impl: range start is greater than end: `u32..u8` | DSL |
+| `const_range_empty` | `@u8..u8` / `@..u8` | batch-impl: empty exclusive range `u8..u8` (start not below end) | DSL |
 | `const_reserved_all` | `@all = ...` | batch-impl: constant name `@all` is a reserved `@all` selector; please rename | DSL |
 | `const_attr_unsupported` | `#[batch_impl]` 上写自定义 `@name=值;` | batch-impl: custom constants are not supported by `#[batch_impl]` / `#[batch_impl_only]` — write the type matrix directly with `.` / space / `*` instead | DSL |
+| `const_self_without_impl` | 没有输入 impl 时使用 `@Self`，包括自定义常量值内部 | batch-impl: `@Self` is available only on an impl entry (it refers to the input impl's self type) | DSL |
+| `const_self_reserved` | 定义自定义 `@Self = ...` | batch-impl: constant name `@Self` is reserved for the input impl's self type; please rename | DSL |
 | `generic_family_batch_trait` | `batch_trait!` 里用 `@all_type_params` | batch-impl: `@all_type_params` is supported only by `#[batch_impl]` / `#[batch_impl_only]` (needs a trait definition to read its generic parameters; `batch_trait!` is a function-like macro without one) | DSL |
 | `at_num_in_type` | 只有 2 个 fresh 时写 `Box<@5>` | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `at_group_in_type` | 类型位置的 `@2_0` | batch-impl: `@2_0` does not match a generated generic — this impl has no group 2 position 0 (groups and positions number from 0); use `@N` for the N-th fresh generic in document order | DSL |
 | `at_group_out_of_range` | 同上，另一处位置 | batch-impl: `@2_0` does not match a generated generic — this impl has no group 2 position 0 (groups and positions number from 0); use `@N` for the N-th fresh generic in document order | DSL |
 | `at_range_in_type` | 无 fresh 时写 `Vec<@0..=2>` | batch-impl: `@0..=2` out of range — this scope has 0 fresh generics (numbered from 0 in document order) | DSL |
 | `at_empty_range_in_angle` | `Box<@2..1>` | batch-impl: empty exclusive range `@2..1` (start not below end) | DSL |
-| `at_open_range_bare` | 顶层的 `A@..` | batch-impl: range constant `@..` must name the family's maximum endpoint (e.g. `@..u128`, `@..f64`) | DSL |
+| `at_open_range_bare` | 顶层的 `A@..` | batch-impl: range constant `@..` must name an end point (e.g. `@..u128`, `@..=f64`) | DSL |
 | `at_binding_splat` | `Tr<Item = *(A,B)>` | batch-impl: a splat cannot be an associated-type binding value (`Item = *(A,B)` — bindings take exactly one type; distribute via a spec list like `[Tr<Item=A>, Tr<Item=B>]`) | DSL |
 | `at_segment_carrier_in_body` | body 里的 `@{...}` 载体 | batch-impl: `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are referenced through repeat blocks (`@A`) or an explicit template name (`impl{(A0, @A..)}`), never as `@{...}` | DSL |
 | `error_aggregation_codegen` | 多个悬空 `@N` 引用 | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
@@ -618,19 +748,22 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
-| `fill_empty_args` | `#fill()` | batch-impl: the directive's argument list cannot be empty | DSL |
-| `fill_bad_comma` | `#fill(,a)` | batch-impl: in directive arguments, a comma is in an illegal position (no leading/trailing/consecutive commas) | DSL |
-| `minus_empty` | `#fill(@all,-)` | batch-impl: directive arguments cannot be empty | DSL |
+| `fill_bad_comma` | `#fill(m,,n)` / `#fill(,m)` 及对应的 delegate/blanket 作用域 | batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas) | DSL |
+| `directive_scope_unknown` | 不存在的选择/排除名，差集删掉它也报错；畸形 delegate 改名 | batch-impl: item `typo` not found in trait `RemovedUnknown` | DSL |
 | `minus_bad_target` | `#fill(-1)` | batch-impl: in directive arguments, after `-` expected an identifier or `[...]` list (e.g. `-foo`, `-[a,b]`) | DSL |
 | `directive_bad_follow` | `#m` 后面既无参数也无 body | `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
-| `single_name_not_found` | `#name` 指向不存在的成员 | batch-impl: item `T` not found in trait `no_such` | DSL |
-| `delegate_on_non_fn` | 对常量用 `#delegate` | batch-impl: #delegate only works on methods; `HasConst` in trait `VALUE` is not a method | DSL |
-| `delegate_const` | 同上，另一个常量 | batch-impl: #delegate only works on methods; `ConstApi` in trait `LIMIT` is not a method | DSL |
+| `single_name_not_found` | `#name` 指向不存在的成员 | batch-impl: item `no_such` not found in trait `T` | DSL |
+| `delegate_on_non_fn` | 对常量用 `#delegate` | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
+| `delegate_const` | 同上，另一个常量 | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |
 | `delegate_double_rename` | `#delegate(size=a, size=b)` | batch-impl: #delegate method `size` is renamed twice (`size=...` appears more than once); a method can delegate to only one target | DSL |
 | `delegate_rename_missing_left` | `#delegate(=foo)` | batch-impl: #delegate rename `X = Y` needs identifiers on both sides (e.g. `#delegate(size = len)`) | DSL |
+| `delegate_call_marker` | delegate body 中的 `receiver.#other` / 前缀 `#call(receiver)` | batch-impl: unknown #delegate call marker; use `receiver.#call`<br>batch-impl: #call is a postfix call marker; write `receiver.#call` | DSL |
+| `delegate_call_move` | 两次实际执行的调用消费同一个非 `Copy` 方法参数，转发不自动克隆 | use of moved value: `value` | rustc E0382 |
+| `delegate_call_nested_item` | 内嵌函数中的标记保留原样，不属于外层 delegate 的作用域 | unexpected token: `#` | rustc |
 | `blanket_ptr` | `#blanket(*const T)` | batch-impl: #blanket does not support `*const`/`*mut` wrappers (deref is unsafe, cannot delegate); write #delegate by hand | DSL |
-| `blanket_self_return` | blanket 方法返回裸 `Self` | batch-impl: #blanket method `NewT::new` takes/returns `Self` (bare or `Self::Assoc` projection); blanket delegation forwards the inner type, which cannot match the wrapper's `Self` — write a `#name{...}` body for this wrapper instead | DSL |
-| `blanket_self_in_group` | 组里的 `Self` | batch-impl: #blanket method `GroupSelf::f` takes/returns `Self` (bare or `Self::Assoc` projection); blanket delegation forwards the inner type, which cannot match the wrapper's `Self` — write a `#name{...}` body for this wrapper instead | DSL |
+| `blanket_self_return` | blanket 方法返回裸 `Self` | batch-impl: #blanket method `NewT::new` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead | DSL |
+| `blanket_self_in_group` | 组里的 `Self` | batch-impl: #blanket method `GroupSelf::f` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead | DSL |
+| `blanket_self_constraints` | 方法类型参数 bound 或 where 谓词中的裸 `Self` | batch-impl: #blanket method `InlineBound::read` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead | DSL |
 | `blanket_bad_depth` | `#blanket(...:abc)` | batch-impl: after #blanket `:abc` must come a number (e.g. `Box.Arc:2`) | DSL |
 | `blanket_bad_empty_depth` | `#blanket(...:)` | batch-impl: after #blanket `:` must come a number (e.g. `Box.Arc:2`) | DSL |
 | `blanket_bad_huge_depth` | `#blanket(...:999999)` | batch-impl: #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
@@ -644,7 +777,10 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `impl_template_dsl_ops` | `impl{...}` 里写 DSL 算子 | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
 | `impl_template_range_constant` | 模板里写范围常量 | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
 | `impl_shape_mismatch` | 模板与目标形状不匹配 | batch-impl: `impl{...}` template cannot destructure the target type (generic argument shape differs at segment `Rc`) | DSL |
-| `impl_shape_fn_bound` | 模板里写 `fn(A) -> B` | batch-impl: `impl{...}` template cannot destructure the target type (template `fn(A) -> B` does not match target `fn(u8) -> u16`) | DSL |
+| `impl_shape_fn_qualifiers` | safe 与 unsafe 函数指针类型不同 | batch-impl: `impl{...}` template cannot destructure the target type (function pointer qualifiers differ (unsafe, ABI, lifetimes, variadic or attributes)) | DSL |
+| `impl_shape_const_kind` | 已声明 const 槽匹配类型 | batch-impl: `impl{...}` template cannot destructure the target type (declared const parameter `N` needs a const argument (target `u8`)) | DSL |
+| `impl_shape_type_to_const` | 类型槽匹配已声明 const | batch-impl: `impl{...}` template cannot destructure the target type (a type argument cannot bind declared const argument `N`) | DSL |
+| `impl_shape_literal_conflict` | 同名既须保持字面又须改变 | batch-impl: binding slot `u8` is bound to different subtrees across merged `impl{...}` templates (`u8` vs `u16`) | DSL |
 | `impl_shape_lifetime_arg` | 生命周期实参不一致 | batch-impl: `impl{...}` template cannot destructure the target type (generic argument differs (template `'_` vs target `u8`)) | DSL |
 | `impl_shape_varseg_duplicate` | 同一个 `A@..` 出现两次 | batch-impl: `impl{...}` template cannot destructure the target type (duplicate variadic segment prefix `A` (each `ident@..` in one template must be unique)) | DSL |
 | `impl_shape_varseg_outside_tuple` | 变长段不在元组里 | batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`ident@..`) in a generic argument needs a tuple target (`A<(T@..)>` against `A<(P0, P1)>`)) | DSL |
@@ -676,7 +812,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
-| `where_missing_body` | 裸 `where` 后面没有 `{...}` | batch-impl: `where` predicates are missing a code block {...} | DSL |
+| `where_missing_body` | 输入在裸 `where` 后立即结束，没有谓词 | batch-impl: `where` predicates are missing a code block {...} | DSL |
 | `where_not_a_predicate` | `where{ A B }` | batch-impl: a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out | DSL |
 | `where_splat_bad` | `where{*(A,B): Clone}` | batch-impl: a splat cannot be a where-predicate subject (`*(A,B): Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`) | DSL |
 | `where_empty_exclusive_range` | `where{@2..2: Clone}` | batch-impl: empty exclusive range `@2..2` (start not below end) | DSL |
@@ -719,11 +855,11 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 - 常量的值可以含扁平 `<...>`（11.1）；
 - 尖括号块里的 `@N` 引用在该块被当作声明或实参表消费**之前**解析——`<@0..>` 声明每个被覆盖的 fresh；
-- 值为列表的常量与任何列表一样**分发**，而 splat 是把它留在一个容器里的手段（实测）：`(@u8..u16,)` 是两个 impl（`(u8,)`、`(u16,)`），而 `(*(@u8..u16),)` 是一个覆盖两个成员的 impl。
+- 值为列表的常量与任何列表一样**分发**，而 splat 是把它留在一个容器里的手段（实测）：`(@u8..=u16,)` 是两个 impl（`(u8,)`、`(u16,)`），而 `(*(@u8..=u16),)` 是一个覆盖两个成员的 impl。`@u8..u16` 是单元素列表 `[u8,]`，不是切片类型 `[u8]`。
 
 ### 11.3 `#` × 类型域，以及 × `@`
 
-- 指令参数属于指令域：`,` 列表、`-name` 排除、`@all` 家族与字面 `[a, b]` 列表。写进去的类型域算子**不被解释**——`#fill(@all_methods, -nope)` 解析的是一个排除项，不是 DSL 表达式（实测：排除项谁也没匹配到不算错误）；
+- 指令参数属于指令域：`,` 列表、`-name` 排除、`@all` 家族与字面 `[a, b]` 列表。写进去的类型域算子**不被解释**——`#fill(@all_methods, -nope)` 解析的是一个排除项，不是 DSL 表达式。即使 `nope` 不在选中集合里，它也必须是 trait 的现有成员；不存在的排除名报错；
 - `@all*` 家族与 `@trait` 喂给作用域，这正是"选择属宏元层、动作属指令"的原因；
 - 指令的产物是 spec 链里的一个**块**：单组产物可附着到类型也可单独作 spec，而 `#blanket` 的多 token 产物只能单独作 spec（§6.1）。
 
@@ -740,7 +876,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 ### 11.6 `impl{...}` × 其它
 
-模板在同步之后解析、被 `@` 展开进入、是 `where` 的边界，并被替换进目标、谓词与 body——§8.6 列出它们。
+模板在同步之后解析、被 `@` 展开进入，也是 `where` 的边界。它的映射改写原型内容，已经选定的矩阵叶子保持为最终目标（§8.3）；交叉规则见 §8.6。
 
 ### 11.7 附件 × 入口
 
@@ -758,7 +894,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 | 上限 | 值 | 越界时看到什么 |
 |---|---|---|
 | 单 spec 的 impl 数 | **1024**，`.N` 幂、范围与笛卡尔积共用（`src/ast/op.rs`） | 定向错误，点出乘积与上限："… expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo"（`expand_limit`、`bound_gen_over_limit`） |
-| 嵌套深度 | **128**，组、链、附件与常量值共用同一个计数器（`src/util/mod.rs`） | 组与常量值报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
+| 嵌套深度 | **128**，组、链、附件、常量值与 delegate body 共用同一个上限（`src/util/mod.rs`） | 组、常量值与 delegate body 报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`、`delegate_call_depth`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
 | 重复块输出 | **65536 token**（`src/codegen/repeat.rs`） | 预算守卫报出跑飞的那个块 |
 | `#blanket` deref 深度 | **128** | "`:999999` is too large (deref depth must be ≤ 128)"（`blanket_bad_huge_depth`） |
 
@@ -774,7 +910,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 |---|---|---|
 | `@` 常量 | 逐字值，递归 | 值可以含**扁平** `<...>`（配对在它之后，因此看得见）；循环/前向引用在定义处被拒，所以展开一定终止 |
 | `<>` 配对 | 扁平的 `<` `>` 标点 | 每个 `<...>` 块变成**一个组**；下游解析不再跟踪 `<>` 深度；`->` 的 `>` 永不参与 |
-| `#` 指令 | 指令名 + 其参数 | 指令域独立解析（`,` 列表、`-name`、`@all` 家族）；参数列表里的类型域算子**不被解释** |
+| `#` 指令 | 指令名 + 其参数；delegate body 表达式中的 `.#call` | 指令域独立解析（`,` 列表、`-name`、`@all` 家族）；参数列表里的类型域算子**不被解释**；可识别的 `.#call` 选择完整方法体形式并转发当前调用 |
 | `where` | 完整结构 | 谓词按 depth-0 逗号切分；`impl{...}` 模板是谓词区边界 |
 
 **透传**：`ident![...]` 宏体与 `#[...]` 属性内是任意 Rust，四个递归入口一律不进入。
@@ -827,7 +963,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 
 **为什么 `where` 谓词里拒绝 splat？** 该子句到输出全程 token 级，所以由谓词终检报出。其余每个参数位置列表都会展开（§4）。
 
-**为什么 `*(A,B)` 单独作目标报错（E0119），而 `(A,B)` 可以？** splat 是参数位置列表；单独作目标会摊平成重复 impl。写元组。
+**`*(A,B)` 单独作目标与 `(A,B)` 有什么区别？** 独立 splat 为每个元素分别生成 impl；元组形式为 `(A,B)` 生成一个 impl。`u8`、`u16` 这样的不同元素可以使用 splat 形式。E0119 来自生成的 impl 重叠，例如 `*(u8, u8)`，而不是 splat 作为目标本身（§4.5）。
 
 **为什么 `@0..2` 覆盖两个 fresh？** 排他区间在**每个**位置都不含末尾，于是类型路径与 where 谓词路径一致——闭区间写 `@0..=1`。
 
@@ -844,4 +980,3 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 **为什么 body 里的 `X<>` 有时不同步？** body 同步是显式选择：只有开关模板（`impl{@trait<>}` / `impl{Tr<>}`）会打开它，不含开关的模板把 body 的标记留给 rustc（E0107），这是文档化行为（§13.2）。
 
 **为什么 `#[batch_impl(1.5)]` 是错误而不是类型别名？** DSL 里只有整数是类型（`@N` 与幂就是这么数的），因此 float/string/char 字面量照实报出（见 §10.1）。
-

@@ -1,0 +1,10 @@
+error: batch-impl: constant name `@Self` is reserved for the input impl's self type; please rename
+ --> tests/ui/const_self_reserved.rs:5:1
+  |
+5 | / batch_trait! {
+6 | |     @Self = u8;
+7 | |     Marker: @Self;
+8 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

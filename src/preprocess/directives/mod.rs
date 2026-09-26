@@ -10,6 +10,8 @@
 //!   resolve item signatures from the annotated trait) plus the `@all`-family
 //!   marker specs;
 //! - [`delegate_args`] — delegate argument forwarding patterns;
+//! - [`delegate_template`] — local `receiver.#call` sites and hygienic
+//!   argument forwarding inside complete method-body templates;
 //! - [`blanket`] — `#blanket` expansion (wrapper matrix → delegation specs);
 //! - [`blanket_wrappers`] — blanket wrapper parsing (`wrapper.T` forms).
 
@@ -17,6 +19,7 @@ mod blanket;
 mod blanket_helpers;
 mod blanket_wrappers;
 mod delegate_args;
+mod delegate_template;
 mod dispatch;
 mod name_list;
 mod trait_items;

@@ -1,5 +1,8 @@
+#![doc = "**This build:** [Quick start](#bi-start) · [Tutorial](#bi-tutorial) · [Reference](#bi-reference) · [API](#macros)\n\nRepository-source links open public GitHub `main`, which may differ from this build. Use the links above to stay in this version.\n\n<a id=\"bi-start\"></a>\n"]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
+#![doc = "\n<a id=\"bi-tutorial\"></a>\n"]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/tutorial.md"))]
+#![doc = "\n<a id=\"bi-reference\"></a>\n"]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/reference.md"))]
 // The library uses no unsafe **in its own logic** — enforced as deny rather
 // than forbid for exactly one audited exception: the test-build allocation
@@ -212,9 +215,9 @@ pub fn batch_preview(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 //
 // The `#` directives and `@` constants live inside macro arguments, so IDE
 // hover and docs.rs cannot reach them. Each placeholder below is a public
-// no-op function whose doc block documents one directive — a hoverable,
-// searchable rustdoc entry. They are not callable: invoking one reports the
-// documentation-only status instead of silently expanding to nothing.
+// procedural macro whose doc block documents one directive — a hoverable,
+// searchable rustdoc entry. Invoking one reports its documentation-only status
+// instead of silently expanding to nothing.
 // ============================================================
 
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/directive_delegate.md"))]

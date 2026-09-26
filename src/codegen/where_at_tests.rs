@@ -16,6 +16,23 @@ fn fresh_names(n: usize) -> Vec<TokenStream> {
     (0..n).map(|i| fresh_decl_tokens(0, i)).collect()
 }
 
+#[test]
+fn removed_all_fresh_is_rejected() {
+    let item = parse_quote!(
+        trait Removed {}
+    );
+    let error =
+        crate::entry::expand_attr_macro(quote!(()2 where { @all_fresh: Clone }), item, true)
+            .unwrap_err()
+            .to_string();
+    assert!(error.contains("unknown @ constant `@all_fresh`"), "{error}");
+
+    // The lower-level resolver must not retain a second compatibility path.
+    let pred = quote!(@all_fresh: Clone);
+    let ctx = FreshCtx::new(&fresh_names(2), &Default::default());
+    assert!(resolve_where_at(&pred, &ctx).is_err());
+}
+
 fn resolve(s: &str, names: &[TokenStream]) -> String {
     let pred = s.parse().unwrap();
     let ctx = FreshCtx::new(names, &Default::default());

@@ -1,3 +1,5 @@
+Documentation-only guide to `#name{body}`: use the directive inside `#[batch_impl(...)]`; do not invoke `batch_impl_name!`.
+
 # The `#name{body}` Directive — Single-Item Assignment
 
 `#name{body}` looks up the **single** trait item named `name` — a method, an
@@ -51,6 +53,10 @@ trait HasConst { const MY_CONST: usize; }
 trait HasItem { type Item; }
 // → impl HasItem for Box<u32> { type Item = u32; }
 ```
+
+Trait result bounds are omitted from the impl definition: `type Item: Clone;`
+still generates `type Item = u32;`, and Rust checks that `u32: Clone`.
+For a GAT, the parameter declarations and `where` predicates are preserved.
 
 ## Name collision with built-in directives
 

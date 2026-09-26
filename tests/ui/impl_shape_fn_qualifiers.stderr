@@ -1,0 +1,7 @@
+error: batch-impl: `impl{...}` template cannot destructure the target type (function pointer qualifiers differ (unsafe, ABI, lifetimes, variadic or attributes))
+ --> tests/ui/impl_shape_fn_qualifiers.rs:6:1
+  |
+6 | #[batch_impl(fn(u8): unsafe fn(u16))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

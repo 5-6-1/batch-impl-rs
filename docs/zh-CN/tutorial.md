@@ -1,56 +1,364 @@
 # batch-impl 教程
 
-**v0.9.8**（2026-09-14）——诊断与文档补丁：`@N..M` 在每个位置都不含末尾（本次唯一的语义统一——那是"与文档矛盾的位置"的修复，不是新表面）、`where` 谓词在定型后校验、splat 在每个参数位置列表里展开、若干误导性诊断修好，本教程新增配套参考手册（`docs/reference.md`）。
+**v0.10.0 — 开发中（未发布）。** 本教程描述开发中的当前工作树。待发布改动与迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
-渐进式学习 DSL：从一行 impl 开始，到高级矩阵组合。示例均为可编译代码（发布版英语教程的代码块同时是 doctest），每一步的产物都是普通 Rust——宏生成的 impl 与手写逐 token 等价。**配套查阅文档是 `docs/zh-CN/reference.md`**（合法性矩阵、诊断目录、上限与保证）。
+**仓库源码（GitHub main）**：简体中文 · [English](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md) · [参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)
 
-## 0. 三个系统 + 一个操作符
+上方及文中的 GitHub 链接用于查看仓库源码；公共 `main` 可能尚未同步当前
+本地工作树。本教程内部的章节跳转留在当前页面。
 
-batch-impl 的一切能力由三根柱子（0.0→0.6 持续打磨）+ 一个操作符（0.7.0）构成：
+先为一个类型实现方法，再用五次修改扩展同一个程序。宏生成的始终是
+普通 Rust impl；已经有完整 impl 时，也可以直接从它开始。
 
-| 部分           | 记号                                          | 作用                                                           |
-|----------------|-----------------------------------------------|----------------------------------------------------------------|
-| **apply 系统** | `.` / 空格 / `[]` / `()`                      | 类型矩阵：把左侧容器/修饰符应用到右侧类型，列表展开成多个 impl |
-| **指令系统**   | `#name` / `#fill` / `#delegate` / `#blanket`  | 从 trait 定义抄签名、批量填 body、委托调用、覆盖式委托         |
-| **常量系统**   | `@u*` / `@scalar` / `@u8..u128` / `@name=...` | 宏元层：命名并复用类型矩阵条目，纯词法替换——列出的族到处可用，而自定义 `@name=...` 段**仅 `batch_trait!` 支持**（§6.3） |
-| **`*` 操作符** | `*[...]` / `*(...)`                           | 摊平：把容器/生成器展开拼入外层列表——0.7.0 新增，全位置生效    |
+## 0. 按任务选择阅读路线
 
-**预处理顺序**（固定的四阶段管道）：`@` 常量展开 → `<>` 尖括号配对 → `#` 指令展开 → `where` 处理。顺序决定了你能把什么写进什么：`@` 的结果可以包含 `<>`（配对后处理）、`#` 的参数可以引用 `@` 展开的列表、`where` 最后看到的是完整结构。
+第一次阅读，完成 [§1 的连续任务](#1-实现并调用一个方法)：
+加类型、加方法、为特殊类型拆 spec、加入泛型约束、转发包装器方法。
+已经写好普通 impl，或正在实现外部 trait 时，可以先看
+[§1.6 的 impl 入口](#16-从普通-display-impl-开始)。
+这两条都是常用路线，不需要先学形状模板或生成器。
 
-**按任务找章节**——任务优先索引。**层级**列与 README 的功能表一致：核心路径是 §1–§5、§8.1–§8.3 与 §9–§13；§6、§7 与 §8.4/§8.5 是进阶层——需要时再读，核心路径不依赖它们。
+后面的章节按主题查阅：先掌握普通类型与泛型，再在确实需要一次填入多个
+类型实参时看 splat。基础签名复制与简单委托已经在任务中出现；完整的
+指令规则、生成器与自定义扩展可以按需阅读，不必按编号通读。
+
+按照 [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)
+配置依赖后，§1 每一步的完整程序都可直接替换 `src/main.rs`，然后运行
+`cargo run`。§1.1–§1.5 保留前一步行为，只引入该步所讲的变化；§1.6 是另一条
+入口路线的独立程序。§2 以后的代码块是独立
+示例；部分使用 `# ` 开头的行放置 rustdoc 隐藏的辅助代码。复制 Markdown
+源码时，去掉这个前缀、保留该行其余内容；这是文档约定，不是 DSL 语法。
+英文 Rust 代码块除标为 `ignore` 的示例外均作为 doctest，下面的诊断演示
+使用 `text` 代码块。
 
 | 我想…… | 看 | 层级 |
 |---|---|---|
-| 给很多类型实现同一个方法 | §1、§3 | 核心 |
-| 用包装矩阵（空格、`.`、列表）覆盖一批类型 | §2 | 核心 |
-| 让多个类型共用一个 body | §3 | 核心 |
-| 把容器/生成器拼进列表（`*`） | §4 | 核心 |
-| 声明泛型、继承或添加 bound、写限定类型 | §5 | 核心 |
-| 用 `where` 约束 | §8.1–§8.3 | 核心 |
-| 生成元组、各元数与笛卡尔矩阵 | §9 | 核心 |
-| 用引用、指针、`unsafe`、属性、`!`、`self` | §10 | 核心 |
-| 在几个入口宏之间选 | §11 | 核心 |
-| 搞清某个错误是什么意思 | §12 | 核心 |
-| 读一个完整真实文件 | §13 | 核心 |
-| 寻址生成的参数（`@N` / `@g_i` / 区间） | §6 | 进阶 |
-| 抄签名、委托、覆盖式委托、用自己的宏扩展 | §7 | 进阶 |
-| 用 `impl{...}` 写原型、批量化已有 `impl` | §8.4、§8.5 | 进阶 |
+| 完成一个逐步扩展的程序 | [§1](#1-实现并调用一个方法) | 基础 |
+| 直接批量化普通 impl，包括外部 trait 的 impl | [§1.6](#16-从普通-display-impl-开始) | 基础 |
+| 给已有实现加类型、修改签名、拆出例外 | [§1.7](#17-维护同一份-describe) | 按需 |
+| 用包装矩阵（空格、`.`、列表）覆盖一批类型 | [§2](#2-类型矩阵空格与-) | 基础 |
+| 合并独立与共享 body | [§3](#3-列表与-body) | 基础 |
+| 声明泛型、继承或添加 bound、写限定类型 | [§5](#5-泛型-从声明到可编程实参) | 基础 |
+| 用标准 Rust 的 `where` 约束 | [§8.1–§8.3](#81-where-谓词) | 基础 |
+| 查指令的完整规则 | [§7](#7-指令系统-) | 按需 |
+| 把容器/生成器拼进列表（`*`） | [§4](#4-splat-摊平操作符070-主角)，建议先读泛型 | 按需 |
+| 生成元组、各元数与笛卡尔矩阵 | [§9](#9-元组生成与矩阵) | 按需 |
+| 用引用、指针、`unsafe`、属性、`!`、`self` | [§10](#10-修饰符大全) | 按需 |
+| 在几个入口宏之间选 | [§11](#11-入口) | 按需 |
+| 搞清某个错误是什么意思 | [§12](#12-错误提示) | 按需 |
+| 读一个完整真实文件 | [§13](#13-实战仓库里那三个示例) | 按需 |
+| 寻址生成的参数（`@N` / `@g_i` / 区间） | [§6](#6--常量系统宏元层) | 进阶 |
+| 用形状模板、分阶段替换扩展 impl | [§8.4–§8.5](#84-impl-shape-template-形状模板080) | 进阶 |
 
-## 1. 从一行 impl 开始
+## 1. 实现并调用一个方法
 
-`#[batch_impl(...)]` 标注在 trait 定义上，参数里的每个 spec 生成一个 impl：
+先让 `u8` 拥有一个可调用的 `describe` 方法：
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl(usize, isize, f32, f64)]
-trait Numeric {}
-// → impl Numeric for usize {}
-// → impl Numeric for isize {}
-// → impl Numeric for f32 {}
-// → impl Numeric for f64 {}
+use batch_impl::batch_impl;
+
+#[batch_impl(u8 #describe{format!("number: {self}")})]
+trait Describe {
+    fn describe(&self) -> String;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    println!("{}", 7u8.describe());
+}
 ```
 
-spec 的骨架：
+运行 `cargo run`：断言通过，程序输出 `number: 7`。`u8` 是目标类型；
+`#describe{...}` 把 `Describe::describe` 的签名复制到 impl 并提供方法体，
+`self` 就是接收调用的值。
+
+`#` 后面是 trait 成员的实际名字。`#describe` 填写 `describe`；文档里的
+`#name{body}` 表示“这里写成员名”，并不是固定的 `name` 关键字。
+trait 本身仍然存在，生成的方法按普通 Rust 方式调用。
+
+### 1.1 加类型
+
+把单个 `u8` 换成列表 `[u8, u16, u32]`，为新增类型补上调用断言。
+每一步都给出完整程序；用它替换上一版，再运行 `cargo run`。
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    println!("{}", 7u8.describe());
+}
+```
+
+缩回一个目标时，写 `u8` 或 `[u8,]`。**类型位置的 `[u8]` 是切片类型，
+不是只有 `u8` 的列表**；`[u8; 3]` 则是定长数组。这个区别与指令中的
+成员选择列表不同：例如 `#fill([describe])` 不需要尾逗号。
+
+### 1.2 加方法
+
+给同一个 trait 增加 `kind`，再用 `#kind` 提供它的实现。原来的三个
+`describe` 实现保持不变，两个方法都能按普通 Rust 方式调用。
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    println!("{}", 7u8.describe());
+}
+```
+
+这里两个指令分别补齐两个成员。方法体只有返回表达式，签名仍由 trait 提供。
+完整写法见 [§7.1](#71-namebody--单-item-赋值)。
+
+### 1.3 特殊类型用独立 spec
+
+`bool` 需要不同的描述和类别，因此为它写一个独立 spec，与数值 spec 用
+逗号分隔。不要把它放进带共享 `describe` 的列表后，再期待局部 body 覆盖
+同名方法：**body 合并是追加成员，不是覆盖；重复定义同一成员会由 Rust 报错。**
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"},
+    bool #describe{format!("bool: {self}")} #kind{"boolean"}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(true.describe(), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    println!("{}", 7u8.describe());
+}
+```
+
+整数共用一份实现，`bool` 使用另一份，两组目标没有重叠。独立 body 与共享
+body 可以添加不同成员；合并的完整例子见
+[§3](#3-列表与-body)。
+
+### 1.4 加入泛型约束
+
+现在给 `Vec<T>` 增加一条 spec。`<T: std::fmt::Debug>` 声明 impl 的泛型
+和约束；`format!("{self:?}")` 需要元素实现 `Debug`，所以这个约束有实际用途。
+已有整数和 `bool` 的实现继续保留。
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"},
+    bool #describe{format!("bool: {self}")} #kind{"boolean"},
+    <T: std::fmt::Debug> Vec<T> #describe{format!("{self:?}")} #kind{"list"}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(true.describe(), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    assert_eq!(vec![1u8, 2].describe(), "[1, 2]");
+    assert_eq!(vec![1u8, 2].kind(), "list");
+    println!("{}", 7u8.describe());
+}
+```
+
+这条 spec 生成 `impl<T: std::fmt::Debug> Describe for Vec<T>`。
+声明使用普通 Rust bound；无需使用自动生成参数或位置引用。普通泛型的其余规则见
+[§5](#5-泛型-从声明到可编程实参)。
+
+### 1.5 转发 Box 方法
+
+最后加一条 `#blanket(@all_ref_methods){Box}`，让 `Box<T>` 的两个引用接收者
+方法都转发给内部 `T`。它要求 `T: Describe`，因此之前的整数、`bool` 和
+`Vec<T>` 都能继续包装。
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u32] #describe{format!("number: {self}")} #kind{"integer"},
+    bool #describe{format!("bool: {self}")} #kind{"boolean"},
+    <T: std::fmt::Debug> Vec<T> #describe{format!("{self:?}")} #kind{"list"},
+    #blanket(@all_ref_methods){Box}
+)]
+trait Describe {
+    fn describe(&self) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe(), "number: 7");
+    assert_eq!(8u16.describe(), "number: 8");
+    assert_eq!(9u32.describe(), "number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(true.describe(), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    assert_eq!(vec![1u8, 2].describe(), "[1, 2]");
+    assert_eq!(vec![1u8, 2].kind(), "list");
+    let boxed = Box::new(vec![1u8, 2]);
+    assert_eq!(Describe::describe(&boxed), "[1, 2]");
+    assert_eq!(Describe::kind(&boxed), "list");
+    println!("{}", 7u8.describe());
+}
+```
+
+两个 `Describe::...(&boxed)` 调用显式验证 `Box` 自己的 trait 实现，
+避免普通方法调用的自动解引用掩盖缺失的包装器实现。这一步没有修改 trait，
+也没有再写两个方法的签名。其他接收者和关联项的边界见
+[§7.4](#74-blanketmethods包装列表--覆盖式委托)。
+
+**学到这里就可以开始使用。** 列表、成员 body、独立 spec、普通泛型和
+简单转发已经能覆盖许多批量实现。已有完整 impl 时看 [§1.6](#16-从普通-display-impl-开始)，
+后续维护看 [§1.7](#17-维护同一份-describe)；其余章节按需要查阅。
+
+书写时可以直接使用空格应用（`Vec u8`）；嵌套用括号写清楚，如
+`Box (Vec u8)`，点号写法 `Box.Vec.u8` 也可用。每个 spec 单独一行，
+较长的方法体再分行缩进。`rustfmt` 不保证按这套 DSL 的语义整理宏参数，
+矩阵的分组与布局仍需自己检查。
+
+### 1.6 从普通 Display impl 开始
+
+如果已经有一个普通 impl，直接在它上面加属性也是常用起点。下面是另一个
+完整程序：为本地类型 `UserId` 写的 `Display` 实现，同时用于 `OrderId`。
+签名来自你写好的 impl，不需要复制外部 trait 的定义。
+
+```rust
+use batch_impl::batch_impl;
+
+use std::fmt;
+
+struct UserId(u64);
+struct OrderId(u64);
+
+#[batch_impl(@Self: [UserId, OrderId])]
+impl fmt::Display for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+fn main() {
+    assert_eq!(UserId(7).to_string(), "7");
+    assert_eq!(OrderId(12).to_string(), "12");
+}
+```
+
+新增的属性中，`@Self` 读取输入 impl 的自身类型 `UserId`，右边列表给出
+两个目标。生成结果替代输入块，因此这里把 `UserId` 也列进去，保留它的实现。
+`fmt` 签名、字段访问和 `write!` 都是普通 Rust；这些类型具有相同的 `.0` 字段，
+所以同一方法体适用。孤儿规则等 Rust 检查仍然照常生效。
+
+本地 trait 定义配 `#方法名{body}`，或已有完整 impl 配 `@Self: 目标列表`，
+可按手头已有的代码选择。显式形状模板与多阶段替换属于进一步用法，见
+[§8.5](#85-impl-entry080itemimpl-入口)。
+
+### 1.7 维护同一份 Describe
+
+继续修改 [§1.5](#15-转发-box-方法) 的程序，不接前面的 `Display` 示例。
+假设现在需要增加 `u64`、让描述支持前缀，并为 `u32` 提供特殊格式：
+
+| 需求 | 手动修改 | 宏继续负责 |
+|---|---|---|
+| 增加 `u64` | 加入整数目标列表 | 为它生成同样的成员 |
+| `describe` 增加 `prefix: &str` | 修改 trait 签名，让各业务 body 使用 `prefix`，为调用补上实参 | 复制新签名；`Box` 委托自动转发新参数 |
+| `u32` 使用特殊格式 | 从共享列表移除 `u32`，为它写独立 spec | 各目标分别生成实现，避免同一类型有两份冲突实现 |
+
+复制签名不会自动重写业务逻辑或调用者。下面保留 `kind` 的行为，
+只调整需要新格式的 body；原有 `#blanket` 不必修改：
+
+```rust
+use batch_impl::batch_impl;
+
+#[batch_impl(
+    [u8, u16, u64] #describe{format!("{prefix}number: {self}")} #kind{"integer"},
+    u32 #describe{format!("{prefix}wide number: {self}")} #kind{"integer"},
+    bool #describe{format!("{prefix}bool: {self}")} #kind{"boolean"},
+    <T: std::fmt::Debug> Vec<T> #describe{format!("{prefix}{self:?}")} #kind{"list"},
+    #blanket(@all_ref_methods){Box}
+)]
+trait Describe {
+    fn describe(&self, prefix: &str) -> String;
+    fn kind(&self) -> &'static str;
+}
+
+fn main() {
+    assert_eq!(7u8.describe("value: "), "value: number: 7");
+    assert_eq!(8u16.describe(""), "number: 8");
+    assert_eq!(10u64.describe(""), "number: 10");
+    assert_eq!(9u32.describe("value: "), "value: wide number: 9");
+    assert_eq!(7u8.kind(), "integer");
+    assert_eq!(9u32.kind(), "integer");
+    assert_eq!(true.describe(""), "bool: true");
+    assert_eq!(true.kind(), "boolean");
+    assert_eq!(vec![1u8, 2].describe(""), "[1, 2]");
+    assert_eq!(vec![1u8, 2].kind(), "list");
+    let boxed = Box::new(vec![1u8, 2]);
+    assert_eq!(Describe::describe(&boxed, "value: "), "value: [1, 2]");
+    assert_eq!(Describe::kind(&boxed), "list");
+    assert_eq!(
+        Describe::describe(&Box::new(9u32), "value: "),
+        "value: wide number: 9"
+    );
+    println!("{}", 7u8.describe(""));
+}
+```
+
+仍使用原有业务逻辑的目标，在空前缀时保持原先格式；`u32` 的新格式也会通过 `Box<u32>` 的委托生效。
+这些断言同时覆盖新增目标、修改后的签名、例外实现和参数转发。
+
+### 检查展开
+
+先让程序运行成功；以后修改类型表达式或签名遇到难以判断的错误时，
+可以临时用 `batch_impl::batch_preview!` 包住带属性的 trait 查看展开：
+
+```text
+batch_impl::batch_preview! {
+    #[batch_impl([u8, u16, u32] #describe{format!("number: {self}")})]
+    trait Describe { fn describe(&self) -> String; }
+}
+```
+
+运行 `cargo check`。预览会主动用 `compile_error!` 输出生成的 Rust，因此
+这里编译失败是预期行为，不代表 DSL 输入一定有错。检查输出中的目标类型
+和方法签名，然后恢复普通属性写法，再运行 `cargo run`。预览只是临时的
+检查步骤。
+
+没有方法的标记 trait 只写目标类型即可。更复杂的 impl 还可以在 spec 中
+声明泛型、指定 trait 的实参：
 
 ```text
 <impl-泛型> Trait名<trait-泛型> 目标类型 { body }?
@@ -61,21 +369,25 @@ spec 的骨架：
 | `<impl-泛型>`         | `<T>`, `<T: Clone>`, `<const N: usize>` | impl 块需要泛型参数时  |
 | `Trait名<trait-泛型>` | `MyTrait<T>`, `MyTrait<Vec<T>>`         | trait 定义有泛型参数时 |
 | 目标类型              | `usize`, `Vec<T>`, `&str`               | 必需                   |
+| `#方法名{body}`        | `#describe{format!("number: {self}")}` | 复制该方法的签名并提供方法体 |
 | `{ body }`            | `{ fn m(&self) -> usize { 0 } }`        | 需要自定义实现体时     |
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-**规模上能省多少。** `examples/simplify.rs` 用大约 **15 行** DSL 得到 **30 个 impl**（手写约 80 行），`examples/typeclass.rs` 覆盖一个类层级外加 36 个 `From<bool>` 实例。两者都由 CI 编译，§13 逐个讲解——想在细节之前先看回报，现在就可以翻过去。
+**规模上能省多少。** [simplify.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs) 用大约 **15 行** DSL 得到 **30 个 impl**（手写约 80 行），[typeclass.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/typeclass.rs) 覆盖一个类层级外加 36 个 `From<bool>` 实例。两者都由 CI 编译，准备好阅读更大示例时，可以跟随 §13 的讲解。
 
 ## 2. 类型矩阵：空格（与 `.`）
 
 **空格是主推的写法**：容器/修饰符与它接收的类型并排写——链式累加参数（左结合）。
 
-> **空格到底是什么**：空格**不是 token**——它是 token 之间的**间隔**（proc-macro2 会剥掉空白，DSL 只看到相邻性）。因此空格应用的意思就是"这些 token 相邻，应用它们"（`Box u8` = `Box<u8>`），这与 Rust 自身读取类型语法的方式完全一致（`Box<u8>` 就是 `Box` 与 `<u8>` 相邻）。不需要任何显式运算符符号——**没有分隔符这件事本身就是运算符**。
+`Box u32` 给 `Box` 一个实参，`HashMap u32 String` 给 `HashMap` 两个
+实参。需要让实参本身成为组合类型时，用括号分组：`Box (Vec u32)`
+得到 `Box<Vec<u32>>`。
 
 | 写法                   | 展开                                  |
 |------------------------|---------------------------------------|
 | `Box u32`              | `Box<u32>`                            |
+| `Box (Vec u32)`        | `Box<Vec<u32>>`（内层类型分组）       |
 | `HashMap u32 String`   | `HashMap<u32, String>`（左结合累加）  |
 | `fn(A,B) C`            | `fn(A,B)->C`（也可写 `fn(A,B) -> C`） |
 | `&u8`                  | `&u8`（修饰符链式应用）               |
@@ -85,32 +397,39 @@ spec 的骨架：
 | `Box [u8, u16]`        | `Box<u8>, Box<u16>`（列表分发）       |
 | `[Box, Vec] [u8, u16]` | 笛卡尔积共 4 项                       |
 
-**`.` 是同一运算的右结合形态**——只在需要**嵌套**而非累加时使用。空格累加会把参数并排（`Box Box u8` = `Box<Box, u8>`——对多数容器是笔误）；`.` 嵌套把类型组合（`Box.Box.u8` = `Box<Box<u8>>`）：
+**`.` 是同一运算的右结合形态。** 它提供另一种嵌套写法：`Box.Vec.u32`
+和 `Box (Vec u32)` 都得到 `Box<Vec<u32>>`。没有分组时，空格累加实参：
+`Box Vec u32` 得到 `Box<Vec, u32>`。
 
 | 写法                     | 展开                                 |
 |--------------------------|--------------------------------------|
 | `Box.Box.u8`             | `Box<Box<u8>>`（右结合嵌套）         |
+| `Box.Vec.u32`            | `Box<Vec<u32>>`（同 `Box (Vec u32)`） |
 | `&Box u8`                | `&Box<u8>`（修饰符作用于嵌套类型）   |
 | `[Box, Vec] T`           | `Box<T>, Vec<T>`                     |
 | `Box [T1, T2]`           | `Box<T1>, Box<T2>`                   |
 | `[HashMap<K>, Vec<K>] V` | `HashMap<K, V>, Vec<K, V>`           |
 
-> **什么时候用哪个**：一个容器/修饰符 + 一个类型——并排写（`Box u8`、`&u8`、`HashMap<u8> String`）。当类型本身需要是组合类型（`Box<Box<u8>>`、`&Box<u8>`）时，用 `.` 连接组合——空格会把每一部分当作独立参数。
+> **什么时候用哪个**：容器与它的实参并排写（`Box u8`、`HashMap<u8> String`）。
+> 嵌套容器时，用括号分组内层类型（`Box (Vec u32)`），也可以用点号
+> （`Box.Vec.u32`）。
 
 优先级从低到高：`;` < `,` < 空格 < `.`，`()` 分组在所有运算符之上。
 
 **裸 trait 名**按 impl trait 应用：`Tr u8` = `impl Tr for u8`、`Tr<A> u8` = `impl Tr<A> for u8`。要**类型** `Tr<u8>` 直接写 `Tr<u8>`。一般情况下，不推荐使用裸Tr。
 
-> **注意**：`Box.Vec u32` 是错误写法（会被解释为 `Box<Vec, u32>`），应写为 `Box.Vec.u32`。误写时 rustc 的 E0107 会把渲染后的 `Box<Vec, u32>` 打在报错里——误写自明。
+> **混合分组**：`Box.Vec u32` 中点号先分组，随后空格再添加一个实参，
+> 因此得到 `Box<Vec, u32>`。如果想要 `Box<Vec<u32>>`，应写
+> `Box (Vec u32)` 或 `Box.Vec.u32`。
 
 > **操作数严格性**：`.`/`,` 两侧必须有操作数——`A.`、`.A`、`,A`、`A,,B` 均报 `compile_error!`；仅**尾随逗号**（`A,` / `[A, B,]`）允许，`()`/`[]` 等括号是真实 token 不算空操作数。`;` 作为 `batch_trait!` 段落边界保持宽松。
 
 ```rust
-# use batch_impl::batch_impl;
-# use std::collections::HashMap;
-#[batch_impl(Box.Vec.u32, HashMap<u8> String)]
+use batch_impl::batch_impl;
+use std::collections::HashMap;
+#[batch_impl(Box (Vec u32), HashMap<u8> String)]
 trait T {}
-// → impl T for Box<Vec<u32>> {}   ← `.` 嵌套：Box 应用到 Vec<u32>
+// → impl T for Box<Vec<u32>> {}   （也可写 Box.Vec.u32）
 // → impl T for HashMap<u8, String> {}
 ```
 
@@ -118,17 +437,18 @@ trait T {}
 
 ### 并列列表 `[A, B]`
 
-一个 body 为所有目标类型复用：
+一个 body 为所有目标类型复用。这是 §1.1 中 `#describe` 的另一种写法：
+在共享 body 里写完整方法，得到相同的三个实现。
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl([usize, isize, f32] {
-    fn tag(&self) -> &'static str { "number" }
+use batch_impl::batch_impl;
+#[batch_impl([u8, u16, u32] {
+    fn describe(&self) -> String { format!("number: {self}") }
 })]
-trait Tagged { fn tag(&self) -> &'static str; }
-// → impl Tagged for usize { fn tag(&self) -> &'static str { "number" } }
-// → impl Tagged for isize { ... }
-// → impl Tagged for f32   { ... }
+trait Describe { fn describe(&self) -> String; }
+// → impl Describe for u8 { fn describe(&self) -> String { format!("number: {self}") } }
+// → impl Describe for u16 { ... }
+// → impl Describe for u32 { ... }
 ```
 
 **分发传播**：`[A, B]` 列表是分发源——除了作为目标/操作数，嵌套位置也会传播：
@@ -148,11 +468,15 @@ trait V {}
 // → impl V for Vec<u32> {}
 ```
 
-规则：元组/泛型实参中出现 `[A, B]` → 笛卡尔积分发（多数组全组合）；嵌套数组递归拆到底（`Vec<[[A,B], C]>` → `Vec<A>`/`Vec<B>`/`Vec<C>`）；`(X, [A,B]).N` 的组合含数组由外层分发递归覆盖。注意：具体生成器与 fresh 生成器组合可能 E0119 重叠（fresh 数量/结构相同）——rustc 兜底，用不同 fresh 数量的生成器可避免。
+元组或泛型实参中的 `[A, B]` 会分发到各个目标；多个列表产生所有组合。
+嵌套列表同样会展开：`Vec<[[A,B], C]>` 生成 `Vec<A>`、`Vec<B>`、`Vec<C>`。
+列表缩到一个类型时仍写 `[A,]` 或直接写 `A`；`[A]` 是切片类型。
 
 ### 独立/共享 body 合并
 
-列表项可有独立 body，与共享 body 合并：
+列表项可有独立 body，与共享 body 合并。合并会把成员放进同一个 impl，
+不按名字覆盖；同一成员出现两次会由 Rust 报错。下面的独立 `name` 和共享
+`zero` 是不同成员，因此可以组合：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -167,8 +491,12 @@ trait Zero {
     fn name(&self) -> &'static str;
 }
 // → 每个 impl：独立 fn name + 共享 fn zero——不同方法共存
-// → impl Zero for isize { fn zero() -> Self { Default::default() } fn name() -> &'static str { "isize" } }
+// → impl Zero for isize { fn zero() -> Self { Default::default() } fn name(&self) -> &'static str { "isize" } }
 ```
+
+要让某个类型使用不同的同名方法，像
+[§1.3](#13-特殊类型用独立-spec)
+那样拆成独立 spec，使每个目标只得到一份方法定义。
 
 ## 4. splat `*`——摊平操作符（0.7.0 主角）
 
@@ -191,7 +519,7 @@ trait Matrix27 {}
 // → 27 个 impl：T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（与 T [A,B,C] [A,B,C] [A,B,C] 相同）
 ```
 
-`*` 前缀把容器/生成器**展开拼入**（扁平化）外层列表——它是"参数位置列表"的通用摊平标记，**全位置生效**。
+`*[...]` / `*(...)` 把容器/生成器展开拼入外层列表，支持的位置见 §4.6。
 
 ### 4.1 列表 / 元组内拼入
 
@@ -209,7 +537,9 @@ trait SplatConcat {}
 
 ### 4.2 左操作数：分配与追加
 
-左 splat 按来源括号分语义——`*[A,B] T` **分配**（`*[A.T,B.T]`——集合，对标 `TyArray`）、`*(A,B) T` **追加**（`*(A,B,...,T)`——列表，对标 `TyTuple`）。`[]` 是**集合**、`()` 是**序列**——splat 只是保留来源括号的基础容器语义，**不是新规则**；`TySplat::Array`/`TySplat::Tuple` 镜像 `TyArray`/`TyTuple`：
+来源括号决定左 splat 的作用。`*[A,B] T` **分配**：每个元素各自接收
+`T`，得到 `*[A.T,B.T]`。`*(A,B) T` **追加**：`T` 加入序列，得到
+`*(A,B,T)`。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -253,7 +583,8 @@ trait Pow {}
 
 ### 4.4 容器规则
 
-`(...)` / `[...]` 组内是孤立 splat 时解析为对应容器、splat 作为**一个元素**保持——`(*(a,b))` 是元组 `( *(a,b) )`、`[*(a,b)]` 是数组 `[ *(a,b) ]`。splat 元素全程保持整体（**splat 存续**）只在 codegen 展开——最终渲染结果是 `(a, b)` / `[a, b]`。`(a)` 保持透明组、`[a]` 是切片。
+括号内只有一个 splat 时，外层括号仍然保留：`(*(a,b))` 得到 `(a, b)`，
+`[*(a,b)]` 得到 `[a, b]`。没有 splat 时，`(a)` 是透明分组，`[a]` 是切片类型。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -278,7 +609,7 @@ trait GSplat {}
 
 splat 是**参数位置列表**：它会拼进泛型/trait 应用实参、元组与数组元素、callable 的参数表、`<>` 声明块、内联 bound、`dyn` bound 尾巴与 spec 列表。唯一**不**展开的位置是 `where` 谓词——那里由 DSL 报出而不是泄漏出去（§8）。`<>` 声明块里的 fresh 生成器是定向错误，既非 splat 也非指针的裸 `*` 同样定向报错。
 
-**"位置 × 构造"矩阵（哪个构造在哪个位置合法、不合法时该位置报什么）见 `docs/zh-CN/reference.md` §2 与 §4。**
+**“位置 × 构造”矩阵（哪个构造在哪个位置合法、不合法时该位置报什么）见[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md) §2 与 §4。**
 
 两条规则：`T.*(A,B,...)` ≡ `T<A, B, ...>`（右 splat = 扁平参数追加）；左 splat 按来源——`*[A,B] T` = `*[A.T,B.T]`（分配律）、`*(A,B) T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
 
@@ -309,7 +640,7 @@ trait A<T: Clone, const N: usize> {}
 ```
 
 这个简写属于 **spec 头部**（trait 应用处）：正是它在声明那些形参。写在别处——
-例如目标类型上——空 `<>` 就是 §6.5 的**同步标记**，会被填上本 spec 的实参
+例如目标类型上——空 `<>` 就是 §6.4 的**同步标记**，会被填上本 spec 的实参
 （`Swap2<>` → `Swap2<T>`），绝不会在 spec 中间吐出一个声明块。
 
 ### 5.3 实参：多实参、嵌套、绑定
@@ -321,13 +652,16 @@ struct A; struct B; struct C;
 struct Wrap<X>(X);
 #[batch_impl(Map<A, B>)]                 // 多实参
 trait M1 {}
-#[batch_impl(Map<Map<A, B>, C>)]         // 嵌套结构保留（TyGeneric 嵌套）
+#[batch_impl(Map<Map<A, B>, C>)]         // 嵌套类型作为一个实参保留
 trait M2 {}
 #[batch_impl(Conv<u8, Item = u8> Wrap<u8>)]  // 关联类型绑定（trait 路径）
 trait Conv<T> { type Item; }
 ```
 
 ### 5.4 `<>` 内的操作（0.7.0 可编程化）
+
+> **按需扩展。** 普通泛型只需声明与使用参数。下面是在实参内部生成类型
+> 组合的写法；暂时不需要生成器时，可以直接继续 §5.5。
 
 泛型实参位置可以写完整的 DSL 表达式——这是 0.7.0 的结构化落地：
 
@@ -443,7 +777,9 @@ trait TrE<T = usize> { fn tag(&self) -> u8 { 7 } }
 
 `@` 是 DSL 预留的**库专属常量命名空间**——`#` 被指令机制占用，`@` 提供"命名并复用类型矩阵条目"的能力。它是纯**词法替换**（宏元层）：展开结果进入后续管道，不参与任何域内解析。
 
-> **进阶层——可跳过。** §6 与 §7 讲的是寻址生成的参数与自动化签名；核心路径在 §8（`where`）、§9（元组与矩阵）、§10（修饰符）继续。等矩阵需要 `@N` 式寻址或需要指令时再回来。
+> **按需阅读。** §6 讲常量与生成参数的寻址。§1 用过的基础签名复制指令
+> 在 §7.1–§7.2 详述；§7.3–§7.5 的委托和扩展可以以后再读。普通约束、
+> 元组和修饰符则继续看 §8.1–§8.3、§9 和 §10。
 
 ### 6.1 内置常量
 
@@ -464,7 +800,11 @@ trait BoxRc {}
 // → impl BoxRc for Box<u8> {} / Box<u16> / ... / Box<usize>
 ```
 
-**范围族**：`@u8..u128`、`@i8..i128`、`@f32..f64`（含端点）——一族内的连续段（`@u8..u128` → `u8, u16, u32, u64, u128`）。usize/isize 只进名字族不进范围族。
+**范围族**选择一族内的连续段。与 Rust 一致，`..` 排除写出的上端点，`..=` 包含它：`@u8..u16` → `u8`，`@u8..=u16` → `u8, u16`。`@u8..=u128`、`@i8..=i128`、`@f32..=f64` 选择各自完整的位宽族。
+
+任一端点可以**省略**：`@..u16` ≡ `@u8..u16`，`@..=u16` ≡ `@u8..=u16`，`@u16..` ≡ `@u16..=u128`，`@f32..` ≡ `@f32..=f64`。至少一个端点用于确定类型族；`..=` 必须写上端点。`usize`/`isize` 只进名字族，不进范围族。
+
+反向范围以及 `@u8..u8`、`@..u8` 这样的空排他范围报错，不会静默生成空类型矩阵。
 
 ### 6.2 懒展开与引用
 
@@ -495,13 +835,12 @@ batch_trait! {
 |--------------|----------------------------------------|--------------------------------------------------------------------------------------------|
 | `@g_i`       | **原语**——组 g、位 i（跨数组分发稳定） | 第 g 个生成器组的第 i 个 fresh（`@0_0` → 第一个生成器的第一个 fresh）                       |
 | `@N`         | `@g_i` 在单 impl 内按文档序摊平的下标  | 第 N 个 fresh 泛型名（`where{@0: Clone}` 中 `@0` → `P0`）                                  |
-| `@all_fresh` | 全部 fresh 泛型                        | 每个 fresh 一个谓词（≡ `@0..`）；**已废弃**，请写 `@0..`                                    |
 | `@N..=M`     | 连续段                                 | fresh N..=M，逗号分隔（`@0..=1` → `P0, P1`）                                               |
 | `@N..`       | 到最后一个 fresh 的**开放**段          | 从 N 到最后一个 fresh，逗号分隔（`@1..` → `P1, P2, ...`）；N 越界时**为空**（arity 1 的 impl 不产生此类谓词，不报错） |
 
 fresh 的显示名按文档序编号为 `P0, P1, ...`（与 impl 已用 ident 冲突时按表格字母序后缀逃逸：`P0A`、`P0B`、…、`P0Z`、`P0AA`）——展开把名字拼到 `@` 所在位置（where 谓词主体、target 元组元素、泛型实参），范围变成多个名字，`where` 尾部逐 fresh 复制。
 
-> **Power-user tier**：`@g_i` / `@all_fresh` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。自 0.7.2 起整个 DSL 语法面冻结（见 README），这些记号的语义不再变化。
+> **高级用法**：`@g_i` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。兼容性约定见 [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)，明确的迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
 > **引用里的 `_` 是"组/位"分隔符**，不是 Rust 的数字分隔符：`@1_0` 是组 1、位 0。想要扁平下标就写 `@1000`（不带分隔符）；`@1_000` 的读法见参考手册 §5 的边界材料。
 
@@ -511,7 +850,7 @@ fresh 的显示名按文档序编号为 `P0, P1, ...`（与 impl 已用 ident �
 trait RangeSugar {}
 // → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
 
-#[batch_impl(()3 where @0..: Copy)]       // = @all_fresh（从 0 到最后一个 fresh）
+#[batch_impl(()3 where @0..: Copy)]       // from 0 to the last fresh
 trait AllFresh {}
 // → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
 
@@ -521,9 +860,8 @@ trait OpenRange {}
 // （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
 ```
 
-`@all_fresh` 与 `@0..` 等价；**`@all_fresh` 已废弃**——`@N..` 家族是推荐
-写法（`@0..` 覆盖整段、`@1..` 覆盖尾部）。既有 spec 继续工作；新代码请
-写 `@0..`。
+**`@all_fresh` 已移除**：将既有用法改为 `@0..`。
+`@N..` 家族中，`@0..` 覆盖整段，`@1..` 覆盖尾部。
 
 **范围在单个 `@N` 能出现的任何位置都可用**（0.9.2）：除了上面的 where
 谓词，范围的尾部也可以是关联类型路径，逐 fresh 复制——目标位置的
@@ -576,7 +914,7 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
 //     where P2: Clone, P3: Clone, P4: Clone   ← 仅组 1（P0,P1 无约束）
 ```
 
-`@L_N..`（到组尾开放）、`@L_N..M` / `@L_N..=M`（闭合）都可用；未知组报错
+`@L_N..`（到组尾开放）、`@L_N..M`（不含 M）、`@L_N..=M`（包含 M）都可用；未知组报错
 如同 `@g_i`。
 
 `@N` 在**值位置**同样解析——`:` 后的类型可在尖括号组内携带 `@N`，例如关联
@@ -609,8 +947,9 @@ trait Module<Add, Mul> {
 | 记号              | 类别                                             | 用途                                          |
 |-------------------|--------------------------------------------------|-----------------------------------------------|
 | `@trait`          | **身份**——当前 trait 名/路径（batch_trait 段级） | 跨段打包「泛型声明 + trait 名」               |
+| `@Self` | **输入类型**——当前 impl 属性收到的自身类型 | 将原型复用为模板或类型实参（§8.5） |
 | `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合            | `#fill(@all_required_methods, -foo)` 精确选中 |
-| `@Cow`            | **`#blanket` 专属内置包装常量**——`Cow<'_>` 及其固有约束（`@0: ToOwned + ?Sized, @0::Owned: @trait`） | blanket 可用的 `Cow` 委托（见 §7.4）          |
+| `@Cow`            | **`#blanket` 专属内置包装常量**——`Cow<'_>` 及其打包的约束（`@0: ToOwned + ?Sized, @0::Owned: @trait`） | blanket 可用的 `Cow` 委托（见 §7.4）          |
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
@@ -707,7 +1046,9 @@ trait Markers {
 
 > 只填一个方法时，`#fill([foo]){body}` 与单 item 指令 `#foo{body}` 等价，后者更简洁。
 
-### 7.3 `#delegate(methods){target}` — 委托调用
+共享的作用域语法接受尾逗号（`#fill([marker,],){0}`）以及空选择：`#fill(){...}`、`#fill([]){...}`、结果为空的 `@all` 家族或删去全部成员的差集。此时 `#fill`、`#delegate` 不生成成员；`#blanket` 仍生成包装 impl。未实现的必需成员由 Rust 检查。所有显式写出的 trait 成员名都必须存在，包括被排除的名字；`#fill(typo, -typo){...}` 不能靠差集隐藏拼写错误。
+
+### 7.3 `#delegate(methods){...}` — 委托调用
 
 ```rust
 # use batch_impl::batch_impl;
@@ -718,6 +1059,45 @@ trait Markers {
 trait MyLen { fn d_len(&self) -> usize; }
 // → impl MyLen for Box<Vec<u32>> { fn d_len(&self) -> usize { (**self).d_len() } }
 ```
+
+分支内的委托写作 `receiver.#call`。它是当前方法的一次完整调用，自动转发
+参数，无需追加 `()`。出现可识别的标记时，整个指令内容就是方法体；没有
+标记时仍是上例的目标表达式。不需要额外的模板标记。
+
+```rust
+# use batch_impl::batch_impl;
+enum Buffer { Text(String), Bytes(Vec<u8>) }
+
+#[batch_impl(Buffer #delegate(@all_methods, size = len){
+    match self {
+        Self::Text(inner) => inner.#call,
+        Self::Bytes(inner) => inner.#call,
+    }
+})]
+trait BufferOps {
+    fn size(&self) -> usize;
+    fn truncate(&mut self, len: usize);
+}
+
+let mut text = Buffer::Text("abcd".into());
+let mut bytes = Buffer::Bytes(vec![1, 2, 3, 4]);
+text.truncate(2);
+bytes.truncate(3);
+assert_eq!(text.size(), 2);
+assert_eq!(bytes.size(), 3);
+```
+
+两种接收者留在各自分支中，不需要统一类型。`size = len` 使 `size` 中的
+调用变成 `inner.len()`，`truncate` 中则是 `inner.truncate(len)`。
+接收者也可以是 `self.inner.as_ref().#call` 这样的表达式；
+`inner.#call.into()` 从调用结果继续链式操作。方法的类型/const 泛型
+显式转发，生命周期保持推断。不会自动添加 `.await`，需要时写
+`inner.#call.await`。
+继续追加 `()` 是调用返回值本身，因此 `inner.#call()` 要求返回值可调用。
+
+标记仅在该 delegate body 的表达式中识别。宏 token、属性和内嵌 item
+定义不改写，也不会触发方法体形式。普通 `.call(...)` 方法和开放扩展
+指令名保持原义。完整规则见参考手册 §6.5。
 
 #### 改名委托目标：`foo = call_foo`（0.9.4）
 
@@ -744,21 +1124,29 @@ trait HasSize { fn size(&self) -> usize; }
 
 ```rust
 # use batch_impl::batch_impl;
+#[batch_impl(#blanket(@all_methods){Box})]
+trait NumOps { fn inc(&mut self); }
+impl NumOps for u32 { fn inc(&mut self) { *self += 1 } }
+// → impl<P0> NumOps for Box<P0> where P0: NumOps { fn inc(&mut self) { <_ as NumOps>::inc(&mut **self) } }
+//   （面向所有满足 P0: NumOps 的类型，不限于 u32）
+
 #[batch_impl(#blanket(@all_methods){&, Box})]
 trait Len { fn len(&self) -> usize; }
-// → impl<P0> Len for &P0     where P0: Len { fn len(&self) -> usize { (**self).len() } }
-// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { (**self).len() } }
+// → impl<P0> Len for &P0     where P0: Len { fn len(&self) -> usize { <_ as Len>::len(&**self) } }
+// → impl<P0> Len for Box<P0> where P0: Len { fn len(&self) -> usize { <_ as Len>::len(&**self) } }
 ```
 
-> **`:N` deref 深度**——委托体要解引用多少层才能到达内部 `T`。单层包装（`&`、`Box`、`Rc`）默认 **1**，不用写：body 解引用 N+1 次（`&`/`Box` → `**self`）。`:2` 表示包装本身嵌套两层——`Box.Arc:2` = `Box<Arc<T>>`，委托体 `***self`。只有嵌套包装才写 `:N`；单层包装什么都不用写。
+调用显式限定当前 trait，因此 supertrait 的同名方法不会造成委托歧义。接收者类型由解引用后的实际值推断；静态方法使用 `<T as Trait>::method(...)`。异步方法追加 `.await`，方法的类型/const 泛型显式传递，例如 `<_ as Trait>::read::<U, N>(&**self, value).await`；生命周期继续推断。
 
-> **按值接收者**：`fn consume(self)` 的委托体是 `(*self).consume()`——按值 `self` 本身就是包装，少一层 deref（`&self` 方法才是 `(**self)`，穿透引用再穿包装）。移出语义对共享包装（`&`/`Rc`）不可过类型检查，生成物会带一条 `#[doc]` 提示（proc macro 无稳定 warning 通道，E0658）；跳过这类方法用 `@all_ref_methods`（保留 trait 默认），或手写 `#name{...}`。
+> **`:N` deref 深度**——要穿过多少层包装。单层包装（`&`、`Box`、`Rc`）默认 **1**：引用接收者需要 N+1 次解引用再显式借用（`&**self` 或 `&mut **self`）。`Box.Arc:2` = `Box<Arc<T>>`，共享借用调用如 `<_ as Trait>::method(&***self)`。任意包装的 deref 目标不一定就是它的类型参数。单层包装不用写深度后缀。
+
+> **按值接收者**：`fn consume(self)` 转发为 `<_ as Trait>::consume(*self)`——按值 `self` 本身就是包装，少一层 deref。包装必须允许移出该值，或者内部值满足 `Copy`；生成物附带 `#[doc]` 提示。跳过这类方法用 `@all_ref_methods`（保留 trait 默认），或手写 `#name{...}`。显式 `self: &Self` / `self: &mut Self` 使用对应的引用规则。
 
 #### GAT、`Self` 与非 Sized 目标（0.9.4）
 
-**泛型关联类型（GAT）** 用带自身参数的投影委托——`trait Iterable { type Iter<'a> where Self: 'a; }` 变成 `type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;`（裸投影缺生命周期实参，E0107）。普通关联类型/常量保持既有 `<T as Trait>::Item` 投影。
+**泛型关联类型（GAT）** 用带自身参数名的投影委托——`trait Iterable { type Iter<'a>: Clone where Self: 'a; }` 变成 `type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;`（裸投影缺生命周期实参，E0107）。普通关联类型/常量保持既有 `<T as Trait>::Item` 投影。`: Clone` 这类结果约束保留在 trait 声明上；impl 定义保留 GAT 参数声明与 `where` 谓词，投影只传生命周期、类型与 const 参数的名字。`#fill`、`#name` 使用同一条关联类型声明规则。
 
-**裸 `Self`** 出现在方法的参数或返回里无法 blanket 委托（转发产生内部类型，匹配不上包装的 `Self`）——定向报错并建议 `#name{...}`。`Self::Assoc` **返回**（`fn iter(&self) -> Self::Iter`）放行——内部 `T` 携带同一关联类型。
+**裸 `Self`** 出现在方法的普通参数、返回值或泛型约束里无法 blanket 委托，因为包装和内部类型不同。这包括 `U: Marker<Self>`、`where U: Marker<Self>` 及 `where Self: Marker<U>`；报错会建议手写 `#name{...}`。接收者里的 `Self`、`where Self: Sized` 及 `Self: 'a` / `Self: Sized + 'a` 这类 outlives 条件仍可使用，实际委托目标是否满足条件由 Rust 检查。`Self::Assoc` 在参数、返回值及约束中都允许：转发关联项后，两边投影为同一类型。属性负载不会被当作约束读取。
 
 **`@?` 非 Sized 后缀**：以 `@?` 结尾的包装（`Box@?`）给该 spec 的 where 子句加 `T: ?Sized`，fresh 泛型可以是非 Sized 目标：
 
@@ -772,7 +1160,7 @@ impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
 
 #### `@Cow`——携带约束的打包（示范案例）
 
-`@Cow` 是 **`#blanket` 专属内置包装常量**（只在 `#blanket` 包装列表里可用）。`Cow<'_>` 的 deref 目标是 `T::Owned` 而非 `T`——朴素 `(**self)` 委托过不了类型检查。`@Cow` 把 `Cow<'_>` **连同**固有约束谓词（`@0: ToOwned + ?Sized, @0::Owned: @trait`）打包，让 blanket 可用。这就是“常量只有携带约束才有复用价值”的示范：
+`@Cow` 是 **`#blanket` 专属内置包装常量**（只在 `#blanket` 包装列表里可用），把 `Cow<'_>` 与 `@0: ToOwned + ?Sized`、`@0::Owned: @trait` 一起打包。`Cow<'_, T>` 解引用得到 `T`；`T::Owned: Trait` 是该常量额外附带的约束。包装与打包的谓词一起进入普通 blanket 管线：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -782,19 +1170,36 @@ trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
 impl CowLen for String { fn clen(&self) -> usize { self.len() } }
 // → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
-//   （一个泛型 impl 覆盖 `Cow` 能包的一切——让类型检查通过的是那组打包谓词）
+//   （一个泛型 impl 覆盖满足这些打包约束的目标）
 ```
 
 ### 7.5 开放扩展（顶层宏注入）
 
-未知指令 `#name(args){body}` 成为顶层宏调用——`{! m!{(arg1){arg2} trait_def}}` 形式把宏调用提升到顶层输出（示例用 crate 自带的**参考实现宏** `batch_preprocess_test`；宏参数里的 `trait_def` 提供签名，外部需已有同名 trait）。**扩展点的交付物是协议形状本身**——batch-impl 不实现你的 codegen，只保证 `{spec}(args){body}trait_def` 四段输入到达你的同名宏：
+名字不是 `fill`、`delegate` 或 `blanket` 的 `#name(args){body}` 会调用同名
+函数式宏，即使 trait 中也有同名成员；不带 `(args)` 的 `#name{body}` 才是
+成员赋值。下面使用库提供的开放扩展参考宏 `batch_preprocess_test!`，
+让它为两个方法生成实现；这不是只预处理或显示 token 的工具。
 
-```rust,ignore
-# use batch_impl::batch_impl;
-# use batch_impl::batch_preprocess_test;
-#[batch_impl(u16 {! batch_preprocess_test!{(add,inc){*self += 3} trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }}})]
-trait AddIncU16 { fn add(&mut self, x: u16); fn inc(&mut self); }
+```rust
+use batch_impl::{batch_impl, batch_preprocess_test};
+
+#[batch_impl(u16 #batch_preprocess_test(add,inc){*self + 3})]
+trait AddIncU16 {
+    fn add(&self) -> Self;
+    fn inc(&self) -> Self;
+}
+
+fn main() {
+    assert_eq!(5u16.add(), 8);
+    assert_eq!(5u16.inc(), 8);
+}
 ```
+
+batch-impl 将目标、所选方法名、body 和 trait 定义按
+`{spec}(args){body} trait_def` 四段协议交给该宏；参考宏从 trait 复制签名，
+使用 `*self + 3` 作为返回值，生成完整 impl。编写自己的扩展时，实际如何
+生成代码由你的宏决定。手动四段写法见
+[开放扩展 API 文档（仓库源码）](https://github.com/5-6-1/batch-impl-rs/blob/main/src/doc/directive_open.md)。
 
 > **协议已收敛为单一形态**：旧的**内嵌形态** `T {m!{...}}`（无 `!`，宏调用留在 impl body、输出关联项）自 0.7.2 起标注**弃用**（保留兼容，proc macro 无 warning 通道故为文档层面收敛）——新扩展一律按顶层 `{! m!{...}}` 四段协议 `{spec}(args){body} trait` 编写。
 
@@ -814,7 +1219,7 @@ trait T {}
 
 ### 8.2 裸写 `where 谓词 {代码块}`
 
-约束与代码块分离的 Rust 风格写法（谓词后的 `{...}` 代码块必须存在）：
+约束与代码块分离的 Rust 风格写法（有 body 时，它的 `{...}` 跟在谓词后面）：
 
 > 等价地，`where{谓词} {代码块}`（§8.1 后缀 + 链式 body）也可以裸写成 `where 谓词 {代码块}`，省一层 `{}`。
 
@@ -830,7 +1235,9 @@ trait 级 where 谓词按**位置替换**并入 impl：改名的参数照样保�
 
 ### 8.4 `impl{...}` shape template 形状模板（0.8.0）
 
-> **进阶层——可跳过。** §8.1–§8.3（`where`）是核心；形状模板与 impl 入口是这套表面最深的一层。不需要"每个形状族写一个原型 impl"就跳到 §9（元组与矩阵），等要批量化一个手写 impl 时再回来。
+> **进阶层——可跳过。** §8.1–§8.3 讲普通 `where` 约束；本节进一步讲形状模板。
+> 只需批量化一个普通 impl 时，§1.6 已经给出了常用入口；需要按类型的组成部分
+> 替换实现时，再读这里的形状匹配规则。
 
 **一句话：模式匹配 + 文本替换。** 你写一个 `impl{...}` 块放**原型类型**，
 宏把它与每个叶子目标类型**逐位匹配**——**相同**的 ident 原样保留，
@@ -858,7 +1265,7 @@ trait Make { fn mk(x: u32) -> Self; }
 - 多个 `impl{...}` 合并为单一映射——同形冗余绑定合法、异形冲突报错。
 - 模板内 `@trait` 在匹配前展开为 trait path。
 
-模板块内是**标准 Rust 类型**——DSL 算子被拒绝，`_` 是通配（匹配任何东西），数组长度可以绑定 const 参数（`impl{[A; N]}` 绑定 `N := 3`，body 里可用）。完整的绑定表——每种类型形态、保留形态 `[A; ()]`、以及**逐字比较而不绑定**的形态（fn 指针与 trait 对象模板、跨类实参）——在 `docs/zh-CN/reference.md` §8.2。
+模板块内是**标准 Rust 类型**——DSL 算子被拒绝，`_` 是通配（匹配任何东西），数组长度可以绑定 const 参数（`impl{[A; N]}` 绑定 `N := 3`，body 里可用）。函数指针的参数与返回类型递归匹配；trait object 模板仍逐字比较。泛型实参里，已声明的 const 名可以绑定 const 值（声明 `const N: usize` 后，`Wrap<N>` 可匹配 `Wrap<3>`）；由声明区分它与类型名，实际的类型/生命周期/const 种类仍不跨类绑定。完整表格（含保留形态 `[A; ()]`）见 `docs/zh-CN/reference.md` §8.2。
 
 #### 原型实现模式
 
@@ -942,7 +1349,7 @@ trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
 // （单段模板提供长度；`@A(self.@0,)..` 是显式写法，多段模板也可用）
 ```
 
-alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@0..`（≡ `@all_fresh`）给每个 fresh 泛型加约束：
+alga2 风格端到端——一条 spec 覆盖所有元组 arity，`@0..` 给每个 fresh 泛型加约束：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -959,26 +1366,31 @@ trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 
 ### 8.5 impl entry（0.8.0，ItemImpl 入口）
 
-> **进阶层——可跳过**（同 §8.4 的说明）：这是批量化你已写好的 `impl` 块的方式；核心路径在 §9 继续。
+> **入口的进一步用法。** 普通 impl 的常用写法见
+> [§1.6](#16-从普通-display-impl-开始)。
+> 本节补充显式模板、继承规则与多阶段替换，不是使用该入口的前置要求。
 
-**同一个思路，更大的模板：整个 impl 块成为模式。** 不再用独立的
-`impl{...}` 附件——你把一个普通 `impl` 块交给 `#[batch_impl]`，其 for-Type
-持有占位槽名（`impl Make for A<B>`），再加一个 `模板 : 矩阵` 源。每个矩阵
-叶子与 for-Type（`A<B>`）匹配，槽（`A := Box, B := usize`）被替换进整个块——
-for-Type、where 谓词与 body——每个叶子产出一个 impl。原始 impl（含槽）被 withhold：
+**整个 impl 块成为原型。** 把一个普通 Rust impl 交给 `#[batch_impl]`，
+写 `@Self: 矩阵`。常量将输入的自身类型复制为模板；每个矩阵叶子与该模板
+匹配，所得替换作用到自身类型、trait 实参、where 谓词与 body。
+生成的 impl 会替代输入块：
 
 ```rust
 # use batch_impl::batch_impl;
 # use std::rc::Rc;
 # trait Make { fn make() -> Self; }
-#[batch_impl(A<B> : [Box, Rc] [usize, isize])]
-impl Make for A<B> { fn make() -> A<B> { A::new(B::default()) } }
-// → impl Make for Box<usize> { fn make() -> Box<usize> { Box::new(usize::default()) } }
+#[batch_impl(@Self: [Box, Rc] [usize, isize])]
+impl Make for Box<u8> { fn make() -> Self { Box::new(u8::default()) } }
+// → impl Make for Box<usize> { fn make() -> Self { Box::new(usize::default()) } }
 // → ... × 4
+# assert_eq!(*<Box<usize> as Make>::make(), 0);
+# assert_eq!(*<Rc<isize> as Make>::make(), 0);
 ```
 
-一句话：**写一个带占位符的 impl，每个矩阵格子得到一个 impl——与 §8.4
-相同的匹配与替换，只是作用于整个块而非仅 body。**
+显式模板（`A<B>: 矩阵` 或 `(A, B): 配对列表`）仍可独立于自身类型，描述
+整个块内的位置。`@Self` 是输入类型，普通 Rust `Self` 保持 Rust 原义。
+堆叠属性各自读取本层输入；后续形状映射将复制的类型视为用户手写的同一段
+token（参考手册 §9.2）。
 
 本入口接受 `模板 : 矩阵`（`A<B> : [Box,Rc] [usize,isize]`）或直接形态（`<T> Box<T>`），用 `;` 分隔多个 spec，允许 `@trait` 出现在泛型声明 bound 与 `where` 谓词里（自定义 `@` 常量与 `#` 指令在这里被拒），并保留块自己的泛型、`where` 子句与 `unsafe`。**空** spec 列表是无操作：属性只从该块**派生** impl，没有可派生内容时原块原样回来。规则在 `docs/zh-CN/reference.md` §9.2–§9.3。
 
@@ -1018,6 +1430,13 @@ impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
 ## 9. 元组生成与矩阵
 
 ### 9.1 元组生成器、元数与幂后缀
+
+本节的 fresh 指宏生成的泛型参数，如 `P0`、`P1`。具体生成器与泛型生成器
+可能覆盖同一个目标，尤其在参数数量与类型结构相同时；Rust 会报告 E0119
+实现冲突。组合生成器前应检查目标是否重叠，按类型结构或元数拆分。
+
+生成器里的列表仍遵循分发规则：`(X, [A,B]).N` 产生的组合会继续展开
+其中的列表，再生成最终目标。
 
 四种拼写，全部实测：
 
@@ -1110,7 +1529,10 @@ trait Slices {}
 
 ## 11. 入口
 
-六个入口共用同一套 spec 文法；各入口的完整参数语义在 rustdoc（`src/doc/`），规则（`# 路径::到::Trait:` 前缀、impl 入口继承什么、`batch_trait!` 没有 `#` 指令）在参考手册 §9。
+下表区分生成入口与辅助宏。`batch_impl`、`batch_impl_only` 和 `batch_trait`
+提供不同的 trait／impl 输入方式；`batch_preprocess_test!` 消费开放扩展协议，
+`batch_preview!` 接收待预览的宏调用或带属性的 Rust item，并不共用一种完整
+输入文法。各入口的参数规则见 rustdoc，trait 路径与继承规则见参考手册 §9。
 
 | 入口 | 形态 | 说明 |
 |---|---|---|
@@ -1118,7 +1540,7 @@ trait Slices {}
 | `#[batch_impl]` | 属性宏，挂在 `impl` 块上（**impl 入口**，0.8.0） | 从一个手写 impl × 形状模板批量实例化 |
 | `#[batch_impl_only]` | 属性宏，挂在 `trait` 定义上 | 只生成 impl，trait 来自外部（改名前缀 `# path::To::Trait:`） |
 | `batch_trait!` | 函数式宏 | 分段 + 自定义 `@name=值;` 常量段；**不支持** `#` 指令 |
-| `batch_preprocess_test!` | 测试用 | 只跑预处理、不断言生成物 |
+| `batch_preprocess_test!` | 开放扩展参考宏 | 消费协议输入，生成完整 impl；旧的 impl 内输入生成关联成员 |
 | `batch_preview!` | 诊断通道 | 把展开结果作为 `compile_error!` 文本打印（唯一稳定的终端通道） |
 
 ```rust
@@ -1142,7 +1564,9 @@ batch_trait! {
 
 ## 12. 错误提示
 
-batch-impl 的错误是**编译期诊断**，指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）——**一条错误、不级联**。最常撞的是这些：
+batch-impl 的错误是**编译期诊断**，尽量指向相关的用户可见 token；没有可用
+来源位置时，可能指向宏调用。一次宏调用可以汇总多个独立错误，Rust 也可能
+继续给出后续诊断。先处理最先出现、最具体的错误，再重新编译。常见情况有：
 
 - **操作数缺失**：`A.` / `.A` / `,A`
 - **`@N`/`@g_i` 越界或悬空引用**：`@5` 超出 impl 生成的泛型数，或 `@2_0` 组不存在——fresh 泛型从 0 按文档序编号、显示为 `P0`、`P1`……；悬空引用在宏内被拦截，绝不落为 rustc E0412 裸错
@@ -1178,7 +1602,10 @@ trait Describe {
 }
 ```
 
-一个列表 + 一个 body → **12 个 impl**：列表展开成 impl（§3），`{…}` 是共享 body，每个签名从 trait 定义抄来（§7）。`Self::default()` 对每种数值都是 0，所以一个表达式覆盖全部十二种。
+一个列表 + 一个 body → **12 个 impl**：列表展开成 impl（§3），`{…}` 中
+显式写出的完整方法用于每个目标。这里没有使用签名复制指令；若要从 trait
+复制签名，可以改用 §7 的 `#describe`、`#is_zero`。`Self::default()` 对每种
+数值都是 0，所以一个表达式覆盖全部十二种。
 
 文件其余部分：四个包装各一行委托给内层值（`[&, Box, Rc, Arc].T`，§7.3）、元组生成 `().1..=4`、左结合空格应用（`fn(i32, u32) String`、`HashMap u8 u16`）、带 `#name{…}` 的关联类型 binding 填单个 const、`#fill(name, kind){"u8"}` 让两个方法共用一个 body、一个 `batch_trait!` 段，以及 `*const` / `*mut` 目标。
 
@@ -1203,7 +1630,6 @@ pub trait From<T>: Sized {
 
 ### 13.3 接下来看哪里
 
-- 机制：上面的 §1–§12，然后是 `docs/zh-CN/reference.md`（合法性、诊断、上限）；
-- 原始 API：`src/doc/*.md`（每个入口、每条指令一份）；
-- 内部地图：`docs/zh-CN/architecture.md`。
-
+- 机制：上面的 §1–§12，然后是[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)（合法性、诊断、上限）；
+- API 文档：[入口与指令指南](https://github.com/5-6-1/batch-impl-rs/tree/main/src/doc)；
+- 内部地图：[架构说明](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/architecture.md)。

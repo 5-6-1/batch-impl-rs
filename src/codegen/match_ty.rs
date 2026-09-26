@@ -3,12 +3,12 @@
 //! idents as slots and resolving variadic segments. Split out of shape.rs
 //! to keep every source file under the 350-line cap.
 
-use crate::codegen::shape::{Mapping, ShapeError, VarSeg};
+use crate::codegen::shape::{MatchContext, ShapeError, VarSeg};
+use crate::codegen::shape_args::{match_fn_ptr, match_qself, match_segments};
 use crate::preprocess::varseg::{is_varseg_type, varseg_prefix};
-use proc_macro2::TokenStream;
 use quote::ToTokens;
 /// A bare single-segment path with no generic args (`T` / `Vec`).
-fn is_bare_ident(tp: &syn::TypePath) -> bool {
+pub(crate) fn is_bare_ident(tp: &syn::TypePath) -> bool {
     tp.qself.is_none()
         && tp.path.segments.len() == 1
         && tp.path.segments.first().is_some_and(|s| matches!(s.arguments, syn::PathArguments::None))
@@ -16,7 +16,7 @@ fn is_bare_ident(tp: &syn::TypePath) -> bool {
 
 /// The ident of a bare single-segment path expression (`N` in `[T; N]`);
 /// `None` for any other expression (literals, arithmetic, `N + 1`, ...).
-fn bare_path_ident(expr: &syn::Expr) -> Option<String> {
+pub(crate) fn bare_path_ident(expr: &syn::Expr) -> Option<String> {
     let syn::Expr::Path(ep) = expr else { return None };
     if ep.qself.is_some() || ep.path.segments.len() != 1 {
         return None;
@@ -27,7 +27,7 @@ fn bare_path_ident(expr: &syn::Expr) -> Option<String> {
 
 /// Recursive position-by-position match (see module docs for the rules).
 pub(crate) fn match_ty(
-    template: &syn::Type, leaf: &syn::Type, map: &mut Mapping, segs: &mut Vec<VarSeg>,
+    template: &syn::Type, leaf: &syn::Type, context: &mut MatchContext<'_>,
 ) -> Result<(), ShapeError> {
     match template {
         // Bare ident: `_` is a wildcard (matches any type, never binds a
@@ -47,9 +47,9 @@ pub(crate) fn match_ty(
                 && is_bare_ident(lp)
                 && lp.path.segments.first().is_some_and(|s| s.ident == *name)
             {
-                return Ok(());
+                return context.map.keep(&name.to_string(), leaf.to_token_stream());
             }
-            map.bind(&name.to_string(), leaf.to_token_stream())
+            context.map.bind(&name.to_string(), leaf.to_token_stream())
         }
         // Composite path: structural compare + recurse into segments/args.
         syn::Type::Path(tp) => {
@@ -58,15 +58,13 @@ pub(crate) fn match_ty(
                     "the template is a path but the target is not".into(),
                 ));
             };
-            // Qualified paths (`<T as Trait>::Assoc`) match **head-structured,
-            // tail-verbatim**: the projection type recurses (so `<T as Tr>::Assoc`
-            // binds `T` against `<u8 as Tr>::Assoc`), the `as Trait` path and the
-            // `::`-tail compare token-by-token. A qself on one side only is a
-            // mismatch.
+            // Qualified paths recurse into the projection type and associated
+            // segments. The `as Trait` path compares token-by-token; a qself on
+            // one side only is a mismatch.
             if tp.qself.is_some() || lp.qself.is_some() {
-                return match_qself(tp, lp, template, leaf, map, segs);
+                return match_qself(tp, lp, template, leaf, context);
             }
-            match_segments(&tp.path, &lp.path, 0, 0, template, map, segs)
+            match_segments(&tp.path, &lp.path, 0, 0, template, context)
         }
         // Structural containers: recurse into the element(s).
         syn::Type::Reference(t) => {
@@ -78,7 +76,15 @@ pub(crate) fn match_ty(
             if t.mutability.is_some() != l.mutability.is_some() {
                 return Err(ShapeError::ShapeMismatch("reference mutability differs".into()));
             }
-            match_ty(&t.elem, &l.elem, map, segs)
+            if context.exact_ref_lifetimes
+                && t.lifetime.to_token_stream().to_string()
+                    != l.lifetime.to_token_stream().to_string()
+            {
+                return Err(ShapeError::ShapeMismatch(
+                    "function reference lifetimes differ".into(),
+                ));
+            }
+            match_ty(&t.elem, &l.elem, context)
         }
         syn::Type::Tuple(t) => {
             let syn::Type::Tuple(l) = leaf else {
@@ -119,14 +125,18 @@ pub(crate) fn match_ty(
                                 "malformed variadic segment marker".into(),
                             ));
                         };
-                        if segs.iter().any(|s| s.prefix == prefix) {
+                        if context.segs.iter().any(|s| s.prefix == prefix) {
                             return Err(ShapeError::ShapeMismatch(format!(
                                 "duplicate variadic segment prefix `{}` (each \
                                  `ident@..` in one template must be unique)",
                                 prefix,
                             )));
                         }
-                        segs.push(VarSeg { prefix: prefix.clone(), start: leaf_idx, len: seg_len });
+                        context.segs.push(VarSeg {
+                            prefix: prefix.clone(),
+                            start: leaf_idx,
+                            len: seg_len,
+                        });
                         for k in 0..seg_len {
                             // Structured binding: (prefix, leaf position) —
                             // the repeat-block substitution splices the
@@ -138,7 +148,7 @@ pub(crate) fn match_ty(
                                     "variadic segment indexes past the target tuple".into(),
                                 ));
                             };
-                            map.bind_seg(&prefix, leaf_idx + k, elem.to_token_stream())?;
+                            context.map.bind_seg(&prefix, leaf_idx + k, elem.to_token_stream())?;
                         }
                         leaf_idx += seg_len;
                     } else {
@@ -147,7 +157,7 @@ pub(crate) fn match_ty(
                                 "the template has more elements than the target tuple".into(),
                             ));
                         };
-                        match_ty(te, leaf_elem, map, segs)?;
+                        match_ty(te, leaf_elem, context)?;
                         leaf_idx += 1;
                     }
                 }
@@ -161,7 +171,7 @@ pub(crate) fn match_ty(
                 )));
             }
             for (te, le) in t.elems.iter().zip(l.elems.iter()) {
-                match_ty(te, le, map, segs)?;
+                match_ty(te, le, context)?;
             }
             Ok(())
         }
@@ -187,7 +197,7 @@ pub(crate) fn match_ty(
                     ));
                 };
                 for (k, elem) in tup.elems.iter().enumerate() {
-                    map.bind_seg(&prefix, k, elem.to_token_stream())?;
+                    context.map.bind_seg(&prefix, k, elem.to_token_stream())?;
                 }
                 return Ok(());
             }
@@ -209,12 +219,16 @@ pub(crate) fn match_ty(
                 // `_` wildcard
             } else if let Some(name) = bare_path_ident(&t.len) {
                 if name != "_" {
-                    map.bind(&name, l.len.to_token_stream())?;
+                    if name == l.len.to_token_stream().to_string() {
+                        context.map.keep(&name, l.len.to_token_stream())?;
+                    } else {
+                        context.map.bind(&name, l.len.to_token_stream())?;
+                    }
                 }
             } else if t.len.to_token_stream().to_string() != l.len.to_token_stream().to_string() {
                 return Err(ShapeError::ShapeMismatch("array length differs".into()));
             }
-            match_ty(&t.elem, &l.elem, map, segs)
+            match_ty(&t.elem, &l.elem, context)
         }
         syn::Type::Slice(t) => {
             let syn::Type::Slice(l) = leaf else {
@@ -222,7 +236,7 @@ pub(crate) fn match_ty(
                     "the template is a slice but the target is not".into(),
                 ));
             };
-            match_ty(&t.elem, &l.elem, map, segs)
+            match_ty(&t.elem, &l.elem, context)
         }
         syn::Type::Ptr(t) => {
             let syn::Type::Ptr(l) = leaf else {
@@ -239,7 +253,7 @@ pub(crate) fn match_ty(
             if !mut_eq {
                 return Err(ShapeError::ShapeMismatch("pointer mutability differs".into()));
             }
-            match_ty(&t.elem, &l.elem, map, segs)
+            match_ty(&t.elem, &l.elem, context)
         }
         syn::Type::Paren(t) => {
             let syn::Type::Paren(l) = leaf else {
@@ -247,7 +261,7 @@ pub(crate) fn match_ty(
                     "the template is a parenthesized type but the target is not".into(),
                 ));
             };
-            match_ty(&t.elem, &l.elem, map, segs)
+            match_ty(&t.elem, &l.elem, context)
         }
         syn::Type::Group(t) => {
             let syn::Type::Group(l) = leaf else {
@@ -255,13 +269,20 @@ pub(crate) fn match_ty(
                     "the template is a grouped type but the target is not".into(),
                 ));
             };
-            match_ty(&t.elem, &l.elem, map, segs)
+            match_ty(&t.elem, &l.elem, context)
+        }
+        syn::Type::FnPtr(t) => {
+            let syn::Type::FnPtr(l) = leaf else {
+                return Err(ShapeError::ShapeMismatch(
+                    "the template is a function pointer but the target is not".into(),
+                ));
+            };
+            match_fn_ptr(t, l, context)
         }
         // `_` infer wildcard: matches ANY type, never binds a slot
         syn::Type::Infer(_) => Ok(()),
-        // Everything else (fn pointers, trait objects, infer, macros...):
-        // verbatim compare — templates only bind idents in path/container
-        // positions; anything else must be written out exactly.
+        // Everything else (trait objects, macros...):
+        // verbatim compare — these forms do not expose binding positions.
         other => {
             if other.to_token_stream().to_string() != leaf.to_token_stream().to_string() {
                 return Err(ShapeError::ShapeMismatch(format!(
@@ -273,138 +294,4 @@ pub(crate) fn match_ty(
             Ok(())
         }
     }
-}
-
-/// The per-segment comparison shared by plain and qualified paths: idents that
-/// differ bind a slot to the target's segment base, and each segment's arguments
-/// recurse (or compare verbatim where slots are out of scope). `t_skip` /
-/// `l_skip` let a qualified path start after its `as Trait` segments.
-fn match_segments(
-    t: &syn::Path, l: &syn::Path, t_skip: usize, l_skip: usize, template: &syn::Type,
-    map: &mut Mapping, segs: &mut Vec<VarSeg>,
-) -> Result<(), ShapeError> {
-    let t_len = t.segments.len().saturating_sub(t_skip);
-    let l_len = l.segments.len().saturating_sub(l_skip);
-    if t_len != l_len {
-        return Err(ShapeError::ShapeMismatch(format!(
-            "path segment count differs (template `{}` has {t_len}, target has {l_len})",
-            template.to_token_stream(),
-        )));
-    }
-    for (tseg, lseg) in t.segments.iter().skip(t_skip).zip(l.segments.iter().skip(l_skip)) {
-        // Segment ident: equal → literal; different → slot bound to
-        // the target segment's base ident.
-        if tseg.ident != lseg.ident {
-            map.bind(&tseg.ident.to_string(), lseg.ident.to_token_stream())?;
-        }
-        match (&tseg.arguments, &lseg.arguments) {
-            (syn::PathArguments::None, syn::PathArguments::None) => {}
-            (syn::PathArguments::AngleBracketed(t), syn::PathArguments::AngleBracketed(l)) => {
-                if t.args.len() != l.args.len() {
-                    return Err(ShapeError::ShapeMismatch(format!(
-                        "generic arity differs (template `{}` has {} args, target has {})",
-                        template.to_token_stream(),
-                        t.args.len(),
-                        l.args.len(),
-                    )));
-                }
-                for (ta, la) in t.args.iter().zip(l.args.iter()) {
-                    match (ta, la) {
-                        (syn::GenericArgument::Type(tt), syn::GenericArgument::Type(lt)) => {
-                            match_ty(tt, lt, map, segs)?
-                        }
-                        // Lifetime args: `'_` (anonymous) is a
-                        // wildcard matching any lifetime (skip);
-                        // named lifetimes compare verbatim (`'a` vs
-                        // `'b` mismatches — cross-lifetime binding is
-                        // out of scope).
-                        (
-                            syn::GenericArgument::Lifetime(tl),
-                            syn::GenericArgument::Lifetime(ll),
-                        ) => {
-                            if tl.ident != "_" && tl.ident != ll.ident {
-                                return Err(ShapeError::ShapeMismatch(format!(
-                                    "generic argument differs (template `{}` vs target `{}`)",
-                                    ta.to_token_stream(),
-                                    la.to_token_stream(),
-                                )));
-                            }
-                        }
-                        _ => {
-                            // Binding names, const args, lifetime-vs-
-                            // type: verbatim compare (no slots
-                            // inside; cross-class binding is out of
-                            // scope).
-                            if ta.to_token_stream().to_string() != la.to_token_stream().to_string()
-                            {
-                                return Err(ShapeError::ShapeMismatch(format!(
-                                    "generic argument differs (template `{}` vs target `{}`)",
-                                    ta.to_token_stream(),
-                                    la.to_token_stream(),
-                                )));
-                            }
-                        }
-                    }
-                }
-            }
-            (syn::PathArguments::Parenthesized(t), syn::PathArguments::Parenthesized(l)) => {
-                // Fn-trait sugar (`Fn(A) -> B`): verbatim compare
-                // (syn 3 models the inputs as named args; slots
-                // inside fn-trait sugar are out of scope).
-                if t.to_token_stream().to_string() != l.to_token_stream().to_string() {
-                    return Err(ShapeError::ShapeMismatch(
-                        "parenthesized generic arguments differ".into(),
-                    ));
-                }
-            }
-            _ => {
-                return Err(ShapeError::ShapeMismatch(format!(
-                    "generic argument shape differs at segment `{}`",
-                    tseg.ident,
-                )));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Matches two **qualified** paths (`<T as Trait>::Assoc`) head-structured and
-/// tail-verbatim: the projection types recurse (so a head slot binds the target
-/// head), the `as Trait` segments compare token-by-token, and the associated item
-/// plus any further segments go through the shared [`match_segments`]. A `qself`
-/// on one side only is a mismatch. `QSelf::position` is the index of the segment
-/// the projection applies to — exactly the split point between trait path and
-/// tail.
-fn match_qself(
-    tp: &syn::TypePath, lp: &syn::TypePath, template: &syn::Type, leaf: &syn::Type,
-    map: &mut Mapping, segs: &mut Vec<VarSeg>,
-) -> Result<(), ShapeError> {
-    let (Some(tq), Some(lq)) = (&tp.qself, &lp.qself) else {
-        return Err(ShapeError::ShapeMismatch(format!(
-            "a qualified path (`<… as Trait>::…`) cannot match `{}`",
-            if tp.qself.is_some() { leaf.to_token_stream() } else { template.to_token_stream() },
-        )));
-    };
-    if tq.position != lq.position {
-        return Err(ShapeError::ShapeMismatch(format!(
-            "qualified-path position differs (template at {}, target at {})",
-            tq.position, lq.position,
-        )));
-    }
-    match_ty(&tq.ty, &lq.ty, map, segs)?;
-    let t_trait = trait_tokens(&tp.path, tq.position);
-    let l_trait = trait_tokens(&lp.path, lq.position);
-    if t_trait.to_string() != l_trait.to_string() {
-        return Err(ShapeError::ShapeMismatch(format!(
-            "qualified-path trait differs (template `{t_trait}` vs target `{l_trait}`)",
-        )));
-    }
-    match_segments(&tp.path, &lp.path, tq.position, lq.position, template, map, segs)
-}
-
-/// The `as Trait` token stream of a qualified path: the segments before
-/// `position` (the projection's associated item and its tail start there).
-fn trait_tokens(path: &syn::Path, position: usize) -> TokenStream {
-    let segs = path.segments.iter().take(position).collect::<Vec<_>>();
-    quote::quote!(#(#segs)::*)
 }

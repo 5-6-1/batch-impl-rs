@@ -1,4 +1,4 @@
-error: batch-impl: #blanket method `GroupSelf::f` takes/returns `Self` (bare or `Self::Assoc` projection); blanket delegation forwards the inner type, which cannot match the wrapper's `Self` — write a `#name{...}` body for this wrapper instead
+error: batch-impl: #blanket method `GroupSelf::f` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead
  --> tests/ui/blanket_self_in_group.rs:8:1
   |
 8 | #[batch_impl(#blanket(@all_ref_methods){Box})]

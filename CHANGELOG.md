@@ -5,9 +5,102 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## 0.9.8 (2026-09-14)
+## Unreleased
 
-> Diagnostics-and-docs patch: the one semantic unification is `@N..M` end-exclusive in every position (a position that contradicted the documentation, so it is a bug fix under the syntax freeze) — plus `where` predicates validated once final, splat expansion in every parameter-position list, several misleading diagnostics fixed, and the documentation split into a tutorial plus a reference manual.
+> Target: **0.10.0**, the next version after the published 0.9.7. Development is
+> continuing; no release date is set.
+
+- Fix return types and the `macro_rules!` receiver in open-extension examples,
+  with working checks for complete trait items, multi-token targets such as
+  `Vec<u8>`, and preceding body tokens; remove the related `ignore` flags.
+  Add a stopping point for the basic route and a maintenance case using the
+  same `Describe` trait. Give local rustdoc navigation within the current build,
+  clarify repository-source link context, identify all six documentation-only
+  macros in their summaries, and correct the reference extension macro's role.
+
+- Complete the first-edit path: distinguish `u8`, `[u8,]` and the slice `[u8]`
+  beside the first example, and explain that local and shared bodies merge
+  rather than override. Present ordinary impl reuse as a common entry without
+  an external-trait signature mirror. The bilingual tutorial adds types,
+  methods, special behavior, generic bounds and forwarding to one `Describe`
+  example, with clickable task navigation. Cover trait, `batch_impl_only` and
+  impl previews; correct diagnostic-count promises and two inaccurate references.
+
+- Move the planned release from 0.9.8 to **0.10.0** so the deliberate breaking
+  syntax changes below are outside Cargo's `"0.9.7"` compatibility range.
+- Rebuild the bilingual getting-started path around a complete, copyable
+  program, its actual output, and a continuation using the same trait.
+  Document a local path dependency for the unreleased source; link published
+  users to 0.9.7 documentation. Teach basic member directives early, introduce
+  preview as error recovery, clarify external-trait signature mirrors, and
+  make language/document navigation work in both Markdown and rustdoc.
+
+- Add `receiver.#call` inside `#delegate` bodies: it generates the current
+  method's complete call, honoring renames and forwarding arguments without
+  another `()`. A recognized marker makes the content a full method body,
+  supporting heterogeneous enum branches, receiver expressions and result
+  chains. Without a marker, the existing target-expression form is unchanged.
+  Macro tokens, attributes and nested items keep their own boundaries; async
+  calls are not automatically awaited.
+- Explicitly forward method type and const parameters in both delegation
+  forms, including parameters that ordinary call arguments cannot infer.
+  Lifetimes remain inferred. Correct an outdated reference claim: an excluded
+  name must exist in the trait even when it is absent from the selected set.
+
+- **Breaking:** type-family ranges now follow Rust's endpoint convention:
+  `@u8..u32` selects `u8, u16`; `@u8..=u32` also selects `u32`.
+  Add `=` to existing bounded or left-open ranges that must keep their old
+  inclusive result. Right-open ranges still reach the family maximum; empty
+  and reversed type ranges remain errors. Singleton ranges select a type,
+  never a slice.
+- Allow empty directive selections and a trailing comma in item-name lists,
+  including nested lists and exclusions. `#fill(){...}`, `#delegate(){...}`
+  and `#blanket(){...}` select no items; the resulting impl must still satisfy
+  Rust's trait requirements. Resolve every item name before exclusions, so
+  misspellings also fail in selections that would otherwise become empty.
+- Fix bounded associated types and GATs in `#name`, `#fill` and `#blanket`:
+  keep generic declarations and where clauses, omit trait-side result bounds
+  from impl definitions, and use only parameter names in GAT projections.
+- Fix `#delegate` selection parsing so commas and names preceding a rename
+  cannot disappear. Missing-item and non-method diagnostics now identify the
+  item and trait in the correct order.
+
+- **Breaking:** remove the deprecated `@all_fresh` alias. Replace existing uses
+  with `@0..`; `@?` remains supported.
+- Add `@Self`: the current impl attribute's input self type, available through
+  the existing constant pass in templates, matrices, type arguments and where
+  predicates. Stacked attributes read their own input; ordinary Rust `Self`
+  keeps its meaning. **Breaking:** `Self` is now a reserved constant name;
+  rename a previous `batch_trait!` custom `@Self=...;` definition.
+- Fix shape substitution: a name cannot be both a preserved literal and a
+  different replacement, and a selected trait-entry matrix leaf is never
+  substituted a second time. Valid simultaneous mappings remain supported.
+- Match declared const parameters in generic arguments (`Wrap<N>` against
+  `Wrap<2>`) and function-pointer parameter/return types (`fn(A) -> B`).
+  Const declarations and their dependent uses are updated together; type/const
+  mismatches are rejected. Function safety, ABI and lifetime contracts stay
+  intact, and parameter labels are preserved in rewritten type positions.
+- Fix `#blanket` forwarding for async methods and method type/const generics,
+  including static methods. Lifetimes remain inferred; no new syntax or runtime
+  dependency is needed.
+- Qualify blanket calls with the current trait to avoid same-name supertrait
+  ambiguity. Diagnose bare `Self` in method generic constraints; associated
+  projections, `Self: Sized` and outlives gates remain supported.
+- Correct existing syntax descriptions: parentheses can nest space application
+  (`Box (Vec u8)`); a bare `where` with predicates may end without a body; the
+  impl-entry shape form matches the explicit template before `:`. Also correct
+  the blanket documentation: associated-type projections are allowed in both
+  parameters and results when the associated item is forwarded.
+
+- Correct the reference's entry separators: trait attributes use commas, impl
+  attributes use semicolons, and `batch_trait!` uses semicolons between trait
+  sections and commas within each section.
+- Correct standalone splat targets: `*(u8, u16)` generates two valid impls;
+  overlapping targets cause E0119. Both language editions now include compiling
+  examples for the separators and the splat/tuple distinction. Macro behavior is
+  unchanged.
+
+> Earlier work in this development cycle: `@N..M` is end-exclusive in every position, correcting a position that contradicted the documentation; `where` predicates are validated once final, splats expand in parameter-position lists, misleading diagnostics are corrected, and the docs are split into a tutorial and reference manual.
 
 - **The reference manual is organized around rule systems, and the tutorial points at
   it.** The apply, splat, `@`, `#`, `where` and `impl{...}` chapters each state their
@@ -1351,7 +1444,3 @@ Feature list:
 - Generic support: impl generics (incl. const), trait generics, lifetimes, generic inheritance
 - `unsafe^T` / `unsafe trait` / `batch_trait!(unsafe ...)`
 - Chinese-language error messages, `compile_error!` instead of panic
-
-
-
-

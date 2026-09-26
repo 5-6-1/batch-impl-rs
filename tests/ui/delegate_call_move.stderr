@@ -1,0 +1,26 @@
+error[E0382]: use of moved value: `value`
+  --> tests/ui/delegate_call_move.rs:16:23
+   |
+11 | / #[batch_impl(Outer #delegate(consume){
+12 | |     self.0.#call;
+13 | |     self.0.#call;
+14 | | })]
+   | |___- in this attribute macro expansion
+15 |   trait Consume {
+16 |       fn consume(&self, value: String);
+   |                         ^^^^^
+   |                         |
+   |                         value moved here
+   |                         value used here after move
+   |                         move occurs because `value` has type `String`, which does not implement the `Copy` trait
+   |
+note: consider changing this parameter type in method `consume` to borrow instead if owning the value isn't necessary
+  --> tests/ui/delegate_call_move.rs:7:31
+   |
+ 7 |     fn consume(&self, _value: String) {}
+   |        ------- in this method ^^^^^^ this parameter takes ownership of the value
+   = note: this error originates in the macro `__batch_impl_delegate_args` which comes from the expansion of the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider cloning the value if the performance cost is acceptable
+   |
+16 |     fn consume(&self, value.clone(): String);
+   |                            ++++++++

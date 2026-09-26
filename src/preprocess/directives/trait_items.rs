@@ -6,7 +6,7 @@ use quote::quote;
 use syn::ItemTrait;
 
 use crate::preprocess::directives::name_list::{AllMarkerSpec, ReceiverFilter};
-use crate::util::{compile_err, compile_error_str};
+use crate::util::{compile_err_at, compile_error_str};
 
 /// Resolves an `all`-family marker. `default=None` includes everything;
 /// `Some(true)` only default impls; `Some(false)` only no-default (required);
@@ -149,7 +149,12 @@ pub(crate) fn get_trait_item<'a>(
             return Ok(item);
         }
     }
-    Err(compile_err!("batch-impl: item `{}` not found in trait `{}`", trait_def.ident, name))
+    Err(compile_err_at!(
+        name.span(),
+        "batch-impl: item `{}` not found in trait `{}`",
+        name,
+        trait_def.ident
+    ))
 }
 
 pub(crate) fn build_from_item(item: &syn::TraitItem, body: &TokenStream) -> TokenStream {
@@ -186,6 +191,11 @@ pub(crate) fn build_from_item_sig(
         }
         syn::TraitItem::Type(t) => {
             let mut t = t.clone();
+            // The trait checks the implemented type's bounds; repeating them
+            // on an impl definition is invalid. GAT params and where clauses
+            // still belong to the definition and remain on the cloned item.
+            t.colon_token = None;
+            t.bounds.clear();
             t.default = (syn::token::Eq::default(), syn::Type::Verbatim(body.clone())).into();
             quote! {#t}
         }

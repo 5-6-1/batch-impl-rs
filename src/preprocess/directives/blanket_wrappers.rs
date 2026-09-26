@@ -144,10 +144,10 @@ pub(crate) fn parse_blanket_wrappers(
                  (e.g. `Box.Arc:2`)",
                 proc_macro2::Span::call_site(),
             )),
-            // Built-in wrapper constant: `@Cow` → `Cow<'_>` + inherent bound
-            // predicates (deref target = T::Owned, requiring
-            // `@0: ToOwned + ?Sized` and `@0::Owned: @trait`; @0/@trait are
-            // replaced at resolve time)
+            // Built-in wrapper constant: `@Cow` → `Cow<'_>` plus the packed
+            // predicates `@0: ToOwned + ?Sized` and `@0::Owned: @trait`.
+            // Cow dereferences to T; the Owned bound is an additional
+            // constraint carried by this constant. Resolve @0/@trait later.
             [TokenTree::Punct(at), TokenTree::Ident(name)]
                 if at.as_char() == '@' && name == "Cow" =>
             {

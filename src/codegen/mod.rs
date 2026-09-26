@@ -49,6 +49,9 @@ mod repeat_drivers;
 #[cfg(test)]
 mod repeat_tests;
 mod shape;
+mod shape_args;
+#[cfg(test)]
+mod shape_tests;
 mod splat_expand;
 mod sync;
 mod top_level;

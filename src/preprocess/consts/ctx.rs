@@ -1,15 +1,17 @@
 //! `@` constant source context (the sources `expand_consts` resolves in one
-//! pass, unioned: built-in name families, range families, `@trait`/`@all`/
+//! pass, unioned: built-in name families, range families, `@Self`/`@trait`/`@all`/
 //! `@Cow`, and the user table).
 //!
-//! Built-in constants (`@u*`/`@scalar`/range families) work in both
-//! contexts; trait-aware constants (`@trait`/`@all` family/`@Cow`) resolve
-//! only in the attribute macro entry (`@trait` is kept as a segment marker in
-//! `batch_trait!`).
+//! Built-in constants (`@u*`/`@scalar`/range families) work in every context.
+//! Trait-definition constants (`@all` family/`@Cow`) resolve only on a trait
+//! attribute. `@trait` also resolves on a trait impl; in `batch_trait!` it is
+//! kept as a segment marker. `@Self` reads the current input impl's self type.
 
 use std::collections::HashMap;
 
 use proc_macro2::{TokenStream, TokenTree};
+
+pub(super) const SELF_CONTEXT_ERROR: &str = "batch-impl: `@Self` is available only on an impl entry (it refers to the input impl's self type)";
 
 /// Source context for `@` constants.
 ///
@@ -23,15 +25,18 @@ use proc_macro2::{TokenStream, TokenTree};
 /// [`ConstCtx::ItemImpl`] (`#[batch_impl(spec)] impl ...`): the built-in
 /// families (`@u*` / `@num` / ranges) work; `@trait` expands to the impl's
 /// own trait path (`None` on an inherent impl — an error); the trait-aware
-/// selectors (`@all` family) and position refs (`@N`) are rejected (no trait
-/// definition, no fresh-generic system on this entry).
+/// selectors (`@all` family) are rejected because there is no trait definition.
+/// `@Self` copies this input impl's self type before shape matching. Each
+/// stacked attribute receives the preceding stage's result as its input.
+/// Position refs (`@N`) pass through to codegen, which resolves them against
+/// the fresh generics produced by generators in the spec.
 ///
 /// [`ConstCtx::Trait`] (`batch_trait!`): built-in + user table (leading
 /// `@name=value;`).
 #[derive(Clone, Copy)]
 pub(crate) enum ConstCtx<'a> {
     Attribute { trait_def: &'a syn::ItemTrait, trait_full_path: &'a TokenStream },
-    ItemImpl { trait_path: Option<&'a TokenStream> },
+    ItemImpl { trait_path: Option<&'a TokenStream>, self_ty: &'a TokenStream },
     Trait { user_table: &'a UserConsts },
 }
 
@@ -47,8 +52,8 @@ impl<'a> ConstCtx<'a> {
         }
     }
 
-    /// Trait definition (only attribute macro entries have one;
-    /// `batch_trait!` is a function-like macro and cannot get it).
+    /// Trait definition (only an attribute on a trait has one; neither an
+    /// attribute on an impl nor `batch_trait!` can get it).
     pub(crate) fn trait_def(&self) -> Option<&'a syn::ItemTrait> {
         match self {
             &ConstCtx::Attribute { trait_def, .. } => trait_def.into(),
@@ -61,13 +66,22 @@ impl<'a> ConstCtx<'a> {
     pub(crate) fn trait_full_path(&self) -> Option<&'a TokenStream> {
         match self {
             &ConstCtx::Attribute { trait_full_path, .. } => trait_full_path.into(),
-            &ConstCtx::ItemImpl { trait_path } => trait_path,
+            &ConstCtx::ItemImpl { trait_path, .. } => trait_path,
             ConstCtx::Trait { .. } => None,
         }
     }
 
-    /// Whether this is the ItemImpl entry (its `@N` refs and `@all` selectors
-    /// are rejected — no fresh-generic system / trait definition there).
+    /// The current input impl's self type, before this stage's substitutions.
+    /// Copying these tokens does not exempt them from later shape mapping.
+    pub(crate) fn impl_self_type(&self) -> Option<&'a TokenStream> {
+        match self {
+            &ConstCtx::ItemImpl { self_ty, .. } => self_ty.into(),
+            ConstCtx::Attribute { .. } | ConstCtx::Trait { .. } => None,
+        }
+    }
+
+    /// Whether this is the ItemImpl entry, which has no trait definition
+    /// from which to resolve `@all` selectors.
     pub(crate) fn is_item_impl(&self) -> bool {
         matches!(self, ConstCtx::ItemImpl { .. })
     }

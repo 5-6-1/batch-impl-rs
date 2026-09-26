@@ -6,6 +6,7 @@
 
 use proc_macro2::{TokenStream, TokenTree};
 
+use crate::preprocess::consts::ctx::SELF_CONTEXT_ERROR;
 use crate::preprocess::{builtin_named, split_range_endpoint};
 use crate::util::{compile_err, compile_error_str, is_punct_at};
 
@@ -71,6 +72,12 @@ fn check_value_refs_at(
                     ));
                 };
                 let name_str = name.to_string();
+                // User constants exist only in batch_trait!, which has no
+                // input impl. Reject this context reference at its definition
+                // rather than leaving a misleading unknown-name error.
+                if name_str == "Self" {
+                    return Err(compile_error_str(SELF_CONTEXT_ERROR, cur.span()));
+                }
                 // `@u*` / `@i*` / `@f*` wildcard: Ident + `*` consumes 3 tokens
                 let star = is_punct_at(tokens, i + 2, '*');
                 let lookup = if star { format!("{}*", name_str) } else { name_str.clone() };

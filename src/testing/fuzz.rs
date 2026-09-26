@@ -43,6 +43,7 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         Just(Tok::Ident("blanket")),
         Just(Tok::Ident("fill")),
         Just(Tok::Ident("delegate")),
+        Just(Tok::Ident("call")),
         Just(Tok::Ident("name")),
         Just(Tok::Ident("all")),
         // The `impl` keyword: makes `impl{...}` templates reachable, so the
@@ -59,6 +60,7 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         Just(Tok::Ident("f64")),
         Just(Tok::Ident("Cow")),
         Just(Tok::Ident("trait")),
+        Just(Tok::Ident("Self")),
         // Numeric literals (small-integer DSL exponents)
         Just(Tok::Literal("0")),
         Just(Tok::Literal("1")),

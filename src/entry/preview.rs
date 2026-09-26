@@ -1,11 +1,14 @@
 //! `batch_preview!` — the DSL-aware expansion preview entry.
 //!
-//! Runs the real attribute-macro preprocessing + parse/expand pipeline on a
-//! `#[batch_impl(...)] trait` input and reports the generated items through
-//! the only stable terminal channel a proc macro has: a `compile_error!`
-//! whose message IS the expansion. Preview-only guidance (the `.`/space
-//! associativity miswrite note) rides the same message — the compiler path
-//! never guesses.
+//! Trait inputs use the trait entry's preprocessing, leaf collection and
+//! generation; `batch_impl_only` omits the signature mirror from the result.
+//! Impl inputs call `expand_impl_entry` directly. Both report generated items
+//! in a `compile_error!` message instead of emitting those items for Rust to
+//! type-check. The wrapped item's entry attribute remains in its parsed attrs,
+//! so the displayed text can retain it too; restore the original invocation
+//! rather than pasting that text as fully expanded Rust. Trait-preview guidance
+//! (the `.`/space associativity miswrite note) rides the same message; the
+//! compiler path never guesses.
 
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
@@ -64,7 +67,8 @@ pub(crate) fn preview(input: TokenStream) -> Result<TokenStream, TokenStream> {
     ))
 }
 
-/// The trait-entry preview: leaves → one impl per line + `.`/space miswrite notes.
+/// The trait-entry preview: optional trait definition, then one impl per line
+/// and `.`/space miswrite notes. `batch_impl_only` discards its signature mirror.
 fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
     let (attr_tokens, include_trait) =
         find_impl_attr(&trait_item.attrs).ok_or_else(|| {

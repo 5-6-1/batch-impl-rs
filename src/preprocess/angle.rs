@@ -34,7 +34,7 @@ fn is_impl_template_group(tokens: &[TokenTree], i: usize) -> bool {
 ///   groups and `impl{...}` shape templates, whose content is DSL: pairing
 ///   keeps the comma inside the angle group, so downstream predicate
 ///   splitting cannot cut it (a two-arg bound like
-///   `@all_fresh: Semiring<Additive, Multiplicative>` used to be split at
+///   `@0..: Semiring<Additive, Multiplicative>` used to be split at
 ///   the depth-0 comma; an `impl{@(A<B>)}` template's `<B>` must be an
 ///   opaque group so the `@(...)` switch list splits at depth-0 commas);
 /// - `Paren` groups (DSL tuples) recurse; `Bracket` groups (DSL lists) recurse,
@@ -324,33 +324,33 @@ mod tests {
     /// them. Plain code bodies stay passthrough (comparison `<` untouched).
     #[test]
     fn where_group_angles_pair() {
-        let ts = "where{@all_fresh: Semiring<Additive, Multiplicative>}".parse::<TS2>().unwrap();
+        let ts = "where{@0..: Semiring<Additive, Multiplicative>}".parse::<TS2>().unwrap();
         let v = ts.into_iter().collect::<Vec<_>>();
         let collected = angle_collect(&v).unwrap();
         let rendered = render_angles(collected.into_iter().collect());
         assert_eq!(
             rendered.to_string(),
-            "where { @ all_fresh : Semiring < Additive , Multiplicative > }"
+            "where { @ 0 ..: Semiring < Additive , Multiplicative > }"
         );
         // The classic single-arg predicate round-trips unchanged.
-        let ts = "where{@all_fresh: Semigroup<Additive>}".parse::<TS2>().unwrap();
+        let ts = "where{@0..: Semigroup<Additive>}".parse::<TS2>().unwrap();
         let v = ts.into_iter().collect::<Vec<_>>();
         let collected = angle_collect(&v).unwrap();
         let rendered = render_angles(collected.into_iter().collect());
-        assert_eq!(rendered.to_string(), "where { @ all_fresh : Semigroup < Additive > }");
+        assert_eq!(rendered.to_string(), "where { @ 0 ..: Semigroup < Additive > }");
     }
 
     /// A where-group followed by a code body: the body stays passthrough
     /// (comparison `<` untouched) while the where predicates pair.
     #[test]
     fn where_group_then_body() {
-        let ts = "where{@all_fresh: Map<A, B>} { fn m() { if x < y {} } }".parse::<TS2>().unwrap();
+        let ts = "where{@0..: Map<A, B>} { fn m() { if x < y {} } }".parse::<TS2>().unwrap();
         let v = ts.into_iter().collect::<Vec<_>>();
         let collected = angle_collect(&v).unwrap();
         let rendered = render_angles(collected.into_iter().collect());
         assert_eq!(
             rendered.to_string(),
-            "where { @ all_fresh : Map < A , B > } { fn m () { if x < y { } } }"
+            "where { @ 0 ..: Map < A , B > } { fn m () { if x < y { } } }"
         );
     }
 

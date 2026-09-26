@@ -11,6 +11,34 @@ use crate::TraitBounds;
 use crate::ast::{ParamKind, Ty, TyPrimitive};
 use crate::codegen::extract::ImplParts;
 
+/// A declared const bound by a shape template becomes a concrete argument, not
+/// an unconstrained impl parameter. Rewrite every declaration-dependent surface
+/// together; the target matrix leaf is already final and stays untouched.
+pub(crate) fn apply_bound_const_slots(parts: &mut ImplParts, slots: &super::Mapping) {
+    if slots.slots().is_empty() {
+        return;
+    }
+    parts.impl_generics.retain(|(name, _)| {
+        !ParamKind::of_name(name).is_const()
+            || !slots
+                .slots()
+                .iter()
+                .any(|(slot, _)| *slot == ParamKind::bare_name(name).to_string())
+    });
+    for (name, bound) in &mut parts.impl_generics {
+        *name = super::apply_type_mapping(name.clone(), slots);
+        if let Some(bound) = bound {
+            *bound = TyPrimitive(super::apply_type_mapping(bound.to_token_stream(), slots)).to_ty();
+        }
+    }
+    for argument in &mut parts.trait_generic_names {
+        *argument = super::apply_type_mapping(argument.clone(), slots);
+    }
+    for (_, value) in &mut parts.associated_types {
+        *value = super::apply_type_mapping(value.clone(), slots);
+    }
+}
+
 /// Inherits trait-level constraints onto the generated impl — by
 /// **positional substitution**, not by name equality:
 ///

@@ -23,19 +23,6 @@ use proc_macro2::{Span, TokenStream, TokenTree};
 /// completely unaffected.
 pub(crate) const MAX_NEST_DEPTH: usize = 128;
 
-/// Whether `a`'s span ends exactly where `b`'s begins (same line) — the
-/// token-level **adjacency** test that [`proc_macro2::Spacing`] cannot
-/// provide for range dots: the second dot of `..` lexes as `Alone` even when
-/// glued to the following ident (`@u8..u128`), so "glued" must be read off
-/// the byte positions. Requires the `span-locations` feature (enabled).
-/// Macro-synthesized tokens carry call-site spans whose positions compare
-/// arbitrarily — callers treat a `false` as "not adjacent" only when a
-/// real source position is expected.
-pub(crate) fn spans_adjacent(a: Span, b: Span) -> bool {
-    let (ea, sb) = (a.end(), b.start());
-    ea.line == sb.line && ea.column == sb.column
-}
-
 /// Builds the standard nesting-depth diagnostic (span from the first token).
 /// `what` extends the message when the recursion happens inside a specific
 /// structure (e.g. `" in a constant value"`) — one construction site so the

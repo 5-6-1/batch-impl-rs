@@ -1,3 +1,5 @@
+Documentation-only guide to `#fill`: use the directive inside `#[batch_impl(...)]`; do not invoke `batch_impl_fill!`.
+
 # The `#fill` Directive — Many Methods, One Body
 
 `#fill(args){body}` copies each selected trait item's **signature** from the
@@ -62,7 +64,8 @@ trait Ops { fn add(&mut self, x: u8); fn add2(&mut self, x: u8); }
 ```
 
 The list may be hand-written `[a, b]` or a bare comma list `(a, b)` — both
-are legal; `[a, b]` is the canonical form.
+are legal; `[a, b]` is the canonical form. A trailing comma is accepted in
+either form, including nested lists: `#fill([a, b,],){body}`.
 
 > Filling a single method, `#fill([foo]){body}` is equivalent to the
 > single-item directive `#foo{body}` — which is more concise. Prefer
@@ -88,6 +91,12 @@ trait Len {
 Deduplication is automatic: a name appearing both in the keep set and via a
 rename / explicit list is kept once (first occurrence, order preserved) — so
 `#fill(@all, foo)` and `#fill(foo, foo)` are both safe.
+
+An empty scope is accepted: `#fill(){body}`, `#fill([]){body}`, an empty
+`@all` family, or a valid subtraction that removes every member emits no
+members. Every explicit name must exist, including excluded names;
+`#fill(typo, -typo){body}` still reports the unknown member. Rust checks
+any required members left unimplemented.
 
 ## Item kinds
 
@@ -135,6 +144,10 @@ trait HasItem { type Item; }
 // → impl HasItem for u32 { type Item = u32; }
 ```
 
+Result bounds belong to the trait: `type Item: Clone;` still generates
+`type Item = u32;`, with Rust checking the `Clone` obligation. GAT parameter
+declarations and `where` predicates are retained on the impl definition.
+
 ## Interaction with other DSL features
 
 - **Trait generic substitution**: the spec's trait arguments replace the
@@ -155,8 +168,9 @@ The `scope` argument is parsed by the directive-domain name-list parser
 (`parse_names_from_tokens`) — the same parser shared by `#delegate` /
 `#blanket` / single-item name lookups. Rules:
 
-- the argument list cannot be empty;
-- a leading / trailing / consecutive comma is an error;
+- an empty argument list or a valid empty selection is accepted;
+- one trailing comma is accepted; a leading or consecutive comma is an error;
+- every explicitly included or excluded name must exist in the trait;
 - `-` in the directive argument domain is **exclusion only** — it never
   enters the type domain (a lone `-` in a type errors with a retirement
   message);

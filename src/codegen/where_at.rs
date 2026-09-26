@@ -1,4 +1,4 @@
-//! `@` position references in where predicates: `@N` / `@g_i` / `@all_fresh`
+//! `@` position references in where predicates: `@N` / `@g_i` / `@0..`
 //! / `@N..M` resolve against the impl's fresh generics (document order for
 //! `@N`, exact generating site for `@g_i`, batch forms for the rest).
 
@@ -21,7 +21,7 @@ use crate::util::{compile_err, slice_from, slice_window};
 /// batch_trait!) and never reaches here. Blanket-wrapped where is
 /// pre-resolved; only user where predicates are handled here.
 /// Resolves every where predicate of an impl: rejects a bare splat subject
-/// and expands the `@` position references (`@N` / `@g_i` / `@all_fresh` /
+/// and expands the `@` position references (`@N` / `@g_i` / `@0..` /
 /// `@N..M`) against `impl_name_streams`. All errors are collected and
 /// returned at once (the caller emits only the errors — no partial impl).
 pub(crate) fn resolve_where_predicates(
@@ -71,8 +71,8 @@ pub(crate) fn resolve_where_predicates(
 pub(crate) fn resolve_where_at(
     pred: &TokenStream, ctx: &FreshCtx,
 ) -> Result<TokenStream, TokenStream> {
-    // Normalize first: every flat spelling (`@N` / `@g_i` / ranges /
-    // `@all_fresh`) folds into the self-delimiting carrier `@{...}` — one
+    // Normalize first: every flat spelling (`@N` / `@g_i` / ranges)
+    // folds into the self-delimiting carrier `@{...}` — one
     // representation for the whole scan below, no lookahead arithmetic. A
     // malformed reference (non-position token, bad end, empty exclusive
     // range) errors here with the type-position diagnostic.
@@ -153,7 +153,7 @@ fn resolve_tail(tail: &[TokenTree], ctx: &FreshCtx) -> Result<Vec<TokenTree>, To
 }
 
 /// Emits `name0 tail, name1 tail, ...` (comma-separated) into `out` — the
-/// single authority for the fresh-predicate emission shared by `@all_fresh`
+/// single authority for the fresh-predicate emission shared by `@0..`
 /// and the `@N..M` range form.
 fn emit_fresh_predicates(
     out: &mut Vec<TokenTree>, names: &[(usize, usize, TokenStream)], tail: &[TokenTree],

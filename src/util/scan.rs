@@ -247,6 +247,21 @@ pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool
             if p.as_char() == '!' || p.as_char() == '#')
 }
 
+/// The tokenizer folds the dot after a tuple field into a float literal when
+/// a DSL marker follows (`self.0.@0`, `self.0.#call`). Split only an integer
+/// with a trailing dot; callers decide whether the following marker applies.
+pub(crate) fn split_tuple_field_dot(
+    literal: &proc_macro2::Literal,
+) -> Option<(proc_macro2::Literal, proc_macro2::Punct)> {
+    let spelling = literal.to_string();
+    let value = spelling.strip_suffix('.')?.parse::<u64>().ok()?;
+    let mut field = proc_macro2::Literal::u64_unsuffixed(value);
+    field.set_span(literal.span());
+    let mut dot = proc_macro2::Punct::new('.', proc_macro2::Spacing::Alone);
+    dot.set_span(literal.span());
+    Some((field, dot))
+}
+
 /// Whether `tokens[index]` is the `impl` ident of an `impl{...}` shape
 /// template: an `impl` ident directly followed by a Brace
 /// group. The single authority for the `impl{...}` discrimination shared by

@@ -1,4 +1,4 @@
-//! dsl.rs `@N` / `@g_i` / `@all_fresh` / `@N..M` position-reference tests:
+//! dsl.rs `@N` / `@g_i` / `@0..` / `@N..M` position-reference tests:
 //! document-order numbering, per-impl sweeping, group-position references,
 //! references inside the target type, the batch where-references, and the
 //! collision set the generated fresh **display names** must respect.
@@ -40,8 +40,8 @@ fn at_refs_numbered_match_in_join() {
     assert_impl::<(u8, u16, u32, (u64, u128, usize))>();
 }
 
-// @all_fresh: every fresh generic gets the predicate tail (comma-separated)
-#[batch_impl(().2 ().2 where{@all_fresh: Clone})]
+// @0..: every fresh generic gets the predicate tail (comma-separated)
+#[batch_impl(().2 ().2 where{@0..: Clone})]
 trait AllFreshWhere {}
 
 // @N..=M: contiguous fresh range — `@0..=1` bounds the first two freshes
@@ -51,7 +51,7 @@ trait RangeWhere {}
 #[test]
 fn at_all_fresh_and_range() {
     // `().2-().2` targets `(A, B, (C, D))` (left tuple flattened, right
-    // nested). @all_fresh: all 4 fresh generics (swept 0..4) must be Clone.
+    // nested). @0..: all 4 fresh generics (swept 0..4) must be Clone.
     fn assert_impl_all<T: AllFreshWhere>() {}
     assert_impl_all::<(u8, u16, (u32, u64))>();
     // @0..=1: only the first two freshes (`P0`, `P1` —
@@ -61,10 +61,10 @@ fn at_all_fresh_and_range() {
     assert_impl_range::<(u8, u16, (String, Vec<u8>))>();
 }
 
-// @all_fresh and @N..=M in the *same* where group: the group is split into
-// predicates at depth-0 commas so the @all_fresh expansion must not swallow
+// @0.. and @N..=M in the *same* where group: the group is split into
+// predicates at depth-0 commas so the @0.. expansion must not swallow
 // the following @N..=M predicate.
-#[batch_impl(().3 ().3 where{@all_fresh: Clone, @0..=2: Copy})]
+#[batch_impl(().3 ().3 where{@0..: Clone, @0..=2: Copy})]
 trait CombinedBatchWhere {}
 
 #[test]

@@ -21,8 +21,8 @@ fn ui() {
 
     // directive system errors
     t.compile_fail("tests/ui/directive_bad_follow.rs");
-    t.compile_fail("tests/ui/fill_empty_args.rs");
     t.compile_fail("tests/ui/fill_bad_comma.rs");
+    t.compile_fail("tests/ui/directive_scope_unknown.rs");
     t.compile_fail("tests/ui/single_name_not_found.rs");
     t.compile_fail("tests/ui/delegate_on_non_fn.rs");
     // a trait method can be renamed to only one target method
@@ -30,6 +30,10 @@ fn ui() {
     // a `#delegate` rename missing its left side (`=foo`) is a user error,
     // never a panic (the eq-1 lookup used to underflow in debug builds)
     t.compile_fail("tests/ui/delegate_rename_missing_left.rs");
+    t.compile_fail("tests/ui/delegate_call_marker.rs");
+    t.compile_fail("tests/ui/delegate_call_depth.rs");
+    t.compile_fail("tests/ui/delegate_call_move.rs");
+    t.compile_fail("tests/ui/delegate_call_nested_item.rs");
 
     // DSL semantic errors
     t.compile_fail("tests/ui/empty_range.rs");
@@ -54,9 +58,8 @@ fn ui() {
     // `unsafe` juxtaposed with a non-fn type (should be unsafe^T or unsafe fn(...))
     t.compile_fail("tests/ui/unsafe_non_fn.rs");
 
-    // directive argument list subtraction: `-` missing a target / empty after excluding everything
+    // directive argument list subtraction: `-` missing a target
     t.compile_fail("tests/ui/minus_bad_target.rs");
-    t.compile_fail("tests/ui/minus_empty.rs");
 
     // generic auto-inheritance is positional-substitution based now — the
     // old rename-rejection fixtures (rename_bound / rename_ref) became
@@ -81,6 +84,7 @@ fn ui() {
     // @ constant system: unknown constants / range endpoint errors / reference visibility (cycles / forward)
     t.compile_fail("tests/ui/const_unknown.rs");
     t.compile_fail("tests/ui/const_range_bad.rs");
+    t.compile_fail("tests/ui/const_range_empty.rs");
     t.compile_fail("tests/ui/const_cycle.rs");
     t.compile_fail("tests/ui/const_forward.rs");
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
@@ -94,6 +98,8 @@ fn ui() {
     // custom `@name=value;` sections are `batch_trait!`-only — an attribute
     // macro definition errors (0.7.2 feature reverted in 0.8.0)
     t.compile_fail("tests/ui/const_attr_unsupported.rs");
+    t.compile_fail("tests/ui/const_self_without_impl.rs");
+    t.compile_fail("tests/ui/const_self_reserved.rs");
     t.compile_fail("tests/ui/at_group_out_of_range.rs");
     // @N / @g_i in the target type: dangling references error at the DSL
     // layer instead of leaking the reserved an internal reserved ident name via E0412
@@ -166,6 +172,7 @@ fn ui() {
     // ... and neither can a `Self` **inside a group** (`(Self, u8)`) — the
     // bare-Self detection recurses into groups (top-level-only scan missed it)
     t.compile_fail("tests/ui/blanket_self_in_group.rs");
+    t.compile_fail("tests/ui/blanket_self_constraints.rs");
 
     // remaining silent-drop / raw-passthrough guards (see dev-changelog)
     t.compile_fail("tests/ui/binding_bound_empty.rs");
@@ -194,7 +201,10 @@ fn ui() {
     // shape-match verbatim limits: lifetime args / fn-pointer slots cannot
     // bind (array lengths and `'_` wildcards DO bind — see shape_template_shape_forms)
     t.compile_fail("tests/ui/impl_shape_lifetime_arg.rs");
-    t.compile_fail("tests/ui/impl_shape_fn_bound.rs");
+    t.compile_fail("tests/ui/impl_shape_fn_qualifiers.rs");
+    t.compile_fail("tests/ui/impl_shape_const_kind.rs");
+    t.compile_fail("tests/ui/impl_shape_type_to_const.rs");
+    t.compile_fail("tests/ui/impl_shape_literal_conflict.rs");
     // variadic segments (`ident@..`): placement / duplicate prefixes / uneven
     // splits, and repeat-block diagnostics (`@(...)..`)
     t.compile_fail("tests/ui/impl_shape_varseg_outside_tuple.rs");

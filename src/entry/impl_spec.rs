@@ -11,8 +11,8 @@ use syn::ItemImpl;
 use crate::ast::{Op, Ty, TyPrimitive};
 use crate::codegen::FreshCtx;
 use crate::codegen::{
-    ImplParts, MAX_REPEAT_TOKENS, Mapping, RepeatCtx, VarSeg, apply_mapping, expand_repeat_blocks,
-    sync_trait_application,
+    ImplParts, MAX_REPEAT_TOKENS, Mapping, RepeatCtx, VarSeg, apply_mapping, apply_type_mapping,
+    expand_repeat_blocks, sync_trait_application,
 };
 use crate::entry::driver::collect_spec_leaves;
 use crate::util::{Cursor, compile_error_str, is_punct_at, is_single_colon, slice_from};
@@ -160,15 +160,7 @@ pub(crate) fn assemble_impl(
         body_at: false,
     };
     let trait_tokens = trait_path.map(|p| trait_path_with_mapped_args(p, m));
-    Ok(crate::codegen::render_impl(
-        parts,
-        preds,
-        for_ty,
-        trait_tokens.as_ref(),
-        false,
-        &Mapping::default(),
-        None,
-    ))
+    Ok(crate::codegen::render_impl(parts, preds, for_ty, trait_tokens.as_ref(), false, None))
 }
 
 /// Reconciles the attr's `new-generic-decl` with the params the impl block
@@ -242,7 +234,7 @@ fn trait_path_with_mapped_args(path: &syn::Path, m: &Mapping) -> TokenStream {
         out.extend(seg.ident.to_token_stream());
         match &seg.arguments {
             syn::PathArguments::AngleBracketed(ab) => {
-                let mapped = ab.args.iter().map(|a| apply_mapping(a.to_token_stream(), m));
+                let mapped = ab.args.iter().map(|a| apply_type_mapping(a.to_token_stream(), m));
                 if ab.colon2_token.is_some() {
                     out.extend(quote!(::));
                 }

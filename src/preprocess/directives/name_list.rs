@@ -4,23 +4,19 @@
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use syn::ItemTrait;
 
-use crate::util::{compile_err, compile_error_str};
+use super::get_trait_item;
+use crate::util::compile_err;
 
 pub(crate) fn parse_names_from_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait,
 ) -> Result<Vec<Ident>, TokenStream> {
-    if tokens.is_empty() {
-        return Err(compile_error_str(
-            "batch-impl: the directive's argument list cannot be empty",
-            proc_macro2::Span::call_site(),
-        ));
-    }
     parse_name_tokens(tokens, trait_def, "directive arguments")
 }
 
 /// Parses directive arguments into an item-name list: `@all`-family markers,
 /// comma-separated identifier lists, and `-name` exclusions (keep list minus
-/// exclude list, e.g. `#fill(@all,-foo)`).
+/// exclude list, e.g. `#fill(@all,-foo)`). Empty lists and trailing commas are
+/// valid; every named item is resolved before exclusions can remove it.
 ///
 /// In the directive-argument domain `-` had no meaning before (arguments
 /// parse only identifiers/commas) and is dedicated to list subtraction; it
@@ -30,9 +26,6 @@ pub(crate) fn parse_names_from_tokens(
 fn parse_name_tokens(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
 ) -> Result<Vec<Ident>, TokenStream> {
-    if tokens.is_empty() {
-        return Err(compile_err!("batch-impl: {} cannot be empty", what));
-    }
     let mut keep = vec![];
     let mut exclude = vec![];
     let mut prev_was_comma = true; // Start is treated as "just passed a comma", to catch a leading comma
@@ -40,14 +33,15 @@ fn parse_name_tokens(
     while let Some(cur) = tokens.get(i) {
         match cur {
             TokenTree::Ident(id) => {
+                get_trait_item(trait_def, id)?;
                 keep.push(Ident::new(&id.to_string(), id.span()));
                 prev_was_comma = false;
                 i += 1;
             }
             // `[a, b]` list: parse the group contents into names recursively
             // (`@all` family expansions have this shape; users may also
-            // hand-write `[a,b]` or `-[a,b]` exclusions; an empty group
-            // errors "cannot be empty" via recursion)
+            // hand-write `[a,b]` or `-[a,b]` exclusions). Empty groups
+            // contribute no names, just like an empty marker expansion.
             TokenTree::Group(g) if g.delimiter() == delimiter![[]] => {
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
                 keep.extend(parse_name_tokens(&inner, trait_def, what)?);
@@ -58,7 +52,7 @@ fn parse_name_tokens(
                 if prev_was_comma {
                     return Err(compile_err!(
                         "batch-impl: in {}, a comma is in an illegal position \
-                         (no leading/trailing/consecutive commas)",
+                         (no leading/consecutive commas)",
                         what
                     ));
                 }
@@ -87,22 +81,12 @@ fn parse_name_tokens(
             }
         }
     }
-    if prev_was_comma {
-        return Err(compile_err!(
-            "batch-impl: in {}, a comma is in an illegal position \
-             (no leading/trailing/consecutive commas)",
-            what
-        ));
-    }
     let mut seen = std::collections::HashSet::new();
     let names = keep
         .into_iter()
         .filter(|id| seen.insert(id.to_string()))
         .filter(|id| !exclude.iter().any(|e| e == id))
         .collect::<Vec<_>>();
-    if names.is_empty() {
-        return Err(compile_err!("batch-impl: {} cannot be empty", what));
-    }
     Ok(names)
 }
 
@@ -112,7 +96,10 @@ fn parse_minus_target(
     tokens: &[TokenTree], trait_def: &ItemTrait, what: &str,
 ) -> Result<(Vec<Ident>, usize), TokenStream> {
     match tokens.first() {
-        Some(TokenTree::Ident(id)) => Ok((vec![Ident::new(&id.to_string(), id.span())], 1)),
+        Some(TokenTree::Ident(id)) => {
+            get_trait_item(trait_def, id)?;
+            Ok((vec![Ident::new(&id.to_string(), id.span())], 1))
+        }
         Some(TokenTree::Group(g)) if g.delimiter() == delimiter![[]] => {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let ids = parse_name_tokens(&inner, trait_def, what)?;

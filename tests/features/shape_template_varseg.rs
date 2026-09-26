@@ -1,7 +1,7 @@
 //! The `impl{...}` shape templates: variadic-segment (`ident@..`) integration: template segments bound
 //! to tuple elements (name numbering aligned with the leaf position), body
 //! repeat blocks (`@(...)..`) with `@ident` name references and `@N` index
-//! cursors, and the `@all_fresh` where selector on the generated impls.
+//! cursors, and the `@0..` where selector on the generated impls.
 //!
 //! The `::from` calls below are deliberate: they exercise the slot-name →
 //! bound-type rewrite through an identity `From` (clippy-noisy by design).
@@ -12,11 +12,11 @@ use batch_impl::batch_impl;
 
 // ------------------------------------------------------------
 // 1. alga2-style end-to-end: `().1..=4` fresh-generic tuples, a variadic
-//    segment template, `@all_fresh` where predicates and a `#combine` body
+//    segment template, `@0..` where predicates and a `#combine` body
 //    repeat block — one spec covers every arity.
 // ------------------------------------------------------------
 #[batch_impl(
-    ().1..=4 where{@all_fresh: Magma} impl{(A@..,)}
+    ().1..=4 where{@0..: Magma} impl{(A@..,)}
     #combine{( @(@A::combine(&self.@0, &rhs.@0),).. )}
 )]
 trait Magma {
@@ -123,7 +123,7 @@ fn explicit_start_name_direct_use() {
 // ------------------------------------------------------------
 #[batch_impl(
     Module<(), ()> ().1..=4 where{
-        @all_fresh: Module<(), (), Scalar: Copy>,
+        @0..: Module<(), (), Scalar: Copy>,
         @1..: Module<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,)} impl{@{}}
     #Scalar{@{0}::Scalar}
@@ -214,7 +214,7 @@ fn adjacent_bare_impls() {
 // ------------------------------------------------------------
 #[batch_impl(
     Module2<(), ()> ().1..=4 where{
-        @all_fresh: Module2<(), (), Scalar: Copy>,
+        @0..: Module2<(), (), Scalar: Copy>,
         @1..: Module2<(), (), Scalar = @0::Scalar>,
     } impl{(A@..,), @0.., @{}}
     #Scalar{@{0}::Scalar}
