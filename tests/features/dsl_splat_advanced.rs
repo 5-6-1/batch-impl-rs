@@ -1,7 +1,6 @@
 //! dsl.rs advanced splat tests: idempotency, empty splats, trailing commas,
-//! lone splat at the slice position, generic-arg splats, left-operand
-//! semantics (`*[...]` distribute / `*(...)` append), splat powers, and the
-//! one-layer expansion rule.
+//! explicit list hosts, generic-arg packs, preserved ordinary tuple append,
+//! pack powers, and the one-layer expansion rule for ordinary types.
 //! (split from the former single-file `tests/dsl.rs`)
 
 use batch_impl::batch_impl;
@@ -15,7 +14,7 @@ struct Pair<A, B>(A, B);
 struct Triple<A, B, C>(A, B, C);
 
 // nested splat is idempotent; empty splat is a no-op
-#[batch_impl((*(*[SplatD, SplatE])))]
+#[batch_impl((*(*[SplatD, SplatE]),))]
 trait SplatNested {}
 
 #[batch_impl([SplatA, *()])]
@@ -30,7 +29,7 @@ fn splat_idempotent_and_empty() {
 }
 
 // trailing-comma splat; empty splat in the middle of a tuple
-#[batch_impl((*(SplatA,)))]
+#[batch_impl((*(SplatA,),))]
 trait SplatTrailingComma {}
 
 #[batch_impl((SplatA, *(), SplatB))]
@@ -44,9 +43,8 @@ fn splat_trailing_comma_and_middle_empty() {
     assert_m::<(SplatA, SplatB)>();
 }
 
-// `[*(a,b)]` — lone splat at the slice position flattens into a list
-// (syntax parity with `(*(a,b))` → `(a,b)`).
-#[batch_impl([*(SplatA, SplatB)])]
+// The trailing comma selects a candidate list instead of a slice target.
+#[batch_impl([*(SplatA, SplatB),])]
 trait SplatLoneArray {}
 
 #[test]
@@ -72,10 +70,8 @@ fn splat_generic_args() {
     assert_n::<Pair<SplatA, SplatB>>();
 }
 
-// Splat rules: R1 `T *(A,B)` ≡ `T A B` (right operand always flattens);
-// R2 left semantics by source — `*[...]` distributes `.T` (`*[A.T,B.T]`,
-// enabling composition `X.*[A,B].T` = `X<A.T, B.T>`, one impl), `*(...)`
-// appends (`*(A,B,...,T)`, list semantics).
+// Both pack sources map on the left. To append ordinary tuple fields first,
+// complete the ordinary tuple application inside the star's operand.
 #[batch_impl(Pair.*[Vec, Box].u16)]
 trait SplatRule2 {}
 
@@ -85,10 +81,10 @@ trait SplatRule1 {}
 #[batch_impl((SplatA, SplatB).*(SplatC, SplatD))]
 trait SplatConcat2 {}
 
-#[batch_impl(Triple.*(SplatA, SplatB).SplatC)]
+#[batch_impl(Triple.*((SplatA, SplatB).SplatC))]
 trait SplatParenAppend {}
 
-#[batch_impl(*(SplatA, SplatB).SplatC)]
+#[batch_impl(*((SplatA, SplatB).SplatC))]
 trait SplatParenLeft {}
 
 #[batch_impl(*[Vec, Box].SplatC)]
@@ -102,9 +98,7 @@ fn splat_rules() {
     assert_r1::<Pair<Vec<u8>, Box<u8>>>();
     fn assert_c<T: SplatConcat2>() {}
     assert_c::<(SplatA, SplatB, SplatC, SplatD)>();
-    // Source-driven left semantics: `*(...)` appends the operand
-    // (list — mirrors TyTuple), `*[...]` distributes it (set — mirrors
-    // TyArray).
+    // Explicit grouping retains the old append targets before packing them.
     fn assert_pa<T: SplatParenAppend>() {}
     assert_pa::<Triple<SplatA, SplatB, SplatC>>();
     fn assert_pl<T: SplatParenLeft>() {}
@@ -145,13 +139,13 @@ fn splat_pow() {
 
 // Splat expands ONE layer: tuples are types and stay intact — `*((a,b),)`
 // is one tuple impl, and `*(a,b,(c,d))` keeps `(c,d)` as a single element.
-#[batch_impl(*((SplatA, SplatB)))]
+#[batch_impl(*((SplatA, SplatB),))]
 trait SplatTupleKeep {}
 
 #[batch_impl(*(SplatA, SplatB, (SplatC, SplatD)))]
 trait SplatTupleKeepList {}
 
-#[batch_impl(*(SplatA, SplatB).(SplatC, SplatD))]
+#[batch_impl(*((SplatA, SplatB).(SplatC, SplatD)))]
 trait SplatGroupRight {}
 
 // The repeat-list shorthand: `Pair.*(*@u*).2` = `Pair<@u*, @u*>` — one

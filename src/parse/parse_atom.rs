@@ -37,26 +37,6 @@ pub(crate) fn parse_range(tokens: &[TokenTree]) -> Option<Ty> {
     TyRange { start, end, inclusive }.to_ty().with_span(span).into()
 }
 
-/// Group parsing: `(A,B)` tuple / `(A)` group / `[A,B]` list / `[A; N]` array / `[A]` slice /
-/// Whether a group's content is a **lone splat**: exactly a `*` punct
-/// followed by a `(...)` / `[...]` group (`(*(a,b))`, `[*(a,b)]`,
-/// `(*[a,b])`, `[*[a,b]]`). Such a group parses as the matching container
-/// holding the splat as one element — `(*(a,b))` = tuple `( *(a,b) )`,
-/// `[*(a,b)]` = array `[ *(a,b) ]`. The splat element stays whole (splat
-/// survival) and expands only in codegen, so the rendered result is
-/// `(a, b)` / `[a, b]`.
-fn lone_splat(contents: &[TokenTree]) -> bool {
-    matches!(
-        contents,
-        [TokenTree::Punct(p), TokenTree::Group(g)]
-            if p.as_char() == '*'
-                && matches!(
-                    g.delimiter(),
-                    delimiter![()]|delimiter![[]]
-                )
-    )
-}
-
 /// `(...)` / `[...]` / `{...}` group block. Where the group's elements are
 /// separate **sub-type positions** (a tuple's elements, an array's element) the
 /// bound flag is cleared — a bound element's head may carry bindings
@@ -69,17 +49,10 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, ctx: Ctx<'_>) -> Ty {
     let contents = group.stream().into_iter().collect::<Vec<_>>();
     match group.delimiter() {
         delimiter![()] => {
-            // Container rule: a group whose content is empty, comma-separated,
-            // or a **lone splat** (`(*(a,b))` / `(*[a,b])`) parses as a tuple
-            // with the splat held as one element (`TyTuple([splat])`). The
-            // splat element stays whole through parse/apply/expand and
-            // expands only in codegen — `(*(a,b))` renders `(a, b)`. This
-            // makes `(*(a,b))` ≡ `(*(a,b),)` on one code path. Non-splat
-            // single-element groups (`(a)`) stay transparent (`TyGroup`).
-            if contents.is_empty() || contains_punct(&contents, ',') || lone_splat(&contents) {
-                // Splat elements are KEPT (splat survival: parse never
-                // flattens `*()`/`*[]` — `(a, *(b,c))` stays a tuple with a
-                // splat element; codegen expands it into `(a, b, c)`).
+            // Empty or comma-separated parentheses construct a tuple. A
+            // comma-less group is transparent even when it contains a pack:
+            // `(*(A,B))` is a pack, while `(*(A,B),)` consumes it into a tuple.
+            if contents.is_empty() || contains_punct(&contents, ',') {
                 TyTuple(parse_list(&contents, Op::Comma, ctx.plain()))
                     .to_ty()
                     .with_span(group.span())
@@ -135,12 +108,10 @@ fn is_range_fresh(ty: &Ty) -> bool {
 
 /// `[...]` group: comma → list (`TyArray`), empty → array/slice builder base,
 /// else array/slice via the `;` separator (`[T]` slice / `[T; N]` fixed
-/// length). A lone splat (`[*(a,b)]`) parses as an array holding the splat as
-/// one element — the splat survives and expands at consumption (spec-list /
-/// dispatch), so `[*(a,b)]` ≡ `[*(a,b),]`; `[*(A),*(B)].2` repeats each
-/// element (`[*(A,A),*(B,B)]`) instead of flattening to bare types.
+/// length). Packs do not change the host grammar: `[*(A,B)]` has a single
+/// slice-element slot; `[*(A,B),]` is a candidate list.
 fn parse_array_group(contents: &[TokenTree], span: proc_macro2::Span, ctx: Ctx<'_>) -> Ty {
-    if contains_punct(contents, ',') || lone_splat(contents) {
+    if contains_punct(contents, ',') {
         let flat = parse_list(contents, Op::Comma, ctx);
         TyArray(flat).to_ty().with_span(span)
     } else if contents.is_empty() {

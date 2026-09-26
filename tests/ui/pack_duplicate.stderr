@@ -1,0 +1,10 @@
+error[E0119]: conflicting implementations of trait `DuplicateTargets` for type `u8`
+ --> tests/ui/pack_duplicate.rs:4:1
+  |
+4 | #[batch_impl(*(u8, u8))]
+  | -----------------^^^^
+  | |
+  | first implementation here
+  | conflicting implementation for `u8`
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

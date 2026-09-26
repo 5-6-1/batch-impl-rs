@@ -150,9 +150,8 @@ pub(crate) fn render_impl(
         quote!(where #(#preds),*)
     };
 
-    // Splat expansion happens structurally in `expand_splat_elems` (target /
-    // trait args); bodies are never touched, so `a * b` inside a fn stays
-    // multiplication. `where`-predicate splats are unsupported (rustc error).
+    // Packs have already been structurally materialized. Bodies keep their
+    // Rust operators; the predicate check rejects unsupported where DSL.
     // Every internal name was resolved before this point: fresh declarations
     // carry their display names, references resolved against them — no
     // final renaming pass exists.

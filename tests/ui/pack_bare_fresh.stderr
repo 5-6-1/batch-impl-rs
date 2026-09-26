@@ -1,0 +1,26 @@
+error[E0119]: conflicting implementations of trait `BareFresh`
+ --> tests/ui/pack_bare_fresh.rs:4:1
+  |
+4 | #[batch_impl(*().2)]
+  | ^^^^^^^^^^^^^^^^^^^^
+  | |
+  | first implementation here
+  | conflicting implementation
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0207]: the type parameter `P1` is not constrained by the impl trait, self type, or predicates
+ --> tests/ui/pack_bare_fresh.rs:4:1
+  |
+4 | #[batch_impl(*().2)]
+  | ^^^^^^^^^^^^^^^^^^^^ unconstrained type parameter
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0207]: the type parameter `P0` is not constrained by the impl trait, self type, or predicates
+ --> tests/ui/pack_bare_fresh.rs:4:1
+  |
+4 | #[batch_impl(*().2)]
+  | ^^^^^^^^^^^^^^^^^^^^ unconstrained type parameter
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

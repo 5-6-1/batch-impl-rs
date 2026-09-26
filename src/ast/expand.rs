@@ -1,9 +1,9 @@
 // Parallel-list expansion ([Expand]): the driver-stage flattening of
-// Array / Splat / wrapper nodes into leaf Tys — the counterpart of the
+// Array / wrapper nodes into leaf Tys — the counterpart of the
 // traversal concern in types_visit.rs. Split by concern so both stay under
 // the per-file budget.
 
-use super::types_visit::{expand_rebuild, expand_wrapped, splat_expand};
+use super::types_visit::{expand_rebuild, expand_wrapped};
 use crate::apply::expand_limit_err;
 use crate::ast::Ty;
 use crate::ast::types::*;
@@ -22,21 +22,6 @@ impl Ty {
         let Ty { span, kind } = self;
         match kind {
             TyKind::Array(ty) => Expand::Many(ty.0),
-            // Top-level splat: consume (flatten containers/generators) and
-            // distribute like a list. Fresh declarations from flattened
-            // generators wrap each distributed element.
-            TyKind::Splat(s) => {
-                let (elems, decl) = splat_expand(s.to_ty().with_span(span));
-                Expand::Many(
-                    elems
-                        .into_iter()
-                        .map(|e| match &decl {
-                            Some(d) => TyWithType(d.clone(), e.into()).to_ty().with_span(span),
-                            None => e,
-                        })
-                        .collect(),
-                )
-            }
             TyKind::Tuple(t) => {
                 // List distribution: an array element (a dispatch list) makes
                 // the tuple expand by Cartesian product — `(X, [A, B])` →

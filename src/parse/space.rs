@@ -67,10 +67,19 @@ pub(crate) fn cursor_at_attachment(cursor: &Cursor) -> bool {
 /// a block start (an operator / separator / the end).
 ///
 /// A block never swallows the type it would apply to (`&mut u8` is the two
-/// blocks `&mut` and `u8`, folded by the chain) — with two exceptions where
-/// Rust syntax forces the fragment together: lifetime references
-/// (`&'a mut u8`) and the fn family (`fn(u8) -> u8`).
+/// blocks `&mut` and `u8`, folded by the chain), except for lifetime references
+/// (`&'a mut u8`), the fn family (`fn(u8) -> u8`) and the Pack prefix `*T`,
+/// which consumes exactly one following block.
 pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
+    cursor.peek()?;
+    // Flat prefix chains (`***...T`, `?*?*...T`) recurse without adding a
+    // token group, so the preprocessor's delimiter-depth guard cannot see them.
+    if ctx.block_depth >= crate::util::MAX_NEST_DEPTH {
+        return Some(
+            TyError(crate::util::depth_err(cursor.take_rest(), " in type block parsing")).to_ty(),
+        );
+    }
+    let ctx = Ctx { block_depth: ctx.block_depth + 1, ..ctx };
     let ty = match cursor.peek()? {
         // `#[attr]` — attribute block (the chain applies the next block)
         TokenTree::Punct(p)
@@ -126,8 +135,8 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
         }
         // `&` / `&mut` / `&'a` / `&'a mut`
         TokenTree::Punct(p) if p.as_char() == '&' => reference_block(cursor, ctx),
-        // `*const` / `*mut` / `*[...]` / `*(...)`
-        TokenTree::Punct(p) if p.as_char() == '*' => star_block(cursor),
+        // `*const` / `*mut` take precedence over the `*T` pack prefix.
+        TokenTree::Punct(p) if p.as_char() == '*' => star_block(cursor, ctx),
         // `@N` position reference
         TokenTree::Punct(p) if p.as_char() == '@' => at_ref_block(cursor),
         // `'a` lifetime
@@ -150,7 +159,7 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
                 )
             }
         }
-        // `?` / `!` prefix puncts — swallow the qualified type (passthrough);
+        // `?` / `!` prefix puncts — retain the qualified type structurally;
         // an attachment block (`{...}` / `where{...}` / `impl{...}`) belongs
         // to the impl, not to the prefixed type (`fn(u8) -> ! { body }`). The
         // swallowed type is a **sub-type position**, so the bound flag stops
@@ -162,7 +171,7 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
                 if cursor_at_attachment(cursor) { None } else { parse_block(cursor, ctx.plain()) }
                     .unwrap_or_else(empty);
             let p_tt = TokenTree::Punct(proc_macro2::Punct::new(p, Spacing::Alone));
-            TyPrimitive(quote!(#p_tt #inner)).to_ty()
+            TyPrefixed(quote!(#p_tt), inner.into()).to_ty()
         }
         // numbers / ranges
         TokenTree::Literal(_) => literal_block(cursor),
@@ -197,10 +206,9 @@ pub(crate) fn parse_return_expr(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
         // cursor unmoved — folding again would spin forever appending empties
         // (a fuzz-OOM root cause). Report the stalled token instead.
         if cursor.pos() == pos {
-            return err_ty_at(
-                &format!("batch-impl: unexpected `{t}` in a type position"),
-                t.span(),
-            );
+            let (text, span) = (t.to_string(), t.span());
+            cursor.bump();
+            return err_ty_at(&format!("batch-impl: unexpected `{text}` in a type position"), span);
         }
         left = left.apply(right);
     }
@@ -208,7 +216,7 @@ pub(crate) fn parse_return_expr(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
 }
 
 /// A trait bound expression (`Clone + IntoIterator + 'a`): blocks folded by
-/// the space chain, then any `+` chain is collected into a passthrough —
+/// the space chain, then any `+` chain is collected into a structured list —
 /// `+` is a bound operator, not a space application.
 ///
 /// The bound flag covers the **head** of the first element only. A follower of
@@ -267,39 +275,4 @@ pub(crate) fn parse_bound_expr(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
         return TyBoundList(elems).to_ty();
     }
     left
-}
-
-/// Consumes the return expression's blocks (used when only the token extent
-/// matters — `extern "C" fn` / `Fn(...)` passthrough).
-///
-/// Returns `Some(err)` when a block-start token cannot actually open a block.
-/// This is the **third** fuzz-hang root cause, found by adversarial review: the
-/// loop used to trust `starts_block`, but `#` followed by a non-bracket group is
-/// `starts_block`-true and `parse_block`-none, so the fold spun on an unmoved
-/// cursor. Unlike the two earlier ones it allocates nothing, so the fuzz
-/// `GuardAlloc` could not catch it — the compiler simply hung (measured: a cold
-/// build of the same crate with `extern "C" fn(u8) -> u8` finishes in 47 s,
-/// while `extern "C" fn(u8) -> u8 #(x)` never finished). The stalled token is
-/// **consumed** so the caller cannot re-report it as a chain error.
-pub(crate) fn parse_return_expr_tokens(cursor: &mut Cursor) -> Option<Ty> {
-    // Only the token extent matters here, so the first block's value is dropped.
-    parse_block(cursor, Ctx::default())?;
-    loop {
-        let t = cursor.peek()?;
-        if !starts_block(cursor) || cursor_at_attachment(cursor) {
-            return None;
-        }
-        // The token text and span are copied before the cursor moves — the
-        // message must name the token that stalled, not the one after it.
-        let (text, span) = (t.to_string(), t.span());
-        let pos = cursor.pos();
-        let _ = parse_block(cursor, Ctx::default());
-        if cursor.pos() == pos {
-            cursor.bump();
-            return Some(err_ty_at(
-                &format!("batch-impl: unexpected `{text}` in a type position"),
-                span,
-            ));
-        }
-    }
 }

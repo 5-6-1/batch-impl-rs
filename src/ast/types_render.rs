@@ -79,7 +79,14 @@ impl ToTokens for Ty {
             TyKind::Trait(t) => params_to_tokens(&t.0, &t.1),
             TyKind::Array(a) => {
                 let elems = a.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
-                quote!([#(#elems),*])
+                // Serialization can re-enter the parser through an open
+                // extension. A singleton needs its comma to remain a choice
+                // list instead of a slice; `[,]` is the empty choice list.
+                match elems.len() {
+                    0 => quote!([,]),
+                    1 => quote!([#(#elems),*,]),
+                    _ => quote!([#(#elems),*]),
+                }
             }
             TyKind::Tuple(t) => {
                 let elems = t.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
@@ -91,17 +98,6 @@ impl ToTokens for Ty {
             TyKind::Pack(p) => {
                 let elems = &p.0;
                 quote!(*(#(#elems,)*))
-            }
-            // Splats are never expanded at parse/apply/expand time (splat
-            // survival); they render with their marker so the codegen
-            // postprocess (`expand_splats`) can spot and expand them —
-            // `*(A,B)` stays `*(A,B)`, `*[A,B]` stays `*[A,B]`.
-            TyKind::Splat(s) => {
-                let elems = s.elems().iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
-                match s {
-                    TySplat::Array(_) => quote!(*[#(#elems),*]),
-                    TySplat::Tuple(_) => quote!(*(#(#elems),*)),
-                }
             }
             TyKind::Group(g) => {
                 let inner = g.0.to_token_stream();
@@ -120,6 +116,10 @@ impl ToTokens for Ty {
                 (None, _) => quote!([]),
             },
             TyKind::WithPrefix(wp) => render_optional(wp.1.as_deref(), prefix_token(wp.0), false),
+            TyKind::Prefixed(p) => {
+                let (prefix, inner) = (&p.0, &p.1);
+                quote!(#prefix #inner)
+            }
             TyKind::WithDyn(wd) => {
                 let inner = wd.0.to_token_stream();
                 // The `+` list renders like any other bound list (one authority,

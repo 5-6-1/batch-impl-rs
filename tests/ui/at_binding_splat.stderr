@@ -1,4 +1,4 @@
-error: batch-impl: a splat cannot be an associated-type binding value (`Item = *(A,B)` — bindings take exactly one type; distribute via a spec list like `[Tr<Item=A>, Tr<Item=B>]`)
+error: batch-impl: this type position requires exactly one type; the pack expands to 2 types
  --> tests/ui/at_binding_splat.rs:5:1
   |
 5 | #[batch_impl(BadBindingSplat<Item=*(A,B)> usize)]

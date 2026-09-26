@@ -135,11 +135,21 @@ fn ui() {
     // @all generic-parameter families need trait_def (batch_trait! has none)
     t.compile_fail("tests/ui/generic_family_batch_trait.rs");
 
-    // splat: a bare `*` that is neither a splat nor a raw pointer errors;
+    // A bare pack prefix needs an operand;
     // a generator in the generic-declaration position has no carrier
     t.compile_fail("tests/ui/star_misuse.rs");
     t.compile_fail("tests/ui/where_splat_bad.rs");
     t.compile_fail("tests/ui/decl_generator_splat.rs");
+
+    // Pack collection checks cardinality in single-type hosts. Structural
+    // declarations and duplicate targets remain visible to Rust coherence.
+    t.compile_fail("tests/ui/pack_single_slot.rs");
+    t.compile_fail("tests/ui/pack_flat_overlap.rs");
+    t.compile_fail("tests/ui/pack_unused_axis.rs");
+    t.compile_fail("tests/ui/pack_bare_fresh.rs");
+    t.compile_fail("tests/ui/pack_duplicate.rs");
+    t.compile_fail("tests/ui/pack_shared_identity.rs");
+    t.compile_fail("tests/ui/preview_pack.rs");
 
     // concrete-type args reject bindings/bounds (trait paths and generic
     // declarations are their only valid homes)

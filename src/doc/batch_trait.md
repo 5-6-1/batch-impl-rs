@@ -35,7 +35,7 @@ batch_trait!(
 
 | Capability | `batch_trait!` | `#[batch_impl]` / `#[batch_impl_only]` |
 |---|---|---|
-| type-matrix DSL (`.`, space, `[]`, `()`, splat) | ✅ | ✅ |
+| type-matrix DSL (`.`, space, `[]`, `()`, packs `*X`) | ✅ | ✅ |
 | built-in `@` constants (`@u*`, ranges, ...) | ✅ | ✅ |
 | **user** `@name=value;` constant sections | ✅ (leading only) | ❌ (reverted in 0.8.0) |
 | `@trait` | ✅ (segment-level — each segment's own path) | ✅ (local name / external path) |

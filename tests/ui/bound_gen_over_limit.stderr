@@ -1,4 +1,4 @@
-error: batch-impl: bound-generator distribution expands to 29791 impls (limit 1024); reduce the range sizes
+error: batch-impl: `materialization` expands to 29791 impls (limit 1024); likely exponential/range/Cartesian typo
  --> tests/ui/bound_gen_over_limit.rs:7:1
   |
 7 | #[batch_impl(<T: Fn.().0..31 u8, U: Fn.().0..31 u8, V: Fn.().0..31 u8> Over<T, U, V> Marker)]

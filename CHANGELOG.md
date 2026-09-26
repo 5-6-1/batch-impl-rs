@@ -7,12 +7,34 @@
 
 ## Unreleased
 
+- **Breaking: complete the Pack redesign of `*`.** `*T` opens a tuple/list's
+  direct members or one whole type. Both `*(F,G) T` and `*[F,G] T` map the
+  constructors over `T`; an ordinary left type still splices right packs
+  into its arguments. Nested rows support independent per-position wrappers,
+  shared parameters within each row, and multiple generated dimensions.
+  Use `(*Vec *().3,)` or `(*Pair (*(self,Vec) *().3),)`; the bilingual tutorial
+  provides complete programs. Bare `*` remains an error; raw pointers are unchanged.
+- **Pack migration:** write `*((F,G) T)` for the former tuple-splat append;
+  write `(*X,)` / `[*X,]` for explicit containers. `(*X)` is an ordinary group
+  and `[*X]` is a slice. Both source bracket forms now share Cartesian power
+  semantics. Nested ordinary choices keep branching until explicitly opened.
+- Materialize packs consistently across trait, function-like, impl and preview
+  entries. Multi-slot hosts splice members; single-type hosts reject zero or
+  multiple members. Keep fresh identities, empty-result declarations and
+  Rust's coherence checks; never silently remove overlapping generated impls.
+  Open extensions continue receiving DSL before materialization. Standard Rust
+  predicates, shape templates, path continuations and bodies keep their domains.
+- Preserve generated parameter identities and bounds when an open extension
+  re-enters the DSL, including when its receiver adds another generator.
+  Retain row identity through reference, `dyn` and `for` prefixes, and preserve
+  generated bounds and collision-free names in the ordinary impl entry.
+
 > Target: **0.10.0**, the next version after the published 0.9.7. Development is
 > continuing; no release date is set.
 
-- Begin the staged Pack redesign with an internal application kernel and an
-  executable specification. The public `*` syntax still follows the existing
-  splat rules; the new model is not available through the macro entries yet.
+- The initial Pack stage added an internal application kernel and an
+  executable specification while retaining the public splat syntax. The
+  complete public integration recorded above supersedes that temporary state.
   Fix traversal of splat members and standalone parameter/trait arguments so
   nested diagnostics, fresh declarations and expansion mass are not missed.
   Zero-length bound/Cartesian generators no longer reserve a fresh group:

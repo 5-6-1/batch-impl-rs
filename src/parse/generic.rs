@@ -82,12 +82,9 @@ pub(crate) fn parse_angle_bracket_contents(
         if chunk.is_empty() {
             continue;
         }
-        // Splat args need no special case: `Foo<*(a,b)>` falls through to
-        // the default path below, which keeps the `*(a,b)` token as one
-        // generic arg — the codegen postprocess flattens it into `Foo<a,b>`
-        // at render. A generator splat there (`Foo<*(().N)>`) hoists its
-        // fresh declaration out of the args (flat_splat_params) — same rule
-        // as the trait-arg position (0.7.2).
+        // Packs remain structural in arguments and declaration names. Their
+        // hosts consume slots during materialization, including fresh
+        // declarations carried by generators nested inside a pack.
         // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
         // types (flat token splitting) — resolve them to fresh names here.
         // A resolution error yields a `compile_error!` token stream that
@@ -117,24 +114,9 @@ pub(crate) fn parse_angle_bracket_contents(
                         span_at(chunk, eq),
                     ))
                     .to_ty(),
-                    Ok(v) => {
-                        let parsed =
-                            parse_item(&mut Cursor::new(&v), Op::Space, ctx).unwrap_or_else(empty);
-                        // A binding takes exactly **one** type — a splat is a
-                        // parameter-position list with no flattening target in
-                        // a binding (same ruling as a bare splat as a
-                        // where-predicate subject: constraints/values are not
-                        // lists). Distribute via a spec list instead.
-                        match parsed.kind {
-                            TyKind::Splat(_) => err_ty_at(
-                                "batch-impl: a splat cannot be an associated-type binding \
-                                 value (`Item = *(A,B)` — bindings take exactly one type; \
-                                 distribute via a spec list like `[Tr<Item=A>, Tr<Item=B>]`)",
-                                parsed.span,
-                            ),
-                            _ => parsed,
-                        }
-                    }
+                    // Bindings have one type slot: a singleton pack is legal;
+                    // materialization reports an empty or multi-slot result.
+                    Ok(v) => parse_item(&mut Cursor::new(&v), Op::Space, ctx).unwrap_or_else(empty),
                     // A malformed `@` reference is an **error node**, not a
                     // primitive carrying an item-form `compile_error!(…);`: in a
                     // type position the `;` is a syntax error, so rustc reported
@@ -158,9 +140,7 @@ pub(crate) fn parse_angle_bracket_contents(
         } else if let Some(colon) = find_colon_at_depth0(chunk) {
             if allow_special {
                 params.push((
-                    Box::new(
-                        TyPrimitive(slice_upto(chunk, colon).iter().cloned().collect()).to_ty(),
-                    ),
+                    Box::new(parse_param_name(slice_upto(chunk, colon), ctx)),
                     Some(Box::new(if slice_from(chunk, colon + 1).is_empty() {
                         TyPrimitive(compile_error_ty(
                             "batch-impl: bound `T:` missing a bound (write `T: Clone`)",
@@ -198,6 +178,18 @@ pub(crate) fn parse_angle_bracket_contents(
         }
     }
     TyTypeParam { params, bindings }
+}
+
+/// A declaration name can itself be a pack. Only the fixed `const N` spelling
+/// is opaque; parsing it as space application would turn it into `const<N>`.
+fn parse_param_name(tokens: &[TokenTree], ctx: Ctx<'_>) -> Ty {
+    if matches!(tokens.first(), Some(TokenTree::Ident(id)) if id == "const") {
+        return TyPrimitive(tokens.iter().cloned().collect()).to_ty();
+    }
+    match resolve_at_refs(tokens) {
+        Ok(tokens) => parse_item(&mut Cursor::new(&tokens), Op::Space, ctx).unwrap_or_else(empty),
+        Err(e) => e.into_ty(),
+    }
 }
 
 // ============================================================

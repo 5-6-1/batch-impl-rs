@@ -19,7 +19,7 @@ target must support the fields, methods and constraints used by the shared
 implementation; see the [impl-entry preview example](crate::batch_preview).
 
 The syntax is identical to `#[batch_impl]` — same DSL: type matrix
-(`.` / space / `[]` / `()` / splat / `<>` / `where{...}` / `{body}`),
+(`.` / space / `[]` / `()` / packs `*X` / `<>` / `where{...}` / `{body}`),
 `@` constants, `#` directives, the `impl{...}` shape templates, the open
 extension.
 

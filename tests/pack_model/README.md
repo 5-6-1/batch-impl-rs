@@ -1,11 +1,11 @@
-# Pack proposal model
+# Pack semantic model
 
 English | [简体中文](README.zh-CN.md)
 
-**Design model only. The public batch-impl macro still uses its existing semantics.**
-This directory preserves the reviewed Pack v2 proposal as executable tests before
-production integration. Passing these checks does not enable the proposed syntax
-in the macro or establish release readiness. `tests/` is excluded from the published crate.
+**Pack v2 is integrated into the batch-impl 0.10.0 development version, still unreleased.**
+This directory preserves an independent executable semantic model for comparison
+with the public macro. Passing these checks does not replace production regression
+tests or establish release readiness. `tests/` is excluded from the published crate.
 
 Start with the [tutorial](tutorial.md), then read the [semantic contract](contract.md).
 Both have Chinese mirrors. The tutorial starts with grouped space application;
@@ -44,7 +44,7 @@ hard-code a Visual Studio installation.
 | File | Responsibility |
 |---|---|
 | `semantics.py` | Structural packs, choices, scoped declarations, apply and materialization |
-| `syntax.py` | Strict parser for the supported proposal subset |
+| `syntax.py` | Strict parser for the supported model subset |
 | `examples.py` | Manually specified expected teaching outputs |
 | `test_model.py` | Concrete regressions, family shapes, fresh scopes and limits |
 | `exhaustive.py` | Independent finite structural enumeration and properties |
@@ -65,8 +65,9 @@ not run this Python model automatically.
 Unsupported input is rejected, never silently discarded. The model omits parts of
 the existing DSL, including complete declaration blocks, where clauses, attributes,
 directive/body syntax and some prefix applications. A model rejection does not mean
-the proposal removes that existing syntax.
+the public macro rejects or removes that existing syntax.
 
-The checks validate this model and its generated ordinary Rust types, not the
-production parser, hygiene, diagnostic spans or complete macro pipeline. Finite
-enumeration is evidence for the specified cases, not a proof for every input.
+The checks validate this model and its generated ordinary Rust types. The repository's
+Rust regression suite separately validates the production parser, hygiene, diagnostic
+spans and complete macro pipeline; running the model does not run those checks.
+Finite enumeration is evidence for the specified cases, not a proof for every input.

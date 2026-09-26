@@ -4,7 +4,7 @@ use syn::ItemTrait;
 
 use crate::TraitBounds;
 use crate::apply::err_ty;
-use crate::ast::{Expand, MAX_EXPAND, Op, Ty, TyKind, reset_fresh_counter};
+use crate::ast::{Expand, MAX_EXPAND, Op, Ty, TyError, TyKind, reset_fresh_counter};
 use crate::codegen::generate_impl;
 use crate::parse::{Ctx, parse_item};
 use crate::util::Cursor;
@@ -54,7 +54,7 @@ pub(crate) fn parse_batch_trait_entry(
     impls
 }
 
-/// Parses the cursor into leaf `Ty`s (specs → worklist expansion → leaves)
+/// Parses the cursor into leaf `Ty`s (specs → worklist expansion → materialization)
 /// and aggregates every error. Shared by the three entries (via
 /// [`parse_batch_trait_entry`]) and the preview entry (`batch_preview!`
 /// inspects the leaves before generating) — the single authority for the
@@ -89,7 +89,23 @@ pub(crate) fn collect_spec_leaves(
                         queue.push(e);
                     }
                 }
-                Expand::Leaf(leaf) => tys.push(leaf),
+                Expand::Leaf(leaf) => {
+                    // Extensions receive their DSL before materialization.
+                    // Ordinary leaves share one host-aware pass across all
+                    // entries, so the per-spec cap includes nested choices
+                    // and bare-pack fan-out, not merely top-level lists.
+                    if crate::codegen::top_level_macro(&leaf).is_some() {
+                        tys.push(leaf);
+                    } else {
+                        match crate::ast::materialize_targets(leaf) {
+                            Ok(leaves) => tys.extend(leaves),
+                            Err(error) => tys.push(TyError(error).to_ty()),
+                        }
+                    }
+                }
+            }
+            if tys.len() - start > MAX_EXPAND {
+                break;
             }
         }
         // Global backstop behind the per-step expansion checks (Array
@@ -116,16 +132,6 @@ fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
     if let Ty { kind: TyKind::Error(e), .. } = ty {
         out.push(e.0.clone());
     }
-    // The pack kernel is being integrated independently of the public
-    // parser. A pack reaching the old output pipeline has no materializer;
-    // never reinterpret it as a legacy splat or emit its DSL as Rust.
-    if matches!(ty.kind, TyKind::Pack(_)) {
-        out.push(crate::util::compile_error_str(
-            "batch-impl: internal error: an unmaterialized pack reached the output pipeline",
-            ty.span,
-        ));
-        return;
-    }
     // map_children is the single traversal authority and descends into
     // every child position — parameter lists included (`Box<@0..=2>`'s
     // range carrier, a generator inside `T<...>`), so aggregation cannot
@@ -142,13 +148,13 @@ mod tests {
     use crate::ast::{TyGeneric, TyPack, TyPrimitive, TyTypeParam};
 
     #[test]
-    fn an_internal_pack_cannot_leak_through_a_generic_argument() {
-        let inner = TyPack(vec![]).to_ty();
+    fn errors_inside_packs_are_collected_before_materialization() {
+        let inner = TyPack(vec![err_ty("inner error")]).to_ty();
         let target =
             TyGeneric(TyPrimitive(quote!(Wrapper)).into(), TyTypeParam::single(&inner)).to_ty();
         let mut errors = vec![];
         collect_errors(&target, &mut errors);
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].to_string().contains("unmaterialized pack"));
+        assert!(errors[0].to_string().contains("inner error"));
     }
 }

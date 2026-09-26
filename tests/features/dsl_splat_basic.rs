@@ -19,7 +19,7 @@ trait SplatArr {}
 #[batch_impl((SplatA, SplatB, SplatC).*(SplatD, SplatE, SplatF))]
 trait SplatConcat {}
 
-#[batch_impl((*(().3)))]
+#[batch_impl((*(().3),))]
 trait SplatGen {}
 
 #[batch_impl((SplatA, *(().3)))]
@@ -131,21 +131,18 @@ struct SplatMap<K, V>(K, V);
 #[batch_impl(SplatMap<*(SplatA, SplatB)>)]
 trait SplatGenericArg {}
 
-// Container rule: a group whose content is a lone splat parses as the
-// matching container holding the splat as one element — `(*(a,b))` =
-// `( *(a,b) )` (tuple), `[*(a,b)]` = `[ *(a,b) ]` (array); the splat element
-// expands only in codegen, so the rendered result is `(a, b)` / `[a, b]`.
-// `(*(a,b))` ≡ `(*(a,b),)` on one code path.
+// A comma explicitly selects the tuple host; parentheses alone are a group.
+// Collecting a pack into that host preserves the tuple as one generic arg.
 struct SplatOne<X>(X);
-#[batch_impl(SplatOne.(*(SplatA, SplatB)))]
+#[batch_impl(SplatOne<(*(SplatA, SplatB),)>)]
 trait SplatTupArg {}
 #[batch_impl(SplatOne.(*(SplatA, SplatB),))]
 trait SplatTupArgT {}
-#[batch_impl((*(SplatA, SplatB)))]
+#[batch_impl((*(SplatA, SplatB),))]
 trait SplatTupLone {}
-#[batch_impl((*[SplatA, SplatB]))]
+#[batch_impl((*[SplatA, SplatB],))]
 trait SplatTupArr {}
-#[batch_impl((*()))]
+#[batch_impl((*(),))]
 trait SplatTupEmpty {}
 
 // Splat survival: array elements keep their splat until consumption —

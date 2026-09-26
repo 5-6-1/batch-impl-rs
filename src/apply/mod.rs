@@ -7,7 +7,6 @@ mod pack_limit_tests;
 mod pack_limits;
 #[cfg(test)]
 mod pack_tests;
-pub(crate) mod splat_apply;
 
 // The [`Apply`] trait defines the binary operation `A.apply(B)`: `.` (right-assoc) /
 // space (left-assoc).
@@ -116,12 +115,9 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             // Group transparency: a paren group (`TyGroup`) is unwrapped and
             // the inner type applied instead.
             //
-            // Note: there is deliberately **no** right-operand `Splat` arm — a
-            // right-operand splat falls through to `apply_help` as one whole
-            // argument, so `T.*(A,B,...)` becomes `T<*(A,B,...)>`; flattening
-            // happens only in the codegen postprocess (`expand_splat_elems`).
-            // That is the splat-survival principle: parse/apply/expand never
-            // flatten `*()` / `*[]`, so nested structures stay intact.
+            // A right Pack reaches apply_help whole: ordinary types append
+            // one slot, while a left Pack starts a row-mapping task. Hosts
+            // consume the resulting slots only during materialization.
             TyKind::Group(g) => self.apply(*g.0, span),
             TyKind::WithCode(wc) => match wc.0 {
                 Some(inner) => {
@@ -247,6 +243,7 @@ impl Apply for TyKind {
     fn apply_help(self, o: Ty, span: Span) -> Ty {
         match self {
             TyKind::WithPrefix(wp) => wp.apply_help(o, span),
+            TyKind::Prefixed(p) => TyPrefixed(p.0, p.1.apply(o).into()).to_ty().with_span(span),
             TyKind::WithDyn(wd) => {
                 // `dyn Fn(A).X` → `dyn Fn(A.X)` — the apply passes into the
                 // inner type (the `+ Bound` tail stays attached).
@@ -264,7 +261,6 @@ impl Apply for TyKind {
             TyKind::Array(a) => a.apply_help(o, span),
             TyKind::Tuple(t) => t.apply_help(o, span),
             TyKind::Pack(p) => p.apply_help(o, span),
-            TyKind::Splat(s) => s.apply_help(o, span),
             TyKind::Group(g) => g.apply_help(o, span),
             TyKind::Fn(f) => f.apply_help(o, span),
             TyKind::WithAttr(w) => w.apply_help(o, span),

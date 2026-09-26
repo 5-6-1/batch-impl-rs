@@ -108,7 +108,7 @@ Only the notations that have no section of their own — `@`, `#`, `<>`, the spl
 
 The same construct is legal in different places because the gate is a property of the **position**, not of the list's shape.
 
-| Position | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | generator `().N` | `@` refs | `X<>` sync |
+| Position | bound `T: Clone` | binding `Item = u32` | pack `*X` | generator `().N` | `@` refs | `X<>` sync |
 |---|---|---|---|---|---|---|
 | Trait application `Conv<…> X` | ✓ | ✓ (hoisted into the impl body — `impl Trait<Item=u8> for X` is E0229) | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓ (fresh declarations hoisted onto the impl) | ✓ | ✓ |
 | Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✓ `<*(A,B)>` → `<A, B>` | ✗ targeted error (the block *is* the impl's parameter list, so its freshs would never be used; ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
@@ -129,7 +129,7 @@ The type domain has one operator with two spellings; everything else is a block.
 
 ### 3.1 Blocks
 
-A block is one atom: a path, a group `(...)`, a list `[...]`, a tuple, a prefix (`&`, `&mut`, `*const`, `*mut`, `unsafe`, `self`, `#[...]`), a splat (`*(...)` / `*[...]`), a generator (`().N`), an `@`-constant result, or a directive's output. Attachments (`{body}`, `where{...}`, `impl{...}`) are blocks too, and they may follow a spec in any order (§1.1).
+A block is one atom: a path, a group `(...)`, a list `[...]`, a tuple, a prefix (`&`, `&mut`, `*const`, `*mut`, `unsafe`, `self`, `#[...]`), a pack (`*X`, including `*(...)` / `*[...]`), a generator (`().N`), an `@`-constant result, or a directive's output. Attachments (`{body}`, `where{...}`, `impl{...}`) are blocks too, and they may follow a spec in any order (§1.1).
 
 ### 3.2 The two spellings
 
@@ -146,13 +146,13 @@ Two consequences worth remembering: **to nest, chain with `.`** (`Box Vec u8` ne
 
 ### 3.3 Lists and tuples
 
-`[A, B] T` distributes the trailing type over the elements — one impl each (`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); a bare list at the target position is the same thing spelled as impls. `(A, B)` is one tuple value; `(A)` is transparent; `[A]` as a type is a slice, `[u8; 3]` an array. A list is a **set** and a tuple a **sequence** — the distinction shows up under a splat operand (§4).
+`[A, B] T` distributes the trailing type over the elements — one impl each (`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); a bare list at the target position is the same thing spelled as impls. `(A, B)` is one tuple value; `(A)` is transparent; `[A]` as a type is a slice, `[u8; 3]` an array. Lists provide **candidate branches**, while tuples provide **fields that coexist**. `*` opens either one's direct members into the same kind of pack (§4). Neither lists nor packs deduplicate targets.
 
 ### 3.4 Power `.N`
 
-The power is written `.N`, attached to the value it repeats: `T.N` expands a tuple or a generator into the Cartesian product of `N` positions — `(u8, u16).2` is every ordered pair over `{u8, u16}`, i.e. four impls, and `Frac.*(*@u*).2` feeds both generic positions for 36 (`examples/typeclass.rs`; the argument spelling `Frac<*(*@u*).2>` gives the same 36). The per-spec ceiling of 1024 impls (§11) is what reports a mistyped exponent.
+The power is written `.N`, attached to the value it repeats: `T.N` expands a tuple or a generator into the Cartesian product of `N` positions — `(u8, u16).2` is every ordered pair over `{u8, u16}`, i.e. four impls, and `Frac.*(*@u*).2` feeds both generic positions for 36 (`examples/typeclass.rs`; the argument spelling `Frac<*(*@u*).2>` gives the same 36). The per-spec ceiling of 1024 impls (§12) is what reports a mistyped exponent.
 
-`*().N` re-wraps its fresh parameters into a splat so a following operand can append them: `T.*().2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
+`*().N` generates a pack of N fresh parameters, whose members are spliced into an argument or tuple host: `T.*().2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
 
 **The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected with the retired-operator message quoted in §10.1 (`caret_power_retired`) — on the caret itself, naming the `.N` spelling that works. The same message covers a caret in a **bound** position (`<T: Tr^u8>`). Older docs spell the power with `^`, so write `.N`.
 
@@ -169,12 +169,12 @@ When the head names the annotated trait (or is `@trait`), the first element is t
 | Spelling | What happens |
 |---|---|
 | `A.` / `.A` / `,A` | missing operand, targeted error (§10.1) |
-| `(A)` vs `A` | the same type; `(*(a,b))` is the container holding a splat as one element |
+| `(A)` vs `A` | the same expression, including packs; write `(*X,)` to construct a tuple |
 | `[A]` vs `[A, B]` | a slice vs two impls |
 | `Box u8 u16` | `Box<u8, u16>` — two arguments, not nested generics |
 | `Box Vec u8` | `Box<Vec, u8>` — the space accumulates; use grouping (`Box (Vec u8)`) or `.` (`Box.Vec.u8`) for `Box<Vec<u8>>` |
 | `& Box u8` | `&Box<u8>` — the prefix takes the following block |
-| `*(A,B)` alone as the target | one impl per element; `(A,B)` instead gives one tuple impl (collision rules: §4.5) |
+| `*(A,B)` alone as the target | one impl per element; `(A,B)` instead gives one tuple impl (collision rules: §4.6) |
 | a nested type like `HashMap<String, Vec<(u8, u16)>>` | written and parsed directly — no passthrough form |
 
 ### 3.8 Prefixes and attributes
@@ -184,88 +184,156 @@ A prefix is a block that takes the block after it (`& Box u8` = `&Box<u8>`). Whe
 | Prefix | Meaning | Legal where | Note |
 |---|---|---|---|
 | `&` / `&mut` | reference type | any type position | `& Box u8`, `&str`, `&mut [u8]` |
-| `*const` / `*mut` | raw-pointer type | any type position | decided by the following token, so it never reads as a splat (§4.5) |
+| `*const` / `*mut` | raw-pointer type | any type position | decided by the following token, so it never reads as a pack (§4.1) |
 | `unsafe` | **impl** marker when applied with `.`; a fn **type** otherwise | `unsafe.fn(A) -> B` marks the impl; `unsafe fn(A) -> B` is the type | the reading most often confused (tutorial §10) |
 | `#[...]` | attribute on the generated impl | attached to a spec | `#[cfg(all())] u8`; the DSL never enters the attribute |
 | `!` | never type | an `fn` return position | `fn(u8) -> !`; a `!` block has no apply meaning |
 | `self` | identity prefix | the spec head position | `self T` = `T` — the bare-type placeholder of a matrix |
 | `fn` family (`fn` / `Fn` / `FnMut` / `FnOnce` / the async forms) | callable type | any type position | its parameter list is a parameter-position list (§4.4) |
 
-## 4. Splat `*`
+## 4. Packs `*`
 
 ### 4.1 The rule
 
-A splat splices a container or a generator into the enclosing **parameter-position list**. It stays a whole unit through parse and apply and expands **once**, in codegen, so nothing downstream ever sees half-flattened arguments. Expansion is **one layer**:
+`*X` opens one block into a **pack**. Transparent groups do not change it.
+A tuple or choice list contributes its direct members; a pack stays a pack;
+any other type contributes one whole member. Declaration carriers accompany
+their members. Opening does not recursively enter ordinary types.
 
-| Written | Result | Why |
-|---|---|---|
-| `(u8, *(u16, u32))` | `(u8, u16, u32)` | a tuple's elements splice |
-| `*((a, b),)` | one `(a, b)` impl | a tuple is a **type**, so it stays a single element |
-| `Box<*(u8, u16)>` | `Box<u8, u16>` | generic args are a parameter list |
-| `Box<*(*[u8, u16])>` | `Box<u8, u16>` | a nested splat splices into the same list |
-| `[u8, *()]` | one impl (`u8`) | an empty splat splices nothing |
+`*(A, B)` and `*[A, B]` therefore have the same pack representation.
+`*A` is a singleton, `*()` is empty, and `*(*X)` equals `*X`.
+There is no special double-star operation. `*const T` and `*mut T`
+are raw pointers, selected before the pack prefix is considered.
 
-### 4.2 A lone splat in a group
+### 4.2 Groups, tuples and choices
 
-`(*(a,b))` parses as the container holding the splat as **one element** — `( *(a,b) )` — and `[*(a,b)]` the same way; the element expands at render time, so the results are `(a, b)` and `[a, b]`. That is the container rule: a group whose content is a lone splat *is* the container, not a splice point.
+The presence of `*` does not change bracket parsing:
+`(X)` is a group, `(X,)` is a tuple, `[X]` is a slice, and
+`[X,]` is a choice list. The existing `(@0..)` meta-range tuple
+spelling keeps its separate rule (§5).
 
-### 4.3 Which operand is which
-
-- **Left operand — the source bracket decides**: `*[...] T` **distributes**, keeping set semantics (`*[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); `*(...) T` **appends**, keeping list semantics (`*(Box, Rc) u8` → the list `Box, Rc, u8`, i.e. three impls).
-- **Right operand — stays whole**: `T.*(A,B)` is `T<*(A,B)>` in the pipeline and `T<A, B>` in the output (measured: `Box.*(u8, u16)` → `Box<u8, u16>`).
-
-### 4.4 Where it expands
-
-| Position | Result |
+| Written | Meaning |
 |---|---|
-| Generic args / trait-application args `T<*(A,B)>`, `Conv<*(A,B)> X` | ✓ expands to `T<A,B>` / `Conv<A,B>` |
-| Tuple element `(u8, *(u16, u32))` | ✓ expands to `(u8, u16, u32)` |
-| Spec-list element `[u8, *()]`, `[*(u8), *(u16)]` | ✓ flattened in the expand phase (one impl per surviving element) |
-| `dyn` bound tail `dyn Tr<*(u8, u16)>` | ✓ expands to `dyn Tr<u8, u16>` |
-| Generic declaration block `<T, *(A,B)>` / `<*(A,B)>` | ✓ expands to `<T, A, B>` / `<A, B>`; a `*().N` splat hoists the declaration it carries, while a **generator** there is a targeted error (§10.1) |
-| fn parameter list `fn(*(u8, u16))` / `fn(u8, *(u16, u32))` | ✓ expands to `fn(u8, u16)` / `fn(u8, u16, u32)` — an `Fn`-family callable (`Fn(*(A,B)) -> C`) is the same parameter list |
-| Inline bound `<T: Tr<*(u8, u16)>>` | ✓ expands to `<T: Tr<u8, u16>>` (a declaration hoisted out of the bound rides out to the impl, as in any bound) |
-| **`where` predicate** `where{T: Tr<*(u8, u16)>}` | ✗ reported by the predicate check (§7), not leaked to rustc |
+| `(*(A, B))` | a grouped pack; two targets at the root |
+| `(*(A, B),)` | one tuple `(A, B)` |
+| `[*(A, B)]` | a slice element slot containing two members: error |
+| `[*(A, B),]` | a choice whose pack contributes targets `A`, `B` |
+| `*((A, B),)` | one pack member: the whole tuple `(A, B)` |
+| `*(A, [B, C])` | two branches, containing `A, B` or `A, C` |
+| `*(A, *[B, C])` | one pack containing `A, B, C` |
 
-> The last row is the one deliberate exception, and it is not a gap: the where clause is token-level from resolution to the rendered output, so the **predicate check** reports the splat. Every other parameter-position list expands — a splat is never handed to rustc verbatim.
+Choices do not turn into members merely because they are inside a pack.
+They keep their branching role until explicitly opened.
 
-### 4.5 Boundaries
+### 4.3 Application
 
-| Written | What happens |
+Application preserves the existing left-associative space and
+right-associative dot. The dispatch order is:
+
+1. Carry declarations; dispatch exposed choices (right before left).
+2. Generate range branches; tuple/pack plus a number performs a power.
+3. With two packs, visit each direct right member as one row. Map the
+   entire left pack over that row, retaining the nested result.
+4. With only a left pack, apply each of its members to the whole right
+   operand. Recursive left packs continue this same task; a chosen right
+   row is never split again inside it.
+5. Otherwise use ordinary application: `self` returns the whole right
+   operand, a generic appends one argument slot, and a tuple appends one
+   element slot.
+
+| Written | Result when placed in a tuple |
 |---|---|
-| `*const u8` / `*mut u8` | a pointer type: the `*` is decided by the following token, not taken as a splat |
-| a bare `*` (neither splat nor pointer) | targeted error (ui `star_misuse`) |
-| `*(u8, u16)` as the **target** | one impl per element (`u8`, `u16`); repeated elements collide — `*(u8, u8)` is two `impl … for u8` (E0119) |
-| `*().2` as the target | one impl per fresh (`P0`, `P1`) |
-| `Box<*().2>` | the generic arg carries the declaration: `impl<P0, P1> … for Box<P0, P1>` |
-| a generator inside a `<>` **declaration block** | targeted error — the block *is* the impl's parameter list (§10.1) |
-| a splat inside an `impl{...}` template | the template must be a standard Rust type, so DSL operators are rejected (§10.6) |
-| a splat inside a `where` predicate | reported by the predicate check (§7) |
+| `(*(Vec, Box) u8,)` | `(Vec<u8>, Box<u8>)` |
+| `(*Vec *(u8, u16),)` | `(Vec<u8>, Vec<u16>)` |
+| `(*Pair (*(self, Vec) *().2),)` | `(Pair<T0, Vec<T0>>, Pair<T1, Vec<T1>>)` |
+| `(*((),) (*(self, Vec) *().2),)` | `((T0, Vec<T0>), (T1, Vec<T1>))` |
+| `(*Map *().2 *().3,)` | `(Map<T0,U0>, Map<T1,U0>, Map<T0,U1>, Map<T1,U1>, Map<T0,U2>, Map<T1,U2>)` |
 
-For `u8` and `u16`, the standalone splat produces separate impls; the tuple form keeps them together:
+An ordinary left type does not map: `Pair *(A, B)` keeps the pack in an
+argument slot and materializes as `Pair<A, B>`.
+Literal `F<...>` consumes its arguments directly; it never replays
+application. These are evaluation rules, not unrestricted rewrites of
+already-constructed intermediate nodes.
 
-```rust
-# use batch_impl::batch_impl;
-#[batch_impl(*(u8, u16))]
-trait Each {}
-#[batch_impl((u8, u16))]
-trait Together {}
-# fn each<T: Each>() {}
-# each::<u8>();
-# each::<u16>();
-# fn together<T: Together>() {}
-# together::<(u8, u16)>();
-```
+### 4.4 Materialization by host
 
-### 4.6 Crossings
+After application, choices branch and packs splice into the surrounding
+host. Nested packs flatten; ordinary tuple types remain members.
+No apply or fresh generation occurs during this step.
 
-| With | Spelling | Measured |
-|---|---|---|
-| `@` constants (§5) | `Box<*(@u*)>` | `Box<u8, u16, u32, u64, u128, usize>` — the constant is spliced first, the splat expands in codegen |
-| the power (`.N`) | `*(u8, u16).2` | eight impls: the four Cartesian pairs, each spliced into its two elements |
-| the power, caret spelling | `*(u8, u16)^2`, `Box^*()^2`, `Box<()^2>` | **rejected** — the retired-operator message (§10.1); the caret is not a DSL operator, the power is written `.N` |
-| `#` directives (§6) | a directive whose arguments come from a spec | the directive domain parses its own argument list; the type domain never enters it, and vice versa |
-| `impl{...}` templates, variadic segments and repeat blocks (§8) | `impl{(A@..,)}` with `@(…@0,)..` | the template is standard Rust (no splat inside it); variadic segments and repeat blocks are the template system's own machinery |
+| Host | Consumption |
+|---|---|
+| Bare target | one impl per pack member; no deduplication |
+| Tuple elements, generic / trait arguments, callable parameters | any number of members, in order |
+| Reference or pointer target, slice / array element, function return | exactly one member in each branch |
+| Individual `+` bound, associated-type binding value, parsed type head of a qualified path | exactly one member in each branch |
+| Declaration block `<*(A, B)>` | splice names, then validate declarations; a fresh generator here is rejected |
+| `where{...}`, `impl{...}` template | standard Rust type domain; no pack operators |
+| Body / directive arguments | their own syntax domain; no pack interpretation |
+
+For example, `fn(*(u8, u16))` is `fn(u8, u16)`,
+`&*u8` is `&u8`, and `&*(u8, u16)` is a targeted error.
+A choice with no branches emits nothing; a selected empty pack in a
+single-type slot is an error.
+
+The `::Assoc<...>` continuation of a qualified path and the trait path after
+`as` in `<T as Trait>::Assoc` remain ordinary Rust paths; packs are not spliced
+inside those parts. They differ from the parsed type head that can receive a pack.
+
+### 4.5 Generators, identities and limits
+
+Ordinary tuple powers operate on direct slots:
+`([A, B],).2` retains four combinations, while
+`(*(A, B),).2` repeats the one pack slot and becomes `(A, B, A, B)`.
+Pack powers first flatten nested packs and transparent groups, carrying
+declarations but keeping ordinary tuples and choices intact, then use the
+ordinary power rules. The generated tuple in each branch is returned as
+a pack.
+
+`*().N` generates `N` independent parameters; `.0` allocates none.
+Copying a generated parameter preserves identity. Distinct generator
+executions allocate distinct groups. Thus `(*(),).2` becomes unit with
+no declarations, whereas `*(*(),).2` generates two parameters.
+
+Declarations are not erased because a host has no members:
+`(*Map *().2 *().0,)` leaves two unused parameters on unit (E0207).
+By contrast, `(*(().2),).0` discards the whole template before
+materialization and has no declarations.
+
+The general expansion and nesting ceilings still apply (§12). Pack
+operations additionally check aggregate structural work, including
+declarations and nested members; reaching the work ceiling can happen
+before reaching 1024 final impls. A nominal length of 1024 is not a
+promise that every nested construction of that length fits.
+
+### 4.6 Branches, coherence and migration
+
+`([*Vec, *Box] *().2,)` makes two uniform branches.
+`(*([Vec, Box],) *().2,)` makes four independent choices.
+`(*(Vec, Box) *().2,)` makes one tuple containing four members.
+There is no global step that freezes every nested choice before apply.
+
+A fixed two-axis pack can share five parameters across six members.
+Flattening two *length ranges* can nevertheless yield overlapping generic
+impl patterns (E0119). Retaining rows with
+`(*((),) (*Map *().1..=2 *().1..=3),)` preserves the dimensions.
+Repeated targets are never silently removed.
+
+Migration from the previous splat behavior:
+
+- `*(F, G) T` now maps both constructors. For the old tuple-append
+  behavior, write `*((F, G) T)`.
+- `*[F, G].2` now uses the same pack power as `*(F, G).2`.
+- A lone pack no longer promotes a group to a container. Add the comma
+  when you mean `(*X,)` or `[*X,]`.
+- Nested ordinary choices remain choices. Use another explicit `*`
+  when you intend to gather their members.
+- Existing right-side splicing such as `T.*(A, B)` still works.
+
+The [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md)
+§4 includes complete programs. The
+[model contract](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/contract.md)
+records the evaluation stages and counterexamples.
 
 ## 5. The `@` Macro-Meta Layer
 
@@ -435,6 +503,8 @@ Receiver `Self` follows the deref/borrow rules; `Self::Assoc` projections are al
 A `#name(args){body}` whose name is neither a built-in directive nor a trait item expands to a call of **your** function-like macro of the same name, handed the arguments, the body and the trait definition. The `{! ...}` block is **top-level only** since 0.6.7 — it prepends the spec body and emits the macro call at top level — and it must be the last block (`top_level_block_not_last`, `top_level_manual_not_last`, `top_level_without_attach`); the legacy in-impl form `T {m!{...}}` (no `!`) is deprecated since 0.7.2 but still accepted.
 
 Worth knowing: there is **no typo guard on directive names**, so a mistyped built-in silently becomes a macro call and surfaces as rustc's own "macro not found" — check the spelling against §6.3–§6.6 first.
+
+An open extension receives `{spec}` before type materialization, so packs and candidates may remain inside it. A custom macro can capture `$($spec:tt)*` and re-enter the DSL through `batch_impl_only`; arbitrary specs are not `$target:ty`. The reference receiver `batch_preprocess_test!` supports only a plain Rust target and a non-generic trait.
 
 ### 6.8 Boundaries and crossings
 
@@ -685,7 +755,13 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `semi_in_spec` | a stray `;` after a type | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
 | `caret_power_retired` | `(u8, u16)^2`, `<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator) | DSL |
-| `star_misuse` | a bare `*` | batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
+| `star_misuse` | a bare `*` | batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); raw pointers use `*const T` or `*mut T` | DSL |
+| `pack_single_slot` | a single-type host receives zero or multiple types; `<*(Vec<u8>,)>` declares a constructed type; or copying nested structures across 10 independent choice slots exceeds the cumulative budget | batch-impl: this type position requires exactly one type; the pack expands to 2 types (0 types for an empty pack); declaration error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type; work error: batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
+| `pack_flat_overlap` | overlapping flat family `(*Map *().1..=2 *().1..=3,)` | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
+| `pack_unused_axis` | `(*Map *().2 *().0,)` retains unconstrained first-axis parameters | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
+| `pack_bare_fresh` | `*().2` emits individual targets with the complete declarations | conflicting implementations of trait `BareFresh`; unconstrained parameters are also reported | rustc E0119 / E0207 |
+| `pack_duplicate` | `*(u8,u8)` does not deduplicate | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
+| `pack_shared_identity` | mismatched Pair types at one fresh position, or mixing a uniform wrapper choice | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
 | `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: unexpected `#` in a type position | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…`) are not allowed there | DSL |
@@ -734,12 +810,12 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `at_range_in_type` | `Vec<@0..=2>` with none | batch-impl: `@0..=2` out of range — this scope has 0 fresh generics (numbered from 0 in document order) | DSL |
 | `at_empty_range_in_angle` | `Box<@2..1>` | batch-impl: empty exclusive range `@2..1` (start not below end) | DSL |
 | `at_open_range_bare` | a top-level `A@..` | batch-impl: range constant `@..` must name an end point (e.g. `@..u128`, `@..=f64`) | DSL |
-| `at_binding_splat` | `Tr<Item = *(A,B)>` | batch-impl: a splat cannot be an associated-type binding value (`Item = *(A,B)` — bindings take exactly one type; distribute via a spec list like `[Tr<Item=A>, Tr<Item=B>]`) | DSL |
+| `at_binding_splat` | `Tr<Item = *(A,B)>`; a binding value accepts one type per branch | batch-impl: this type position requires exactly one type; the pack expands to 2 types | DSL |
 | `at_segment_carrier_in_body` | a `@{...}` carrier in a body | batch-impl: `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are referenced through repeat blocks (`@A`) or an explicit template name (`impl{(A0, @A..)}`), never as `@{...}` | DSL |
 | `error_aggregation_codegen` | several dangling `@N` references | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `empty_range` | an empty numeric range in a spec | batch-impl: range `3..2` is empty (start not below end); no impls will be generated | DSL |
 | `expand_limit` | `(...).2000` | batch-impl: `tuple .2000` expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
-| `bound_gen_over_limit` | a bound-generator product of 29791 | batch-impl: bound-generator distribution expands to 29791 impls (limit 1024); reduce the range sizes | DSL |
+| `bound_gen_over_limit` | a bound-generator product of 29791 | batch-impl: `materialization` expands to 29791 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
 | `at_trait_inherent_impl` | `@trait` on an inherent `impl Vec<u8> {}` | batch-impl: `@trait` is not available on an inherent impl (there is no trait to refer to) | DSL |
 
 ### 10.4 Bindings, bounds and function types
@@ -834,6 +910,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | --- | --- | --- | --- |
 | `preview_ok` | `batch_preview! { #[batch_impl(usize, isize)] trait Pv {} }` | batch-impl preview: 2 impl(s) generated | channel |
 | `preview_miswrite` | a mis-written preview body | batch-impl preview: 1 impl(s) generated | channel |
+| `preview_pack` | concrete Vec pack and Pair pack with shared fresh parameters | batch-impl preview: 1 impl(s) generated | channel |
 
 ### 10.10 Known leaks (rustc writes the wording)
 
@@ -974,7 +1051,7 @@ Each of these is a question the surface invites, answered with the rule that pro
 
 **Why is a splat refused in a `where` predicate?** The clause stays token-level all the way to the output, so the final predicate check reports it. Every other parameter-position list expands (§4).
 
-**How does `*(A,B)` alone as the target differ from `(A,B)`?** The standalone splat generates an impl for each element; the tuple generates one impl for `(A,B)`. Distinct elements such as `u8` and `u16` work in the splat form. E0119 comes from overlapping generated impls, for example `*(u8, u8)`, not from using a splat as the target (§4.5).
+**How does `*(A,B)` alone as the target differ from `(A,B)`?** The standalone splat generates an impl for each element; the tuple generates one impl for `(A,B)`. Distinct elements such as `u8` and `u16` work in the splat form. E0119 comes from overlapping generated impls, for example `*(u8, u8)`, not from using a splat as the target (§4.6).
 
 **Why does `@0..2` cover two freshs?** An exclusive range excludes its end in *every* position, so the type path and the where-predicate path agree — write `@0..=1` for the inclusive spelling.
 

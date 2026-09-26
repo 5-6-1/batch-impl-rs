@@ -7,6 +7,27 @@ use crate::util::MAX_NEST_DEPTH;
 use quote::{ToTokens, quote};
 
 #[test]
+fn applying_through_type_wrappers_keeps_the_current_row() {
+    let wrappers: [fn(Ty) -> Ty; 8] = [
+        |t| TyWithPrefix(TyPrefix::Ref, t.into()).to_ty(),
+        |t| TyWithPrefix(TyPrefix::RefMut, t.into()).to_ty(),
+        |t| TyWithPrefix(TyPrefix::PtrConst, t.into()).to_ty(),
+        |t| TyWithPrefix(TyPrefix::PtrMut, t.into()).to_ty(),
+        |t| TyWithPrefix(TyPrefix::Unsafe, t.into()).to_ty(),
+        |t| TyPrefixed(quote!(&'a), t.into()).to_ty(),
+        |t| TyWithDyn(t.into(), TyBoundList(vec![atom("Send")])).to_ty(),
+        |t| TyWithFor(vec![TyLifetime(quote!('a)).to_ty()], t.into()).to_ty(),
+    ];
+    let row = pack(vec![atom("A"), atom("B")]);
+    for wrap in wrappers {
+        let actual = map_task(wrap(pack(vec![atom("Pair")])), row.clone());
+        same(&actual, &wrap(pack(vec![atom("Pair").apply(row.clone())])));
+    }
+    // Identity is not a passthrough modifier: its operand remains one row.
+    same(&map_task(identity(), row.clone()), &row);
+}
+
+#[test]
 fn right_errors_survive_empty_packs_without_being_duplicated() {
     let error = super::err_ty("sentinel");
     for left in [pack(vec![]), pack(vec![atom("F"), atom("G")])] {

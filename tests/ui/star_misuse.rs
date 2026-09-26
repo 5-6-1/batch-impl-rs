@@ -1,7 +1,7 @@
-//! `*` misuse — it must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const`/`*mut`).
+//! A pack prefix requires an operand.
 use batch_impl::batch_impl;
 
-#[batch_impl(*u8)]
+#[batch_impl(*)]
 trait StarMisuse {}
 
 fn main() {}

@@ -1,15 +1,16 @@
-# From per-position wrappers to heterogeneous combinations: the `*` pack proposal
+# From per-position wrappers to heterogeneous combinations: `*` packs
 
 English | [简体中文](tutorial.zh-CN.md)
 
-This is a **design proposal tutorial** for the independent v2 model in this directory.
-The new spellings have not entered the production batch-impl implementation and cannot
-be pasted into the current macro. The blocks show proposed type expressions and their
-expected Rust types; method bodies still belong to batch-impl's existing mechanisms.
+This tutorial follows the independent v2 model in this directory. Its Pack semantics
+are integrated into **batch-impl 0.10.0 in development (unreleased)**. The blocks show
+type expressions and their generated Rust types, not complete macro programs;
+method bodies still belong to batch-impl's existing mechanisms.
 
 The model runs, and every marked example has a fixed expected result. The unified runner
 generates `target/pack-model/generated_examples.rs`: ordinary Rust that checks the target
-types and parameter relationships, not a pretend implementation of the new macro syntax.
+types and parameter relationships independently. The repository's Rust regression
+suite separately validates the public macro.
 
 Keep one sentence in mind: **an ordinary constructor takes a whole pack as arguments;
 a starred constructor works on entries; each application opens only the current layer
@@ -198,7 +199,7 @@ form first constructs `Vec Box`, then appends arguments; it does not return to f
 the inside of `Box`.
 
 Likewise, `Vec.Box` is already `Vec<Box>`. Putting it in a pack does not turn it into
-a function with an implicit parameter hole. This proposal introduces neither arbitrary templates nor lambdas.
+a function with an implicit parameter hole. Packs introduce neither arbitrary templates nor lambdas.
 
 ## 6. Combine two axes and choose whether to keep rows
 
@@ -313,7 +314,7 @@ can materialize as `&u8`; `&*(u8,u16)` must report an error.
 is transparent and `(X,)` is a one-tuple; `[X]` is a slice and `[X,]` is a one-item
 candidate list. Rust raw pointers `*const` and `*mut` take parsing precedence.
 Existing positional-reference meta-syntax such as `@` has its own grouping contract;
-this proposal does not redefine it, and the independent model does not cover it.
+Pack support does not redefine it, and the independent model does not cover it.
 
 **An empty pack differs from a pack containing an empty tuple.** `*()` has no members;
 `*((),)` has one ordinary tuple constructor; `*(*(),)` has one empty argument-pack row.
@@ -326,7 +327,7 @@ Duplicate targets are not deduplicated either.
 
 ## 9. Explicitly accept the migration changes
 
-| Existing behavior or expression | Proposal | Preserve the previous intention |
+| Existing behavior or expression | 0.10.0 Pack semantics | Preserve the previous intention |
 |---|---|---|
 | `*(F,G) T` appends T | Apply F and G separately | `*((F,G) T)` |
 | `*(...)` and `*[...]` retain tuple/list origins | One pack representation | Use ordinary tuples or explicit candidates for the required distinction |
@@ -335,9 +336,9 @@ Duplicate targets are not deduplicated either.
 | `[*(A,B)]` uses the lone-splat exception as a list | Without a comma it remains a slice | `[*(A,B),]` |
 | Ordinary candidates inside a pack flatten into simultaneous members | Candidates remain choices | Explicitly star the candidate layer to collect |
 
-This needs review as a breaking 0.10 semantic change, not fully compatible syntax
-sugar. Ordinary tuple power keeps its existing direct-slot rule: `(*(A,B),).2`
-must remain a single `(A,B,A,B)` target.
+This is a breaking 0.10.0 semantic change, not fully compatible syntax sugar.
+Ordinary tuple power keeps its existing direct-slot rule: `(*(A,B),).2`
+remains a single `(A,B,A,B)` target.
 
 ## 10. Run the model and inspect validation
 
@@ -351,10 +352,10 @@ python tests/pack_model/run.py --eval "(*((),) (*(self,Vec) *().3),)"
 `syntax.py` is a strict subset parser: unsupported input reports an error rather
 than silently dropping characters. It does not implement all existing library
 syntax, including full declarations, where clauses, bindings, attributes and some
-prefix applications. Rejecting these in the model does not propose banning them.
+prefix applications. Rejection by the model does not prohibit them in the public macro.
 
-See [contract.md](contract.md) for precise rules, corrections and remaining integration
-work. A run writes its reports to `target/pack-model/validation.json` and
+See [contract.md](contract.md) for precise rules, corrections and production-validation
+boundaries. A run writes its reports to `target/pack-model/validation.json` and
 `target/pack-model/exhaustive_results.json`. Finite checks cannot prove the absence
 of all defects. The current claim is limited to closing the core counterexamples
 found in this audit and explaining the main constructions and teaching examples

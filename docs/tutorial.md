@@ -22,8 +22,8 @@ impl, or are implementing an external trait, start with
 Both are everyday routes; neither requires shape templates or generators.
 
 Use the remaining chapters by topic. Learn ordinary types and generics
-before splat, which becomes useful when you need to fill several type
-arguments at once. The task already introduces signature copying and simple
+before packs, which become useful when you need several type arguments or
+per-position wrappers. The task already introduces signature copying and simple
 delegation. Consult complete directive rules, generators and custom
 extensions when needed, rather than reading every chapter in order.
 
@@ -48,7 +48,7 @@ diagnostic demonstrations below use `text` blocks.
 | declare generics, inherit or add bounds, use a qualified type | [§5](#5-generics-) | basic |
 | use ordinary Rust `where` bounds | [§8.1–§8.3](#81-where-predicates) | basic |
 | consult complete directive rules | [§7](#7-the-directive-system-) | as needed |
-| splice a container/generator into a list (`*`) | [§4](#4-splat---the-flatten-operator-the-protagonist-of-070), after generics | as needed |
+| map members and splice arguments (`*`) | [§4](#4-packs---mapping-and-splicing), after generics | as needed |
 | generate tuples, every arity, and Cartesian matrices | [§9](#9-tuple-generation-and-matrices) | as needed |
 | use references, pointers, `unsafe`, attributes, `!`, `self` | [§10](#10-the-modifier-gallery) | as needed |
 | pick between the entry macros | [§11](#11-entry-points) | as needed |
@@ -536,116 +536,196 @@ it into a separate spec as in
 [§1.3](#13-give-a-special-type-its-own-spec),
 so each target receives only one definition.
 
-## 4. splat `*` — the Flatten Operator (the protagonist of 0.7.0)
+## 4. Packs `*` — Mapping and Splicing
 
-The splat draws its intuition from Python's `*` unpacking — `[a, *b]` splices a list, `f(*args)` unfolds arguments. batch-impl's `*` is the same **single-layer unpack**: a splat splices a container/generator into the enclosing list, expanding exactly one level.
+A pack is a list of type expressions waiting for a host. `*X` opens the
+direct members of a tuple or choice list; any other type becomes a one-member
+pack. A pack does not remember whether it came from `()` or `[]`.
 
-| Python | batch-impl |
-|---|---|
-| `[a, *b]` | `[A, *[B, C]]` — splice a list into the outer list |
-| `f(*args)` | `T *(A, B, C)` — unfold a generator into argument positions |
-| one level of unpack | `*((a,b),)` = one `(a,b)` impl (tuples stay intact) |
-
-**Motivation**: `*` compresses a nested generator into a multi-arg container. Instead of hand-writing `T [A,B,C] [A,B,C] [A,B,C]` (27 combos of nested lists), one line gives the same 27 impls:
-
-```rust
-# use batch_impl::batch_impl;
-struct T<A, B, C>(A, B, C);   // 3-arg container
-struct A; struct B; struct C;
-#[batch_impl(T *(A, B, C).3)]  // splat-pow: unfold (A,B,C).3 into three arg positions
-trait Matrix27 {}
-// → 27 impls: T<A,A,A> / T<A,A,B> / ... / T<C,C,C>(same as T [A,B,C] [A,B,C] [A,B,C])
-```
-
-`*[...]` / `*(...)` splices a container/generator into the enclosing list.
-The supported positions are listed in §4.6.
+Three steps cover the common cases: **open members, apply a rule, place the
+result**. `(*Vec *().3,)` opens three fresh parameters, wraps each in `Vec`,
+then places the results in one tuple.
 
 ### 4.1 In-list / in-tuple splicing
 
-```rust
-# use batch_impl::batch_impl;
-# struct A; struct B; struct C;
-#[batch_impl([A, *[B, C]])]
-trait T {}
-// → impl T for A {} / B / C(splice: `[A, *[B, C]]` = `[A, B, C]`)
-
-#[batch_impl((A, *(B, C)))]
-trait U {}
-// → impl U for (A, B, C) {}(tuple splice appends)
-```
-
-### 4.2 Left operand: distribute vs append
-
-The source brackets determine what a left splat does. `*[A,B] T`
-**distributes**: each element receives `T`, giving `*[A.T,B.T]`.
-`*(A,B) T` **appends**: `T` joins the sequence, giving `*(A,B,T)`.
+An ordinary type inside a pack remains whole. Nested packs splice, but an
+ordinary tuple is still one type.
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl(*[Vec, Box] u8)]        // array splat distributes: each element applies u8
-trait T1 {}
-// → impl T1 for Vec<u8> {} / Box<u8>
+use batch_impl::batch_impl;
 
-#[batch_impl(*(Vec<u8>, Box<u8>) u16)]  // tuple splat appends: the right operand joins
-trait T2 {}
-// → impl T2 for Vec<u8> {} / Box<u8> / u16(append)
+#[batch_impl([u8, *[u16, u32]])]
+trait Each {}
+
+#[batch_impl((u8, *(u16, u32)))]
+trait Together {}
+
+#[batch_impl(*((u8, u16),))]
+trait OneTuple {}
+
+fn main() {
+    fn each<T: Each>() {}
+    fn together<T: Together>() {}
+    fn one<T: OneTuple>() {}
+    each::<u32>();
+    together::<(u8, u16, u32)>();
+    one::<(u8, u16)>();
+}
 ```
+
+### 4.2 Left operand: apply one rule to each member
+
+A left pack maps its members over the right operand. `*(Vec, Box) u8`
+and `*[Vec, Box] u8` both produce `Vec<u8>` and `Box<u8>`.
+An ordinary left type keeps the right pack as one argument slot:
+`Pair *(u8, u16)` becomes `Pair<u8, u16>` when that slot is consumed.
+
+When both operands are packs, each **direct right member is one row**.
+All left members receive that whole row. Right rows are outermost; left
+members are innermost. An already-built row is not opened again during
+that mapping task.
+
+```rust
+use batch_impl::batch_impl;
+
+struct Pair<A, B>(A, B);
+
+#[batch_impl((*Vec *().1..=3,))]
+trait Wrapped {}
+
+#[batch_impl((*Pair (*(self, Vec) *().1..=3),))]
+trait Paired {}
+
+#[batch_impl((*((),) (*(self, Vec) *().3),))]
+trait Rows {}
+
+fn main() {
+    fn wrapped<T: Wrapped>() {}
+    fn paired<T: Paired>() {}
+    fn rows<T: Rows>() {}
+    wrapped::<(Vec<u8>, Vec<bool>)>();
+    paired::<(Pair<u8, Vec<u8>>, Pair<bool, Vec<bool>>)>();
+    rows::<((u8, Vec<u8>), (bool, Vec<bool>), (i32, Vec<i32>))>();
+}
+```
+
+`self` returns its whole argument. Thus `*(self, Vec)` builds the two
+members `T, Vec<T>` for each independently generated `T`. `*Pair`
+consumes each such row as generic arguments; `*((),)` consumes each row
+as tuple elements. This is the same mapping rule in both examples.
+
+Space remains left-associative. Use `(*Vec (*Box *().2),)` for
+`(Vec<Box<T0>>, Vec<Box<T1>>)`; `*Vec *Box *().2` first builds
+`Vec<Box>`, then appends another argument.
 
 ### 4.3 Generic args and trait paths
 
-```rust
-# use batch_impl::batch_impl;
-struct Pair<X, Y>(X, Y);
-struct A; struct B;
-#[batch_impl(Pair<*(A, B)>)]
-trait G1 {}
-// → impl G1 for Pair<A, B> {}(one impl, two args)
-
-#[batch_impl(Conv<*(A, B)> Pair<A, B> #cv{unimplemented!()})]
-trait Conv<T, U>: Sized { fn cv(_v: T, _o: U) -> Self; }
-// → impl Conv<A, B> for Pair<A, B> { fn cv(_v: A, _o: B) -> Self { unimplemented!() } }
-```
-
-A splat power inside generic args distributes its Cartesian result one impl per pair:
+Literal angle brackets consume their argument slots; they do not replay
+application. Both ordinary type arguments and trait arguments can splice
+packs.
 
 ```rust
-# use batch_impl::batch_impl;
-struct Frac<T, U>(T, U);
-#[batch_impl(Frac<*(*@u*).2>)]
-trait Pow {}
-// → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}(36 impls)
+use batch_impl::batch_impl;
+
+struct Pair<A, B>(A, B);
+
+#[batch_impl(Pair<*(u8, u16)>)]
+trait Concrete {}
+
+#[batch_impl(Convert<*(u8, u16)> Pair<u8, u16>)]
+trait Convert<A, B> {}
+
+#[batch_impl(Pair<*[u8, u16].2>)]
+trait Matrix {}
+
+fn main() {
+    fn concrete<T: Concrete>() {}
+    fn convert<T: Convert<u8, u16>>() {}
+    fn matrix<T: Matrix>() {}
+    concrete::<Pair<u8, u16>>();
+    convert::<Pair<u8, u16>>();
+    matrix::<Pair<u8, u16>>();
+    matrix::<Pair<u16, u8>>();
+}
 ```
+
+The last expression selects a two-position Cartesian product, then fills
+two generic argument slots. An ordinary choice remains a branch:
+`Pair<*(u8, [u16, u32])>` gives two impls, not three arguments.
 
 ### 4.4 Container rule
 
-The outer brackets remain when their only contents are a splat:
-`(*(a,b))` gives `(a, b)`, and `[*(a,b)]` gives `[a, b]`.
-Without a splat, `(a)` is a transparent group and `[a]` is a slice type.
+Parentheses do not inspect the type inside them: `(X)` is a group,
+`(X,)` is a tuple. Likewise `[X]` is a slice and `[X,]` is a choice
+list. Consequently `(*(u8, u16))` is a grouped pack (two target impls),
+while `(*(u8, u16),)` is one tuple. `[*(u8, u16)]` is invalid: a
+slice has exactly one element-type slot.
+
+Nested prefixes are idempotent: `*(*X)` is `*X`. There is no separate
+double-star operation. To retain a row, put it in an ordinary tuple or
+generic host, as in §4.2.
+
+### 4.5 Generators and dimensions
+
+`*().N` generates a pack of `N` independent parameters. Copying a
+generated member preserves its identity; executing another generator
+creates another group. `*().0` creates no parameters.
+
+Ordinary tuple powers still repeat their **direct slots**:
+`([u8, u16],).2` has four combinations, and `(*(u8, u16),).2`
+materializes as `(u8, u16, u8, u16)`. Pack powers first splice nested
+packs, then use the resulting members as their choices.
+
+Two axes use the same application rule. Keeping rows makes the dimensions
+visible in the Rust type:
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl((*(u8, u16)))]
-trait Cont {}
-// → impl Cont for (u8, u16) {}   (a lone splat group is the tuple, with the splat element expanded)
+use batch_impl::batch_impl;
+
+struct Map<T, U>(T, U);
+
+#[batch_impl((*((),) (*Map *().1..=2 *().1..=3),))]
+trait Grid {}
+
+fn main() {
+    fn grid<T: Grid>() {}
+    grid::<(
+        (Map<u8, bool>, Map<u16, bool>),
+        (Map<u8, i32>, Map<u16, i32>),
+        (Map<u8, char>, Map<u16, char>),
+    )>();
+}
 ```
 
-### 4.5 Generator re-wrap
-
-`*().N` — a generator splat — hoists fresh declarations and splats the tuple into a container:
-
-```rust
-# use batch_impl::batch_impl;
-struct Pair3<A, B>(A, B);
-#[batch_impl(Pair3<*().2>)]
-trait GenSpl {}
-// → impl<P0, P1> GenSpl for Pair3<P0, P1>(flattened into two args)
-```
+There are six shapes. A fixed `(*Map *().2 *().3,)` instead splices
+the six members into one flat tuple and shares five parameters.
+Flattening *ranges* of both dimensions can generate overlapping impls:
+the `1 × 2` and `2 × 1` patterns can describe the same Rust type.
+The macro keeps both; rustc reports E0119. It also keeps unused generic
+declarations: an empty second axis can leave E0207. See the Pack model
+[worked examples](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/tutorial.md).
 
 ### 4.6 Legal positions
 
-A splat is a **parameter-position list**: it splices into generic and trait-application args, tuple and array elements, a callable's parameter list, a `<>` declaration block, an inline bound, the `dyn` bound tail and spec lists. The one position that does **not** expand is a `where` predicate, where the DSL reports the splat instead of leaking it (§8). A fresh generator in a `<>` declaration block is a targeted error, and a bare `*` that is neither a splat nor a raw pointer errors too.
+Tuple elements, generic and trait arguments, and callable parameters accept
+multiple members. Reference and pointer targets, slice/array element types,
+function returns, individual bounds and associated-type binding values
+require exactly one type **in each branch**. Empty or multi-member packs
+there produce a targeted error.
 
-**The position × construct matrix — which of these is legal where, and what each position reports instead — is in the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md), §2 and §4.**
+Declaration blocks splice names (`<*(A, B)>`); a fresh generator cannot
+declare names there because its own declarations have no target to inhabit.
+Constructed types are not parameter declarations either: `<*(Vec<u8>,)>` is an error.
+Raw pointers `*const T` and `*mut T` keep their Rust meaning. A bare
+`*` with no block is an error.
+
+`where{...}` predicates and `impl{...}` shape templates remain standard
+Rust type domains with their existing `@` substitutions. Bodies and
+directive arguments retain their own syntax. They do not acquire pack operators.
+Qualified-path continuations (`::Assoc<...>`) and trait paths following `as` in
+`<T as Trait>` remain ordinary Rust paths, without pack splicing inside them.
+See the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md),
+§2 and §4.
 
 ## 5. Generics `<>`
 
@@ -965,7 +1045,7 @@ parameters, like an empty `@1..` predicate.)
 
 **Grouped ranges `@L_N..`** (0.9.2) slice **within one generator group** —
 the in-group counterpart of `@g_i`, stable across array dispatch. With
-several generators in one spec (`<*().2>` → group 0, `<*().3>` → group 1),
+several generators in one spec (such as `PairGen<*().2, *().3>`), the first is group 0 and the second group 1;
 `@1_0..` constrains only group 1's fresh:
 
 ```rust

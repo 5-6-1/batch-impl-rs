@@ -152,6 +152,7 @@ batch_impl::batch_preview! {
 | `Box (Vec u8)` / `Box.Vec.u8` | `Box<Vec<u8>>` |
 | `[Box, Vec] [u8, u16]` | 四种容器与类型组合 |
 | `().3` | 一个泛型三元组实现 |
+| `(*Vec *().3,)` | 一个元组，各成员为独立生成的 `Vec<T0>`、`Vec<T1>`、`Vec<T2>` |
 
 空格保持左结合，`.` 保持右结合且优先于空格；括号可直接表明分组。[教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)通过例子逐步展开这些规则，[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)记录完整边界。
 
@@ -167,7 +168,7 @@ batch_impl::batch_preview! {
 | 泛型继承与关联类型 | 复用 trait 参数、约束和关联类型绑定 | [§5](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#5-泛型-从声明到可编程实参) |
 | `where` | 为一组实现添加约束 | [§8.1–§8.3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#8-where-子句) |
 | `#fill`、`#delegate`、`#blanket` | 填充多个成员，或把方法转发给内部类型 | [§7](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#7-指令系统-) |
-| Splat `*` | 展平列表、追加一组参数 | [§4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#4-splat-摊平操作符070-主角) |
+| 包 `*` | 对成员映射构造规则，并拼入实参 | [§4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#4-包-映射与拼入) |
 | `@` 常量与位置引用 | 选择类型族或引用生成的参数 | [§6](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#6--常量系统宏元层) |
 | 元组长度与笛卡尔幂 | 生成元组族和类型组合 | [§9](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#9-元组生成与矩阵) |
 | 形状模板 | 实例化嵌套类型的实现模式 | [§8.4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#84-impl-shape-template-形状模板080) |
@@ -193,6 +194,7 @@ batch_impl::batch_preview! {
 本轮开发目标是 **0.10.0**，取代此前计划的 0.9.8，因为包含刻意的破坏性改动。Cargo 的 `"0.9.7"` 依赖约束允许升级到 0.9.8，却不允许升级到 0.10.0；见 [Cargo 版本规则](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements)。
 
 - 将已移除的 `@all_fresh` 替换为 `@0..`。
+- `*` 现在构造包：`*(F,G) T` 映射两个成员，旧的元组追加行为写作 `*((F,G) T)`。单独的包不再将分组升格为容器，需要容器时写 `(*X,)` / `[*X,]`。见[包的迁移规则](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md#46-分支重叠与迁移)。
 - 重命名原来叫 `Self` 的自定义常量；`@Self` 现在保留给 impl 入口的输入自身类型。
 - 命名类型族范围采用 Rust 的端点规则：`@u8..u16` 只选择 `u8`；要保留两种类型，使用 `@u8..=u16`。省略上界时仍包含族的最后一项。
 

@@ -66,6 +66,19 @@ a function-like macro that parses the four segments and emits a full
 type and a non-generic trait; it does not parse arbitrary body items or
 impl generic declarations in `{spec}`.
 
+The protocol runs before type materialization, so `{spec}` can still contain
+Pack expressions and candidates. A receiver that supports those expressions can
+capture the spec tokens and send them through `batch_impl_only` again; treating
+every spec as `$target:ty` does not support the complete DSL.
+
+Generated fresh declarations also travel as structured `@{group_position}`
+carriers, together with their references and bounds. Forward these tokens
+unchanged: converting them to names before re-entry would lose identity and
+the selected branch's fresh scope. Re-entry reserves carried declarations
+before evaluating new generators, so an adapter may prepend or append a
+generator without merging its parameters with those already in the spec.
+Ordinary position references do not reserve or create declarations.
+
 ## Writing a top-level extension macro
 
 Your macro receives `{spec}(args){body} trait`. Capture all tokens in the

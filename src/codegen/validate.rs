@@ -142,19 +142,18 @@ mod tests {
     use super::*;
     use crate::ast::TyFresh;
     use crate::ast::fresh_protocol::{fresh_decl_tokens, fresh_ref_tokens};
-    use quote::quote;
 
     fn decl(g: usize, i: usize) -> TokenStream {
         fresh_decl_tokens(g, i)
     }
 
     #[test]
-    fn finalize_leaves_plain_streams() {
-        let ts: TokenStream = quote! { impl<T> Tr for Box<T> };
-        assert_eq!(
-            crate::codegen::top_level::finalize_fresh_names(ts).to_string(),
-            "impl < T > Tr for Box < T >"
-        );
+    fn grouped_open_range_still_requires_a_declared_group() {
+        let ctx = FreshCtx::new(&[decl(0, 0)], &HashSet::new());
+        let target = TyFresh(FreshRef { group: Some(1), start: 0, end: FreshEnd::Open }).to_ty();
+        let errs = validate_at_refs(&target, &[], &ctx);
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].to_string().contains("has no group 1 position 0"));
     }
 
     #[test]

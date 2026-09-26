@@ -7,8 +7,40 @@
 
 ## Unreleased
 
+- Pack public integration (2026-09-26): replace `TySplat` and its two origin-
+  dependent apply paths with `TyPack`; parse `*` over one arbitrary block,
+  preserve raw-pointer priority and require explicit singleton-container commas.
+  Add structural `TyPrefixed` for lifetime references, ABI functions and other
+  fixed-token prefixes so nested slots remain visible. Guard flat prefix depth.
+  The shared driver materializes ordinary leaves after detecting the open-
+  extension hook, then enforces the complete spec's target limit. Codegen no
+  longer runs separate splat/bound-array flatteners. Materialization reconstructs
+  every host without replaying apply, carries declarations even through empty
+  rows, and checks per-branch mass, branch count and cumulative work before copies.
+  Hoist impl-entry declarations before scanning attachments; otherwise a fresh
+  carrier can conceal `where` or `impl` metadata. Preserve Pack rows and singleton
+  choices through the open-extension serialization/re-entry protocol.
+- Complete the public integration boundaries: continue the current MapTask
+  through reference/dyn/for wrappers without reopening its right row. Preserve
+  hoisted bounds and all naming surfaces in both impl forms. Remove premature
+  fresh-name finalization at extension handoff; retain structured declaration
+  carriers, reserve their groups before re-entry evaluates any new generator,
+  and leave references and opaque Rust domains outside reservation. Add positive
+  and negative consumers for parameter sharing, bounds and newly added groups.
+  Structured function types retain unsafe/ABI qualifiers and propagate return-
+  parsing errors before later application can obscure their original spans.
+
 > Target: **0.10.0**, the next version after the published 0.9.7. Development is
 > continuing; no release date is set.
+
+- Pack public acceptance (2026-09-26): Windows stable passes 233 unit tests,
+  382 feature tests, six no-panic guards, 14 documentation guards, 119 doctests,
+  fmt, all-target check/clippy, warning-free rustdoc and three examples. Rust
+  1.95 passes the same unit/feature/no-panic suites. Linux stable 1.98.1 passes
+  all 132 UI fixtures after reviewing three changed diagnostics and seven new
+  snapshots, followed by a normal verification run. Eight complete bilingual
+  Pack tutorial programs compile and run; 33 public previews match the model.
+  The independent model's full suite also passes. No release or publication.
 
 - Pack integration, stage 1 (2026-09-26): save the reviewed independent model,
   bilingual contract/tutorial and repeatable checks in `tests/pack_model/`;

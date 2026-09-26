@@ -153,6 +153,7 @@ Start with ordinary Rust types and lists. Space applies arguments from left to r
 | `Box (Vec u8)` / `Box.Vec.u8` | `Box<Vec<u8>>` |
 | `[Box, Vec] [u8, u16]` | Four container/type combinations |
 | `().3` | One generic three-element tuple implementation |
+| `(*Vec *().3,)` | One tuple with independently generated `Vec<T0>`, `Vec<T1>`, `Vec<T2>` members |
 
 Space and `.` remain left- and right-associative respectively; `.` binds before space. Parentheses make the intended grouping explicit. The [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md) develops these rules through examples; the [reference](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) records their boundaries.
 
@@ -168,7 +169,7 @@ The first learning path is lists and a shared method body, then generics, constr
 | Generic inheritance and associated types | Reuse trait parameters, bounds and associated-type bindings | [§5](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#5-generics-) |
 | `where` | Add constraints to a group of implementations | [§8.1–§8.3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#8-where-clauses) |
 | `#fill`, `#delegate`, `#blanket` | Fill several members or forward methods to inner types | [§7](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#7-the-directive-system-) |
-| Splat `*` | Flatten lists and append groups of arguments | [§4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#4-splat---the-flatten-operator-the-protagonist-of-070) |
+| Packs `*` | Map construction rules over members and splice arguments | [§4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#4-packs---mapping-and-splicing) |
 | `@` constants and positional references | Select type families or refer to generated parameters | [§6](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#6-the--constant-system-macro-meta-layer) |
 | Tuple lengths and Cartesian powers | Generate tuple families and type combinations | [§9](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#9-tuple-generation-and-matrices) |
 | Shape templates | Instantiate an implementation pattern across nested types | [§8.4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#84-the-impl-shape-templates-080) |
@@ -194,6 +195,7 @@ Existing token semantics are covered by the syntax-freeze commitment introduced 
 This development cycle targets **0.10.0**, rather than the previously planned 0.9.8, because it includes deliberate breaking changes. Cargo's `"0.9.7"` requirement permits 0.9.8 but excludes 0.10.0; see [Cargo's version rules](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements).
 
 - Replace removed `@all_fresh` with `@0..`.
+- `*` now forms a pack: `*(F,G) T` maps both members. For the previous tuple-append behavior, write `*((F,G) T)`. A lone pack no longer turns a group into a container: use `(*X,)` / `[*X,]`. See [the Pack migration rules](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md#46-branches-coherence-and-migration).
 - Rename custom constants named `Self`; `@Self` is now reserved for the impl entry's input self type.
 - Named type-family ranges follow Rust's endpoint convention: `@u8..u16` selects only `u8`; use `@u8..=u16` to keep both. Omitted upper endpoints still include the family's final member.
 

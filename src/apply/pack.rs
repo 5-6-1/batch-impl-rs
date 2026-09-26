@@ -1,5 +1,5 @@
-//! Internal Pack apply kernel. Parsing and public code generation still use the
-//! legacy splat path; these operations do not materialize packs as Rust types.
+//! Pack application kernel. Mapping preserves direct right rows; ordinary
+//! hosts consume the resulting packs later in `ast::materialize`.
 
 use proc_macro2::Span;
 
@@ -9,7 +9,6 @@ use crate::ast::*;
 
 /// Opens only a value's direct container layer. A normal tuple or candidate
 /// nested inside that layer remains an ordinary type/candidate node.
-#[allow(dead_code)] // The parser starts using this at the public syntax cutover.
 pub(crate) fn packify(value: Ty) -> Ty {
     match checked_input(value) {
         Ok(value) => checked_result(packify_inner(value)),
@@ -132,6 +131,20 @@ fn run_task(left: Ty, right: Ty, depth: usize) -> Ty {
         // apply, but must preserve this mapping continuation around its target.
         TyKind::WithTrait(w) => {
             TyWithTrait(w.0, run_task(*w.1, right, depth + 1).into()).to_ty().with_span(span)
+        }
+        TyKind::Prefixed(p) => {
+            TyPrefixed(p.0, run_task(*p.1, right, depth + 1).into()).to_ty().with_span(span)
+        }
+        TyKind::WithPrefix(TyWithPrefix(prefix, Some(inner)))
+            if !matches!(prefix, TyPrefix::SelfType) =>
+        {
+            TyWithPrefix(prefix, run_task(*inner, right, depth + 1).into()).to_ty().with_span(span)
+        }
+        TyKind::WithDyn(w) => {
+            TyWithDyn(run_task(*w.0, right, depth + 1).into(), w.1).to_ty().with_span(span)
+        }
+        TyKind::WithFor(w) => {
+            TyWithFor(w.0, run_task(*w.1, right, depth + 1).into()).to_ty().with_span(span)
         }
         TyKind::WithAttr(TyWithAttr(attr, Some(inner))) => {
             TyWithAttr(attr, run_task(*inner, right, depth + 1).into()).to_ty().with_span(span)

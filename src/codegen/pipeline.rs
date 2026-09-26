@@ -12,8 +12,8 @@ use super::*;
 
 /// The post-extraction pipeline: one ImplParts → one rendered impl block
 /// (generics concerns → sync → where → shape → render). Split out of
-/// [generate_impl] so bound-generator distribution can run each element
-/// through the full pipeline independently.
+/// [generate_impl] so every materialized branch runs independently through
+/// fresh naming, constraint resolution and final rendering.
 pub(crate) fn generate_parts(
     mut parts: ImplParts, trait_name: &TokenStream, is_unsafe_trait: bool,
     trait_bounds: &TraitBounds, trait_param_names: &[Ident],
@@ -23,23 +23,10 @@ pub(crate) fn generate_parts(
     // signature and user code block). ImplParts carries the arg names.
     substitute_trait_generics(&mut parts, trait_param_names);
 
-    // Tuple-level splat expansion (Ty structure): `(A, *(B,C))` → `(A,B,C)`,
-    // with fresh declarations from `*().N` hoisted. Runs before hoisting so
-    // the lifted decl feeds into the impl generics. Generic-arg splats
-    // (`T<*(A,B)>`) are structural (`TySplat` in `Box<Ty>` params) and expand
-    // inside the same pass via `expand_tp`; trait-path splats (`Conv<*(A,B)>`)
-    // expand in `extract_impl_parts` where the trait args are rendered.
-    parts.target_type = expand_splat_elems(parts.target_type);
-
     // hoist nested `WithType` (fresh generics) out of the target type, preventing `<A>` leaks
     let mut nested_params = vec![];
     parts.target_type = hoist_type_params(parts.target_type, &mut nested_params);
     parts.impl_generics.extend(nested_params);
-
-    // A bound is a type position: expand splat/generator structure inside it
-    // first (`<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>`), then hoist whatever
-    // declaration came out.
-    expand_bound_splats(&mut parts.impl_generics);
 
     // hoist fresh generics out of impl-generic **bounds** (`<T: Fn.().2>` →
     // the generator's `<P0,P1>` rides out of the bound, leaving `T: Fn(P0,P1)`;

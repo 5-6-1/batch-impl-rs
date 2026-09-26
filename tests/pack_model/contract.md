@@ -1,8 +1,9 @@
-# Pack proposal v2: semantic contract and audit limits
+# Pack v2: semantic contract and audit limits
 
 English | [简体中文](contract.zh-CN.md)
 
-Status: design model, not integrated into the production library. Start with the
+Status: integrated into the unreleased 0.10.0 development version; this directory
+remains an independent semantic model. Start with the
 [tutorial](tutorial.md). This document defines rules precisely and helps find
 counterexamples; it is not prerequisite reading for beginners.
 
@@ -21,7 +22,7 @@ ordinary types. Parse raw pointers `*const`/`*mut` before this rule.
 
 For the ordinary Ty and pack expressions covered here, commas distinguish one-item
 containers: `(X)` is transparent, `(X,)` a tuple, `[X]` a slice and `[X,]` a candidate.
-The proposal intentionally removes the lone-splat promotion exception. Existing
+Version 0.10.0 intentionally removes the lone-splat promotion exception. Existing
 positional-reference meta-syntax such as `(@0..)` has its own grouping contract;
 this model neither implements nor redefines it, and does not remove those spellings.
 Empty `[]` remains the existing slice-constructor prefix, not an empty candidate;
@@ -146,11 +147,11 @@ rows, not a coherence guarantee for arbitrary combinations.
 
 Declaration blocks accept only valid parameter declarations. A pack does not turn
 constructed types into parameter names. Where clauses, impl templates, bodies and
-directive arguments retain their existing syntax domains. This proposal does not
+directive arguments retain their existing syntax domains. Pack support does not
 extend `*` into those domains or claim implementation validation for every
 declaration/constraint carrier.
 
-## 7. Validation and remaining integration
+## 7. Model validation and production boundaries
 
 The model uses only the Python standard library, independently of the production
 macro. Run `python tests/pack_model/run.py`; all generated files go under
@@ -170,13 +171,13 @@ Audit layers:
 4. Automatic comparison of marked examples and outputs in both tutorial languages.
 
 Parsing depth, semantic recursion, output size and work each have limits to keep
-the experiment bounded. Production integration must still reuse the project's
-existing size and quality checks.
+model execution bounded. The production implementation has the project's own
+size and quality checks.
 
-Remaining production checks include complete Ty dispatch, declaration/constraint
-binding, attribute/directive carriers, lifetime/const generics, hygiene/spans,
-complete pointer/prefix lexing, expansion limits, all current regressions and real
-consumer projects. These are not disguised as checks already completed here.
+Complete Ty dispatch, declaration/constraint binding, attribute/directive carriers,
+lifetime/const generics, hygiene/spans, complete pointer/prefix lexing, expansion
+limits and real consumer projects require separate production-macro tests. Running
+the model does not run those tests; integration does not expand this parser's coverage.
 
 Found model counterexamples have regression checks. No unresolved counterexample
 remained in the enumerated domain; this neither proves the absence of all defects

@@ -80,37 +80,12 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
     match kind {
         TyKind::WithType(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            // A fresh **generator** in the declaration position has no carrier:
-            // the `<>` block *is* the impl's parameter list, so its freshs would
-            // be declared and never used (E0392). Before this check the
-            // `@`-carrying declaration tokens leaked to rustc ("expected type,
-            // found `@`", ui `decl_generator_splat`); report the spelling that
-            // works instead.
-            if let Some((name, _)) =
-                wt.0.params.iter().find(|(n, _)| matches!(n.kind, TyKind::WithType(_)))
-            {
-                parts.target_type = crate::apply::err_ty_at(
-                    "batch-impl: a fresh generator cannot be declared here — the `<>` \
-                     block declares the impl's own parameters, so its freshs would be \
-                     declared and never used; write the generator on the type instead \
-                     (e.g. `T.*().2`)",
-                    name.span,
-                );
-                return parts;
-            }
-            // A declaration block is a **parameter list**: a splat element
-            // flattens into it (`<*(A,B)>` → `<A, B>`) and a `*().N` splat
-            // hoists the declaration it carries (the names must be declared for
-            // the impl to compile — here the declaration *is* the carrier).
-            let (tp, decl) = super::splat_expand::expand_tp(wt.0);
+            // Materialization has already consumed and validated declaration
+            // slots, retaining every branch's fresh carrier independently.
+            let tp = wt.0;
             let (impl_generics, associated_types) = (parts.impl_generics, parts.associated_types);
             parts.impl_generics =
                 tp.params.into_iter().map(|(n, b)| (n.to_token_stream(), b.map(|b| *b))).collect();
-            if let Some(d) = decl {
-                parts.impl_generics.extend(
-                    d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b.map(|b| *b))),
-                );
-            }
             parts.associated_types = tp
                 .bindings
                 .into_iter()
@@ -122,19 +97,11 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
         }
         TyKind::WithTrait(wt) => {
             let mut parts = extract_impl_parts(*wt.1);
-            // Trait generic args may carry splats (`Conv<*(A,B)>`) and
-            // generators (`Conv<().2>`) — flatten them before rendering
-            // (token-level: `trait_generic_names` is `TokenStream` past this
-            // point). A hoisted fresh declaration joins the impl generics
-            // (the names it carries must be declared for the impl to
-            // compile) — the same rule as the generic-arg position.
-            let (flat, decl) = flat_splat_params(wt.0.1.params);
-            parts.trait_generic_names.extend(flat.into_iter().map(|(n, _)| n.to_token_stream()));
-            if let Some(d) = decl {
-                parts.impl_generics.extend(
-                    d.params.into_iter().map(|(n, b)| (n.to_token_stream(), b.map(|b| *b))),
-                );
-            }
+            // Type-bearing slots must be materialized before this conversion
+            // to tokens; no second expansion or application happens here.
+            parts
+                .trait_generic_names
+                .extend(wt.0.1.params.into_iter().map(|(n, _)| n.to_token_stream()));
             parts.associated_types.extend(
                 wt.0.1
                     .bindings

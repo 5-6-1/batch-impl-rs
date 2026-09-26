@@ -84,6 +84,8 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
         // DSL errors surface exactly as they would under the attribute macro.
         return Ok(errors.into_iter().collect());
     }
+    // The driver counts final targets, including nested host choices and
+    // bare packs. Extension calls remain opaque DSL protocol invocations.
     let count = leaves.len();
     let mut rendered = vec![];
     if let Some(t) = &p.start_trait {

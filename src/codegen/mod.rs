@@ -12,12 +12,11 @@
 //! described here (and lives only here), mirroring how `preprocess` documents
 //! its pass order:
 //!
-//! 1. `extract` — `Ty` → [`ImplParts`]: dismantle metadata (`extract_impl_parts`),
+//! 1. `ast::materialize` — collect packs and choices in every structural host,
+//!    after the open-extension hook but before metadata becomes token streams;
+//! 2. `extract` — `Ty` → [`ImplParts`]: dismantle metadata (`extract_impl_parts`),
 //!    substitute trait params in directive bodies (`substitute_trait_generics`),
 //!    hoist nested fresh generics (`hoist_type_params`);
-//! 2. `splat_expand` — splat expansion on the Ty structure (`expand_splat_elems`), the
-//!    deferred flattening of `*()` / `*[]` (they survive parse/apply/expand as
-//!    whole units and expand here, one code path for every position);
 //! 3. `generics` — impl-generic concerns: same-name declaration merging
 //!    (`merge_dup_params`), trait-bound inheritance (`inherit_trait_bounds`),
 //!    impl-name normalization (`ParamKind::bare_name`);
@@ -35,7 +34,6 @@
 //! fresh-generic naming context and validation. Tests live beside their
 //! concern (`repeat_tests`, `where_at_tests`).
 
-mod bound_gen;
 mod extract;
 mod fresh_naming;
 mod generics;
@@ -52,7 +50,6 @@ mod shape;
 mod shape_args;
 #[cfg(test)]
 mod shape_tests;
-mod splat_expand;
 mod sync;
 mod top_level;
 mod validate;
@@ -68,7 +65,6 @@ pub(crate) use range_refs::*;
 pub(crate) use render::render_impl;
 pub(crate) use repeat::*;
 pub(crate) use shape::*;
-pub(crate) use splat_expand::*;
 pub(crate) use sync::*;
 pub(crate) use top_level::*;
 pub(crate) use validate::*;
@@ -148,15 +144,20 @@ pub(crate) fn generate_impl(
                         proc_macro2::Span::call_site(),
                     )
                 } else {
-                    finalize_fresh_names(rewrite_macro_input(mac, spec))
+                    // The protocol transports DSL, including fresh identity
+                    // carriers. The receiving entry names each selected branch;
+                    // naming here would erase the scope of `@N..` predicates.
+                    rewrite_macro_input(mac, spec)
                 }
             }
             Err(e) => e,
         };
     }
-    if let Ty { kind: TyKind::Error(e), .. } = ty {
-        return e.0;
+    if let Ty { kind: TyKind::Error(error), .. } = ty {
+        return error.0;
     }
+    // The shared driver has materialized all ordinary targets; extensions
+    // took the DSL exit above. Metadata may now safely become token streams.
     let parts = extract_impl_parts(ty);
     // A **codegen-minted** error rides in the target-type slot — the only
     // error channel `extract_impl_parts` has (today: an `impl{...}`
@@ -171,27 +172,5 @@ pub(crate) fn generate_impl(
         return e.0.clone();
     }
 
-    // Bound-generator distribution: a generator **range** inside an
-    // impl-generic bound (`<T: Fn.().0..4 R>`) expands to a `TyArray` at the
-    // apply layer; each element becomes its own impl with the bound pinned to
-    // that arity (the array never renders inside a predicate). Runs before
-    // every other generics concern so the distributed impls flow through the
-    // pipeline independently (fresh hoisting, `@0..` re-opening, sweeping).
-    let mut out = TokenStream::new();
-    let distributed = match bound_gen::distribute_bound_arrays(parts) {
-        Ok(distributed) => distributed,
-        // Over-limit distribution: the diagnostic replaces the expansion (it
-        // cannot ride in the bound position — see `bound_gen`).
-        Err(e) => return e,
-    };
-    for parts in distributed {
-        out.extend(generate_parts(
-            parts,
-            trait_name,
-            is_unsafe_trait,
-            trait_bounds,
-            trait_param_names,
-        ));
-    }
-    out
+    generate_parts(parts, trait_name, is_unsafe_trait, trait_bounds, trait_param_names)
 }

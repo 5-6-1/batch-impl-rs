@@ -106,7 +106,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 同一构造在不同位置**合法性不同**，因为门控是**位置**的属性，不是列表形状的属性。
 
-| 位置 | bound `T: Clone` | binding `Item = u32` | splat `*(…)` | 生成器 `().N` | `@` 引用 | `X<>` 同步 |
+| 位置 | bound `T: Clone` | binding `Item = u32` | 包 `*X` | 生成器 `().N` | `@` 引用 | `X<>` 同步 |
 |---|---|---|---|---|---|---|
 | trait 应用 `Conv<…> X` | ✓ | ✓（提升进 impl body，因 `impl Trait<Item=u8> for X` 是 E0229） | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓（fresh 声明提升到 impl） | ✓ | ✓ |
 | 泛型声明 `<…>` | ✓ | ✗ 定向错误（声明的是**参数**；给出 trait 应用的写法） | ✓ `<*(A,B)>` → `<A, B>` | ✗ 定向错误（该块**就是** impl 的参数表，fresh 永不被使用；ui `decl_generator_splat`） | ✓（`<@0..>` 声明 fresh） | ✓（`A<>` 头部展开） |
@@ -127,7 +127,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 ### 3.1 块
 
-块是一个原子：路径、组 `(...)`、列表 `[...]`、元组、前缀（`&`、`&mut`、`*const`、`*mut`、`unsafe`、`self`、`#[...]`）、splat（`*(...)` / `*[...]`）、生成器（`().N`）、`@` 常量的展开结果，或某条指令的产物。附件（`{body}`、`where{...}`、`impl{...}`）也是块，可以以任意顺序跟在 spec 之后（§1.1）。
+块是一个原子：路径、组 `(...)`、列表 `[...]`、元组、前缀（`&`、`&mut`、`*const`、`*mut`、`unsafe`、`self`、`#[...]`）、包（`*X`，包括 `*(...)` / `*[...]`）、生成器（`().N`）、`@` 常量的展开结果，或某条指令的产物。附件（`{body}`、`where{...}`、`impl{...}`）也是块，可以以任意顺序跟在 spec 之后（§1.1）。
 
 ### 3.2 两种拼写
 
@@ -144,13 +144,13 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 ### 3.3 列表与元组
 
-`[A, B] T` 把后面的类型分发到每个元素——各生成一个 impl（`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`）；裸列表作目标时就是同一件事的另一种写法。`(A, B)` 是一个元组值；`(A)` 透明；`[A]` 作类型是切片、`[u8; 3]` 是数组。列表是**集合**、元组是**序列**——这个区别在 splat 操作数下才显出来（§4）。
+`[A, B] T` 把后面的类型分发到每个元素——各生成一个 impl（`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`）；裸列表作目标时就是同一件事的另一种写法。`(A, B)` 是一个元组值；`(A)` 透明；`[A]` 作类型是切片、`[u8; 3]` 是数组。列表提供**候选分支**，元组提供**同时存在的字段**；二者都可以用 `*` 打开直接成员，得到同一种包（§4）。列表及包均不自动去重。
 
 ### 3.4 幂 `.N`
 
-幂写作 `.N`，跟在被重复的那个值后面：`T.N` 把元组或生成器展开成 `N` 个位置的笛卡尔积——`(u8, u16).2` 是 `{u8, u16}` 上的全部有序对，即 4 个 impl；`Frac.*(*@u*).2` 把 `@u*` 列表喂进两个泛型位，得到 36 个（`examples/typeclass.rs` 就是这个拼写；实参形式 `Frac<*(*@u*).2>` 给出同样的 36 个）。单 spec 的 1024 impl 上限（§11）就是用来报出打错的指数的。
+幂写作 `.N`，跟在被重复的那个值后面：`T.N` 把元组或生成器展开成 `N` 个位置的笛卡尔积——`(u8, u16).2` 是 `{u8, u16}` 上的全部有序对，即 4 个 impl；`Frac.*(*@u*).2` 把 `@u*` 列表喂进两个泛型位，得到 36 个（`examples/typeclass.rs` 就是这个拼写；实参形式 `Frac<*(*@u*).2>` 给出同样的 36 个）。单 spec 的 1024 impl 上限（§12）就是用来报出打错的指数的。
 
-`*().N` 把它的 fresh 参数包回 splat，好让后面的操作数把它们追加进去：`T.*().2` 声明两个 fresh 并用在目标里（`impl<P0, P1> … for T<P0, P1>`）。
+`*().N` 生成含 N 个 fresh 参数的包，由实参或元组等宿主拼入成员：`T.*().2` 声明两个 fresh 并用在目标里（`impl<P0, P1> … for T<P0, P1>`）。
 
 **`^` 不是算子**：`(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` 一律被拒，报的是 §10.1 逐字引用的退休算子消息（`caret_power_retired`）——span 落在这个 `^` 上，并给出可用的 `.N` 拼写。**bound 位置**的 `^`（`<T: Tr^u8>`）报同一条消息。更早的文档用 `^` 写幂，请写 `.N`。
 
@@ -167,12 +167,12 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | 拼写 | 会发生什么 |
 |---|---|
 | `A.` / `.A` / `,A` | 操作数缺失，定向报错（§10.1） |
-| `(A)` 与 `A` | 同一类型；`(*(a,b))` 是把 splat 作为单元素承载的容器 |
+| `(A)` 与 `A` | 同一表达式，包括包；构造元组写作 `(*X,)` |
 | `[A]` 与 `[A, B]` | 切片 vs 两个 impl |
 | `Box u8 u16` | `Box<u8, u16>`——两个实参，不是嵌套泛型 |
 | `Box Vec u8` | `Box<Vec, u8>`——空格累加；用分组（`Box (Vec u8)`）或 `.`（`Box.Vec.u8`）可写出 `Box<Vec<u8>>` |
 | `& Box u8` | `&Box<u8>`——前缀吃掉后面那个块 |
-| `*(A,B)` 单独作目标 | 每个元素一个 impl；`(A,B)` 则生成一个元组 impl（冲突规则见 §4.5） |
+| `*(A,B)` 单独作目标 | 每个元素一个 impl；`(A,B)` 则生成一个元组 impl（冲突规则见 §4.6） |
 | `HashMap<String, Vec<(u8, u16)>>` 这类嵌套类型 | 直接写、直接解析——不存在"透传"写法 |
 
 ### 3.8 前缀与属性
@@ -182,88 +182,139 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | 前缀 | 含义 | 合法位置 | 备注 |
 |---|---|---|---|
 | `&` / `&mut` | 引用类型 | 任意类型位置 | `& Box u8`、`&str`、`&mut [u8]` |
-| `*const` / `*mut` | 原始指针类型 | 任意类型位置 | 由后续 token 决定，因此绝不会被读成 splat（§4.5） |
+| `*const` / `*mut` | 原始指针类型 | 任意类型位置 | 由后续 token 决定，因此绝不会被读成 包（§4.1） |
 | `unsafe` | 用 `.` 应用时是 **impl** 标记；否则是 fn **类型** | `unsafe.fn(A) -> B` 标记 impl；`unsafe fn(A) -> B` 是类型 | 最容易读错的一处（教程 §10） |
 | `#[...]` | 附着到生成 impl 的属性 | 附着在 spec 上 | `#[cfg(all())] u8`；DSL 绝不进入属性内部 |
 | `!` | never 类型 | `fn` 返回位置 | `fn(u8) -> !`；`!` 块没有 apply 语义 |
 | `self` | 恒等前缀 | spec 头部位置 | `self T` = `T`——矩阵里的裸类型占位 |
 | `fn` 家族（`fn` / `Fn` / `FnMut` / `FnOnce` / async 形式） | callable 类型 | 任意类型位置 | 它的参数表就是参数位置列表（§4.4） |
 
-## 4. splat `*`
+## 4. 包 `*`
 
 ### 4.1 规则
 
-splat 把容器或生成器拼进外层的**参数位置列表**。它在 parse 与 apply 全程保持整体、只在 codegen **展开一次**，因此下游任何环节都看不到"摊平了一半"的实参。展开**只做一层**：
+`*X` 把一个块打开为**包**，透明分组不改变它。
+元组或候选列表贡献直接成员；包仍是包；其他类型贡献一个完整成员。
+声明载体随成员保留，打开操作不会递归进入普通类型。
 
-| 写的 | 结果 | 为什么 |
-|---|---|---|
-| `(u8, *(u16, u32))` | `(u8, u16, u32)` | 元组的元素被拼入 |
-| `*((a, b),)` | 一个 `(a, b)` impl | 元组是**类型**，因此作为单元素保持 |
-| `Box<*(u8, u16)>` | `Box<u8, u16>` | 泛型实参就是参数列表 |
-| `Box<*(*[u8, u16])>` | `Box<u8, u16>` | 嵌套 splat 拼进同一张列表 |
-| `[u8, *()]` | 一个 impl（`u8`） | 空 splat 什么都不拼 |
+因此 `*(A, B)` 与 `*[A, B]` 使用同一种包表示。
+`*A` 是单成员包，`*()` 为空，`*(*X)` 等于 `*X`。
+没有专门的双星操作。`*const T`、`*mut T` 优先识别为原始指针。
 
-### 4.2 组里的孤立 splat
+### 4.2 分组、元组与候选
 
-`(*(a,b))` 解析为**把 splat 作为单个元素**承载的容器——即 `( *(a,b) )`——`[*(a,b)]` 同理；该元素在渲染时展开，因此结果是 `(a, b)` 与 `[a, b]`。这就是容器规则：内容为孤立 splat 的组**就是**那个容器，不是拼接点。
+出现 `*` 不改变括号解析：
+`(X)` 是分组，`(X,)` 是元组，`[X]` 是切片，
+`[X,]` 是候选列表。既有 `(@0..)` 元引用范围元组写法
+仍遵循其独立规则（§5）。
 
-### 4.3 哪个是哪个操作数
-
-- **左操作数——由来源括号决定**：`*[...] T` **分配**，保留集合语义（`*[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`）；`*(...) T` **追加**，保留列表语义（`*(Box, Rc) u8` → 列表 `Box, Rc, u8`，即三个 impl）。
-- **右操作数——保持整体**：`T.*(A,B)` 在管线里是 `T<*(A,B)>`、在输出里是 `T<A, B>`（实测：`Box.*(u8, u16)` → `Box<u8, u16>`）。
-
-### 4.4 哪些位置会展开
-
-| 位置 | 结果 |
+| 写法 | 含义 |
 |---|---|
-| 泛型实参 / trait 应用实参 `T<*(A,B)>`、`Conv<*(A,B)> X` | ✓ 展开成 `T<A,B>` / `Conv<A,B>` |
-| 元组元素 `(u8, *(u16, u32))` | ✓ 展开成 `(u8, u16, u32)` |
-| spec 列表元素 `[u8, *()]`、`[*(u8), *(u16)]` | ✓ 在 expand 阶段摊平（每个存活元素一个 impl） |
-| `dyn` bound 尾巴 `dyn Tr<*(u8, u16)>` | ✓ 展开成 `dyn Tr<u8, u16>` |
-| 泛型声明块 `<T, *(A,B)>` / `<*(A,B)>` | ✓ 展开成 `<T, A, B>` / `<A, B>`；`*().N` splat 会提升它携带的声明，而那里的**生成器**是定向错误（§10.1） |
-| fn 参数表 `fn(*(u8, u16))` / `fn(u8, *(u16, u32))` | ✓ 展开成 `fn(u8, u16)` / `fn(u8, u16, u32)`——`Fn` 家族的 callable（`Fn(*(A,B)) -> C`）是同一张参数表 |
-| 内联 bound `<T: Tr<*(u8, u16)>>` | ✓ 展开成 `<T: Tr<u8, u16>>`（从 bound 里提升出来的声明照常落到 impl 上） |
-| **`where` 谓词** `where{T: Tr<*(u8, u16)>}` | ✗ 由谓词终检报出（§7），不泄漏给 rustc |
+| `(*(A, B))` | 加了分组的包；根位置生成两个目标 |
+| `(*(A, B),)` | 一个元组 `(A, B)` |
+| `[*(A, B)]` | 切片的元素类型槽含两个成员：报错 |
+| `[*(A, B),]` | 候选中的包贡献目标 `A`、`B` |
+| `*((A, B),)` | 包含一个成员：完整元组 `(A, B)` |
+| `*(A, [B, C])` | 两个分支，分别含 `A, B` 与 `A, C` |
+| `*(A, *[B, C])` | 一个包，含 `A, B, C` |
 
-> 最后一行是唯一有意的例外，而且它不是缺口：where 子句从解析到渲染输出全程 token 级，因此由**谓词终检**报出 splat。其余每个参数位置列表都会展开——splat 绝不会原样交给 rustc。
+候选不会因为处在包内部就自动变为成员，必须显式打开才会失去分支角色。
 
-### 4.5 边界
+### 4.3 应用
 
-| 写的 | 会发生什么 |
+应用保留空格左结合与点右结合。分派顺序如下：
+
+1. 保留声明，分派暴露的候选（先右后左）。
+2. 为范围生成分支；元组或包与数字相遇时执行幂。
+3. 两侧都是包：逐个取右包的直接成员作为一行，将整个左包映射到该行，
+   保留嵌套结果。
+4. 仅左侧是包：把左包每个成员应用于整个右侧；
+   左侧嵌套包继续同一个任务，不再拆开已经选中的右行。
+5. 其他情况走普通应用：`self` 返回整个右侧，泛型追加一个实参槽，
+   元组追加一个元素槽。
+
+| 写法 | 放入元组后的结果 |
 |---|---|
-| `*const u8` / `*mut u8` | 指针类型：`*` 由后续 token 决定，不当作 splat |
-| 裸 `*`（既非 splat 也非指针） | 定向报错（ui `star_misuse`） |
-| `*(u8, u16)` 作**目标** | 每个元素一个 impl（`u8`、`u16`）；元素重复会撞车——`*(u8, u8)` 是两个 `impl … for u8`（E0119） |
-| `*().2` 作目标 | 每个 fresh 一个 impl（`P0`、`P1`） |
-| `Box<*().2>` | 泛型实参承载声明：`impl<P0, P1> … for Box<P0, P1>` |
-| `<>` **声明块**里的生成器 | 定向错误——那个块**就是** impl 的参数表（§10.1） |
-| `impl{...}` 模板里的 splat | 模板必须是标准 Rust 类型，因此 DSL 算子被拒（§10.6） |
-| `where` 谓词里的 splat | 由谓词终检报出（§7） |
+| `(*(Vec, Box) u8,)` | `(Vec<u8>, Box<u8>)` |
+| `(*Vec *(u8, u16),)` | `(Vec<u8>, Vec<u16>)` |
+| `(*Pair (*(self, Vec) *().2),)` | `(Pair<T0, Vec<T0>>, Pair<T1, Vec<T1>>)` |
+| `(*((),) (*(self, Vec) *().2),)` | `((T0, Vec<T0>), (T1, Vec<T1>))` |
+| `(*Map *().2 *().3,)` | `(Map<T0,U0>, Map<T1,U0>, Map<T0,U1>, Map<T1,U1>, Map<T0,U2>, Map<T1,U2>)` |
 
-对于 `u8` 和 `u16`，独立 splat 生成各自的实现；元组形式则将它们保持为一个类型：
+普通左类型不映射：`Pair *(A, B)` 保留包作为一个实参槽，
+物化后为 `Pair<A, B>`。字面量 `F<...>` 直接消费实参，
+不会重新执行应用。这些是求值规则，不能作为任意替换已构造中间节点的等价律。
 
-```rust
-# use batch_impl::batch_impl;
-#[batch_impl(*(u8, u16))]
-trait Each {}
-#[batch_impl((u8, u16))]
-trait Together {}
-# fn each<T: Each>() {}
-# each::<u8>();
-# each::<u16>();
-# fn together<T: Together>() {}
-# together::<(u8, u16)>();
-```
+### 4.4 宿主物化
 
-### 4.6 交叉
+应用完成后，候选分支，包拼入周围的宿主。嵌套包摊平，普通元组类型保持为成员。
+这个步骤不执行 apply，也不生成新的 fresh 参数。
 
-| 与谁 | 拼写 | 实测 |
-|---|---|---|
-| `@` 常量（§5） | `Box<*(@u*)>` | `Box<u8, u16, u32, u64, u128, usize>`——常量先被拼接，splat 在 codegen 展开 |
-| 幂（`.N`） | `*(u8, u16).2` | 八个 impl：四个笛卡尔组合，各自再拼成它的两个元素 |
-| 幂的 `^` 拼写 | `*(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` | **被拒**——退休算子消息（§10.1）；`^` 不是 DSL 算子，幂写 `.N` |
-| `#` 指令（§6） | 参数来自 spec 的指令 | 指令域解析自己的参数列表；类型域永不进入，反之亦然 |
-| `impl{...}` 模板、变长段与重复块（§8） | `impl{(A@..,)}` 配 `@(…@0,)..` | 模板是标准 Rust（里面没有 splat）；变长段与重复块是模板系统自己的机制 |
+| 宿主 | 消费规则 |
+|---|---|
+| 裸目标 | 包的每个成员各生成一条 impl；不去重 |
+| 元组元素、泛型 / trait 实参、callable 参数 | 按顺序接收任意数量成员 |
+| 引用或指针目标、切片 / 数组元素、函数返回值 | 每个分支恰好一个成员 |
+| 单个 `+` bound、关联类型绑定值、限定路径中已解析的类型头部 | 每个分支恰好一个成员 |
+| 声明块 `<*(A, B)>` | 拼入名字，再检查声明合法性；拒绝此处的 fresh 生成器 |
+| `where{...}`、`impl{...}` 模板 | 标准 Rust 类型语法域，不解释包运算 |
+| body / 指令参数 | 各自的语法域，不解释包 |
+
+例如 `fn(*(u8, u16))` 为 `fn(u8, u16)`，
+`&*u8` 为 `&u8`，而 `&*(u8, u16)` 得到定向错误。
+没有分支的候选不生成内容；单类型槽选中的空包则报错。
+
+限定路径的 `::Assoc<...>` 续接部分，以及 `<T as Trait>::Assoc` 中
+`as` 后的 trait 路径，仍按普通 Rust 路径保留，不在这些部分拼入包。
+这与已解析的类型头部接收包是不同的位置。
+
+### 4.5 生成器、身份与限制
+
+普通元组的幂操作直接槽：
+`([A, B],).2` 保留四种组合，
+`(*(A, B),).2` 复制一个包槽，得到 `(A, B, A, B)`。
+包的幂则先拼平嵌套包与透明分组，携带声明，但保留普通元组和候选，
+再使用普通幂规则；每个分支生成的元组重新成为包。
+
+`*().N` 生成 `N` 个独立参数，`.0` 不分配参数。
+复制已生成参数保留身份；执行不同生成器创建不同参数组。
+因此 `(*(),).2` 是无声明的单元元组，
+`*(*(),).2` 却会生成两个参数。
+
+宿主没有成员不代表声明被删去：
+`(*Map *().2 *().0,)` 留下单元元组上的两个未使用参数（E0207）。
+而 `(*(().2),).0` 在物化前丢弃整个模板，不留下声明。
+
+通用的展开与嵌套上限仍然适用（§12）。包运算还检查累计结构工作量，
+包括声明和嵌套成员，因此可能在不足 1024 条最终 impl 时触及工作量上限。
+名义长度 1024 不意味着每种同长度嵌套构造都能容纳。
+
+### 4.6 分支、重叠与迁移
+
+`([*Vec, *Box] *().2,)` 得到两个统一分支；
+`(*([Vec, Box],) *().2,)` 得到四种独立选择；
+`(*(Vec, Box) *().2,)` 得到一个四成员元组。
+没有在应用前冻结所有内部候选的全局步骤。
+
+固定的二维包可以让六个成员共享五个参数。
+但拼平两个*长度范围*可能产生重叠泛型 impl 模式（E0119）。
+用 `(*((),) (*Map *().1..=2 *().1..=3),)` 保留行，即可保留维度。
+重复目标永远不会被静默删除。
+
+从旧 splat 行为迁移：
+
+- `*(F, G) T` 现在映射两个构造器；旧的元组追加行为写作
+  `*((F, G) T)`。
+- `*[F, G].2` 现在与 `*(F, G).2` 使用相同的包幂。
+- 单独的包不再让分组升格为容器。需要容器时显式写
+  `(*X,)` 或 `[*X,]`。
+- 嵌套普通候选保持分支意义；要收集成员则再写一层明确的 `*`。
+- `T.*(A, B)` 等既有右侧拼入写法仍然可用。
+
+[教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)
+§4 提供完整程序；
+[模型契约](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/contract.zh-CN.md)
+记录求值阶段与反例。
 
 ## 5. `@` 宏元层
 
@@ -425,6 +476,8 @@ delegate body 表达式中的 `receiver.#call` 是单独的局部标记，不是
 名字既不是内置指令、也不是 trait 成员的 `#name(args){body}`，会展开成**你自己的**同名函数式宏调用，并把参数、body 与 trait 定义交给它。`{! ...}` 块自 0.6.7 起**仅限顶层**——它把 spec 体前置并在顶层发出宏调用——而且必须是最后一个块（`top_level_block_not_last`、`top_level_manual_not_last`、`top_level_without_attach`）；旧的 impl 内形式 `T {m!{...}}`（无 `!`）自 0.7.2 起废弃但仍接受。
 
 值得知道的一点：指令名**没有拼写守卫**，所以拼错的内置指令会静默变成宏调用，并以 rustc 自己的 "macro not found" 出现——先拿 §6.3–§6.6 核对拼写。
+
+开放扩展在类型物化之前接收 `{spec}`，其中可能仍有包与候选。自定义宏可捕获 `$($spec:tt)*` 并通过 `batch_impl_only` 重新进入 DSL；不能把任意 spec 都当作 `$target:ty`。参考接收者 `batch_preprocess_test!` 只支持普通 Rust 目标与非泛型 trait。
 
 ### 6.8 边界与交叉
 
@@ -674,7 +727,13 @@ impl<const N: usize> Width for Bytes<N> {
 | `semi_in_spec` | 类型后多写 `;` | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
 | `caret_power_retired` | `(u8, u16)^2`、`<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator) | DSL |
-| `star_misuse` | 裸 `*` | batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw pointer (`*const T` / `*mut T`) | DSL |
+| `star_misuse` | 裸 `*` | batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); raw pointers use `*const T` or `*mut T` | DSL |
+| `pack_single_slot` | 单类型槽收到零个或多个类型；`<*(Vec<u8>,)>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
+| `pack_flat_overlap` | `(*Map *().1..=2 *().1..=3,)` 的扁平类型族重叠 | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
+| `pack_unused_axis` | `(*Map *().2 *().0,)` 保留未受约束的第一轴参数 | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
+| `pack_bare_fresh` | `*().2` 逐成员发出目标，但保留完整声明 | conflicting implementations of trait `BareFresh`；并报告未受约束的参数 | rustc E0119 / E0207 |
+| `pack_duplicate` | `*(u8,u8)` 不去重 | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
+| `pack_shared_identity` | 同位置的 Pair 参数不相同，或整体包装选择被混用 | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
 | `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | batch-impl: unexpected `#` in a type position | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…`) are not allowed there | DSL |
@@ -723,12 +782,12 @@ impl<const N: usize> Width for Bytes<N> {
 | `at_range_in_type` | 无 fresh 时写 `Vec<@0..=2>` | batch-impl: `@0..=2` out of range — this scope has 0 fresh generics (numbered from 0 in document order) | DSL |
 | `at_empty_range_in_angle` | `Box<@2..1>` | batch-impl: empty exclusive range `@2..1` (start not below end) | DSL |
 | `at_open_range_bare` | 顶层的 `A@..` | batch-impl: range constant `@..` must name an end point (e.g. `@..u128`, `@..=f64`) | DSL |
-| `at_binding_splat` | `Tr<Item = *(A,B)>` | batch-impl: a splat cannot be an associated-type binding value (`Item = *(A,B)` — bindings take exactly one type; distribute via a spec list like `[Tr<Item=A>, Tr<Item=B>]`) | DSL |
+| `at_binding_splat` | `Tr<Item = *(A,B)>`；绑定值每个分支只能有一个类型 | batch-impl: this type position requires exactly one type; the pack expands to 2 types | DSL |
 | `at_segment_carrier_in_body` | body 里的 `@{...}` 载体 | batch-impl: `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are referenced through repeat blocks (`@A`) or an explicit template name (`impl{(A0, @A..)}`), never as `@{...}` | DSL |
 | `error_aggregation_codegen` | 多个悬空 `@N` 引用 | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `empty_range` | spec 里的空数字区间 | batch-impl: range `3..2` is empty (start not below end); no impls will be generated | DSL |
 | `expand_limit` | `(...).2000` | batch-impl: `tuple .2000` expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
-| `bound_gen_over_limit` | bound 生成器乘积 29791 | batch-impl: bound-generator distribution expands to 29791 impls (limit 1024); reduce the range sizes | DSL |
+| `bound_gen_over_limit` | bound 生成器乘积 29791 | batch-impl: `materialization` expands to 29791 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
 | `at_trait_inherent_impl` | 在固有 `impl Vec<u8> {}` 上写 `@trait` | batch-impl: `@trait` is not available on an inherent impl (there is no trait to refer to) | DSL |
 
 ### 10.4 binding / bound 与函数类型
@@ -823,6 +882,7 @@ impl<const N: usize> Width for Bytes<N> {
 | --- | --- | --- | --- |
 | `preview_ok` | `batch_preview! { #[batch_impl(usize, isize)] trait Pv {} }` | batch-impl preview: 2 impl(s) generated | channel |
 | `preview_miswrite` | 预览体写错 | batch-impl preview: 1 impl(s) generated | channel |
+| `preview_pack` | 具体 Vec 包与复用 fresh 的 Pair 包 | batch-impl preview: 1 impl(s) generated | channel |
 
 ### 10.10 已知泄漏（措辞由 rustc 给出）
 
@@ -963,7 +1023,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 
 **为什么 `where` 谓词里拒绝 splat？** 该子句到输出全程 token 级，所以由谓词终检报出。其余每个参数位置列表都会展开（§4）。
 
-**`*(A,B)` 单独作目标与 `(A,B)` 有什么区别？** 独立 splat 为每个元素分别生成 impl；元组形式为 `(A,B)` 生成一个 impl。`u8`、`u16` 这样的不同元素可以使用 splat 形式。E0119 来自生成的 impl 重叠，例如 `*(u8, u8)`，而不是 splat 作为目标本身（§4.5）。
+**`*(A,B)` 单独作目标与 `(A,B)` 有什么区别？** 独立 splat 为每个元素分别生成 impl；元组形式为 `(A,B)` 生成一个 impl。`u8`、`u16` 这样的不同元素可以使用 splat 形式。E0119 来自生成的 impl 重叠，例如 `*(u8, u8)`，而不是 splat 作为目标本身（§4.6）。
 
 **为什么 `@0..2` 覆盖两个 fresh？** 排他区间在**每个**位置都不含末尾，于是类型路径与 where 谓词路径一致——闭区间写 `@0..=1`。
 

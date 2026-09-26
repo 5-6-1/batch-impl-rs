@@ -3,12 +3,10 @@
 //! preceding blocks in chain order) is merged into one Brace group, and the
 //! macro call is rewritten to `name!{ {spec}(args){body}trait }`.
 
-use proc_macro2::{Group, Ident, TokenStream, TokenTree};
+use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::quote;
-use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
-use crate::codegen::fresh_naming::{collect_used_idents, display_name};
 use crate::util::compile_error_str;
 
 /// Detects the top-level macro form: a `WithCode` chain ending in a
@@ -109,87 +107,11 @@ pub(crate) fn rewrite_macro_input(mac: TokenStream, spec: TokenStream) -> TokenS
     out.into_iter().collect()
 }
 
-pub(crate) fn finalize_fresh_names(tokens: TokenStream) -> TokenStream {
-    let v = tokens.into_iter().collect::<Vec<_>>();
-    let mut groups: Vec<(usize, usize)> = vec![];
-    collect_carriers(&v, &mut groups);
-    if groups.is_empty() {
-        return v.into_iter().collect();
-    }
-    let mut used = HashSet::new();
-    collect_used_idents(&v.iter().cloned().collect::<TokenStream>(), &mut used);
-    groups.sort_unstable();
-    groups.dedup();
-    let map: HashMap<(usize, usize), String> =
-        groups.iter().enumerate().map(|(k, &gi)| (gi, display_name(k, &used))).collect();
-    rewrite_carriers(v, &map).into_iter().collect()
-}
-
-/// One walk gathering the carrier identities of the stream (carrier groups
-/// are atomic and hold no nested carriers — not descended).
-fn collect_carriers(v: &[TokenTree], groups: &mut Vec<(usize, usize)>) {
-    let mut i = 0;
-    while let Some(cur) = v.get(i) {
-        if let Some(inner) = carrier_inner_at(v, i) {
-            if let Some(FreshRef { group: Some(gp), start, end: FreshEnd::Single }) =
-                FreshRef::parse(&inner)
-            {
-                groups.push((gp, start));
-            }
-            i += 2;
-        } else if let TokenTree::Group(g) = cur {
-            let inner = g.stream().into_iter().collect::<Vec<_>>();
-            collect_carriers(&inner, groups);
-            i += 1;
-        } else {
-            i += 1;
-        }
-    }
-}
-
-fn rewrite_carriers(v: Vec<TokenTree>, map: &HashMap<(usize, usize), String>) -> Vec<TokenTree> {
-    let mut out = vec![];
-    let mut i = 0;
-    while let Some(cur) = v.get(i) {
-        if let Some(g) = carrier_group_at(&v, i) {
-            let name = FreshRef::parse(&carrier_inner(g))
-                .and_then(|r| match r {
-                    FreshRef { group: Some(gp), start, end: FreshEnd::Single } => {
-                        map.get(&(gp, start)).cloned()
-                    }
-                    _ => None,
-                })
-                .map(|n| {
-                    let id = Ident::new(&n, cur.span());
-                    TokenTree::Ident(id)
-                });
-            match name {
-                Some(id) => out.push(id),
-                None => {
-                    out.push(cur.clone());
-                    out.push(TokenTree::Group(g.clone()));
-                }
-            }
-            i += 2;
-        } else if let TokenTree::Group(g) = cur {
-            let inner = g.stream().into_iter().collect();
-            let mut ng =
-                Group::new(g.delimiter(), rewrite_carriers(inner, map).into_iter().collect());
-            ng.set_span(g.span());
-            out.push(TokenTree::Group(ng));
-            i += 1;
-        } else {
-            out.push(cur.clone());
-            i += 1;
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::codegen::fresh_naming::FreshCtx;
+    use std::collections::HashSet;
 
     fn decl(g: usize, i: usize) -> TokenStream {
         fresh_decl_tokens(g, i)
@@ -235,13 +157,14 @@ mod tests {
     }
 
     #[test]
-    fn finalize_rewrites_carriers_everywhere() {
+    fn extension_protocol_preserves_fresh_identity_in_spec_and_body() {
         let t = decl(0, 0);
         let u = decl(0, 1);
-        let ts = quote! { impl<#t, #u> Tr for (#t, #u) where #t: Clone };
+        let spec = quote! { <#t: Clone, #u> (#t, #u) where { @0..: Clone } };
+        let mac = quote! { extension! { (build) { PhantomData::<#t> } trait Tr {} } };
         assert_eq!(
-            finalize_fresh_names(ts).to_string(),
-            "impl < P0 , P1 > Tr for (P0 , P1) where P0 : Clone"
+            rewrite_macro_input(mac, spec.clone()).to_string(),
+            quote! { extension! { {#spec} (build) { PhantomData::<#t> } trait Tr {} } }.to_string()
         );
     }
 }

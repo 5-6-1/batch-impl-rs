@@ -19,7 +19,7 @@
 这两条都是常用路线，不需要先学形状模板或生成器。
 
 后面的章节按主题查阅：先掌握普通类型与泛型，再在确实需要一次填入多个
-类型实参时看 splat。基础签名复制与简单委托已经在任务中出现；完整的
+类型实参或逐位置包装时看参数包。基础签名复制与简单委托已经在任务中出现；完整的
 指令规则、生成器与自定义扩展可以按需阅读，不必按编号通读。
 
 按照 [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)
@@ -41,7 +41,7 @@
 | 声明泛型、继承或添加 bound、写限定类型 | [§5](#5-泛型-从声明到可编程实参) | 基础 |
 | 用标准 Rust 的 `where` 约束 | [§8.1–§8.3](#81-where-谓词) | 基础 |
 | 查指令的完整规则 | [§7](#7-指令系统-) | 按需 |
-| 把容器/生成器拼进列表（`*`） | [§4](#4-splat-摊平操作符070-主角)，建议先读泛型 | 按需 |
+| 映射成员并拼入实参（`*`） | [§4](#4-包-映射与拼入)，建议先读泛型 | 按需 |
 | 生成元组、各元数与笛卡尔矩阵 | [§9](#9-元组生成与矩阵) | 按需 |
 | 用引用、指针、`unsafe`、属性、`!`、`self` | [§10](#10-修饰符大全) | 按需 |
 | 在几个入口宏之间选 | [§11](#11-入口) | 按需 |
@@ -498,120 +498,180 @@ trait Zero {
 [§1.3](#13-特殊类型用独立-spec)
 那样拆成独立 spec，使每个目标只得到一份方法定义。
 
-## 4. splat `*`——摊平操作符（0.7.0 主角）
+## 4. 包 `*`——映射与拼入
 
-splat 的直觉来自 Python 的 `*` 解包——`[a, *b]` 拼接列表、`f(*args)` 展开参数。batch-impl 的 `*` 是同样的**单层解包**：splat 把容器/生成器展开拼入外层列表，恰好展开一层。
+包是一组等待宿主接收的类型表达式。`*X` 取出元组或候选列表的直接成员；
+其他类型则成为单成员包。包不记忆自己来自 `()` 还是 `[]`。
 
-| Python     | batch-impl                                      |
-|------------|-------------------------------------------------|
-| `[a, *b]`  | `[A, *[B, C]]`——把列表拼入外层列表              |
-| `f(*args)` | `T *(A, B, C)`——把生成器展开到参数位            |
-| 单层解包   | `*((a,b),)` = 一个 `(a,b)` impl（元组保持完整） |
-
-**动机**：`*` 把嵌套生成器压缩进多参容器。与其手写 `T [A,B,C] [A,B,C] [A,B,C]`（27 组合的嵌套列表），一行得到同样 27 个 impl：
-
-```rust
-# use batch_impl::batch_impl;
-struct T<A, B, C>(A, B, C);   // 三参容器
-struct A; struct B; struct C;
-#[batch_impl(T *(A, B, C).3)]  // splat 幂：把 (A,B,C).3 展开到三个参数位
-trait Matrix27 {}
-// → 27 个 impl：T<A,A,A> / T<A,A,B> / ... / T<C,C,C>（与 T [A,B,C] [A,B,C] [A,B,C] 相同）
-```
-
-`*[...]` / `*(...)` 把容器/生成器展开拼入外层列表，支持的位置见 §4.6。
+常见用法只需三步：**打开成员、应用规则、放入结果**。
+`(*Vec *().3,)` 打开三个独立参数，分别套上 `Vec`，最后放入一个元组。
 
 ### 4.1 列表 / 元组内拼入
 
-```rust
-# use batch_impl::batch_impl;
-#[batch_impl([u8, *[u16, u32, u64]])]
-trait SplatList {}
-// → impl SplatList for u8 {}
-// → impl SplatList for u16 {} / u32 / u64
-
-#[batch_impl((u8, u16, u32) *(u64, usize, i8))]
-trait SplatConcat {}
-// → impl SplatConcat for (u8, u16, u32, u64, usize, i8) {}
-```
-
-### 4.2 左操作数：分配与追加
-
-来源括号决定左 splat 的作用。`*[A,B] T` **分配**：每个元素各自接收
-`T`，得到 `*[A.T,B.T]`。`*(A,B) T` **追加**：`T` 加入序列，得到
-`*(A,B,T)`。
+包里的普通类型保持完整。嵌套包可以拼入，但普通元组仍是一个类型。
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl(*[Vec, Box] u8)]
-trait Dist {}
-// → impl Dist for Vec<u8> {} / Box<u8>（分配：每个元素各自应用 u8）
+use batch_impl::batch_impl;
 
-# struct Pair<X, Y>(X, Y);
-# struct A; struct B;
-#[batch_impl(Pair *(A, B))]
-trait Concat {}
-// → impl Concat for Pair<A, B> {}（右 splat = 多实参）
+#[batch_impl([u8, *[u16, u32]])]
+trait Each {}
+
+#[batch_impl((u8, *(u16, u32)))]
+trait Together {}
+
+#[batch_impl(*((u8, u16),))]
+trait OneTuple {}
+
+fn main() {
+    fn each<T: Each>() {}
+    fn together<T: Together>() {}
+    fn one<T: OneTuple>() {}
+    each::<u32>();
+    together::<(u8, u16, u32)>();
+    one::<(u8, u16)>();
+}
 ```
+
+### 4.2 左操作数：对每个成员应用同一规则
+
+左包把其中每个成员应用于右侧。`*(Vec, Box) u8` 与
+`*[Vec, Box] u8` 都得到 `Vec<u8>`、`Box<u8>`。
+普通左类型则把右包放进一个实参槽：
+`Pair *(u8, u16)` 在消费该槽时成为 `Pair<u8, u16>`。
+
+两侧都是包时，每个**右侧直接成员是一行**。所有左成员都接收这一整行。
+右行在外，左成员在内；一次映射任务不会重新打开已经选中的行。
+
+```rust
+use batch_impl::batch_impl;
+
+struct Pair<A, B>(A, B);
+
+#[batch_impl((*Vec *().1..=3,))]
+trait Wrapped {}
+
+#[batch_impl((*Pair (*(self, Vec) *().1..=3),))]
+trait Paired {}
+
+#[batch_impl((*((),) (*(self, Vec) *().3),))]
+trait Rows {}
+
+fn main() {
+    fn wrapped<T: Wrapped>() {}
+    fn paired<T: Paired>() {}
+    fn rows<T: Rows>() {}
+    wrapped::<(Vec<u8>, Vec<bool>)>();
+    paired::<(Pair<u8, Vec<u8>>, Pair<bool, Vec<bool>>)>();
+    rows::<((u8, Vec<u8>), (bool, Vec<bool>), (i32, Vec<i32>))>();
+}
+```
+
+`self` 返回整个实参。因此 `*(self, Vec)` 对每个独立生成的 `T`
+构造 `T, Vec<T>` 两个成员。`*Pair` 把每行收进泛型实参，
+`*((),)` 把每行收进元组元素。这两个例子使用同一条映射规则。
+
+空格仍然左结合。要得到 `(Vec<Box<T0>>, Vec<Box<T1>>)`，
+写 `(*Vec (*Box *().2),)`；`*Vec *Box *().2` 会先构造
+`Vec<Box>`，再追加一个实参。
 
 ### 4.3 泛型实参与 trait 路径
 
-`Foo<*(a,b)>` = `Foo<a,b>`（多实参单 impl——与 `Foo<[a,b]>` 分发区分）；trait 路径同样：
+字面量尖括号消费其中的实参槽，不会重新执行应用。
+普通类型实参与 trait 实参都可以拼入包。
 
 ```rust
-# use batch_impl::batch_impl;
-struct Pair<X, Y>(X, Y);
-struct A; struct B;
-#[batch_impl(Pair<*(A, B)>)]
-trait G1 {}
-// → impl G1 for Pair<A, B> {}（一个 impl，两个实参）
+use batch_impl::batch_impl;
 
-#[batch_impl(Conv<*(A, B)> Pair<A, B> #cv{unimplemented!()})]
-trait Conv<T, U>: Sized { fn cv(_v: T, _o: U) -> Self; }
-// → impl Conv<A, B> for Pair<A, B> { fn cv(_v: A, _o: B) -> Self { unimplemented!() } }
+struct Pair<A, B>(A, B);
+
+#[batch_impl(Pair<*(u8, u16)>)]
+trait Concrete {}
+
+#[batch_impl(Convert<*(u8, u16)> Pair<u8, u16>)]
+trait Convert<A, B> {}
+
+#[batch_impl(Pair<*[u8, u16].2>)]
+trait Matrix {}
+
+fn main() {
+    fn concrete<T: Concrete>() {}
+    fn convert<T: Convert<u8, u16>>() {}
+    fn matrix<T: Matrix>() {}
+    concrete::<Pair<u8, u16>>();
+    convert::<Pair<u8, u16>>();
+    matrix::<Pair<u8, u16>>();
+    matrix::<Pair<u16, u8>>();
+}
 ```
 
-泛型实参内的 splat 幂把笛卡尔结果逐对分发为一个 impl：
-
-```rust
-# use batch_impl::batch_impl;
-struct Frac<T, U>(T, U);
-#[batch_impl(Frac<*(*@u*).2>)]
-trait Pow {}
-// → impl Pow for Frac<u8, u8> {} ... impl Pow for Frac<usize, usize> {}（36 个 impl）
-```
+最后一个表达式先选择两个位置的笛卡尔积，再填入两个泛型实参槽。
+普通候选列表仍然分支：
+`Pair<*(u8, [u16, u32])>` 得到两条 impl，而非三个实参。
 
 ### 4.4 容器规则
 
-括号内只有一个 splat 时，外层括号仍然保留：`(*(a,b))` 得到 `(a, b)`，
-`[*(a,b)]` 得到 `[a, b]`。没有 splat 时，`(a)` 是透明分组，`[a]` 是切片类型。
+括号不检查内部是什么类型：`(X)` 是分组，`(X,)` 是元组。
+同样，`[X]` 是切片，`[X,]` 是候选列表。
+因此 `(*(u8, u16))` 是加了分组的包（两条目标 impl），
+`(*(u8, u16),)` 才是一个元组。
+`[*(u8, u16)]` 不合法：切片只有一个元素类型槽。
+
+嵌套前缀幂等：`*(*X)` 就是 `*X`，没有额外的双星操作。
+要保留一行，将它收进普通元组或泛型宿主，如 §4.2 所示。
+
+### 4.5 生成器与维度
+
+`*().N` 生成含 `N` 个独立参数的包。复制已生成的成员保留参数身份；
+执行另一个生成器才创建另一组。`*().0` 不产生参数。
+
+普通元组的幂仍然复制其**直接槽**：
+`([u8, u16],).2` 有四种组合，
+`(*(u8, u16),).2` 则物化为 `(u8, u16, u8, u16)`。
+包的幂先拼平嵌套包，再将所得成员作为候选。
+
+两个轴仍使用同一条应用规则。保留行可以让维度体现在 Rust 类型中：
 
 ```rust
-# use batch_impl::batch_impl;
-#[batch_impl((*(u8, u16)))]
-trait C {}
-// → impl C for (u8, u16) {}（孤立 splat 组 = 元组，splat 元素展开）
+use batch_impl::batch_impl;
+
+struct Map<T, U>(T, U);
+
+#[batch_impl((*((),) (*Map *().1..=2 *().1..=3),))]
+trait Grid {}
+
+fn main() {
+    fn grid<T: Grid>() {}
+    grid::<(
+        (Map<u8, bool>, Map<u16, bool>),
+        (Map<u8, i32>, Map<u16, i32>),
+        (Map<u8, char>, Map<u16, char>),
+    )>();
+}
 ```
 
-### 4.5 generator 重包
-
-`*().N`——生成器 splat——提升 fresh 声明并把元组摊平进容器：
-
-```rust
-# use batch_impl::batch_impl;
-struct Pair2<A, B>(A, B);
-#[batch_impl(Pair2<*().2>)]
-trait GSplat {}
-// → impl<P0, P1> GSplat for Pair2<P0, P1>（摊平成两个实参）
-```
+共有六种形状。固定维度 `(*Map *().2 *().3,)` 则把六个成员拼成平坦元组，
+共享五个参数。两个维度都使用*范围*时，拼平结果可能产生重叠 impl：
+`1 × 2` 与 `2 × 1` 的模式可能描述同一个 Rust 类型。
+宏保留两者，由 rustc 报 E0119；未使用的泛型声明也不会自动删去，
+第二轴为空时可能留下 E0207。
+更多推导见包模型的[应用教程](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/tutorial.zh-CN.md)。
 
 ### 4.6 合法位置
 
-splat 是**参数位置列表**：它会拼进泛型/trait 应用实参、元组与数组元素、callable 的参数表、`<>` 声明块、内联 bound、`dyn` bound 尾巴与 spec 列表。唯一**不**展开的位置是 `where` 谓词——那里由 DSL 报出而不是泄漏出去（§8）。`<>` 声明块里的 fresh 生成器是定向错误，既非 splat 也非指针的裸 `*` 同样定向报错。
+元组元素、泛型与 trait 实参、callable 参数接受多个成员。
+引用与指针目标、切片/数组的元素类型、函数返回值、单个 bound 和关联类型绑定值
+要求**每个分支恰好一个类型**，空包或多成员包在这些位置得到定向错误。
 
-**“位置 × 构造”矩阵（哪个构造在哪个位置合法、不合法时该位置报什么）见[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md) §2 与 §4。**
+声明块拼入名字（`<*(A, B)>`）；fresh 生成器不能在此声明名字，
+因为它自己携带的声明没有目标可以承载。
+构造类型也不是参数声明，例如 `<*(Vec<u8>,)>` 会报错。
+原始指针 `*const T`、`*mut T` 保留 Rust 意义，没有后续块的裸 `*` 报错。
 
-两条规则：`T.*(A,B,...)` ≡ `T<A, B, ...>`（右 splat = 扁平参数追加）；左 splat 按来源——`*[A,B] T` = `*[A.T,B.T]`（分配律）、`*(A,B) T` = `*(A,B,...,T)`（追加）。嵌套幂等（`*(*[a,b])` = `[a,b]`）、空 splat 无操作（`[a, *()]` = `[a]`）；`*const`/`*mut` 指针不受影响（按后续 token 区分）。
+`where{...}` 谓词和 `impl{...}` 形状模板保持标准 Rust 类型语法域，
+仅保留原有的 `@` 替换；body 和指令参数仍由各自语法解释，不引入包运算。
+限定路径的 `::Assoc<...>` 续接部分与 `<T as Trait>` 中 `as` 后的 trait 路径
+保持普通 Rust 路径，不在内部拼入包。
+见[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md) §2 与 §4。
 
 ## 5. 泛型 `<>`：从声明到可编程实参
 
@@ -899,8 +959,8 @@ trait GenConv<T, U> { fn m(&self); }
 `@1..` 谓词。）
 
 **组内范围 `@L_N..`**（0.9.2）在**单个生成器组内**切片——`@g_i` 的组内对应物，
-跨数组分发稳定。一个 spec 里有多个生成器（`<*().2>` → 组 0、`<*().3>` → 组 1）
-时，`@1_0..` 只约束组 1 的 fresh：
+跨数组分发稳定。一个 spec 里有多个生成器时（如 `PairGen<*().2, *().3>`），
+第一个是组 0、第二个是组 1；`@1_0..` 只约束组 1 的 fresh：
 
 ```rust
 # use batch_impl::batch_impl;

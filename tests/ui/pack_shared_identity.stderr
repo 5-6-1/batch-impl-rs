@@ -1,0 +1,104 @@
+error[E0277]: the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied
+  --> tests/ui/pack_shared_identity.rs:29:12
+   |
+29 |     same::<(Pair<u8, Vec<u16>>,)>();
+   |            ^^^^^^^^^^^^^^^^^^^^^ the trait `SamePosition` is not implemented for `(Pair<u8, Vec<u16>>,)`
+   |
+help: the trait `SamePosition` is implemented for `(Pair<P0, Vec<P0>>,)`
+  --> tests/ui/pack_shared_identity.rs:6:1
+   |
+ 6 | #[batch_impl((*Pair (*(self, Vec) *().1),))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `same`
+  --> tests/ui/pack_shared_identity.rs:12:12
+   |
+12 | fn same<T: SamePosition>() {}
+   |            ^^^^^^^^^^^^ required by this bound in `same`
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `(Vec<u8>, Box<u16>): UniformChoice` is not satisfied
+  --> tests/ui/pack_shared_identity.rs:30:15
+   |
+30 |     uniform::<(Vec<u8>, Box<u16>)>();
+   |               ^^^^^^^^^^^^^^^^^^^ the trait `UniformChoice` is not implemented for `(Vec<u8>, Box<u16>)`
+   |
+help: the following other types implement trait `UniformChoice`
+  --> tests/ui/pack_shared_identity.rs:9:1
+   |
+ 9 | #[batch_impl(([*Vec, *Box] *().2,))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | |
+   | `(Box<P0>, Box<P1>)`
+   | `(Vec<P0>, Vec<P1>)`
+note: required by a bound in `uniform`
+  --> tests/ui/pack_shared_identity.rs:13:15
+   |
+13 | fn uniform<T: UniformChoice>() {}
+   |               ^^^^^^^^^^^^^ required by this bound in `uniform`
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `(Pair<u8, Vec<u16>>,): ThroughExtension` is not satisfied
+  --> tests/ui/pack_shared_identity.rs:31:17
+   |
+31 |     reentered::<(Pair<u8, Vec<u16>>,)>();
+   |                 ^^^^^^^^^^^^^^^^^^^^^ the trait `ThroughExtension` is not implemented for `(Pair<u8, Vec<u16>>,)`
+   |
+help: the following other types implement trait `ThroughExtension`
+  --> tests/ui/pack_shared_identity.rs:17:9
+   |
+17 |         #[batch_impl_only($($spec)*)]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         `(Pair<P0, Vec<P0>>, Pair<P1, Vec<P1>>)`
+   |         `(Pair<P0, Vec<P0>>,)`
+...
+22 | #[batch_impl((*Pair (*(self, Vec) *().1..=2),) where { @0..: Clone } #relay() {})]
+   | ---------------------------------------------------------------------------------- in this attribute macro expansion
+note: required by a bound in `reentered`
+  --> tests/ui/pack_shared_identity.rs:26:17
+   |
+26 | fn reentered<T: ThroughExtension>() {}
+   |                 ^^^^^^^^^^^^^^^^ required by this bound in `reentered`
+   = note: this error originates in the attribute macro `batch_impl_only` which comes from the expansion of the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `NotClone: Clone` is not satisfied
+  --> tests/ui/pack_shared_identity.rs:32:17
+   |
+32 |     reentered::<(Pair<NotClone, Vec<NotClone>>,)>();
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `Clone` is not implemented for `NotClone`
+   |
+help: the following other types implement trait `ThroughExtension`
+  --> tests/ui/pack_shared_identity.rs:17:9
+   |
+17 |         #[batch_impl_only($($spec)*)]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         `(Pair<P0, Vec<P0>>, Pair<P1, Vec<P1>>)`
+   |         `(Pair<P0, Vec<P0>>,)`
+...
+22 | #[batch_impl((*Pair (*(self, Vec) *().1..=2),) where { @0..: Clone } #relay() {})]
+   | ---------------------------------------------------------------------------------- in this attribute macro expansion
+note: required for `(Pair<NotClone, Vec<NotClone>>,)` to implement `ThroughExtension`
+  --> tests/ui/pack_shared_identity.rs:17:9
+   |
+17 |         #[batch_impl_only($($spec)*)]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+22 | #[batch_impl((*Pair (*(self, Vec) *().1..=2),) where { @0..: Clone } #relay() {})]
+   | ----------------------------------------------------------------------------------
+   | |                                                            |
+   | |                                                            unsatisfied trait bound introduced here
+   | in this attribute macro expansion
+23 | trait ThroughExtension {}
+   |       ^^^^^^^^^^^^^^^^
+note: required by a bound in `reentered`
+  --> tests/ui/pack_shared_identity.rs:26:17
+   |
+26 | fn reentered<T: ThroughExtension>() {}
+   |                 ^^^^^^^^^^^^^^^^ required by this bound in `reentered`
+   = note: this error originates in the attribute macro `batch_impl_only` which comes from the expansion of the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider annotating `NotClone` with `#[derive(Clone)]`
+   |
+25 + #[derive(Clone)]
+26 | struct NotClone;
+   |

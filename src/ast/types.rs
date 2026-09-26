@@ -1,6 +1,5 @@
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
-use std::cell::Cell;
 
 use crate::ast::fresh_protocol::FreshRef;
 use crate::ast::param_kind::ParamKind;
@@ -12,34 +11,9 @@ pub(crate) struct TyArray(pub(crate) Vec<Ty>);
 /// `(...,)`
 pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
 #[derive(Clone, Debug)]
-/// Internal parameter pack. Unlike the legacy splat, it has no source-container
-/// kind: nested packs remain structural until an explicit consumer opens them.
-/// The parser does not construct this node until the Pack syntax cutover.
+/// Parameter pack (`*T`). Nested packs remain structural until a host consumes
+/// their slots; the source tuple/list kind does not survive pack construction.
 pub(crate) struct TyPack(pub(crate) Vec<Ty>);
-#[derive(Clone, Debug)]
-/// `*[...]` / `*(...)` — splat: flatten a container's elements into the
-/// enclosing tuple/array/`.` argument list. The variant mirrors the source
-/// bracket and drives the **left-operand** semantics: `TySplat::Array`
-/// distributes `.T` (`*[A.T,B.T]` — set, mirrors `TyArray`), `TySplat::Tuple`
-/// appends (`*(A,B,...,T)` — list, mirrors `TyTuple`). A splat survives as a
-/// **whole unit** through parse/apply/expand (splat survival) and flattens
-/// only in the codegen postprocess (`expand_splat_elems`); right operands
-/// and container collection flatten regardless of variant.
-pub(crate) enum TySplat {
-    Tuple(TyTuple),
-    Array(TyArray),
-}
-
-impl TySplat {
-    /// The flattened elements — both variants store the same list shape, so
-    /// traversal (expand / render / codegen) reads them through one entry.
-    pub(crate) fn elems(&self) -> &[Ty] {
-        match self {
-            TySplat::Tuple(t) => &t.0,
-            TySplat::Array(a) => &a.0,
-        }
-    }
-}
 #[derive(Clone, Debug)]
 /// `(...)`
 pub(crate) struct TyGroup(pub(crate) Box<Ty>);
@@ -67,8 +41,8 @@ pub(crate) struct TyTrait(pub(crate) TokenStream, pub(crate) TyTypeParam);
 /// (`<T: Bound>`, no base) and **arguments** (`T<A>`, base present) — the
 /// distinction lives in the render function used
 /// (`params_to_tokens` vs `params_to_tokens_no_base`).
-/// The positional-param list type shared by `TyTypeParam` and the splat
-/// flattener (`flat_splat_params`) — named so signatures stay readable.
+/// The positional-param list shared by argument and declaration hosts —
+/// named so traversal and materialization signatures stay readable.
 /// The bound rides in `Option<Box<Ty>>`: bounds are rare, so the element
 /// stays pointer-sized (16 B) instead of inlining a full `Ty` (~4× wider) —
 /// wide generic lists are the hot path for render / traversal / hoisting.
@@ -159,6 +133,11 @@ pub(crate) enum TyPrefix {
 #[derive(Clone, Debug)]
 /// Bare prefix (`&`/`unsafe` etc.) or `prefix T` — inner `None` means a bare prefix
 pub(crate) struct TyWithPrefix(pub(crate) TyPrefix, pub(crate) Option<Box<Ty>>);
+#[derive(Clone, Debug)]
+/// A fixed Rust prefix with one structured type slot (`&'a T`, `x: T`,
+/// `extern "C" fn(...)`, `?T`, `impl Trait`). The prefix is opaque syntax;
+/// keeping the child structural lets Pack materialization reach that slot.
+pub(crate) struct TyPrefixed(pub(crate) TokenStream, pub(crate) Box<Ty>);
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 /// The callable kind of a [`TyFn`]: a bare `fn` pointer or one of the `Fn`
 /// trait families (`Fn` / `FnMut` / `FnOnce` and their async counterparts —
@@ -311,7 +290,6 @@ pub(crate) enum TyKind {
     Array(TyArray),
     Tuple(TyTuple),
     Pack(TyPack),
-    Splat(TySplat),
     Group(TyGroup),
     PrimitiveArray(TyPrimitiveArray),
     Primitive(TyPrimitive),
@@ -321,6 +299,7 @@ pub(crate) enum TyKind {
     Qualified(TyQualified),
     Fn(TyFn),
     WithPrefix(TyWithPrefix),
+    Prefixed(TyPrefixed),
     WithDyn(TyWithDyn),
     WithFor(TyWithFor),
     WithAttr(TyWithAttr),
@@ -335,23 +314,4 @@ pub(crate) enum TyKind {
     Lifetime(TyLifetime),
     BoundList(TyBoundList),
     Error(TyError),
-}
-thread_local! {
-    static GROUP_COUNTER: Cell<usize> = 0.into();
-}
-
-/// Resets the fresh-generator group counter (per spec / `batch_trait!`
-/// segment, so group ids are DSL-local; codegen resolves every reference to
-/// the impl's display names afterwards).
-pub(crate) fn reset_fresh_counter() {
-    GROUP_COUNTER.set(0);
-}
-
-/// Takes the next fresh-generator group id.
-pub(crate) fn take_group() -> usize {
-    GROUP_COUNTER.with(|c| {
-        let g = c.get();
-        c.set(g + 1);
-        g
-    })
 }

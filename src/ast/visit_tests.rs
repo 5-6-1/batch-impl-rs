@@ -1,4 +1,4 @@
-//! Traversal regressions shared by legacy splats and the internal pack engine.
+//! Traversal regressions for packs, declaration carriers and nested hosts.
 
 use quote::{ToTokens, quote};
 
@@ -18,19 +18,17 @@ fn numbers(ty: Ty, seen: &mut Vec<usize>) -> Ty {
 }
 
 #[test]
-fn splat_walk_preserves_both_shapes_and_visits_nested_members() {
-    let nested = TySplat::Tuple(TyTuple(vec![
-        TyNum(1).to_ty(),
-        TySplat::Array(TyArray(vec![TyNum(2).to_ty(), TyNum(3).to_ty()])).to_ty(),
-    ]))
-    .to_ty();
+fn pack_walk_preserves_nested_choices_and_visits_their_members() {
+    let nested =
+        TyPack(vec![TyNum(1).to_ty(), TyArray(vec![TyNum(2).to_ty(), TyNum(3).to_ty()]).to_ty()])
+            .to_ty();
     let mut seen = vec![];
     let original = nested.to_token_stream().to_string();
     let rebuilt = numbers(nested, &mut seen);
     assert_eq!(seen, [1, 2, 3]);
     assert_eq!(count_leaves(&rebuilt), 5);
     assert_eq!(rebuilt.to_token_stream().to_string(), original);
-    assert!(matches!(rebuilt.kind, TyKind::Splat(TySplat::Tuple(_))));
+    assert!(matches!(rebuilt.kind, TyKind::Pack(_)));
 }
 
 #[test]
@@ -65,8 +63,8 @@ fn standalone_parameter_and_trait_nodes_visit_bounds_and_bindings() {
 }
 
 #[test]
-fn list_growth_guard_counts_mass_hidden_inside_a_splat() {
-    let splat = TySplat::Tuple(TyTuple(vec![primitive("T"); MAX_EXPAND])).to_ty();
+fn list_growth_guard_counts_mass_hidden_inside_a_pack() {
+    let splat = TyPack(vec![primitive("T"); MAX_EXPAND]).to_ty();
     assert_eq!(count_leaves(&splat), MAX_EXPAND + 1);
     let result = primitive("F").apply(TyArray(vec![splat]).to_ty());
     assert!(matches!(result.kind, TyKind::Error(_)));
@@ -93,8 +91,7 @@ fn errors_nested_in_splat_arguments_stop_the_public_pipeline() {
 fn traversal_keeps_nested_errors_and_shared_fresh_identity() {
     reset_fresh_counter();
     let generated = TyTuple(vec![]).to_ty().apply(TyNum(1).to_ty());
-    let target =
-        TySplat::Tuple(TyTuple(vec![generated.clone(), generated, err_ty("sentinel")])).to_ty();
+    let target = TyPack(vec![generated.clone(), generated, err_ty("sentinel")]).to_ty();
     let mut decls = vec![];
     let rebuilt = crate::codegen::hoist_type_params(target, &mut decls);
     assert_eq!(decls.len(), 1, "copies share one structured fresh identity");

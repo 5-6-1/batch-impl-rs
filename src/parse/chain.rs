@@ -59,6 +59,11 @@ pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, ctx: Ctx<'_>) -> Option
 /// Empty input returns `None` (legal termination of the enclosing list); a
 /// leading `.` is a missing-operand error.
 pub(crate) fn parse_space_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
+    if ctx.block_depth == 0 {
+        // Reserve transported declarations across the whole spec before
+        // either a preceding or following generator can claim their ids.
+        crate::parse::reentry::reserve_declarations(cursor.slice_at(cursor.pos(), usize::MAX));
+    }
     let Some(mut left) = parse_dot_chain(cursor, ctx) else {
         if cursor.is_punct('.') {
             return Some(err_ty_at(

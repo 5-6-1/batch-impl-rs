@@ -9,7 +9,7 @@ use crate::apply::err_ty_at;
 use crate::ast::*;
 use crate::parse::blocks::{cursor_is_arrow, peek_ident_at};
 use crate::parse::generic::{empty, parse_angle_bracket_contents};
-use crate::parse::space::{parse_block, parse_return_expr, parse_return_expr_tokens, starts_block};
+use crate::parse::space::{parse_block, parse_return_expr, starts_block};
 use crate::parse::{Ctx, parse_item};
 use crate::util::Cursor;
 use proc_macro2::{Group, Ident, TokenStream, TokenTree};
@@ -40,6 +40,7 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, ctx: Ctx<'_>) -> Ty {
             cursor.bump(); // `unsafe`
             fn_block(cursor, ctx, true)
         }
+        "unsafe" if is_extern_fn(cursor, 1) => extern_fn_block(cursor, ctx, true),
         "unsafe" => {
             // bare `unsafe` — unsafe impl marker (the chain attaches the target)
             cursor.bump();
@@ -49,12 +50,7 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, ctx: Ctx<'_>) -> Ty {
             cursor.bump();
             TyWithPrefix(TyPrefix::SelfType, None).to_ty()
         }
-        "extern"
-            if matches!(cursor.peek_at(1), Some(TokenTree::Literal(_)))
-                && peek_ident_at(cursor, 2, "fn") =>
-        {
-            extern_fn_block(cursor)
-        }
+        "extern" if is_extern_fn(cursor, 0) => extern_fn_block(cursor, ctx, false),
         "dyn" => dyn_block(cursor, ctx),
         "for" => for_block(cursor, ctx),
         "Fn" | "FnMut" | "FnOnce" | "AsyncFn" | "AsyncFnMut" | "AsyncFnOnce" => {
@@ -75,7 +71,7 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, ctx: Ctx<'_>) -> Ty {
                     "AsyncFnOnce" => FnKind::TraitAsyncOnce,
                     _ => FnKind::Trait,
                 };
-                fn_trait_block(cursor, kind)
+                fn_trait_block(cursor, kind, ctx)
             }
         }
         "impl" => {
@@ -84,8 +80,8 @@ pub(crate) fn ident_block(cursor: &mut Cursor, id: Ident, ctx: Ctx<'_>) -> Ty {
                 cursor.advance(2);
                 TyWithImpl(None, TyImplTemplate(g.stream())).to_ty()
             } else {
-                // bare `impl` — swallow the qualified type and `+` bounds
-                swallow_chain(cursor, &id, ctx)
+                // `impl Trait` has a structured bound behind its fixed prefix.
+                impl_trait_block(cursor, ctx)
             }
         }
         "where" => {
@@ -125,7 +121,17 @@ pub(crate) fn fn_block(cursor: &mut Cursor, ctx: Ctx<'_>, is_unsafe: bool) -> Ty
     } else {
         None
     };
-    TyFn(params, ret.map(Into::into), is_unsafe, FnKind::Bare).to_ty()
+    finish_fn_type(params, ret, is_unsafe, FnKind::Bare)
+}
+
+/// A failed return expression must remain the chain's error. Hiding it in a
+/// completed fn would let a remaining follower replace it with "already has a
+/// return type", losing the original diagnostic and its offending token span.
+fn finish_fn_type(params: Option<Vec<Ty>>, ret: Option<Ty>, is_unsafe: bool, kind: FnKind) -> Ty {
+    match ret {
+        Some(error) if matches!(error.kind, TyKind::Error(_)) => error,
+        ret => TyFn(params, ret.map(Into::into), is_unsafe, kind).to_ty(),
+    }
 }
 
 /// One `fn(...)` / `Fn(...)` parameter list: type operands separated by
@@ -145,6 +151,19 @@ fn parse_fn_params(g: &Group, ctx: Ctx<'_>, style: ParamStyle) -> Vec<Ty> {
 /// cursor between operands (the `parse_item(Op::Comma)` contract), so a named
 /// parameter consumes its type up to — not including — the following comma.
 fn parse_fn_param(cursor: &mut Cursor, ctx: Ctx<'_>, style: ParamStyle) -> Option<Ty> {
+    // ABI function pointers can end in a C variadic slot. Keep this Rust
+    // marker opaque instead of trying to parse its dots as DSL application.
+    let skip_comma = usize::from(cursor.is_punct(','));
+    if style == ParamStyle::Bare
+        && (0..3).all(|i| {
+            matches!(cursor.peek_at(skip_comma + i), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+        })
+        && (cursor.peek_at(skip_comma + 3).is_none()
+            || matches!(cursor.peek_at(skip_comma + 3), Some(TokenTree::Punct(p)) if p.as_char() == ','))
+    {
+        cursor.advance(skip_comma + 3);
+        return Some(TyPrimitive(quote!(...)).to_ty());
+    }
     // A `,` immediately before a **named** parameter is stepped over here — the
     // name check below runs before the generic path, which is where the comma
     // handling usually lives. Every other comma stays with `parse_item`, which
@@ -184,16 +203,30 @@ fn parse_fn_param(cursor: &mut Cursor, ctx: Ctx<'_>, style: ParamStyle) -> Optio
         // it is kept verbatim as a prefix and the type is parsed structurally —
         // DSL operands keep working inside a named parameter (`fn(x: Box<u8>)`).
         let ty = parse_item(&mut Cursor::new(segment), Op::Space, ctx).unwrap_or_else(empty);
-        return Some(TyPrimitive(quote!(#name : #ty)).to_ty());
+        return Some(TyPrefixed(quote!(#name :), ty.into()).to_ty());
     }
     parse_item(cursor, Op::Comma, ctx)
 }
 
-/// `extern "C" fn(...)` — one passthrough block (the ABI literal is not a
-/// TyFn field).
-pub(crate) fn extern_fn_block(cursor: &mut Cursor) -> Ty {
-    // `extern` `"C"` `fn` — then the shared passthrough tail
-    passthrough_block(cursor, 3)
+/// `extern "C" fn(...)` — the fixed ABI prefix wraps a structured function
+/// type, so parameter/return packs reach their respective slot consumers.
+fn extern_fn_block(cursor: &mut Cursor, ctx: Ctx<'_>, is_unsafe: bool) -> Ty {
+    let mut leading = usize::from(is_unsafe) + 1; // optional `unsafe`, then `extern`
+    if matches!(cursor.peek_at(leading), Some(TokenTree::Literal(_))) {
+        leading += 1; // optional ABI string
+    }
+    let prefix = cursor.slice_at(cursor.pos(), leading).iter().cloned().collect();
+    cursor.advance(leading);
+    TyPrefixed(prefix, fn_block(cursor, ctx, false).into()).to_ty()
+}
+
+/// `unsafe extern ... fn` is one function type, whereas a bare `unsafe`
+/// remains the impl marker. Rust also permits an omitted ABI literal.
+fn is_extern_fn(cursor: &Cursor, offset: usize) -> bool {
+    peek_ident_at(cursor, offset, "extern")
+        && (peek_ident_at(cursor, offset + 1, "fn")
+            || (matches!(cursor.peek_at(offset + 1), Some(TokenTree::Literal(_)))
+                && peek_ident_at(cursor, offset + 2, "fn")))
 }
 
 /// `Fn(A) -> B` / `FnMut(A)` / `FnOnce(A)` — the Fn-family trait types.
@@ -201,49 +234,22 @@ pub(crate) fn extern_fn_block(cursor: &mut Cursor) -> Ty {
 /// trait), so the `.().N` / `.().N..M` generators work on them — and a bare
 /// `Fn` (no parens) keeps `None` params to be filled by `.` later, exactly
 /// like a bare `fn`.
-pub(crate) fn fn_trait_block(cursor: &mut Cursor, kind: FnKind) -> Ty {
+pub(crate) fn fn_trait_block(cursor: &mut Cursor, kind: FnKind, ctx: Ctx<'_>) -> Ty {
+    let ctx = ctx.plain();
     cursor.bump(); // `Fn` / `FnMut` / `FnOnce`
     let params = cursor.peek_group(delimiter![()]).map(|g| {
         cursor.bump();
         // The `Fn(…)` sugar rejects named parameters (`ParamStyle::Sugar`) —
         // rustc's own rule for `Trait(...)` syntax.
-        parse_fn_params(&g, Ctx::default(), ParamStyle::Sugar)
+        parse_fn_params(&g, ctx, ParamStyle::Sugar)
     });
     let ret = if cursor_is_arrow(cursor) {
         cursor.advance(2);
-        Some(parse_return_expr(cursor, Ctx::default()))
+        Some(parse_return_expr(cursor, ctx))
     } else {
         None
     };
-    TyFn(params, ret.map(Into::into), false, kind).to_ty()
-}
-
-/// Shared tail of the `extern "C" fn` passthrough block: the already-bumped
-/// leading tokens, an optional `(params)` group, and an optional `-> Ret`
-/// return expression are consumed as one opaque token slice — the whole block
-/// is a passthrough. The Fn-family types became **structural** in 0.9.3
-/// (`fn_trait_block`), so `extern_fn_block` is its only caller.
-fn passthrough_block(cursor: &mut Cursor, n_leading: usize) -> Ty {
-    let start = cursor.pos();
-    for _ in 0..n_leading {
-        cursor.bump();
-    }
-    if matches!(cursor.peek(), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![()]) {
-        cursor.bump();
-    }
-    if cursor_is_arrow(cursor) {
-        cursor.advance(2);
-        // the return expression — consume its blocks without keeping them
-        // structurally (the whole block is a passthrough). A stall inside it
-        // replaces the passthrough with the diagnostic (see
-        // [`parse_return_expr_tokens`]).
-        if let Some(err) = parse_return_expr_tokens(cursor) {
-            return err;
-        }
-    }
-    let n = cursor.pos() - start;
-    let tokens = cursor.slice_at(start, n).to_vec();
-    TyPrimitive(tokens.into_iter().collect()).to_ty()
+    finish_fn_type(params, ret, false, kind)
 }
 
 /// `for<'a, 'b> <inner>` — a higher-ranked trait bound. The **binder is parsed**
@@ -317,19 +323,24 @@ pub(crate) fn dyn_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
     TyWithDyn(Box::new(inner), TyBoundList(bounds)).to_ty()
 }
 
-/// `dyn ...` / `impl Trait` — swallow the qualified type and a `+ Bound`
-/// chain (a block after the chain ends is the chain's next block).
-pub(crate) fn swallow_chain(cursor: &mut Cursor, _id: &Ident, ctx: Ctx<'_>) -> Ty {
-    let start = cursor.pos();
-    cursor.bump(); // `dyn` / `impl` — id is re-collected via the token slice
-    parse_block(cursor, ctx).unwrap_or_else(empty); // qualified type
+/// `impl Trait` — the keyword is fixed syntax, but each bound remains a Ty
+/// (a block after the `+` chain is the outer chain's next block).
+fn impl_trait_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
+    cursor.bump(); // `impl`
+    let ctx = ctx.in_bound();
+    let inner = parse_block(cursor, ctx).unwrap_or_else(empty);
+    let mut bounds = vec![];
     while cursor.is_punct('+') {
         cursor.bump();
-        parse_block(cursor, ctx).unwrap_or_else(empty);
+        bounds.push(parse_block(cursor, ctx).unwrap_or_else(empty));
     }
-    let n = cursor.pos() - start;
-    let tokens = cursor.slice_at(start, n).to_vec();
-    TyPrimitive(tokens.into_iter().collect()).to_ty()
+    let inner = if bounds.is_empty() {
+        inner
+    } else {
+        bounds.insert(0, inner);
+        TyBoundList(bounds).to_ty()
+    };
+    TyPrefixed(quote!(impl), inner.into()).to_ty()
 }
 
 /// Plain ident: `::` path segments, a `!` macro call, a **trailing `<>`

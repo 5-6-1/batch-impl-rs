@@ -12,9 +12,8 @@
 //! The invariants that keep the layers sound:
 //!
 //! 1. Blocks never swallow the type they would apply to (`&mut u8` is the
-//!    two blocks `&mut` + `u8`) — except where Rust syntax forces a whole
-//!    fragment: lifetime references (`&'a mut u8`) and the fn family
-//!    (`fn(u8) -> u8`).
+//!    two blocks `&mut` + `u8`) — except for lifetime references (`&'a mut u8`),
+//!    the fn family (`fn(u8) -> u8`), and `*T` consuming one following block.
 //! 2. All semantic combination happens in **apply** — the parse layer only
 //!    cuts blocks. `<>` is a `TyTypeParam` block; whether it is a generic
 //!    declaration or a trait/type argument is decided by the apply
@@ -29,6 +28,7 @@ mod chain;
 mod generic;
 mod ident_blocks;
 mod parse_atom;
+mod reentry;
 mod space;
 pub(crate) use chain::parse_item;
 pub(crate) use generic::split_at_depth0;
@@ -61,6 +61,8 @@ use crate::util::Cursor;
 pub(crate) struct Ctx<'a> {
     pub(crate) trait_name: Option<&'a Ident>,
     pub(crate) bound: bool,
+    /// Recursive block depth, including flat prefixes that introduce no group.
+    block_depth: usize,
 }
 
 impl<'a> Ctx<'a> {
@@ -432,7 +434,7 @@ mod tests {
         }
         // A trailing comma is dropped by the fn renderer (`fn(u8,)` → `fn(u8)`).
         assert_eq!(flat(&round_trip("fn(x: u8,)")), flat("fn(x: u8)"));
-        // `extern "C" fn(...)` stays an opaque passthrough.
+        // The ABI prefix preserves the structured fn's named parameter.
         assert_eq!(flat(&round_trip("extern \"C\" fn(x: u8)")), flat("extern \"C\" fn(x: u8)"));
         let rendered = round_trip("dyn Fn(x: u8) -> u8");
         assert!(rendered.contains("does not support named parameters"), "got: {rendered}");
@@ -441,7 +443,9 @@ mod tests {
     }
 
     /// Regression (the third fuzz-hang root cause, found by adversarial review):
-    /// `parse_return_expr_tokens` was the one fold loop with no progress check.
+    /// The former token-only extern return parser lacked a progress check.
+    /// ABI fn pointers now share the structural return parser; that live path
+    /// must retain the guard rather than keeping a test-only legacy helper.
     /// `#` followed by a non-bracket group is `starts_block`-true and
     /// `parse_block`-none, so the loop spun on an unmoved cursor — allocating
     /// nothing, so the fuzz `GuardAlloc` could not catch it; the compiler just
@@ -452,11 +456,9 @@ mod tests {
         let ts: proc_macro2::TokenStream = "u8 # (x)".parse().unwrap();
         let v = ts.into_iter().collect::<Vec<_>>();
         let mut c = crate::util::Cursor::new(&v);
-        let outcome = super::space::parse_return_expr_tokens(&mut c);
+        let outcome = super::space::parse_return_expr(&mut c, super::Ctx::default());
         use quote::ToTokens as _;
-        let rendered = outcome.map_or_else(String::new, |ty| {
-            crate::preprocess::render_angles(ty.to_token_stream()).to_string()
-        });
+        let rendered = crate::preprocess::render_angles(outcome.to_token_stream()).to_string();
         assert!(rendered.contains("unexpected `#`"), "expected the stalled token, got: {rendered}");
         // Progress: the stalled `#` is consumed, so the fold cannot spin on it.
         // (What follows it is left to the chain, which folds it into the error.)
@@ -566,7 +568,7 @@ mod tests {
 
     #[test]
     fn prefix_puncts_parse() {
-        // `?` / `!` prefix puncts are passthrough blocks; `self` is the
+        // `?` / `!` prefix puncts are structured prefix blocks; `self` is the
         // identity prefix (`self.T` => `T`).
         parse_ok("?Sized");
         parse_ok("! u8");

@@ -69,7 +69,7 @@ jobs:
       - run: cargo test --doc
 
   pack-model:
-    name: Pack proposal model
+    name: Pack semantics model
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

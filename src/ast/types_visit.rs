@@ -3,56 +3,14 @@
 //! traversal stay under the per-file budget.
 
 use crate::ast::types::{
-    QualifiedHead, Ty, TyArray, TyBoundList, TyFn, TyGeneric, TyGroup, TyKind, TyPack, TyParams,
-    TyPrimitiveArray, TyQualified, TySplat, TyTrait, TyTuple, TyTypeParam, TyWithAttr, TyWithCode,
+    QualifiedHead, Ty, TyArray, TyBoundList, TyFn, TyGeneric, TyGroup, TyKind, TyPack, TyPrefixed,
+    TyPrimitiveArray, TyQualified, TyTrait, TyTuple, TyTypeParam, TyWithAttr, TyWithCode,
     TyWithDyn, TyWithFor, TyWithImpl, TyWithPrefix, TyWithTrait, TyWithType, TyWithWhere,
 };
 
 pub(crate) enum Expand {
     Leaf(Ty),
     Many(Vec<Ty>),
-}
-
-/// Splat consumption: flatten a splat element (or any container / generator)
-/// into its element list, hoisting fresh declarations out. Returns the flat
-/// elements plus the merged declaration (if any generator was flattened — the
-/// caller wraps the enclosing container in `WithType(decl, ...)`).
-///
-/// Shared by the parse layer (container element collection) and the apply
-/// layer (right-splat argument appending / left-splat distribution).
-pub(crate) fn splat_expand(ty: Ty) -> (Vec<Ty>, Option<TyTypeParam>) {
-    match ty.kind {
-        TyKind::Splat(s) => fold_splat_elems(s.elems().to_vec()),
-        TyKind::Array(a) => fold_splat_elems(a.0),
-        // Splat expands ONE layer: tuples are types, so they stay as single
-        // elements — `*((a,b),)` = `(a,b)` (one tuple impl), and a tuple
-        // inside a splat (`*(a,(b,c))`) keeps `(b,c)` intact. Only lists
-        // (arrays, nested splats) and generators flatten.
-        TyKind::Tuple(t) => (vec![Ty { span: ty.span, kind: TyKind::Tuple(t) }], None),
-        TyKind::Group(g) => splat_expand(*g.0),
-        // Generator: its inner container is a *param list* (the fresh tuple),
-        // not a type — flatten it even though bare tuples stay single
-        // elements (`(*(().3))` = `(P0,P1,P2)`, not `((P0,P1,P2),)`).
-        TyKind::WithType(wt) => {
-            let TyWithType(params, inner) = wt;
-            let (elems, _) = match inner.kind {
-                TyKind::Tuple(t) => fold_splat_elems(t.0),
-                _ => splat_expand(*inner),
-            };
-            (elems, Some(params))
-        }
-        // Anything else (primitive / generic / nested containers that belong
-        // to the element itself, e.g. `Vec<().2>`) stays a single element.
-        other => (vec![Ty { span: ty.span, kind: other }], None),
-    }
-}
-
-pub(crate) fn fold_splat_elems(elems: Vec<Ty>) -> (Vec<Ty>, Option<TyTypeParam>) {
-    elems.into_iter().fold((vec![], None), |(mut flat, decl), e| {
-        let (mut es, d) = splat_expand(e);
-        flat.append(&mut es);
-        (flat, merge_decls(decl, d))
-    })
 }
 
 /// Maps a generic parameter list through `f` — the parameter positions of
@@ -64,43 +22,6 @@ fn map_type_param(tp: TyTypeParam, f: &mut impl FnMut(Ty) -> Ty) -> TyTypeParam 
     let bindings =
         tp.bindings.into_iter().map(|(n, v)| (Box::new(f(*n)), Box::new(f(*v)))).collect();
     TyTypeParam { params, bindings }
-}
-
-/// Flatten top-level splat params (`T<*(A,B)>` → `T<A,B>`) and hoist
-/// generator declarations (`T<().2>` = `<A,B>T<(A,B)>`) without recursing
-/// into ordinary names; returns flat params + any hoisted declaration.
-/// Shared by `expand_tp` (structure level, recurses afterwards) and
-/// `extract_impl_parts` (trait args, rendered to tokens).
-pub(crate) fn flat_splat_params(params: TyParams) -> (TyParams, Option<TyTypeParam>) {
-    let mut flat = vec![];
-    let mut decl = None;
-    for (name, bound) in params {
-        match name.kind {
-            // `*(A,B)` param → its flat elements
-            TyKind::Splat(_) => {
-                let (es, d) = splat_expand(*name);
-                decl = merge_decls(decl, d);
-                flat.extend(es.into_iter().map(|e| (e.into(), None)));
-            }
-            // generator param (`().N`) → hoist the fresh declaration; the
-            // inner tuple stays the arg (`T<().2>` = `<A,B>T<(A,B)>`), but a
-            // splat re-wrap (`*().N` → `<A,B>T<A,B>`) flattens further.
-            TyKind::WithType(wt) => {
-                decl = merge_decls(decl, Some(wt.0));
-                let inner = *wt.1;
-                match inner.kind {
-                    TyKind::Splat(_) => {
-                        let (es, d) = splat_expand(inner);
-                        decl = merge_decls(decl, d);
-                        flat.extend(es.into_iter().map(|e| (e.into(), None)));
-                    }
-                    _ => flat.push((inner.into(), bound)),
-                }
-            }
-            _ => flat.push((name, bound)),
-        }
-    }
-    (flat, decl)
 }
 
 /// Merge two optional fresh declarations (`TyTypeParam::extend` semantics).
@@ -164,17 +85,6 @@ impl Ty {
             }
             // Traversal preserves the container; it must not consume splats
             // or packs. Error collection and mass guards need every member.
-            TyKind::Splat(s) => {
-                let splat = match s {
-                    TySplat::Tuple(t) => {
-                        TySplat::Tuple(TyTuple(t.0.into_iter().map(|e| f(e)).collect()))
-                    }
-                    TySplat::Array(a) => {
-                        TySplat::Array(TyArray(a.0.into_iter().map(|e| f(e)).collect()))
-                    }
-                };
-                splat.to_ty().with_span(span)
-            }
             TyKind::Pack(p) => {
                 TyPack(p.0.into_iter().map(|e| f(e)).collect()).to_ty().with_span(span)
             }
@@ -190,6 +100,7 @@ impl Ty {
             TyKind::WithPrefix(wp) => {
                 TyWithPrefix(wp.0, wp.1.map(|e| f(*e).into())).to_ty().with_span(span)
             }
+            TyKind::Prefixed(p) => TyPrefixed(p.0, f(*p.1).into()).to_ty().with_span(span),
             TyKind::WithDyn(wd) => TyWithDyn(
                 Box::new(f(*wd.0)),
                 TyBoundList(wd.1.0.into_iter().map(|e| f(e)).collect()),

@@ -44,9 +44,10 @@ use syn::ItemImpl;
 use crate::ast::TyKind;
 use crate::ast::reset_fresh_counter;
 use crate::codegen::{
-    FreshCtx, Mapping, apply_type_mapping, collect_used_surfaces, expand_range_refs,
-    hoist_type_params, match_shape, resolve_where_predicates, used_ident_set,
+    FreshCtx, Mapping, apply_type_mapping, expand_range_refs, hoist_type_params, match_shape,
+    resolve_where_predicates, used_ident_set,
 };
+use crate::entry::impl_fresh::{fresh_context, resolve_fresh_predicates};
 use crate::entry::impl_spec::{
     assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
 };
@@ -244,6 +245,10 @@ fn expand_leaf(
     // collecting its own shape templates (`[Box,Rc]impl{A<(T@..)>}` — several
     // may be comma-joined inside one `impl{...}`, like the attribute entry's
     // multi-template merge) and its where predicates.
+    // Materialization can carry a declaration outside an attachment. Hoist
+    // first so the attachment scan sees the same chain for every arity.
+    let mut fresh_decls = vec![];
+    let leaf = hoist_type_params(leaf, &mut fresh_decls);
     let mut leaf_templates: Vec<TokenStream> = vec![];
     let mut leaf_preds: Vec<TokenTree> = vec![];
     let mut leaf = Some(leaf);
@@ -284,15 +289,13 @@ fn expand_leaf(
     // them out of the leaf (they join the impl generics), name them
     // (`P0, P1, ...`) and resolve the carriers to display names before the
     // shape kernel syn-parses the leaf.
-    let mut fresh_decls = vec![];
-    let leaf = hoist_type_params(leaf, &mut fresh_decls);
-    let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
-    // The leaf's own idents join the collision set: the matrix source is the
-    // user's text (`Holder<P0>`), so a display name must never shadow it.
-    let mut used = used.clone();
+    // The leaf and its extracted attachments are all user text. Hoisted
+    // bounds join them in the shared helper before any name is assigned.
     let leaf_ts = leaf.to_token_stream();
-    collect_used_surfaces(&[&leaf_ts], &mut used);
-    let fresh_ctx = FreshCtx::new(&decl_names, &used);
+    let leaf_pred_ts = leaf_preds.iter().cloned().collect::<TokenStream>();
+    let mut surfaces = vec![&leaf_ts, &leaf_pred_ts];
+    surfaces.extend(&leaf_templates);
+    let fresh_ctx = fresh_context(&fresh_decls, used, &surfaces);
     let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
     let leaf_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
     let leaf_span =
@@ -357,8 +360,7 @@ fn expand_leaf(
     if !leaf_preds.is_empty() {
         chunks.extend(chunks_to_streams(&leaf_preds, ','));
     }
-    let where_resolved = resolve_where_predicates(&chunks, &fresh_ctx)
-        .map_err(|es| es.into_iter().collect::<TokenStream>())?;
+    let where_resolved = resolve_fresh_predicates(&fresh_decls, &chunks, &fresh_ctx)?;
     assemble_impl(
         item,
         trait_path,
@@ -390,7 +392,7 @@ fn expand_direct_form(
     if let Some(ng) = &ng_ts {
         surfaces.push(ng);
     }
-    let mut used = used_ident_set(&surfaces);
+    let used = used_ident_set(&surfaces);
     let where_chunks = chunks_to_streams(where_preds, ',');
     let leaves = parse_matrix_leaves(&for_tokens.to_vec())?;
     if leaves.len() != 1 {
@@ -411,15 +413,12 @@ fn expand_direct_form(
         ));
     };
     let leaf = hoist_type_params(leaf, &mut fresh_decls);
-    let decl_names = fresh_decls.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
     // The spec's for-type is user text too — its idents join the set.
     let leaf_ts = leaf.to_token_stream();
-    collect_used_surfaces(&[&leaf_ts], &mut used);
-    let fresh_ctx = FreshCtx::new(&decl_names, &used);
+    let fresh_ctx = fresh_context(&fresh_decls, &used, &[&leaf_ts]);
     let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
     let for_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
-    let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
-        .map_err(|es| es.into_iter().collect::<TokenStream>())?;
+    let where_resolved = resolve_fresh_predicates(&fresh_decls, &where_chunks, &fresh_ctx)?;
     assemble_impl(
         item,
         trait_path,

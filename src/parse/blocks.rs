@@ -1,25 +1,24 @@
 //! Block-family implementations for space-application parsing: each block
-//! family (`&` refs, `*` pointers/splats, `@N` refs, numbers/ranges, idents,
+//! family (`&` refs, `*` pointers/packs, `@N` refs, numbers/ranges, idents,
 //! the fn family, trait-object families) parses the smallest self-contained
 //! type fragment plus its fixed suffixes. The dispatch lives in
 //! [`parse_block`](super::space::parse_block); the helpers here are shared
 //! with the space-chain skeleton in `space.rs`.
 //!
 //! A block never swallows the type it would apply to (`&mut u8` is the two
-//! blocks `&mut` and `u8`, folded by the chain) — with two exceptions where
-//! Rust syntax forces the fragment together: lifetime references
-//! (`&'a mut u8`) and the fn family (`fn(u8) -> u8`).
+//! blocks `&mut` and `u8`, folded by the chain), except for lifetime references
+//! (`&'a mut u8`), the fn family (`fn(u8) -> u8`) and the Pack prefix `*T`,
+//! which consumes exactly one following block.
 
 use crate::apply::err_ty_at;
 use crate::ast::*;
 use crate::parse::Ctx;
-use crate::parse::generic::{empty, split_at_depth0};
+use crate::parse::generic::empty;
 use crate::parse::parse_atom::parse_range;
-use crate::parse::parse_item;
 use crate::parse::space::parse_block;
 use crate::util::Cursor;
 use proc_macro2::{Ident, Spacing, TokenStream, TokenTree};
-use quote::{ToTokens, quote};
+use quote::quote;
 
 /// Whether the cursor sits on a `->` fn arrow (Joint `-` followed by `>`).
 pub(crate) fn cursor_is_arrow(cursor: &Cursor) -> bool {
@@ -75,7 +74,7 @@ pub(crate) fn reference_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
     };
     if let Some(lt) = lifetime {
         // `&'a u8` / `&'a mut u8` — one block: swallow the target type and
-        // render the whole reference as a passthrough. The target is a
+        // keep the target structural inside a fixed Rust prefix. It is a
         // **sub-type position** (`T: &'a Vec<Item = u8>`), so the bound flag
         // stops here.
         let ty = parse_block(cursor, ctx.plain()).unwrap_or_else(empty);
@@ -85,17 +84,18 @@ pub(crate) fn reference_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
         if is_mut {
             ts.extend(quote!(mut));
         }
-        ts.extend(ty.to_token_stream());
-        return TyPrimitive(ts).to_ty();
+        return TyPrefixed(ts, ty.into()).to_ty();
     }
     let prefix = if is_mut { TyPrefix::RefMut } else { TyPrefix::Ref };
     TyWithPrefix(prefix, None).to_ty()
 }
 
 /// `*` block family: `*const T` / `*mut T` prefixes (never swallow the
-/// target: `*const u8` = `*const` + `u8`) and `*[...]` / `*(...)` splats
-/// (one block each — the splat keeps its group).
-pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
+/// target: `*const u8` = `*const` + `u8`) and `*T` packs. A pack consumes
+/// exactly one block: `*Vec u8` maps `Vec` over `u8`, while `*(Vec u8)`
+/// packs the grouped application result.
+pub(crate) fn star_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
+    let span = cursor.span();
     cursor.bump(); // `*`
     match cursor.peek() {
         Some(TokenTree::Ident(id)) if id == "const" => {
@@ -106,28 +106,14 @@ pub(crate) fn star_block(cursor: &mut Cursor) -> Ty {
             cursor.bump();
             TyWithPrefix(TyPrefix::PtrMut, None).to_ty()
         }
-        Some(TokenTree::Group(g)) if matches!(g.delimiter(), delimiter![()] | delimiter![[]]) => {
-            let g = g.clone();
-            cursor.bump();
-            let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let elems = split_at_depth0(&inner, ',')
-                .iter()
-                .filter(|c| !c.is_empty())
-                .map(|c| {
-                    parse_item(&mut Cursor::new(c), Op::Space, Ctx::default()).unwrap_or_else(empty)
-                })
-                .collect::<Vec<_>>();
-            if g.delimiter() == delimiter![[]] {
-                TySplat::Array(TyArray(elems)).to_ty()
-            } else {
-                TySplat::Tuple(TyTuple(elems)).to_ty()
-            }
-        }
-        _ => err_ty_at(
-            "batch-impl: `*` must be a splat (`*[...]` / `*(...)`) or a raw \
-             pointer (`*const T` / `*mut T`)",
-            cursor.span(),
-        ),
+        _ => match parse_block(cursor, ctx) {
+            Some(ty) => crate::apply::pack::packify(ty).with_span(span),
+            None => err_ty_at(
+                "batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); \
+                 raw pointers use `*const T` or `*mut T`",
+                span,
+            ),
+        },
     }
 }
 
