@@ -68,6 +68,17 @@ jobs:
       - run: cargo test --lib --test dsl --test no_panic --test doc_consistency
       - run: cargo test --doc
 
+  pack-model:
+    name: Pack proposal model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python tests/pack_model/run.py
+
   doc:
     name: doc
     runs-on: ubuntu-latest

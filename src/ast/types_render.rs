@@ -85,6 +85,13 @@ impl ToTokens for Ty {
                 let elems = t.0.iter().map(|e| e.to_token_stream()).collect::<Vec<_>>();
                 quote!((#(#elems,)*))
             }
+            // DSL serialization only: the trailing comma preserves a singleton
+            // pack's layer (`*(*(A,B),)` must not become `*(*(A,B))`). Rust
+            // generation must materialize packs before reaching this renderer.
+            TyKind::Pack(p) => {
+                let elems = &p.0;
+                quote!(*(#(#elems,)*))
+            }
             // Splats are never expanded at parse/apply/expand time (splat
             // survival); they render with their marker so the codegen
             // postprocess (`expand_splats`) can spot and expand them —

@@ -10,6 +10,36 @@
 > Target: **0.10.0**, the next version after the published 0.9.7. Development is
 > continuing; no release date is set.
 
+- Pack integration, stage 1 (2026-09-26): save the reviewed independent model,
+  bilingual contract/tutorial and repeatable checks in `tests/pack_model/`;
+  generated files remain in `target/pack-model/`. Add a dedicated CI job.
+  Introduce an internal `TyPack` and row-preserving application kernel while
+  leaving the public parser and legacy `TySplat` path in place. A temporary
+  driver guard rejects an unmaterialized Pack before output. Complete the
+  shared AST walk for Splat, Pack, standalone TypeParam and Trait nodes;
+  enumerate leaf variants explicitly so new structural nodes cannot silently
+  escape error collection, declaration hoisting or the mass guard.
+  Stop zero-length bound/Cartesian generation from reserving an empty fresh
+  group, with a public DSL regression that uses `@0_0` after each zero form.
+  Next stages must implement host-aware materialization, integrate both macro
+  entries and preserve open-extension timing before switching public syntax.
+  The independent model's checks are evidence for the core contract, not a
+  claim that the production language has already adopted it.
+  Production checks bound AST node mass; the model bounds member counts.
+  Matching semantics does not imply identical maximum expansion capacity.
+
+- Stage-1 acceptance (2026-09-26): commit `751f998` preserves the previous
+  development baseline after its Windows gates and all 125 Linux UI fixtures
+  passed. The Pack foundation passes 205 unit tests (26 Pack cases), 351 feature
+  tests, six no-panic checks, 14 documentation checks, 123 doctests, fmt, all-target
+  check/clippy, warning-free rustdoc and all three examples on Windows 1.98.1.
+  The independent model passes 17 test groups, 40,446 finite checks, 23 Rust
+  families containing 37 impls, 13 consumer calls, 16 marked examples per
+  language and three expected coherence/unused-parameter failures. Linux UI
+  snapshots were verified on the baseline; they were not rerun for this internal
+  kernel stage. Public Pack parsing/materialization and release acceptance remain
+  outstanding.
+
 - Third reader review: four ignored English doctests left public extension
   examples unverified. Fix integer-valued bodies for unit-returning methods;
   receive the general protocol with repeated spec `tt`s and a complete

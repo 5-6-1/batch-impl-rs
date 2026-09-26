@@ -1,6 +1,12 @@
 //! Apply layer: the `Apply` trait and operator semantics for each `Ty` variant.
 
 pub(crate) mod apply_tuple;
+pub(crate) mod pack;
+#[cfg(test)]
+mod pack_limit_tests;
+mod pack_limits;
+#[cfg(test)]
+mod pack_tests;
 pub(crate) mod splat_apply;
 
 // The [`Apply`] trait defines the binary operation `A.apply(B)`: `.` (right-assoc) /
@@ -257,6 +263,7 @@ impl Apply for TyKind {
             TyKind::Trait(t) => t.apply_help(o, span),
             TyKind::Array(a) => a.apply_help(o, span),
             TyKind::Tuple(t) => t.apply_help(o, span),
+            TyKind::Pack(p) => p.apply_help(o, span),
             TyKind::Splat(s) => s.apply_help(o, span),
             TyKind::Group(g) => g.apply_help(o, span),
             TyKind::Fn(f) => f.apply_help(o, span),

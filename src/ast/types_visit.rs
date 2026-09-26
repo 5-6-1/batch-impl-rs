@@ -3,8 +3,8 @@
 //! traversal stay under the per-file budget.
 
 use crate::ast::types::{
-    QualifiedHead, Ty, TyArray, TyBoundList, TyFn, TyGeneric, TyGroup, TyKind, TyParams,
-    TyPrimitiveArray, TyQualified, TyTrait, TyTuple, TyTypeParam, TyWithAttr, TyWithCode,
+    QualifiedHead, Ty, TyArray, TyBoundList, TyFn, TyGeneric, TyGroup, TyKind, TyPack, TyParams,
+    TyPrimitiveArray, TyQualified, TySplat, TyTrait, TyTuple, TyTypeParam, TyWithAttr, TyWithCode,
     TyWithDyn, TyWithFor, TyWithImpl, TyWithPrefix, TyWithTrait, TyWithType, TyWithWhere,
 };
 
@@ -162,6 +162,22 @@ impl Ty {
             TyKind::Tuple(t) => {
                 TyTuple(t.0.into_iter().map(|e| f(e)).collect()).to_ty().with_span(span)
             }
+            // Traversal preserves the container; it must not consume splats
+            // or packs. Error collection and mass guards need every member.
+            TyKind::Splat(s) => {
+                let splat = match s {
+                    TySplat::Tuple(t) => {
+                        TySplat::Tuple(TyTuple(t.0.into_iter().map(|e| f(e)).collect()))
+                    }
+                    TySplat::Array(a) => {
+                        TySplat::Array(TyArray(a.0.into_iter().map(|e| f(e)).collect()))
+                    }
+                };
+                splat.to_ty().with_span(span)
+            }
+            TyKind::Pack(p) => {
+                TyPack(p.0.into_iter().map(|e| f(e)).collect()).to_ty().with_span(span)
+            }
             TyKind::Group(g) => TyGroup(f(*g.0).into()).to_ty().with_span(span),
             TyKind::PrimitiveArray(pa) => {
                 TyPrimitiveArray(pa.0.map(|e| f(*e).into()), pa.1).to_ty().with_span(span)
@@ -169,6 +185,8 @@ impl Ty {
             TyKind::Generic(g) => {
                 TyGeneric(f(*g.0).into(), map_type_param(g.1, f)).to_ty().with_span(span)
             }
+            TyKind::Trait(t) => TyTrait(t.0, map_type_param(t.1, f)).to_ty().with_span(span),
+            TyKind::TypeParam(tp) => map_type_param(tp, f).to_ty().with_span(span),
             TyKind::WithPrefix(wp) => {
                 TyWithPrefix(wp.0, wp.1.map(|e| f(*e).into())).to_ty().with_span(span)
             }
@@ -229,8 +247,14 @@ impl Ty {
             TyKind::BoundList(b) => {
                 TyBoundList(b.0.into_iter().map(|e| f(e)).collect()).to_ty().with_span(span)
             }
-            // No children: keep as-is.
-            other => Ty { span, kind: other },
+            // Keep this exhaustive: adding a structural variant must make
+            // its traversal contract an explicit choice, never a silent leaf.
+            kind @ (TyKind::Primitive(_)
+            | TyKind::Num(_)
+            | TyKind::Range(_)
+            | TyKind::Fresh(_)
+            | TyKind::Lifetime(_)
+            | TyKind::Error(_)) => Ty { span, kind },
         }
     }
 }

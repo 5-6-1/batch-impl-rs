@@ -10,6 +10,14 @@
 > Target: **0.10.0**, the next version after the published 0.9.7. Development is
 > continuing; no release date is set.
 
+- Begin the staged Pack redesign with an internal application kernel and an
+  executable specification. The public `*` syntax still follows the existing
+  splat rules; the new model is not available through the macro entries yet.
+  Fix traversal of splat members and standalone parameter/trait arguments so
+  nested diagnostics, fresh declarations and expansion mass are not missed.
+  Zero-length bound/Cartesian generators no longer reserve a fresh group:
+  a following actual generator starts at the expected `@0_0` position.
+
 - Fix return types and the `macro_rules!` receiver in open-extension examples,
   with working checks for complete trait items, multi-token targets such as
   `Vec<u8>`, and preceding body tokens; remove the related `ignore` flags.

@@ -51,6 +51,7 @@ macro_rules! impl_from_for_ty {
 impl_from_for_ty! {
     TyArray => Array,
     TyTuple => Tuple,
+    TyPack => Pack,
     TySplat => Splat,
     TyGroup => Group,
     TyPrimitiveArray => PrimitiveArray,

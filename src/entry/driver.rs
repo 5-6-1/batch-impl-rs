@@ -116,6 +116,16 @@ fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
     if let Ty { kind: TyKind::Error(e), .. } = ty {
         out.push(e.0.clone());
     }
+    // The pack kernel is being integrated independently of the public
+    // parser. A pack reaching the old output pipeline has no materializer;
+    // never reinterpret it as a legacy splat or emit its DSL as Rust.
+    if matches!(ty.kind, TyKind::Pack(_)) {
+        out.push(crate::util::compile_error_str(
+            "batch-impl: internal error: an unmaterialized pack reached the output pipeline",
+            ty.span,
+        ));
+        return;
+    }
     // map_children is the single traversal authority and descends into
     // every child position — parameter lists included (`Box<@0..=2>`'s
     // range carrier, a generator inside `T<...>`), so aggregation cannot
@@ -124,4 +134,21 @@ fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
         collect_errors(&child, out);
         child
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{TyGeneric, TyPack, TyPrimitive, TyTypeParam};
+
+    #[test]
+    fn an_internal_pack_cannot_leak_through_a_generic_argument() {
+        let inner = TyPack(vec![]).to_ty();
+        let target =
+            TyGeneric(TyPrimitive(quote!(Wrapper)).into(), TyTypeParam::single(&inner)).to_ty();
+        let mut errors = vec![];
+        collect_errors(&target, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].to_string().contains("unmaterialized pack"));
+    }
 }

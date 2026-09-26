@@ -8,6 +8,8 @@ pub(crate) mod types;
 pub(crate) mod types_from;
 pub(crate) mod types_render;
 pub(crate) mod types_visit;
+#[cfg(test)]
+mod visit_tests;
 
 pub(crate) use fresh_protocol::*;
 pub(crate) use op::*;

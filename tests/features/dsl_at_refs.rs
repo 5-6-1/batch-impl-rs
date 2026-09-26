@@ -116,6 +116,23 @@ fn at_group_position_refs() {
     assert_impl::<(u8, u16, u32, (u64, u128, usize))>();
 }
 
+// A zero-length generator creates no fresh parameters and must not reserve a
+// group id. The next actual generation remains group 0 in each of these specs.
+#[batch_impl(((<Clone>,).0, ().1) where{@0_0: JoinMarker})]
+trait ZeroBoundGroup {}
+
+#[batch_impl(((u16, u32).0, ().1) where{@0_0: JoinMarker})]
+trait ZeroCartesianGroup {}
+
+#[batch_impl((().0, ().1) where{@0_0: JoinMarker})]
+trait ZeroEmptyGroup {}
+
+#[test]
+fn zero_length_generators_do_not_shift_group_references() {
+    fn check<T: ZeroBoundGroup + ZeroCartesianGroup + ZeroEmptyGroup>() {}
+    check::<((), (u8,))>();
+}
+
 #[test]
 fn where_position_refs() {
     assert_eq!(<(u32, u32) as TupleWhereAt>::tmk(), 2);

@@ -12,6 +12,11 @@ pub(crate) struct TyArray(pub(crate) Vec<Ty>);
 /// `(...,)`
 pub(crate) struct TyTuple(pub(crate) Vec<Ty>);
 #[derive(Clone, Debug)]
+/// Internal parameter pack. Unlike the legacy splat, it has no source-container
+/// kind: nested packs remain structural until an explicit consumer opens them.
+/// The parser does not construct this node until the Pack syntax cutover.
+pub(crate) struct TyPack(pub(crate) Vec<Ty>);
+#[derive(Clone, Debug)]
 /// `*[...]` / `*(...)` — splat: flatten a container's elements into the
 /// enclosing tuple/array/`.` argument list. The variant mirrors the source
 /// bracket and drives the **left-operand** semantics: `TySplat::Array`
@@ -305,6 +310,7 @@ impl Ty {
 pub(crate) enum TyKind {
     Array(TyArray),
     Tuple(TyTuple),
+    Pack(TyPack),
     Splat(TySplat),
     Group(TyGroup),
     PrimitiveArray(TyPrimitiveArray),

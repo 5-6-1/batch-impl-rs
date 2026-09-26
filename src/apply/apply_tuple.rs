@@ -50,7 +50,7 @@ pub(crate) fn map_range(
 
 /// `(...,).N`: expands the tuple to length N (empty / single / multi-element handled separately)
 /// `N` above [`MAX_EXPAND`] is a typo diagnostic (covers `().N` / `(T,).N`).
-fn tuple_pow(mut elems: Vec<Ty>, n: usize) -> Ty {
+pub(super) fn tuple_pow(mut elems: Vec<Ty>, n: usize) -> Ty {
     if let Some(e) = check_expand_limit(&format!("tuple .{}", n), n) {
         return e;
     }
@@ -86,6 +86,9 @@ fn pow_single(template: Ty, n: usize) -> Ty {
             return err_ty(
                 "batch-impl: unexpected bound parameter in (<Trait>)⁁; this is an internal error",
             );
+        }
+        if n == 0 {
+            return TyTuple(vec![]).into();
         }
         let g = take_group();
         let params = fresh_params(g, n);
@@ -129,6 +132,9 @@ fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
 /// Instantiate one Cartesian combination: TypeParam positions get a fresh param with the bound
 /// preserved; other positions stay as-is
 fn instantiate_combo(elems: Vec<Ty>) -> Ty {
+    if elems.is_empty() {
+        return TyTuple(vec![]).into();
+    }
     let g = take_group();
     let mut tuple_elems = vec![];
     let mut param_decls = vec![];
