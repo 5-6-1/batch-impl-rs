@@ -1,0 +1,15 @@
+error: batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target
+ --> tests/ui/bare_number_target.rs:7:1
+  |
+7 | #[batch_impl(1)]
+  | ^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a bare range is not a type — `N..M` counts `@` references inside a target, it does not name one
+  --> tests/ui/bare_number_target.rs:12:1
+   |
+12 | #[batch_impl(0..3)]
+   | ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

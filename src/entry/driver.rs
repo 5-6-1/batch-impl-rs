@@ -64,6 +64,26 @@ fn leaked_carrier(value: &Ty) -> Option<&'static str> {
     found
 }
 
+/// A target that is still a bare number or range: `#[batch_impl(1)]`,
+/// `#[batch_impl(0..3)]`. Both used to be rendered verbatim (`impl Tr for 1 {}`)
+/// and handed to rustc, whose parse error carries no `batch-impl:` prefix *and*
+/// suppresses the crate's other diagnostics, so it looked like there was nothing
+/// else wrong. Numbers stay legal **inside** a target (a const argument, an array
+/// length), so this is deliberately a top-level check only.
+fn bare_number_target(value: &Ty) -> Option<&'static str> {
+    match &value.kind {
+        TyKind::Num(_) => Some(
+            "a bare number is not a type — a number is an arity or a `.N` power \
+             suffix (`(A, B).2`), never a target",
+        ),
+        TyKind::Range(_) => Some(
+            "a bare range is not a type — `N..M` counts `@` references inside a \
+             target, it does not name one",
+        ),
+        _ => None,
+    }
+}
+
 // Pipeline entry with many context params (spec tokens, trait path/name,
 // bounds, fresh-name list) — clippy's default 7-arg threshold is not useful
 // here; a context struct would obscure the one-shot pipeline flow.
@@ -156,6 +176,13 @@ pub(crate) fn collect_spec_leaves(
         // A target that is still a bare carrier never became a type; report the
         // first one instead of rendering `impl Tr for *const {}`.
         if let Some(what) = tys.iter().skip(start).find_map(leaked_carrier) {
+            tys.truncate(start);
+            tys.push(err_ty(&format!("batch-impl: {what}")));
+        }
+        // A bare number or range target never became a type (see
+        // `bare_number_target`): report it here instead of leaking rustc's parse
+        // error, which also swallows this crate's remaining diagnostics.
+        if let Some(what) = tys.iter().skip(start).find_map(bare_number_target) {
             tys.truncate(start);
             tys.push(err_ty(&format!("batch-impl: {what}")));
         }
