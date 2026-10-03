@@ -56,7 +56,13 @@ pub(crate) fn render_list<S: ToString>(
 ) -> TokenTree {
     let idents = names
         .into_iter()
-        .map(|s| Ident::new(&s.to_string(), Span::call_site()))
+        .map(|s| {
+            let t = s.to_string();
+            match t.strip_prefix("r#") {
+                Some(rest) => Ident::new_raw(rest, Span::call_site()),
+                None => Ident::new(&t, Span::call_site()),
+            }
+        })
         .collect::<Vec<_>>();
     let contents = match idents.as_slice() {
         [only] if singleton_is_type => quote!(#only,),

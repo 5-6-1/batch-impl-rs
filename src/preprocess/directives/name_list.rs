@@ -34,7 +34,7 @@ fn parse_name_tokens(
         match cur {
             TokenTree::Ident(id) => {
                 get_trait_item(trait_def, id)?;
-                keep.push(Ident::new(&id.to_string(), id.span()));
+                keep.push(id.clone());
                 prev_was_comma = false;
                 i += 1;
             }
@@ -98,7 +98,7 @@ fn parse_minus_target(
     match tokens.first() {
         Some(TokenTree::Ident(id)) => {
             get_trait_item(trait_def, id)?;
-            Ok((vec![Ident::new(&id.to_string(), id.span())], 1))
+            Ok((vec![id.clone()], 1))
         }
         Some(TokenTree::Group(g)) if g.delimiter() == delimiter![[]] => {
             let inner = g.stream().into_iter().collect::<Vec<_>>();

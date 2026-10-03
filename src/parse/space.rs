@@ -21,7 +21,7 @@ use crate::parse::generic::empty;
 use crate::parse::ident_blocks::ident_block;
 use crate::parse::parse_atom::parse_group;
 use crate::util::Cursor;
-use proc_macro2::{Ident, Spacing, TokenTree};
+use proc_macro2::{Spacing, TokenTree};
 use quote::quote;
 
 /// Whether the cursor opens a new block: any ident/literal/group or a
@@ -155,7 +155,7 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
             // every space/bound fold loop that trusts that contract into an
             // infinite append (the second fuzz-OOM root cause).
             if let Some(TokenTree::Ident(id)) = cursor.peek_at(1) {
-                let lt = Ident::new(&id.to_string(), id.span());
+                let lt = id.clone();
                 cursor.advance(2);
                 TyLifetime(crate::parse::blocks::lifetime_tokens(&lt)).to_ty()
             } else {

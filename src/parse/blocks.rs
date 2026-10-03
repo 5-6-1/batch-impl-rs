@@ -51,7 +51,7 @@ pub(crate) fn cursor_lifetime(cursor: &Cursor) -> Option<Ident> {
         }
         _ => return None,
     };
-    Some(Ident::new(&id.to_string(), id.span()))
+    Some(id.clone())
 }
 
 /// `&` block family: `&` / `&mut` / `&'a` / `&'a mut` — the prefix never

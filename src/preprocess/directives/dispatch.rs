@@ -242,7 +242,10 @@ fn expand_delegate(
         };
         // The delegated target method: the rename mapping or the same name.
         let call_name = match renames.get(&name.to_string()) {
-            Some(c) => Ident::new(c, name.span()),
+            Some(c) => match c.strip_prefix("r#") {
+                Some(rest) => Ident::new_raw(rest, name.span()),
+                None => Ident::new(c, name.span()),
+            },
             None => name.clone(),
         };
         let mut sig = f.sig.clone();
