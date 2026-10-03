@@ -1056,6 +1056,8 @@ The pass order is not a convention but a compiler-enforced one: each pass can on
 ### 13.2 The `X<>` sync
 
 `Trait<>` (empty brackets) means "this spec's trait arguments". The sync is one pass over the type structure, so it reaches wherever a type can be:
+**If the annotated trait has generics, write the trait application** (`Tr<A> Target`) **or the marker** (`Tr<> Target`). A spec that writes neither emits an impl *without* them — measured: `#[batch_impl(u8 where{T: Clone})] trait A6<T>` gives `impl A6 for u8 where T : Clone {}`, with `T` dangling and only rustc to complain, while `A6<> u8` gives `impl<T> A6<T> for u8 where T : Clone {}`.
+
 
 | Surface | Synced? |
 |---|---|

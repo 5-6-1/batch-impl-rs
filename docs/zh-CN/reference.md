@@ -1023,6 +1023,8 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 ### 13.2 `X<>` 同步
 
 `Trait<>`（空尖括号）意为"本 spec 的 trait 实参"。同步是对类型结构的一趟遍历，因此它能到达任何类型位置：
+**被注解的 trait 带泛型时，必须写 trait 应用**（`Tr<A> Target`）**或该标记**（`Tr<> Target`）。两者都不写的 spec 会产出*不带实参*的 impl —— 实测：`#[batch_impl(u8 where{T: Clone})] trait A6<T>` 得到 `impl A6 for u8 where T : Clone {}`，`T` 悬空且只有 rustc 会报；写成 `A6<> u8` 则得到 `impl<T> A6<T> for u8 where T : Clone {}`。
+
 
 | 表面 | 是否同步 |
 |---|---|
