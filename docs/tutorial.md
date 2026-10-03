@@ -1870,7 +1870,7 @@ Everything else — every class with its **exact wording** and the fixture that 
 
 ## 13. Real Scenarios: the Three Bundled Examples
 
-The chapters above teach one mechanism at a time. `examples/` is where they are **combined** into whole files, and CI compiles them, so they cannot drift:
+The chapters above teach one mechanism at a time. `examples/` is where they are **combined** into whole files, and CI compiles them, so they cannot drift. That also means an example cannot fail on purpose unless it is isolated: one that exists to show a diagnostic has to declare `required-features` (or stay out of the default target set), or `cargo test` builds it and the deliberate failure turns the gate red — measured, by a probe that lost a run to exactly that:
 
 | Example | What it is | What it shows |
 |---|---|---|
