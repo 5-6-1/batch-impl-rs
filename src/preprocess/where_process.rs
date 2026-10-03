@@ -59,7 +59,7 @@ use crate::util::{
 pub(crate) fn where_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let is_boundary = |tokens: &[TokenTree], j: usize| is_impl_template(tokens, j);
     let comma_boundary = |tokens: &[TokenTree], j: usize| !chunk_is_predicate(tokens, j + 1);
-    kw_process(tokens, "where", &is_boundary, &comma_boundary, None)
+    kw_process(tokens, "where", &is_boundary, &comma_boundary, None, 0)
 }
 
 /// Bare `impl` preprocessing: `impl template {body}` → `impl{template} {body}`
@@ -92,7 +92,7 @@ pub(crate) fn impl_process(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, Token
             Ok(())
         }
     };
-    kw_process(tokens, "impl", &is_boundary, &no_comma_boundary, Some(&validate))
+    kw_process(tokens, "impl", &is_boundary, &no_comma_boundary, Some(&validate), 0)
 }
 
 /// The region-validation hook (the bare-`impl` impl-Trait diagnostic):
@@ -111,7 +111,7 @@ type RegionValidator<'a> = &'a dyn Fn(&[TokenTree], proc_macro2::Span) -> Result
 fn kw_process(
     tokens: &[TokenTree], kw: &str, is_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
     comma_boundary: &dyn Fn(&[TokenTree], usize) -> bool,
-    validate_region: Option<RegionValidator<'_>>,
+    validate_region: Option<RegionValidator<'_>>, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut result = vec![];
     let mut i = 0;
@@ -147,8 +147,19 @@ fn kw_process(
             // no recursion
             && !bracket_is_passthrough(tokens, i)
         {
+            // Checked **before** recursing. This walker runs first in the pipeline
+            // (`stream.rs`), ahead of `angle_collect`'s own depth guard, so without a
+            // counter of its own a few thousand nested `[]` groups exhausted the stack
+            // and killed rustc with no diagnostic - the outcome the "never panics"
+            // guarantee exists to prevent.
+            if depth + 1 > crate::util::MAX_NEST_DEPTH {
+                return Err(crate::util::depth_err(
+                    &g.stream().into_iter().collect::<Vec<_>>(),
+                    "",
+                ));
+            }
             let v = g.stream().into_iter().collect::<Vec<_>>();
-            let vt = kw_process(&v, kw, is_boundary, comma_boundary, validate_region)?;
+            let vt = kw_process(&v, kw, is_boundary, comma_boundary, validate_region, depth + 1)?;
             result.push(Group::new(delimiter![[]], vt.into_iter().collect()).into());
             i += 1
         } else {
