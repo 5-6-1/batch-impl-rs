@@ -1,7 +1,15 @@
 error: batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>`
- --> tests/ui/empty_angle_on_other_ident.rs:9:1
-  |
-9 | #[batch_impl(Vec<> impl{Tr<>})]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+  --> tests/ui/empty_angle_on_other_ident.rs:10:1
+   |
+10 | #[batch_impl([Vec<>])]
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>`
+  --> tests/ui/empty_angle_on_other_ident.rs:16:1
+   |
+16 | #[batch_impl(Vec<>)]
+   | ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
