@@ -889,6 +889,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `directive_missing_tail` | `#fill`, `#fill(@all)`, `#wrap`, `#wrap(a)[b]` | batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}` | DSL |
 | `bare_prefix_no_type` | `&` or `unsafe` alone as the target | batch-impl: a bare type prefix needs a type — write `&T`, `&mut T` or `unsafe fn(…)` rather than the prefix alone | DSL |
 | `bare_attr_carrier` | an attribute with no type after it | batch-impl: an attribute is not a type — attach it to the type it annotates (`#[…] T`) | DSL |
+| `bare_bang_target` | `!` as the whole target | batch-impl: `!` cannot be a target: it is the never type, not a type you can implement for — write the real target | DSL |
 | `single_name_not_found` | `#name` for an unknown item | batch-impl: item `no_such` not found in trait `T` | DSL |
 | `delegate_on_non_fn` | `#delegate` on a const | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
 | `delegate_const` | the same on another const | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |

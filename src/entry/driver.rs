@@ -33,6 +33,17 @@ use crate::util::Cursor;
 /// constrain would each render invalid Rust (`impl Tr for *const {}`). Returns the
 /// wording for the first such carrier, if the target tree contains one.
 fn leaked_carrier(value: &Ty) -> Option<&'static str> {
+    // Judged on the root only: nested inside a type, `!` is the documented never return
+    // type (`fn(u8) -> !`), which the recursive scan below cannot distinguish from a bang
+    // used as the whole target. A root `!` is invalid as a target either way.
+    if let TyKind::Prefixed(p) = &value.kind
+        && p.0.to_string() == "!"
+    {
+        return Some(
+            "`!` cannot be a target: it is the never type, not a type you can implement \
+             for — write the real target",
+        );
+    }
     fn scan(value: &Ty, found: &mut Option<&'static str>) {
         if found.is_some() {
             return;

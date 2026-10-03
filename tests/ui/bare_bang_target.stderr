@@ -1,0 +1,7 @@
+error: batch-impl: `!` cannot be a target: it is the never type, not a type you can implement for — write the real target
+ --> tests/ui/bare_bang_target.rs:8:1
+  |
+8 | #[batch_impl(! u8)]
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
