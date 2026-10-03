@@ -356,7 +356,6 @@ Migration to the list-only `*` (this release) — one naming, one job per bracke
 | `*((A, B),)` | one member: the tuple `(A, B)` | `*(A, B)` |
 | `*((),)` | one member: the unit type | `*()` |
 | `*().N`, `*(().N)` | the generator | `*[].N` |
-| `[] [A, B]`, `[] [A, B] N` | the slice/array builder | `[[A, B]]`, `[[A, B]; N]` |
 | `*[A]`, `*[A,]`, `*[T]`, `*[T; N]` | unchanged | unchanged |
 
 A tuple is a type, so `*(A, B)` is one member; only a list is opened. A spec
