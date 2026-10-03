@@ -64,7 +64,9 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty>
         // either a preceding or following generator can claim their ids.
         crate::parse::reentry::reserve_declarations(cursor.slice_at(cursor.pos(), usize::MAX));
     }
-    let Some(mut left) = parse_dot_chain(cursor, ctx) else {
+    // One counter for the whole space fold, shared by both calls into the dot chain.
+    let mut depth = 0;
+    let Some(mut left) = parse_dot_chain_with(cursor, ctx, &mut depth) else {
         if cursor.is_punct('.') {
             return Some(err_ty_at(
                 "batch-impl: missing operand before `.` (e.g. `T.U`)",
@@ -98,7 +100,7 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty>
         if !starts_block(cursor) {
             return Some(chain_boundary_error(t));
         }
-        let Some(right) = parse_dot_chain(cursor, ctx) else {
+        let Some(right) = parse_dot_chain_with(cursor, ctx, &mut depth) else {
             return Some(err_ty_at(
                 "batch-impl: missing operand after the space application",
                 t.span(),
@@ -124,7 +126,20 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty>
 /// `Box.u8 u16` = `(Box<u8>) u16` (`.` binds tighter than the space).
 pub(crate) fn parse_dot_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
     let mut depth = 0;
-    parse_dot_inner(cursor, ctx, &mut depth)
+    parse_dot_chain_with(cursor, ctx, &mut depth)
+}
+
+/// The same fold with the caller's operand counter.
+///
+/// The counter has to be shared rather than created per call: `parse_space_chain` folds
+/// with two calls into this function (one at its head, one per iteration), so a local
+/// counter walked one long chain as two independent descents from zero, each reaching the
+/// limit and each reporting it - two diagnostics for one mistake, one carrying the chain's
+/// first dot and one carrying a dot deep inside it.
+pub(crate) fn parse_dot_chain_with(
+    cursor: &mut Cursor, ctx: Ctx<'_>, depth: &mut usize,
+) -> Option<Ty> {
+    parse_dot_inner(cursor, ctx, depth)
 }
 
 /// The `.`-chain worker: `depth` counts the operands across recursion (the
@@ -135,6 +150,21 @@ fn parse_dot_inner(cursor: &mut Cursor, ctx: Ctx<'_>, depth: &mut usize) -> Opti
     while cursor.is_punct('.') && !cursor_is_dotdot(cursor) {
         let op_span = cursor.span();
         cursor.bump();
+        // The same bound as the check below, applied *before* recursing: ~4800 links used
+        // to kill rustc with STATUS_STACK_OVERFLOW and no diagnostic at all. It reports the
+        // depth already reached, so the message is identical to the post-recursion one, and
+        // it can only fire where the chain still has a link to spend - exactly the case the
+        // post-recursion check never reaches, because by then the stack is gone.
+        if *depth > MAX_NEST_DEPTH {
+            return Some(err_ty_at(
+                &format!(
+                    "batch-impl: operator chain exceeds {} levels (limit {}); \
+                     split the chain into separate impl-specs",
+                    *depth, MAX_NEST_DEPTH,
+                ),
+                op_span,
+            ));
+        }
         let Some(right) = parse_dot_inner(cursor, ctx, depth) else {
             return Some(err_ty_at("batch-impl: missing operand after `.` (e.g. `T.U`)", op_span));
         };
