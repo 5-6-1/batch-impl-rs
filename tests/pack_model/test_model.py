@@ -125,6 +125,10 @@ class ModelTests(unittest.TestCase):
                  "A)": "trailing-token", "*[].2..2": "empty-range", "*[].3..=2": "empty-range",
                  "*[].1000000000": "expansion-limit", "(A,B).30": "expansion-limit",
                  "*[].0..=1000000000": "expansion-limit", "*" * 300 + "A": "depth-limit",
+                  # a differential probe found the model dropping this one silently: an
+                  # empty pack contributes no type to an argument list, which the macro
+                  # reports as a zero-impl spec.
+                  "Vec<u8, *[], u16>": "empty-pack-argument",
                  "fn()->": "missing-operand", "A::": "missing-operand"}
         cases.update({"dyn Send": "unsupported-syntax", "unsafe fn()": "unsupported-syntax"})
         for source, code in cases.items():
