@@ -86,7 +86,7 @@ error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, o
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: batch-impl: materialization work limit exceeded; simplify the nested candidates
+error: batch-impl: this type needs too much materialization work — it has too many slots or an oversized list; split the spec or write the type out
   --> tests/ui/pack_single_slot.rs:39:1
    |
 39 | #[batch_impl((Vec<Vec<Vec<Vec<Vec<Vec<Vec<Vec<Vec<Vec<[u8, u16]>>>>>>>>>>,).10)]

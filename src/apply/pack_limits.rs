@@ -72,7 +72,7 @@ pub(super) fn check_generation(slots: &[Ty], decl: Option<&TyTypeParam>, n: usiz
             let mut combinations = 1usize;
             for _ in 0..n {
                 combinations = combinations.saturating_mul(many.len());
-                if let Some(error) = check_expand_limit("tuple Cartesian product", combinations) {
+                if let Some(error) = check_expand_limit("(A, B).N", combinations) {
                     return Some(error);
                 }
             }

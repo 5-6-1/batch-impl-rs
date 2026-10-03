@@ -298,5 +298,5 @@ fn cumulative_materialization_work_has_a_separate_budget() {
     let complex = (0..20).fold(atom("u8"), |inner, _| generic("Vec", vec![inner]));
     assert!(count_leaves(&complex) < MAX_EXPAND);
     let error = materialize_targets(choices(vec![complex; MAX_EXPAND])).unwrap_err();
-    assert!(error.to_string().contains("materialization work limit exceeded"), "{error}");
+    assert!(error.to_string().contains("needs too much materialization work"), "{error}");
 }

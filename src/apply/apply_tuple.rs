@@ -17,8 +17,8 @@ pub(crate) fn map_range(
     if empty {
         return err_ty_at(
             &format!(
-                "batch-impl: range `{}..{}{}` is empty (start not below end); no impls will be generated",
-                start, end, end_mark
+                "batch-impl: range `{}{}..{}` is empty (start not below end); no impls will be generated",
+                start, end_mark, end
             ),
             span,
         );
@@ -26,7 +26,7 @@ pub(crate) fn map_range(
     // `end - start` cannot overflow (both are usize and end >= start); the
     // inclusive tail `+ 1` can — saturate first, the limit check rejects it.
     let len = if inclusive { end.saturating_sub(start).saturating_add(1) } else { end - start };
-    if let Some(e) = check_expand_limit(&format!("range {}..{}{}", start, end, end_mark), len) {
+    if let Some(e) = check_expand_limit(&format!("range {}{}..{}", start, end_mark, end), len) {
         return e;
     }
     let ns = if inclusive {
@@ -124,7 +124,7 @@ fn pow_cartesian(elems: Vec<Ty>, n: usize) -> Ty {
     let dims = std::iter::repeat_n(elems, n).collect::<Vec<_>>();
     let combos = match cartesian(&dims, MAX_EXPAND) {
         Ok(c) => c,
-        Err(size) => return expand_limit_err("tuple Cartesian product", size),
+        Err(size) => return expand_limit_err("(A, B).N", size),
     };
     TyArray(combos.into_iter().map(instantiate_combo).collect()).into()
 }
@@ -295,8 +295,8 @@ impl Apply for TyRange {
         let end_mark = if self.inclusive { "=" } else { "" };
         err_ty_at(
             &format!(
-                "batch-impl: range `{}..{}{}` cannot be a left operand; it goes on the right (e.g. T.{}..{}{})",
-                self.start, self.end, end_mark, self.start, self.end, end_mark
+                "batch-impl: range `{}{}..{}` cannot be a left operand; it goes on the right (e.g. T.{}{}..{})",
+                self.start, end_mark, self.end, self.start, end_mark, self.end
             ),
             span,
         )

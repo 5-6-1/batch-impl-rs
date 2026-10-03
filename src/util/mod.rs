@@ -56,7 +56,11 @@ pub(crate) fn cartesian<T: Clone>(dims: &[Vec<T>], limit: usize) -> Result<Vec<V
     for candidates in dims {
         let next_len = combos.len().saturating_mul(candidates.len());
         if next_len > limit {
-            return Err(next_len);
+            // The *whole* would-be product, not the step that tripped the limit: a
+            // four-deep product of twelves reported 1728 (12 cubed) instead of 20736,
+            // and the equal-dimension fixture (31 cubed) hid the difference.
+            let would_be = dims.iter().fold(1usize, |acc, d| acc.saturating_mul(d.len()));
+            return Err(would_be);
         }
         let mut next = Vec::with_capacity(next_len);
         for existing in &combos {
@@ -69,4 +73,20 @@ pub(crate) fn cartesian<T: Clone>(dims: &[Vec<T>], limit: usize) -> Result<Vec<V
         combos = next;
     }
     Ok(combos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cartesian;
+
+    #[test]
+    fn cartesian_reports_the_whole_would_be_product() {
+        // Four dimensions of twelve: the true product is 20736, but the step that
+        // trips the limit is 1728 (twelve cubed). The message must quote the former.
+        let dims = vec![vec![0u8; 12]; 4];
+        assert_eq!(cartesian(&dims, 1024), Err(20736));
+        // The equal-dimension case the old fixture covered stays 29791 (31 cubed).
+        let dims = vec![vec![0u8; 31]; 3];
+        assert_eq!(cartesian(&dims, 1024), Err(29791));
+    }
 }

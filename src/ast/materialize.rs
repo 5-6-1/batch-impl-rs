@@ -98,7 +98,8 @@ impl Materializer {
         self.work = self.work.saturating_add(amount);
         if self.work > MAX_EXPAND.saturating_mul(MAX_NEST_DEPTH) {
             return Err(crate::util::compile_error_str(
-                "batch-impl: materialization work limit exceeded; simplify the nested candidates",
+                "batch-impl: this type needs too much materialization work — it has too \
+                 many slots or an oversized list; split the spec or write the type out",
                 span,
             ));
         }
