@@ -233,6 +233,16 @@ fn sync_tree(ty: Ty, args: &[TokenStream], err: &mut Option<TokenStream>) -> Ty 
 pub(crate) fn sync_bound_ty(ty: &Ty, args: &[TokenStream]) -> Result<Ty, TokenStream> {
     match &ty.kind {
         TyKind::Generic(g) if is_empty_params(&g.1) => {
+            // The parser only builds a `TyGeneric` for an ident that carries a written
+            // `<>` and is *not* the annotated trait (`Vec<>`), while a bare `Vec` stays a
+            // `TyPrimitive` and the trait itself is a `TyTrait`. With no trait arguments to
+            // fill from, the brackets used to be dropped here, leaving rustc to report
+            // E0107 about a *bare* `Vec`, with nothing pointing at the `<>`.
+            if args.is_empty() {
+                return Err(
+                    quote::quote_spanned!(ty.span => ::core::compile_error!("batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>`");),
+                );
+            }
             Ok(TyGeneric(g.0.clone(), filled_params(args)).to_ty().with_span(ty.span))
         }
         TyKind::Trait(t) if is_empty_params(&t.1) => {

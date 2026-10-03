@@ -776,6 +776,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `bare_number_target` | 该写目标的位置写了裸数字或区间（`1`、`0..3`） | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target | DSL |
 | `array_length_pack` | 数组长度位置写了 pack 或列表（`[u8; *[u8, u16]]`） | batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]` | DSL |
 | `at_open_range_empty_host` | 作用域内没有 fresh 泛型时的 fresh 区间（`Vec<@0..>`） | batch-impl: this target has an empty argument list (`Vec<>`) — a fresh range expands to nothing when the impl has no fresh generics for it; write the arguments out or drop the range | DSL |
+| `empty_angle_on_other_ident` | 带 switch 模板时，空 `<>` 落在非被注解 trait 的 ident 上（`Vec<> impl{Tr<>}`） | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
 | `body_in_comma_less_group` | 无逗号组里的逐元素 body（`[u8 { … }]`、`[Cell<T> { … }]`） | batch-impl: a per-element `{body}` needs a list — a comma-less `[T]` is the slice type; write `[A { … }, B]`, or give the whole group one body (`[A] { … }`) | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
