@@ -450,7 +450,7 @@ What a directive produces decides where it may stand:
 | **single group** | `#name`, `#fill`, `#delegate`, and the `{...}` group of an open extension | ✓ (`T {body}`) | ✓ |
 | **multi-token** (carries its own generics, target and delegation) | `#blanket` | ✗ — attaching it is meaningless | ✓ |
 
-A directive name with neither `(args)` nor `[args]` still needs its `{body}`; `#m` alone is `directive_bad_follow`: "`#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)".
+A directive name with neither `(args)` nor `[args]` still needs its `{body}`; `#m` alone is `directive_bad_follow`: "batch-impl: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)".
 
 The expression marker `receiver.#call` inside a delegate body is a separate,
 local form, not a directive invocation (§6.5).
@@ -818,9 +818,9 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `group_angle_bare` | `<...>` inside `(...)` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |
 | `bare_impl_trait_target` | `impl Trait` as a target | batch-impl: a bare `impl` in the spec is a shape template — an `impl <trait-object>` target type is not supported; write the trait object directly (e.g. `dyn Fn() -> u8`) or use an `impl{...}` template | DSL |
 | `error_aggregation` | several bad specs in one attribute | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
-| `trait_path_no_ident` | `batch_trait! { 1: ... }` | batch_trait! expects an ident as the trait name | macro |
-| `only_semicolon` | `batch_trait! { ; }` | batch_trait! expects a trait name | macro |
-| `missing_colon` | `batch_trait! { Tr ... }` | batch_trait! expects ':' to separate the trait name and impl-specs | macro |
+| `trait_path_no_ident` | `batch_trait! { 1: ... }` | batch-impl: batch_trait! expects an ident as the trait name | macro |
+| `only_semicolon` | `batch_trait! { ; }` | batch-impl: batch_trait! expects a trait name | macro |
+| `missing_colon` | `batch_trait! { Tr ... }` | batch-impl: batch_trait! expects ':' to separate the trait name and impl-specs | macro |
 | `unclosed_angle` | `Vec<u8>` with no `>` | batch-impl: unclosed `<` (missing matching `>`) | DSL |
 | `range_left_operand` | `0..3.u8` | batch-impl: range `0..3` cannot be a left operand; it goes on the right (e.g. T.0..3) | DSL |
 
@@ -886,7 +886,8 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `fill_bad_comma` | `#fill(m,,n)` / `#fill(,m)` and corresponding delegate/blanket scopes | batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas) | DSL |
 | `directive_scope_unknown` | unknown included/excluded names, even when subtraction removes them; malformed delegate renames | batch-impl: item `typo` not found in trait `RemovedUnknown` | DSL |
 | `minus_bad_target` | `#fill(-1)` | batch-impl: in directive arguments, after `-` expected an identifier or `[...]` list (e.g. `-foo`, `-[a,b]`) | DSL |
-| `directive_bad_follow` | `#m` with no args/body | `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
+| `directive_bad_follow` | `#m` with no args/body | batch-impl: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
+| `directive_missing_tail` | `#fill`, `#fill(@all)`, `#wrap`, `#wrap(a)[b]` | batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}` | DSL |
 | `single_name_not_found` | `#name` for an unknown item | batch-impl: item `no_such` not found in trait `T` | DSL |
 | `delegate_on_non_fn` | `#delegate` on a const | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
 | `delegate_const` | the same on another const | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |

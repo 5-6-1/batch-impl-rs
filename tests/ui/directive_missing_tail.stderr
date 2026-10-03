@@ -1,0 +1,31 @@
+error: batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}`
+  --> tests/ui/directive_missing_tail.rs:15:1
+   |
+15 | #[batch_impl(u8 #fill)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: `#fill` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)
+  --> tests/ui/directive_missing_tail.rs:20:1
+   |
+20 | #[batch_impl(u8 #fill(@all))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: `#wrap` must be followed by `(args)` / `[args]` or a code block `{body}`
+  --> tests/ui/directive_missing_tail.rs:25:1
+   |
+25 | #[batch_impl(usize #wrap)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: `#wrap` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)
+  --> tests/ui/directive_missing_tail.rs:28:1
+   |
+28 | #[batch_impl(usize #wrap(a)[b])]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

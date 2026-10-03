@@ -300,7 +300,10 @@ pub(crate) fn expand_batch_trait(
         }
         let trait_path = cursor.slice_since(path_start);
         if trait_path.is_empty() {
-            return Err(compile_error_str("batch_trait! expects a trait name", cursor.span()));
+            return Err(compile_error_str(
+                "batch-impl: batch_trait! expects a trait name",
+                cursor.span(),
+            ));
         }
         // Full trait path: just collect the token stream of trait_path as-is
         let trait_full_path = trait_path.iter().cloned().collect();
@@ -311,13 +314,13 @@ pub(crate) fn expand_batch_trait(
             .next_back()
         else {
             return Err(compile_error_str(
-                "batch_trait! expects an ident as the trait name",
+                "batch-impl: batch_trait! expects an ident as the trait name",
                 trait_path.first().map_or_else(proc_macro2::Span::call_site, |t| t.span()),
             ));
         };
         if !cursor.is_punct(':') {
             return Err(compile_error_str(
-                "batch_trait! expects ':' to separate the trait name and impl-specs",
+                "batch-impl: batch_trait! expects ':' to separate the trait name and impl-specs",
                 cursor.span(),
             ));
         }

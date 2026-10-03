@@ -53,14 +53,14 @@ pub(crate) fn expand_directive(
                 // `#cmd(args){body}` — name + parenthesized args + {body}
                 let Some(TokenTree::Group(body)) = tokens.get(i + 3) else {
                     return Err(compile_err!(
-                        "`#{}` must be followed by `(args)` or `[args]` + \
+                        "batch-impl: `#{}` must be followed by `(args)` or `[args]` + \
                          `{{body}}` (or directly `{{body}}`)",
                         name
                     ));
                 };
                 if body.delimiter() != delimiter![{}] {
                     return Err(compile_err!(
-                        "`#{}` must be followed by `(args)` or `[args]` + \
+                        "batch-impl: `#{}` must be followed by `(args)` or `[args]` + \
                          `{{body}}` (or directly `{{body}}`)",
                         name
                     ));
@@ -92,7 +92,7 @@ pub(crate) fn expand_directive(
         }
     } else {
         Err(compile_err!(
-            "`#{}` must be followed by `(args)` / `[args]` or a code \
+            "batch-impl: `#{}` must be followed by `(args)` / `[args]` or a code \
              block `{{body}}`",
             name
         ))

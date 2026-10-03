@@ -1,4 +1,4 @@
-error: batch_trait! expects a trait name
+error: batch-impl: batch_trait! expects a trait name
  --> tests/ui/only_semicolon.rs:5:1
   |
 5 | batch_trait!(unsafe);

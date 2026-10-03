@@ -1,4 +1,4 @@
-error: batch_trait! expects an ident as the trait name
+error: batch-impl: batch_trait! expects an ident as the trait name
  --> tests/ui/trait_path_no_ident.rs:5:1
   |
 5 | batch_trait!(::);

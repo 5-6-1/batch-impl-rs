@@ -426,7 +426,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | **单组** | `#name`、`#fill`、`#delegate`，以及开放扩展的 `{...}` 组 | ✓（`T {body}`） | ✓ |
 | **多 token**（自带泛型、目标与委托） | `#blanket` | ✗——附着没有意义 | ✓ |
 
-指令名后面既没有 `(args)` 也没有 `[args]` 时，`{body}` 仍然必需；光写 `#m` 是 `directive_bad_follow`："`#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)"。
+指令名后面既没有 `(args)` 也没有 `[args]` 时，`{body}` 仍然必需；光写 `#m` 是 `directive_bad_follow`："batch-impl: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`)"。
 
 delegate body 表达式中的 `receiver.#call` 是单独的局部标记，不是指令调用（§6.5）。
 
@@ -785,9 +785,9 @@ impl<const N: usize> Width for Bytes<N> {
 | `group_angle_bare` | `(...)` 里的 `<...>` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |
 | `bare_impl_trait_target` | 目标位置的 `impl Trait` | batch-impl: a bare `impl` in the spec is a shape template — an `impl <trait-object>` target type is not supported; write the trait object directly (e.g. `dyn Fn() -> u8`) or use an `impl{...}` template | DSL |
 | `error_aggregation` | 一个属性里多个坏 spec | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
-| `trait_path_no_ident` | `batch_trait! { 1: ... }` | batch_trait! expects an ident as the trait name | macro |
-| `only_semicolon` | `batch_trait! { ; }` | batch_trait! expects a trait name | macro |
-| `missing_colon` | `batch_trait! { Tr ... }` | batch_trait! expects ':' to separate the trait name and impl-specs | macro |
+| `trait_path_no_ident` | `batch_trait! { 1: ... }` | batch-impl: batch_trait! expects an ident as the trait name | macro |
+| `only_semicolon` | `batch_trait! { ; }` | batch-impl: batch_trait! expects a trait name | macro |
+| `missing_colon` | `batch_trait! { Tr ... }` | batch-impl: batch_trait! expects ':' to separate the trait name and impl-specs | macro |
 | `unclosed_angle` | `Vec<u8>` 没有 `>` | batch-impl: unclosed `<` (missing matching `>`) | DSL |
 | `range_left_operand` | `0..3.u8` | batch-impl: range `0..3` cannot be a left operand; it goes on the right (e.g. T.0..3) | DSL |
 
@@ -853,7 +853,8 @@ impl<const N: usize> Width for Bytes<N> {
 | `fill_bad_comma` | `#fill(m,,n)` / `#fill(,m)` 及对应的 delegate/blanket 作用域 | batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas) | DSL |
 | `directive_scope_unknown` | 不存在的选择/排除名，差集删掉它也报错；畸形 delegate 改名 | batch-impl: item `typo` not found in trait `RemovedUnknown` | DSL |
 | `minus_bad_target` | `#fill(-1)` | batch-impl: in directive arguments, after `-` expected an identifier or `[...]` list (e.g. `-foo`, `-[a,b]`) | DSL |
-| `directive_bad_follow` | `#m` 后面既无参数也无 body | `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
+| `directive_bad_follow` | `#m` 后面既无参数也无 body | batch-impl: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
+| `directive_missing_tail` | `#fill`, `#fill(@all)`, `#wrap`, `#wrap(a)[b]` | batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}` | DSL |
 | `single_name_not_found` | `#name` 指向不存在的成员 | batch-impl: item `no_such` not found in trait `T` | DSL |
 | `delegate_on_non_fn` | 对常量用 `#delegate` | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
 | `delegate_const` | 同上，另一个常量 | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |
