@@ -130,7 +130,7 @@ The type domain has one operator with two spellings; everything else is a block.
 
 ### 3.1 Blocks
 
-A block is one atom: a path, a group `(...)`, a list `[...]`, a tuple, a prefix (`&`, `&mut`, `*const`, `*mut`, `unsafe`, `self`, `#[...]`), a pack (`*X`, including `*(...)` / `*[...]`), a generator (`().N`), an `@`-constant result, or a directive's output. Attachments (`{body}`, `where{...}`, `impl{...}`) are blocks too, and they may follow a spec in any order (§1.1).
+A block is one atom: a path, a group `(...)`, a list `[...]`, a tuple, a prefix (`&`, `&mut`, `*const`, `*mut`, `unsafe`, `self`, `#[...]`), a pack (`*X`, including `*(...)` / `*[...]`), a generator (`().N`), an `@`-constant result, or a directive's output. Attachments (`{body}`, `where{...}`, `impl{...}`) are blocks too, and they may follow a spec in any order (§1.1). A per-element `{body}` **inside** a `[...]` list needs a bare element: `[u8 { fn a() -> u8 { 1 } }]` is accepted, a parameterised element (`[Cell<T> { fn a() -> u8 { 1 } }]`) is not. Give the whole list one body instead (`[Cell<T>] { fn a() -> u8 { 1 } }`), or attach the body to the element outside the list.
 
 ### 3.2 The two spellings
 
