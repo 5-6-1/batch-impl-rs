@@ -38,7 +38,12 @@ fn demos_generic() {
 }
 
 // ------------------------------------------------------------
-// 3. Shared body + independent body merging
+// 3. Independent bodies + a list-wide body
+//    A body block binds to the unit just before it. When that unit is a
+//    `[...]` list, every member receives it — so `A { .. }, B` gives a body to
+//    A only, while `[A { .. }, B] { .. }` gives each member its own body plus
+//    the list-wide one. (A probe read the old heading as "the trailing body is
+//    shared by every spec" and spent a compile on it.)
 // ------------------------------------------------------------
 #[batch_impl(
     [usize { fn name() -> &'static str { "usize" } },
