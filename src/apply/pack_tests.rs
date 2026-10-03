@@ -65,6 +65,17 @@ fn star_opens_one_layer_and_is_idempotent() {
     );
 }
 
+/// `[]` is the container with no element given yet: starred it is the empty list
+/// (`*[]` opens into no members, `*[].3` sizes it into a generator), while applying
+/// it is the slice builder (`[] T` = `[T]`).
+#[test]
+fn the_empty_bracket_is_the_empty_list_when_starred() {
+    let empty = TyPrimitiveArray(None, None).to_ty();
+    same(&empty.clone().star(), &pack(vec![]));
+    assert!(matches!(empty.clone().star().apply(TyNum(3).to_ty()).kind, TyKind::WithType(_)));
+    same(&empty.apply(atom("u8")), &TyPrimitiveArray(atom("u8").into(), None).to_ty());
+}
+
 #[test]
 fn pack_serialization_retains_singleton_layers() {
     assert_eq!(
