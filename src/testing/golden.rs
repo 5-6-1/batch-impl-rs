@@ -158,6 +158,17 @@ fn expand_spec(spec: &Spec) -> String {
     render(&out)
 }
 
+/// The fixture names the specs claim, for the directory-completeness guard in
+/// [`crate::testing::fixture_dirs`]. Asking the specs keeps one home for the names: a
+/// second list here is what would drift.
+pub(crate) fn claimed_names() -> Vec<String> {
+    SPECS
+        .iter()
+        .map(|spec| spec.name.to_string())
+        .chain(IMPL_SPECS.iter().map(|spec| spec.name.to_string()))
+        .collect()
+}
+
 fn golden_path(name: &str) -> PathBuf {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden");
     PathBuf::from(dir).join(format!("{name}.golden"))

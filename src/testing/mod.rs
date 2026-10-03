@@ -2,6 +2,7 @@
 //! tokens into the real macro entry points, promising "no panic on user input".
 
 pub(crate) mod doc_claims;
+pub(crate) mod fixture_dirs;
 pub(crate) mod fuzz;
 pub(crate) mod golden;
 pub(crate) mod perf;
