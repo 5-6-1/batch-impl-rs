@@ -991,11 +991,13 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 | 上限 | 值 | 越界时看到什么 |
 |---|---|---|
 | 单 spec 的 impl 数 | **1024**，`.N` 幂、范围与笛卡尔积共用（`src/ast/op.rs`） | 定向错误，点出乘积与上限："… expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo"（`expand_limit`、`bound_gen_over_limit`） |
-| 嵌套深度 | **128**，组、链、附件、常量值与 delegate body 共用同一个上限（`src/util/mod.rs`） | 组、常量值与 delegate body 报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`、`delegate_call_depth`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
+| 展开质量 | **1024 个 AST 节点**，列表、链、包与笛卡尔积共用（`src/apply/mod.rs`、`src/apply/pack_limits.rs`） | "`list chain expansion` reaches an expansion mass of 1406 nodes (limit 1024)"。它**不是** impl 数：展开成 300 个 impl 的规格可能撞上它，恰好 1024 个 impl 的规格也可能——两个量是分开计量的 |
+| 物化工作量 | **131072 步**（`MAX_EXPAND × MAX_NEST_DEPTH`，`src/ast/materialize.rs`） | "this type needs too much materialization work — it has too many slots or an oversized list"。一个**平铺**的 500 槽元组就会撞上它，即使没有任何嵌套、最终只产出 1 个 impl |
+| 嵌套深度 | 内部上限 **128**，因此**可写的最深嵌套是 127**；链与附件多算一层，`[` 嵌套每个括号算两层，所以 64 个 `[` 就会撞上（`src/util/mod.rs`） | 组、常量值与 delegate body 报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`、`delegate_call_depth`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
 | 重复块输出 | **65536 token**（`src/codegen/repeat.rs`） | 预算守卫报出跑飞的那个块 |
 | `#blanket` deref 深度 | **128** | "`:999999` is too large (deref depth must be ≤ 128)"（`blanket_bad_huge_depth`） |
 
-**任何上限之下都成立的保证**：错误会**替换**掉 impl——绝不会在诊断旁边留一个半成品 impl；宏绝不 panic（proc macro 里 panic 就是编译器 ICE），因此不变量检查改为报定向诊断；没有任何输入会静默产出零个 impl。这些上限针对的是意外爆炸，而不是说正常情况很慢——实测展开开销在 `README.md`。
+**任何上限之下都成立的保证**：错误会**替换**掉 impl——绝不会在诊断旁边留一个半成品 impl；宏绝不 panic（proc macro 里 panic 就是编译器 ICE），因此不变量检查改为报定向诊断；展开成零个目标的规格会被**报出来**，而不是被丢掉。唯一的例外是**空写法本身**——`#[batch_impl()]`、`#[batch_impl(;)]` 与 `batch_trait!(T: ;)` 原样回显该项、不产出 impl，这是文档规定的恒等写法，不是静默失败。这些上限针对的是意外爆炸，而不是说正常情况很慢——实测展开开销在 `README.md`。
 
 ## 13. 语义：每一趟保证什么
 
