@@ -769,6 +769,21 @@ A plain attribute written between two stages belongs to the **expansion level** 
 
 A **shape family** (container forms that are not the same head: `Vec<T>`, `[T; 4]`, `Box<[T]>`, `&[T]`) needs one prototype per family, because a single template cannot match four differently shaped heads. Two stages express it directly: stage 1 introduces the shape with the element slot left open, stage 2 fills that slot, and stage 2's substitution reaches *inside* what stage 1 produced. Swapping them fails — the element is bound while the block does not mention it yet, and the shape stage then introduces a slot nothing binds (measured: four `E0425` errors, one per shape leaf) — locked by `features::impl_entry_chain`.
 
+### Lints and the shared body
+
+A `{body}` is copied verbatim into every impl the spec generates, so a lint analyses each
+concrete expansion separately. A lint whose *suggestion* assumes a concrete receiver type
+can therefore be right for one member of a list and wrong for another: measured,
+`clippy::unnecessary_to_owned` on the shared body of `[String, char, str]` advises
+`use: self`, and taking the advice fails with `expected &str, found &char` on the `char`
+member.
+
+Two ways out, in order of preference: make the body type-agnostic (bind the value first,
+e.g. `let text = self.to_string(); w.quoted(&text)`), or pin the impl you mean with a
+fully qualified call (`<&Marker as ToJson>::to_json(&&Marker(1))`) when the test is what
+needs pinning. An `#[allow]` on the shared body silences the lint for every member, which
+hides the members where the lint was right.
+
 ## 10. Diagnostics Catalog
 
 This catalog records **compile-time** diagnostics. The macro's own errors aim at the user-visible token closest to the cause (macro-generated artifacts fall back to the macro-call line); independent spec errors can be reported together, so there is no single-diagnostic guarantee. When expansion fails or generated code violates Rust's rules, rustc may also report subsequent errors at call sites or elsewhere. The wording is locked by fixtures under `tests/ui/` and `cargo test --test ui` checks it one by one; **every fixture appears below** (a guard fails the suite when one is missing here).

@@ -736,6 +736,12 @@ impl<const N: usize> Width for Bytes<N> {
 
 一个**形状族**（头部并不相同的容器形态：`Vec<T>`、`[T; 4]`、`Box<[T]>`、`&[T]`）每个族需要一个原型，因为单个模板无法匹配四种不同形状的头部。两个阶段能直接表达：阶段 1 引入形状并把元素槽位留空，阶段 2 填上该槽位，且阶段 2 的替换会深入阶段 1 的产物内部。交换两者就会失败——元素在块还没提到它时就被绑定，而形状阶段又引入一个没人绑定的槽位（实测：四个 `E0425`，每个形状叶子一个）——由 `features::impl_entry_chain` 锁定。
 
+### lint 与共享 body
+
+一个 `{body}` 会被**逐字复制**进该 spec 生成的每个 impl，于是 lint 逐个分析**具体展开**。一个其*修复建议*假设了具体接收者类型的 lint，可能对列表里某个成员是对的、对另一个是错的：实测 `clippy::unnecessary_to_owned` 对 `[String, char, str]` 的共享 body 建议 `use: self`，照做会在 `char` 成员上以 `expected &str, found &char` 失败。
+
+两条出路，按优先级：把 body 写得**与具体类型无关**（先绑定值，如 `let text = self.to_string(); w.quoted(&text)`）；或当"被钉住的其实是测试"时，用完全限定调用钉住你想测的那个 impl（`<&Marker as ToJson>::to_json(&&Marker(1))`）。在共享 body 上写 `#[allow]` 会替**每个**成员静音，把 lint 本来判对的那些成员也一起盖住。
+
 ## 10. 诊断目录
 
 本节记录**编译期**诊断。宏自身的错误尽量指向最接近根源的用户可见 token（宏生成物 fallback 宏调用行）；独立 spec 的错误可以一起报告，不承诺只产生一条诊断。宏展开失败或生成代码不满足 Rust 规则时，rustc 还可能在调用处等位置报告后续错误。措辞由 `tests/ui/` 的 fixture 锁定，`cargo test --test ui` 逐条核对；**每个 fixture 都在下面出现**（漏一个会让守卫测试失败）。
