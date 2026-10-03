@@ -58,6 +58,12 @@ fn leaked_carrier(value: &Ty) -> Option<&'static str> {
                 "a `where{…}` block is not a type — attach it to the type it constrains \
                  (`X where { … }`)",
             ),
+            // An attribute with nothing to annotate: the same shape as the where case, and
+            // measured for a bare `#[allow(dead_code)]`, which rustc answered with a parse
+            // error carrying no `batch-impl:` prefix.
+            TyKind::WithAttr(w) if w.1.is_none() => {
+                Some("an attribute is not a type — attach it to the type it annotates (`#[…] T`)")
+            }
             _ => None,
         };
         value.clone().map_children(&mut |child| {

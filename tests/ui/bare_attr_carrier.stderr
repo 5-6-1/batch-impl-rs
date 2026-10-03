@@ -1,0 +1,7 @@
+error: batch-impl: an attribute is not a type — attach it to the type it annotates (`#[…] T`)
+ --> tests/ui/bare_attr_carrier.rs:8:1
+  |
+8 | #[batch_impl(#[allow(dead_code)])]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

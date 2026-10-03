@@ -855,6 +855,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `directive_bad_follow` | `#m` 后面既无参数也无 body | batch-impl: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
 | `directive_missing_tail` | `#fill`, `#fill(@all)`, `#wrap`, `#wrap(a)[b]` | batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}` | DSL |
 | `bare_prefix_no_type` | `&` or `unsafe` alone as the target | batch-impl: a bare type prefix needs a type — write `&T`, `&mut T` or `unsafe fn(…)` rather than the prefix alone | DSL |
+| `bare_attr_carrier` | an attribute with no type after it | batch-impl: an attribute is not a type — attach it to the type it annotates (`#[…] T`) | DSL |
 | `single_name_not_found` | `#name` 指向不存在的成员 | batch-impl: item `no_such` not found in trait `T` | DSL |
 | `delegate_on_non_fn` | 对常量用 `#delegate` | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
 | `delegate_const` | 同上，另一个常量 | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |
