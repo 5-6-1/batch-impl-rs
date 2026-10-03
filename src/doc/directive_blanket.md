@@ -159,7 +159,7 @@ trait Iterable {
     where
         Self: 'a;
 }
-// → impl<T: Iterable> Iterable for Box<T> {
+// → impl<P0> Iterable for Box<P0> where P0: Iterable {
 //     type Item = <T as Iterable>::Item;
 //     type Iter<'a> = <T as Iterable>::Iter<'a> where Self: 'a;
 //   }

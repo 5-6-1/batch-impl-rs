@@ -1033,7 +1033,7 @@ trait RangeAngle { fn m(&self); }
 trait HasOut { type Out; }
 #[batch_impl(Wrap3<*[].3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
-// → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
+// → where P0: HasOut, P1: HasOut, P2: HasOut, P0::Out: Clone, P1::Out: Clone, P2::Out: Clone
 ```
 
 The fresh list a range indexes comes from the spec's generators (`*[].N` /
@@ -1152,8 +1152,8 @@ tuple re-opened to that impl's own fresh list:
 })]
 trait MultiArity<T, R> { fn arity(&self) -> usize; }
 // → impl<R, T: Fn() -> R>         MultiArity<T, R> for ()
-// → impl<R, P0, T: Fn(P0) -> R>   MultiArity<T, R> for (P0,)
-// → impl<R, P0,P1, T: Fn(P0,P1)->R> MultiArity<T, R> for (P0,P1)
+// → impl<R, T: Fn(P0) -> R, P0>  MultiArity<T, R> for (P0,)
+// → impl<R, T: Fn(P0,P1)->R, P0,P1> MultiArity<T, R> for (P0,P1)
 ```
 
 `Fn()N R` — the space-apply return type — renders `Fn(P0,..) -> R`
@@ -1499,9 +1499,9 @@ Write **one correct implementation for a representative leaf**, and the
 # use std::rc::Rc;
 #[batch_impl([Box, Rc] @num impl{Box<u8>} #max{Box::new(u8::MAX)})]
 trait TMax { fn max() -> Self; }
-// → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
-// → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
-// → impl TMax for Rc<f64>  { fn max() -> Rc<f64>  { Rc::new(f64::MAX) } }
+// → impl TMax for Box<u8>  { fn max() -> Self  { Box::new(u8::MAX) } }
+// → impl TMax for Box<u16> { fn max() -> Self { Box::new(u16::MAX) } }
+// → impl TMax for Rc<f64>  { fn max() -> Self  { Rc::new(f64::MAX) } }
 ```
 
 Each shape family needs its own prototype (a `Cow<'_, u8>` template covers
@@ -1785,7 +1785,7 @@ trait Attr {}
 # use batch_impl::batch_impl;
 #[batch_impl([Box, self] u8 { fn tag(&self) -> &'static str { "x" } })]
 trait WrapOrBare { fn tag(&self) -> &'static str; }
-// → impl WrapOrBare for Box<u8> {} / impl WrapOrBare for u8 {}
+// → impl WrapOrBare for Box<u8> { ... } / impl WrapOrBare for u8 { ... }
 ```
 
 > **`!` (never) as a fn return type**: `fn(A) -> !` is legal — the `!` block has no apply meaning, and a trailing `{...}` belongs to the impl:

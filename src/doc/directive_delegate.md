@@ -221,7 +221,8 @@ trait AllRenameMix {
     fn size(&self) -> usize;
     fn count(&self) -> usize;
 }
-// → fn size { (self.0).len() }, fn count { (self.0).count() }
+// → fn size(&self) -> usize { (self.0).len() }
+// → fn count(&self) -> usize { (self.0).count() }
 ```
 
 ## Composition

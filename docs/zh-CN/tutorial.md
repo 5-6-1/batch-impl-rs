@@ -946,7 +946,7 @@ trait RangeAngle { fn m(&self); }
 trait HasOut { type Out; }
 #[batch_impl(Wrap3<*[].3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
-// → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
+// → where P0: HasOut, P1: HasOut, P2: HasOut, P0::Out: Clone, P1::Out: Clone, P2::Out: Clone
 ```
 
 范围索引的 fresh 列表来自本 spec 的生成器（`*[].N` / `().N`）；spec 无
@@ -1057,8 +1057,8 @@ impl"的形式：`<R, T: Fn()0..4 R> Tr<T> (@0..)` 对 arity 0..4（排他）
 })]
 trait MultiArity<T, R> { fn arity(&self) -> usize; }
 // → impl<R, T: Fn() -> R>          MultiArity<T, R> for ()
-// → impl<R, P0, T: Fn(P0) -> R>    MultiArity<T, R> for (P0,)
-// → impl<R, P0,P1, T: Fn(P0,P1)->R> MultiArity<T, R> for (P0,P1)
+// → impl<R, T: Fn(P0) -> R, P0>  MultiArity<T, R> for (P0,)
+// → impl<R, T: Fn(P0,P1)->R, P0,P1> MultiArity<T, R> for (P0,P1)
 ```
 
 `Fn()N R`——空格 apply 返回类型——渲染为 `Fn(P0,..) -> R`（等价
@@ -1345,9 +1345,9 @@ trait Make { fn mk(x: u32) -> Self; }
 # use std::rc::Rc;
 #[batch_impl([Box, Rc] @num impl{Box<u8>} #max{Box::new(u8::MAX)})]
 trait TMax { fn max() -> Self; }
-// → impl TMax for Box<u8>  { fn max() -> Box<u8>  { Box::new(u8::MAX) } }
-// → impl TMax for Box<u16> { fn max() -> Box<u16> { Box::new(u16::MAX) } }
-// → impl TMax for Rc<f64>  { fn max() -> Rc<f64>  { Rc::new(f64::MAX) } }
+// → impl TMax for Box<u8>  { fn max() -> Self  { Box::new(u8::MAX) } }
+// → impl TMax for Box<u16> { fn max() -> Self { Box::new(u16::MAX) } }
+// → impl TMax for Rc<f64>  { fn max() -> Self  { Rc::new(f64::MAX) } }
 ```
 
 每个形状族需要自己的原型（`Cow<'_, u8>` 模板覆盖 Cow 族——`'_'` 通配匹配任意叶子生命周期）。一族一族合并在同一条属性里，可写成独立 spec，也可写成成对 + 列表级分发：
@@ -1574,7 +1574,7 @@ trait Attr {}
 # use batch_impl::batch_impl;
 #[batch_impl([Box, self] u8 { fn tag(&self) -> &'static str { "x" } })]
 trait WrapOrBare { fn tag(&self) -> &'static str; }
-// → impl WrapOrBare for Box<u8> {} / impl WrapOrBare for u8 {}
+// → impl WrapOrBare for Box<u8> { ... } / impl WrapOrBare for u8 { ... }
 ```
 
 **`!`（never）作 fn 返回类型**：`fn(A) -> !` 合法——`!` 块没有 apply 语义，尾随 `{...}` 归属 impl：

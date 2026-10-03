@@ -174,7 +174,7 @@ trait RangeAngle { fn m(&self); }
 trait HasOut { type Out; }
 #[batch_impl(Wrap3<*[]3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
-// → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
+// → where P0: HasOut, P1: HasOut, P2: HasOut, P0::Out: Clone, P1::Out: Clone, P2::Out: Clone
 ```
 
 The fresh list a range indexes comes from the spec's generators
