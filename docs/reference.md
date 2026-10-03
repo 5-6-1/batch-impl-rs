@@ -408,6 +408,7 @@ records the evaluation stages and counterexamples.
 ### 5.4 Addresses
 
 - **Numbering and display names**: fresh generics are `P0`, `P1`, … in **document order**, and `@N` is exactly that index (`@0` → `P0`). User-written parameters are addressed by their own names — `@N` exists because fresh names are not written by the user.
+- **Generation order** (measured): a Cartesian product emits its impls with the **left operand varying fastest** (`[u8, u16].[u32, u64]` → `u8<u32>`, `u16<u32>`, `u8<u64>`, `u16<u64>`), and a `.N` power emits with the **first position fastest** (`(u8, u16).2` → `u8<u8>`, `u8<u16>`, `u16<u8>`, `u16<u16>`). nothing else promises an order, so read it only as what a preview will show you.
 - **`@g_i` is the primitive**: group `g`, slot `i`, stable across array distribution; `@N` is the flattened form. Measured: `().2 where{@0_1: Clone}` → `where P1: Clone`.
 - **`@N..M`** excludes M, **`@N..=M`** includes M, and **`@N..`** is open to the last fresh. This is the same endpoint rule used by numeric arity ranges and named type-family ranges. In a where predicate a run becomes **one predicate per covered fresh**: measured `().2 where{@1..: Clone}` → `where P1: Clone`.
 - **An exclusive range excludes its end in every position**: measured `().3 where{@0..2: Clone}` → `where P0: Clone, P1: Clone` on a three-fresh impl.
