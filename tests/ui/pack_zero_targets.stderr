@@ -1,4 +1,4 @@
-error: batch-impl: this spec expands to zero impls — a star over an empty list (`*[]`, `*[].0`) has no members; write the targets out or drop the spec
+error: batch-impl: this spec expands to zero impls — no target survived: an empty list, an empty pack or a directive that selected nothing all do it (`[]`, `*[]`, `*[].0`, `Vec<[]>`); write the targets out or drop the spec
  --> tests/ui/pack_zero_targets.rs:6:1
   |
 6 | #[batch_impl(*Vec *[])]

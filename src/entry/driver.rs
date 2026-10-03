@@ -164,13 +164,15 @@ pub(crate) fn collect_spec_leaves(
                 break;
             }
         }
-        // A spec that materializes to nothing is a mistake, not a no-op. The one
-        // deliberate empty spelling is a star over the empty list (`*[]`, `*[].0`),
-        // and it is reported here instead of silently emitting no impls at all.
+        // A spec that materializes to nothing is a mistake, not a no-op, and the
+        // gate below is origin-agnostic: an empty list, an empty pack and a directive
+        // that selected nothing all arrive here. The message must not single out one
+        // of them (a probe measured six spellings that share it).
         if tys.len() == start {
             tys.push(err_ty(
-                "batch-impl: this spec expands to zero impls — a star over an empty list \
-                 (`*[]`, `*[].0`) has no members; write the targets out or drop the spec",
+                "batch-impl: this spec expands to zero impls — no target survived: an empty \
+                 list, an empty pack or a directive that selected nothing all do it (`[]`, \
+                 `*[]`, `*[].0`, `Vec<[]>`); write the targets out or drop the spec",
             ));
         }
         // A target that is still a bare carrier never became a type; report the

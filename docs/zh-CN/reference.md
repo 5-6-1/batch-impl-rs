@@ -762,7 +762,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `star_bare_pointer` | `*const`（缺指向类型的指针前缀） | batch-impl: `*const` / `*mut` needs a pointee type — write `*const T` | DSL |
 | `star_bare_self` | `*self`（孤立的 `self` 载体） | batch-impl: `self` is the whole right operand (`self.T` applies `T` to it), not a type on its own | DSL |
 | `star_bare_where` | `*where { … }`（没有类型的谓词） | batch-impl: a `where{…}` block is not a type — attach it to the type it constrains (`X where { … }`) | DSL |
-| `pack_zero_targets` | `*Vec *[]`（没有任何目标的 spec） | batch-impl: this spec expands to zero impls — a star over an empty list (`*[]`, `*[].0`) has no members; write the targets out or drop the spec | DSL |
+| `pack_zero_targets` | `*Vec *[]`（没有任何目标的 spec） | batch-impl: this spec expands to zero impls — no target survived: an empty list, an empty pack or a directive that selected nothing all do it (`[]`, `*[]`, `*[].0`, `Vec<[]>`); write the targets out or drop the spec | DSL |
 | `pack_single_slot` | 单类型槽收到零个或多个类型；`<*[Vec<u8>,]>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
 | `pack_flat_overlap` | `(*Map *[].1..=2 *[].1..=3,)` 的扁平类型族重叠 | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
 | `pack_unused_axis` | `(*Map *[].2 *[].0,)` 保留未受约束的第一轴参数 | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
