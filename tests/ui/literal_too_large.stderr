@@ -1,0 +1,5 @@
+error: batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit
+ --> tests/ui/literal_too_large.rs:6:20
+  |
+6 | #[batch_impl((u8,).18446744073709551616)]
+  |                    ^^^^^^^^^^^^^^^^^^^^

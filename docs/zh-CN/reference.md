@@ -768,7 +768,9 @@ impl<const N: usize> Width for Bytes<N> {
 | `pack_bare_fresh` | `*[].2` 逐成员发出目标，但保留完整声明 | conflicting implementations of trait `BareFresh`；并报告未受约束的参数 | rustc E0119 / E0207 |
 | `pack_duplicate` | `*[u8, u8]` 不去重 | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
 | `pack_shared_identity` | 同位置的 Pair 参数不相同，或整体包装选择被混用 | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
-| `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | batch-impl: unexpected `#` in a type position | DSL |
+| `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | batch-impl: `#` needs a directive name (`#name{…}`); to attach an attribute write `#[…]` | DSL |
+| `stray_hash_no_name` | 该写指令名的位置出现裸 `#`（`#`、`#{0}`） | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
+| `literal_too_large` | 放不进 `usize` 的整数字面量 | batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
 | `global_path_no_ident` | 结尾的 `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
@@ -894,7 +896,7 @@ impl<const N: usize> Width for Bytes<N> {
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
 | `implentry_at_num_banned` | impl 入口 spec 无 fresh 时写 `@0` | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
-| `implentry_direct_not_type` | 该写类型的位置写了指令 | batch-impl: the direct form takes exactly one type after the generic declaration (e.g. `<T> Box<T>`) | DSL |
+| `implentry_direct_not_type` | 该写类型的位置写了指令 | batch-impl: this form implements one type at a time — to batch targets, put `#[batch_impl(...)]` on a trait definition, or use `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] trait Tr { … }`) | DSL |
 | `implentry_hash_banned` | impl 入口上用 `#fill` | batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly) | DSL |
 | `top_level_block_not_last` | `{! m!{…}}` 不是最后一个块 | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
 | `top_level_manual_not_last` | 手工顶层形式不在最后 | batch-impl: a `{! ...}` top-level block must be the last block | DSL |

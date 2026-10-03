@@ -459,7 +459,10 @@ mod tests {
         let outcome = super::space::parse_return_expr(&mut c, super::Ctx::default());
         use quote::ToTokens as _;
         let rendered = crate::preprocess::render_angles(outcome.to_token_stream()).to_string();
-        assert!(rendered.contains("unexpected `#`"), "expected the stalled token, got: {rendered}");
+        assert!(
+            rendered.contains("`#` needs a directive name"),
+            "expected the targeted directive message, got: {rendered}"
+        );
         // Progress: the stalled `#` is consumed, so the fold cannot spin on it.
         // (What follows it is left to the chain, which folds it into the error.)
         assert!(

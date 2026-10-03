@@ -154,6 +154,8 @@ fn ui() {
     // star over the empty list, while the deliberate empty *row* still yields its
     // one target (`tests/features/dsl_pack_basic.rs`)
     t.compile_fail("tests/ui/pack_zero_targets.rs");
+    t.compile_fail("tests/ui/stray_hash_no_name.rs");
+    t.compile_fail("tests/ui/literal_too_large.rs");
     // `*` needs a type operand — a literal used to be packed as one member and
     // rendered `impl … for 1 {}`
     t.compile_fail("tests/ui/star_non_type.rs");

@@ -397,8 +397,10 @@ fn expand_direct_form(
     let leaves = parse_matrix_leaves(&for_tokens.to_vec())?;
     if leaves.len() != 1 {
         return Err(compile_error_str(
-            "batch-impl: the direct form takes exactly one type after \
-             the generic declaration (e.g. `<T> Box<T>`)",
+            "batch-impl: this form implements one type at a time — to batch \
+             targets, put `#[batch_impl(...)]` on a trait definition, or use \
+             `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] \
+             trait Tr { … }`)",
             Span::call_site(),
         ));
     }
@@ -407,8 +409,10 @@ fn expand_direct_form(
     // instead of an (unreachable) unwrap.
     let Some(leaf) = leaves.into_iter().next() else {
         return Err(compile_error_str(
-            "batch-impl: the direct form takes exactly one type after \
-             the generic declaration (e.g. `<T> Box<T>`)",
+            "batch-impl: this form implements one type at a time — to batch \
+             targets, put `#[batch_impl(...)]` on a trait definition, or use \
+             `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] \
+             trait Tr { … }`)",
             Span::call_site(),
         ));
     };

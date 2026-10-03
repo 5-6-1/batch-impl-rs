@@ -224,10 +224,19 @@ pub(crate) fn literal_block(cursor: &mut Cursor) -> Ty {
                     }
                     Err(_) => {
                         let span = lit.span();
+                        // An integer that does not fit usize is still an integer:
+                        // blaming "float/string/char" sends the user to the wrong fix.
+                        let too_large =
+                            lit.to_string().chars().all(|c| c.is_ascii_digit() || c == '_');
                         cursor.bump();
                         err_ty_at(
-                            "batch-impl: a bare literal in a type position must be an \
-                             integer (usize); float/string/char literals are not types",
+                            if too_large {
+                                "batch-impl: this integer is too large for `usize` — a number \
+                                 in a type position is an arity or a `.N` length and must fit"
+                            } else {
+                                "batch-impl: a bare literal in a type position must be an \
+                                 integer (usize); float/string/char literals are not types"
+                            },
                             span,
                         )
                     }

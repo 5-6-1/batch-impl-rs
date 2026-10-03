@@ -715,7 +715,11 @@ fn resolves(root: &Path, candidate: &str) -> bool {
 /// Message classes that are **unreachable by construction** (or not DSL
 /// diagnostics at all). Each pattern is a substring of the literal; the reason
 /// says why no fixture locks it.
-const UNREACHABLE_DIAGNOSTICS: [(&str, &str); 5] = [
+const UNREACHABLE_DIAGNOSTICS: [(&str, &str); 6] = [
+    (
+        "unexpected `",
+        "`parse_return_expr`'s progress guard (the anti-hang message). The `#` arms\n         now consume the token and report the directive wording, so no fixture renders\n         this one any more; it stays as the guard for any future stalled follower.",
+    ),
     (
         "internal error",
         "defensive invariants (range length, placeholder, variadic-segment residue): unreachable by construction, swept by the fuzz + module guard tests",

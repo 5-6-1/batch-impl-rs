@@ -185,7 +185,9 @@ fn malformed_function_returns_keep_the_original_diagnostic_through_the_entry() {
         quote!(dyn Fn(u8) -> u8 #(x)),
     ] {
         let output = trait_output(spec.clone()).to_string();
-        assert!(output.contains("unexpected `#` in a type position"), "{spec}: {output}");
+        // The `#` arms now consume the token and name the fix, so the entry
+        // surfaces that targeted message instead of the stall guard's wording.
+        assert!(output.contains("`#` needs a directive name"), "{spec}: {output}");
         assert!(!output.contains("already has a return type"), "{spec}: {output}");
     }
 }

@@ -1,0 +1,11 @@
+error: batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`)
+ --> tests/ui/stray_hash_no_name.rs:7:14
+  |
+7 | #[batch_impl(#)]
+  |              ^
+
+error: batch-impl: `#` needs a directive name (`#name{…}`); to attach an attribute write `#[…]`
+  --> tests/ui/stray_hash_no_name.rs:12:14
+   |
+12 | #[batch_impl(#{0})]
+   |              ^

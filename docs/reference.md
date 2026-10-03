@@ -801,7 +801,9 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `pack_bare_fresh` | `*[].2` emits individual targets with the complete declarations | conflicting implementations of trait `BareFresh`; unconstrained parameters are also reported | rustc E0119 / E0207 |
 | `pack_duplicate` | `*[u8, u8]` does not deduplicate | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
 | `pack_shared_identity` | mismatched Pair types at one fresh position, or mixing a uniform wrapper choice | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
-| `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: unexpected `#` in a type position | DSL |
+| `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: `#` needs a directive name (`#name{…}`); to attach an attribute write `#[…]` | DSL |
+| `stray_hash_no_name` | a stray `#` where a directive name belongs (`#`, `#{0}`) | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
+| `literal_too_large` | an integer literal that does not fit `usize` | batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
 | `global_path_no_ident` | a trailing `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
@@ -927,7 +929,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | Fixture | Trigger | Locked message | Source |
 | --- | --- | --- | --- |
 | `implentry_at_num_banned` | `@0` on an impl-entry spec with no fresh | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
-| `implentry_direct_not_type` | a directive where a type belongs | batch-impl: the direct form takes exactly one type after the generic declaration (e.g. `<T> Box<T>`) | DSL |
+| `implentry_direct_not_type` | a directive where a type belongs | batch-impl: this form implements one type at a time — to batch targets, put `#[batch_impl(...)]` on a trait definition, or use `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] trait Tr { … }`) | DSL |
 | `implentry_hash_banned` | `#fill` on the impl entry | batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly) | DSL |
 | `top_level_block_not_last` | `{! m!{…}}` before other blocks | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
 | `top_level_manual_not_last` | the manual top-level form, not last | batch-impl: a `{! ...}` top-level block must be the last block | DSL |

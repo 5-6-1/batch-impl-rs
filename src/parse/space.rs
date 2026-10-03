@@ -86,9 +86,17 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
             if p.as_char() == '#' && matches!(cursor.peek_at(1), Some(TokenTree::Group(_))) =>
         {
             let Some(attr_group) = cursor.peek_group_at(1, delimiter![[]]) else {
-                // `#` followed by a non-Bracket group is a directive-ish stray
-                // — fall through to the next-block handling below.
-                return None;
+                // `#` followed by a non-bracket group is a stray: a directive needs
+                // its name (`#name{…}`), and falling through here used to drop the
+                // whole spec silently — the trait was emitted, zero impls, and no
+                // diagnostic pointed at the attribute.
+                let span = p.span();
+                cursor.advance(2);
+                return Some(err_ty_at(
+                    "batch-impl: `#` needs a directive name (`#name{…}`); to attach an \
+                     attribute write `#[…]`",
+                    span,
+                ));
             };
             let attr = attr_group.stream();
             cursor.advance(2);
@@ -185,6 +193,18 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
                 && matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _))) =>
         {
             return crate::parse::ident_blocks::global_path_block(cursor, ctx);
+        }
+        // A stray `#` with no group after it (the preprocessor already consumed
+        // every real `#name{…}`): silently returning `None` here dropped the spec.
+        TokenTree::Punct(p)
+            if p.as_char() == '#' && !matches!(cursor.peek_at(1), Some(TokenTree::Ident(_))) =>
+        {
+            cursor.bump();
+            err_ty_at(
+                "batch-impl: `#` must start a directive with a name (`#name{…}`) or an \
+                 attribute (`#[…]`)",
+                p.span(),
+            )
         }
         _ => return None,
     };

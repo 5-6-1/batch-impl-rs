@@ -1,4 +1,4 @@
-error: batch-impl: unexpected `#` in a type position
+error: batch-impl: `#` needs a directive name (`#name{…}`); to attach an attribute write `#[…]`
  --> tests/ui/extern_fn_stray_hash.rs:7:38
   |
 7 | #[batch_impl(extern "C" fn(u8) -> u8 #(x))]
