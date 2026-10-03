@@ -773,6 +773,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `stray_hash_no_name` | 该写指令名的位置出现裸 `#`（`#`、`#{0}`） | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
 | `literal_too_large` | 放不进 `usize` 的整数字面量 | batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit | DSL |
 | `bare_number_target` | 该写目标的位置写了裸数字或区间（`1`、`0..3`） | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target | DSL |
+| `array_length_pack` | 数组长度位置写了 pack 或列表（`[u8; *[u8, u16]]`） | batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]` | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
 | `global_path_no_ident` | 结尾的 `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |

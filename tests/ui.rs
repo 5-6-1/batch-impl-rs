@@ -157,6 +157,7 @@ fn ui() {
     t.compile_fail("tests/ui/stray_hash_no_name.rs");
     t.compile_fail("tests/ui/literal_too_large.rs");
     t.compile_fail("tests/ui/bare_number_target.rs");
+    t.compile_fail("tests/ui/array_length_pack.rs");
     // `*` needs a type operand — a literal used to be packed as one member and
     // rendered `impl … for 1 {}`
     t.compile_fail("tests/ui/star_non_type.rs");

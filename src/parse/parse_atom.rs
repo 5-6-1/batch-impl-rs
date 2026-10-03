@@ -134,6 +134,22 @@ fn parse_array_group(contents: &[TokenTree], span: proc_macro2::Span, ctx: Ctx<'
                     span,
                 );
             }
+            // The length is a const expression in Rust, not a DSL position: a top-level
+            // pack or bracket list would render `[u8; * [u8, u16]]` and reach rustc as
+            // E0423. Only a *top-level* operator is rejected — a braced expression
+            // (`{ N * 2 }`) or a turbofish is a single group and stays legal.
+            let bad = length_tokens.iter().find(|t| match t {
+                TokenTree::Punct(p) => p.as_char() == '*',
+                TokenTree::Group(g) => g.delimiter() == proc_macro2::Delimiter::Bracket,
+                _ => false,
+            });
+            if bad.is_some() {
+                return err_ty_at(
+                    "batch-impl: an array length takes a const expression, not a pack or a \
+                     list — write `[u8; 3]` or `[u8; N]`",
+                    span,
+                );
+            }
             let length = length_tokens.iter().cloned().collect::<TokenStream>();
             TyPrimitiveArray(element.into(), length.into()).to_ty().with_span(span)
         } else {
