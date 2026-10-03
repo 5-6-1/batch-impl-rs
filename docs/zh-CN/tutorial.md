@@ -504,7 +504,7 @@ trait Zero {
 其他类型则成为单成员包。包不记忆自己来自 `()` 还是 `[]`。
 
 常见用法只需三步：**打开成员、应用规则、放入结果**。
-`(*Vec *().3,)` 打开三个独立参数，分别套上 `Vec`，最后放入一个元组。
+`(*Vec *[].3,)` 打开三个独立参数，分别套上 `Vec`，最后放入一个元组。
 
 ### 4.1 列表 / 元组内拼入
 
@@ -516,10 +516,10 @@ use batch_impl::batch_impl;
 #[batch_impl([u8, *[u16, u32]])]
 trait Each {}
 
-#[batch_impl((u8, *(u16, u32)))]
+#[batch_impl((u8, *[u16, u32]))]
 trait Together {}
 
-#[batch_impl(*((u8, u16),))]
+#[batch_impl(*(u8, u16))]
 trait OneTuple {}
 
 fn main() {
@@ -534,10 +534,9 @@ fn main() {
 
 ### 4.2 左操作数：对每个成员应用同一规则
 
-左包把其中每个成员应用于右侧。`*(Vec, Box) u8` 与
-`*[Vec, Box] u8` 都得到 `Vec<u8>`、`Box<u8>`。
+左包把其中每个成员应用于右侧。`*[Vec, Box] u8` 得到 `Vec<u8>`、`Box<u8>`。
 普通左类型则把右包放进一个实参槽：
-`Pair *(u8, u16)` 在消费该槽时成为 `Pair<u8, u16>`。
+`Pair *[u8, u16]` 在消费该槽时成为 `Pair<u8, u16>`。
 
 两侧都是包时，每个**右侧直接成员是一行**。所有左成员都接收这一整行。
 右行在外，左成员在内；一次映射任务不会重新打开已经选中的行。
@@ -547,13 +546,13 @@ use batch_impl::batch_impl;
 
 struct Pair<A, B>(A, B);
 
-#[batch_impl((*Vec *().1..=3,))]
+#[batch_impl((*Vec *[].1..=3,))]
 trait Wrapped {}
 
-#[batch_impl((*Pair (*(self, Vec) *().1..=3),))]
+#[batch_impl((*Pair (*[self, Vec] *[].1..=3),))]
 trait Paired {}
 
-#[batch_impl((*((),) (*(self, Vec) *().3),))]
+#[batch_impl((*() (*[self, Vec] *[].3),))]
 trait Rows {}
 
 fn main() {
@@ -566,12 +565,12 @@ fn main() {
 }
 ```
 
-`self` 返回整个实参。因此 `*(self, Vec)` 对每个独立生成的 `T`
+`self` 返回整个实参。因此 `*[self, Vec]` 对每个独立生成的 `T`
 构造 `T, Vec<T>` 两个成员。`*Pair` 把每行收进泛型实参，
-`*((),)` 把每行收进元组元素。这两个例子使用同一条映射规则。
+`*()` 把每行收进元组元素。这两个例子使用同一条映射规则。
 
 空格仍然左结合。要得到 `(Vec<Box<T0>>, Vec<Box<T1>>)`，
-写 `(*Vec (*Box *().2),)`；`*Vec *Box *().2` 会先构造
+写 `(*Vec (*Box *[].2),)`；`*Vec *Box *[].2` 会先构造
 `Vec<Box>`，再追加一个实参。
 
 ### 4.3 泛型实参与 trait 路径
@@ -584,10 +583,10 @@ use batch_impl::batch_impl;
 
 struct Pair<A, B>(A, B);
 
-#[batch_impl(Pair<*(u8, u16)>)]
+#[batch_impl(Pair<*[u8, u16]>)]
 trait Concrete {}
 
-#[batch_impl(Convert<*(u8, u16)> Pair<u8, u16>)]
+#[batch_impl(Convert<*[u8, u16]> Pair<u8, u16>)]
 trait Convert<A, B> {}
 
 #[batch_impl(Pair<*[u8, u16].2>)]
@@ -606,27 +605,27 @@ fn main() {
 
 最后一个表达式先选择两个位置的笛卡尔积，再填入两个泛型实参槽。
 普通候选列表仍然分支：
-`Pair<*(u8, [u16, u32])>` 得到两条 impl，而非三个实参。
+`Pair<*[u8, [u16, u32]]>` 得到两条 impl，而非三个实参。
 
 ### 4.4 容器规则
 
 括号不检查内部是什么类型：`(X)` 是分组，`(X,)` 是元组。
 同样，`[X]` 是切片，`[X,]` 是候选列表。
-因此 `(*(u8, u16))` 是加了分组的包（两条目标 impl），
-`(*(u8, u16),)` 才是一个元组。
-`[*(u8, u16)]` 不合法：切片只有一个元素类型槽。
+因此 `(*[u8, u16])` 是加了分组的包（两条目标 impl），
+`(*[u8, u16],)` 才是一个元组。
+`[*[u8, u16]]` 不合法：切片只有一个元素类型槽。
 
 嵌套前缀幂等：`*(*X)` 就是 `*X`，没有额外的双星操作。
 要保留一行，将它收进普通元组或泛型宿主，如 §4.2 所示。
 
 ### 4.5 生成器与维度
 
-`*().N` 生成含 `N` 个独立参数的包。复制已生成的成员保留参数身份；
-执行另一个生成器才创建另一组。`*().0` 不产生参数。
+`*[].N` 生成含 `N` 个独立参数的包。复制已生成的成员保留参数身份；
+执行另一个生成器才创建另一组。`*[].0` 不产生参数。
 
 普通元组的幂仍然复制其**直接槽**：
 `([u8, u16],).2` 有四种组合，
-`(*(u8, u16),).2` 则物化为 `(u8, u16, u8, u16)`。
+`(*[u8, u16],).2` 则物化为 `(u8, u16, u8, u16)`。
 包的幂先拼平嵌套包，再将所得成员作为候选。
 
 两个轴仍使用同一条应用规则。保留行可以让维度体现在 Rust 类型中：
@@ -636,7 +635,7 @@ use batch_impl::batch_impl;
 
 struct Map<T, U>(T, U);
 
-#[batch_impl((*((),) (*Map *().1..=2 *().1..=3),))]
+#[batch_impl((*() (*Map *[].1..=2 *[].1..=3),))]
 trait Grid {}
 
 fn main() {
@@ -649,7 +648,7 @@ fn main() {
 }
 ```
 
-共有六种形状。固定维度 `(*Map *().2 *().3,)` 则把六个成员拼成平坦元组，
+共有六种形状。固定维度 `(*Map *[].2 *[].3,)` 则把六个成员拼成平坦元组，
 共享五个参数。两个维度都使用*范围*时，拼平结果可能产生重叠 impl：
 `1 × 2` 与 `2 × 1` 的模式可能描述同一个 Rust 类型。
 宏保留两者，由 rustc 报 E0119；未使用的泛型声明也不会自动删去，
@@ -662,9 +661,9 @@ fn main() {
 引用与指针目标、切片/数组的元素类型、函数返回值、单个 bound 和关联类型绑定值
 要求**每个分支恰好一个类型**，空包或多成员包在这些位置得到定向错误。
 
-声明块拼入名字（`<*(A, B)>`）；fresh 生成器不能在此声明名字，
+声明块拼入名字（`<*[A, B]>`）；fresh 生成器不能在此声明名字，
 因为它自己携带的声明没有目标可以承载。
-构造类型也不是参数声明，例如 `<*(Vec<u8>,)>` 会报错。
+构造类型也不是参数声明，例如 `<*[Vec<u8>,]>` 会报错。
 原始指针 `*const T`、`*mut T` 保留 Rust 意义，没有后续块的裸 `*` 报错。
 
 `where{...}` 谓词和 `impl{...}` 形状模板保持标准 Rust 类型语法域，
@@ -735,7 +734,7 @@ struct A2; struct B2;
 trait GenTup {}
 // → impl<P0,P1> GenTup for Wrap<(P0, P1)>（元组保持单个实参）
 
-#[batch_impl(Pair3<*()2>)]             // generator splat：<P0,P1> Pair3<P0,P1>
+#[batch_impl(Pair3<*[].2>)]             // generator splat：<P0,P1> Pair3<P0,P1>
 trait GenSpl {}
 // → impl<P0,P1> GenSpl for Pair3<P0, P1>（摊平成两个实参）
 
@@ -930,27 +929,27 @@ trait OpenRange {}
 ```rust
 # use batch_impl::batch_impl;
 struct Wrap3<A, B, C>(A, B, C);
-#[batch_impl(Wrap3<*()3> where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*[].3> where @0..: Clone { fn m(&self) {} })]
 trait RangeAngle { fn m(&self); }
 // → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
 
 trait HasOut { type Out; }
-#[batch_impl(Wrap3<*()3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*[].3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
 // → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
 ```
 
-范围索引的 fresh 列表来自本 spec 的生成器（`*().N` / `().N`）；spec 无
+范围索引的 fresh 列表来自本 spec 的生成器（`*[].N` / `().N`）；spec 无
 fresh 泛型时范围报 "out of range"。
 
 **impl 泛型声明位置同样可用**：`<@0..>` 把范围覆盖的每个 fresh 声明为
-impl 参数——生成器放在 trait 实参（`GenConv<*().2>`），声明与谓词引用
+impl 参数——生成器放在 trait 实参（`GenConv<*[].2>`），声明与谓词引用
 同一批 fresh：
 
 ```rust
 # use batch_impl::batch_impl;
 struct DeclTarget;
-#[batch_impl(<@0..> GenConv<*()2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(<@0..> GenConv<*[].2> DeclTarget where @0..: Clone { fn m(&self) {} })]
 trait GenConv<T, U> { fn m(&self); }
 // → impl<P0,P1> GenConv<P0,P1> for DeclTarget where P0: Clone, P1: Clone
 ```
@@ -959,14 +958,14 @@ trait GenConv<T, U> { fn m(&self); }
 `@1..` 谓词。）
 
 **组内范围 `@L_N..`**（0.9.2）在**单个生成器组内**切片——`@g_i` 的组内对应物，
-跨数组分发稳定。一个 spec 里有多个生成器时（如 `PairGen<*().2, *().3>`），
+跨数组分发稳定。一个 spec 里有多个生成器时（如 `PairGen<*[].2, *[].3>`），
 第一个是组 0、第二个是组 1；`@1_0..` 只约束组 1 的 fresh：
 
 ```rust
 # use batch_impl::batch_impl;
 struct MultiTarget;
 #[batch_impl(
-    <@0..> <@1..> PairGen<*()2, *()3> MultiTarget where @1_0..: Clone
+    <@0..> <@1..> PairGen<*[].2, *[].3> MultiTarget where @1_0..: Clone
     { fn m(&self) {} }
 )]
 trait PairGen<A, B, C, D, E> { fn m(&self); }
@@ -1502,12 +1501,12 @@ impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
 
 | 拼写 | 生成什么 | 例子 |
 |---|---|---|
-| `()N` | **N 个 fresh 参数**（生成器）——由载体决定怎么拼 | `Pair3<*().2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
-| `*()N` | 同一个生成器**被拼入**，于是载体可以追加它的参数 | `T.*().2` → `<P0,P1>T<P0,P1>` |
+| `()N` | **N 个 fresh 参数**（生成器）——由载体决定怎么拼 | `Pair3<*[].2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
+| `*[].N` | 同一个生成器**被拼入**，于是载体可以追加它的参数 | `T.*[].2` → `<P0,P1>T<P0,P1>` |
 | `(A, B,)N` | 元素的 **N 重笛卡尔积**（长度 N 的元组） | `(u8, u16,)2` → 4 个 impl |
 | `().1..=M` / `(A,)L..U` | **每个元数**一个 impl，各自带自己的 fresh 参数（README 表里的 "ranges"） | `().1..=3` → `impl<P0> … for (P0,)`、`impl<P0,P1> … for (P0, P1,)`、`impl<P0,P1,P2> … for (P0, P1, P2,)` |
 
-幂是 **`.N` 后缀**（`(u8, u16).2` = 四个元组 impl）；并置形式 `()N` / `(u8, u16)2` 同样接受，而旧的 `^` 拼写会被拒绝并给出退休消息（§12）。后缀绑定到它所在的那个块，所以 `Box.*().2` 是把生成器应用到 `Box`，而不是别的什么。
+幂是 **`.N` 后缀**（`(u8, u16).2` = 四个元组 impl）；并置形式 `()N` / `(u8, u16)2` 同样接受，而旧的 `^` 拼写会被拒绝并给出退休消息（§12）。后缀绑定到它所在的那个块，所以 `Box.*[].2` 是把生成器应用到 `Box`，而不是别的什么。
 
 ```rust
 # use batch_impl::batch_impl;
@@ -1525,7 +1524,7 @@ trait Arities {}
 
 ### 9.2 笛卡尔积
 
-`[A, B] [C, D]` 全组合；splat 幂——`(*(A,B)).2` 或并置的 `*(A,B)2`——产生笛卡尔组合列表：
+`[A, B] [C, D]` 全组合；splat 幂——`(*[A, B]).2` 或并置的 `*[A, B]2`——产生笛卡尔组合列表：
 
 ```rust
 # use batch_impl::batch_impl;
@@ -1632,8 +1631,8 @@ batch-impl 的错误是**编译期诊断**，尽量指向相关的用户可见 t
 - **`@N`/`@g_i` 越界或悬空引用**：`@5` 超出 impl 生成的泛型数，或 `@2_0` 组不存在——fresh 泛型从 0 按文档序编号、显示为 `P0`、`P1`……；悬空引用在宏内被拦截，绝不落为 rustc E0412 裸错
 - **`where` 谓词不是合法 Rust 谓词**：`where{ A B }`（漏 `:`）在谓词定型后报错并给出修法；谓词里的 **splat** 同样报出，因为该子句到输出全程 token 级
 - **`=`/`:` 写错实参表**：bound 与 binding 只属 trait 路径（`Conv<Item = u32> X`）或 **bound 位置**（`T: Iterator<Item = u8>`，`dyn` / `for<'a>` 内同理）；`<>` **声明块**声明的是参数，那里的 binding 会被报出并给出可用写法
-- **`<>` 声明块里的 fresh 生成器**：把生成器写在类型上——`T.*().2` 拼入生成的参数，`T<()2>` 把它们保持为一个元组实参
-- **已退役的 `^` 幂**：`(u8, u16)^2` / `T^()^2` 有自己的消息；幂是 `.N` 后缀（`(u8, u16).2`、`T.*().2`）
+- **`<>` 声明块里的 fresh 生成器**：把生成器写在类型上——`T.*[].2` 拼入生成的参数，`T<()2>` 把它们保持为一个元组实参
+- **已退役的 `^` 幂**：`(u8, u16)^2` / `T^()^2` 有自己的消息；幂是 `.N` 后缀（`(u8, u16).2`、`T.*[].2`）
 
 其余全部——每一类的**精确原话**与锁定它的 fixture——在 `docs/zh-CN/reference.md` §10。
 

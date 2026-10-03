@@ -10,11 +10,11 @@ use batch_impl::batch_impl;
 
 // ============================================================
 // 1. `@0..` open range: every fresh gets the predicate tail.
-//    The fresh list comes from the target's `*().3` generator splat.
+//    The fresh list comes from the target's `*[].3` generator splat.
 // ============================================================
 struct Triple<T, U, V>(T, U, V);
 
-#[batch_impl(Triple<*().3> where{@0..: Clone} { fn m(&self) {} })]
+#[batch_impl(Triple<*[].3> where{@0..: Clone} { fn m(&self) {} })]
 #[allow(dead_code)]
 trait RangeWhereAll {
     fn m(&self);
@@ -29,7 +29,7 @@ fn range_where_all_fresh() {
 // ============================================================
 // 2. `@1..` open range from index 1: the first fresh is unconstrained.
 // ============================================================
-#[batch_impl(Triple<*().3> where{@1..: Copy} { fn m(&self) {} })]
+#[batch_impl(Triple<*[].3> where{@1..: Copy} { fn m(&self) {} })]
 #[allow(dead_code)]
 trait RangeWhereTail {
     fn m(&self);
@@ -44,7 +44,7 @@ fn range_where_tail() {
 // ============================================================
 // 3. `@0..=1` closed range: exactly the first two freshes.
 // ============================================================
-#[batch_impl(Triple<*().3> where{@0..=1: Copy} { fn m(&self) {} })]
+#[batch_impl(Triple<*[].3> where{@0..=1: Copy} { fn m(&self) {} })]
 #[allow(dead_code)]
 trait RangeWhereClosed {
     fn m(&self);
@@ -66,7 +66,7 @@ trait HasOut {
 }
 struct Wrap2<A, B>(A, B);
 
-#[batch_impl(Wrap2<*().2> where{@0..: HasOut, @0..::Out: Clone} { fn m(&self) {} })]
+#[batch_impl(Wrap2<*[].2> where{@0..: HasOut, @0..::Out: Clone} { fn m(&self) {} })]
 #[allow(dead_code)]
 trait RangeAssocPath {
     fn m(&self);
@@ -81,7 +81,7 @@ trait RangeAssocPath {
 // 5. Two ranges in one where clause: an open `@0..` and a closed `@0..=1`
 //    coexist (each expands independently).
 // ============================================================
-#[batch_impl(Wrap2<*().2> where{@0..: Clone, @0..=1: Copy} { fn m(&self) {} })]
+#[batch_impl(Wrap2<*[].2> where{@0..: Clone, @0..=1: Copy} { fn m(&self) {} })]
 #[allow(dead_code)]
 trait RangeWhereCombined {
     fn m(&self);
@@ -96,12 +96,12 @@ fn range_where_combined() {
 // ============================================================
 // 7. `@0..` in the impl-generic **declaration** position: `<@0..>` declares
 //    every fresh the range covers as an impl param. The fresh list comes
-//    from the trait-arg generator (`GenConv<*().2>`); the declaration and
+//    from the trait-arg generator (`GenConv<*[].2>`); the declaration and
 //    the where predicate reference the same batch.
 // ============================================================
 struct DeclTarget;
 
-#[batch_impl(<@0..> GenConvDecl<*().2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(<@0..> GenConvDecl<*[].2> DeclTarget where @0..: Clone { fn m(&self) {} })]
 #[allow(dead_code)]
 trait GenConvDecl<T, U> {
     fn m(&self);
@@ -116,13 +116,13 @@ fn range_decl_position() {
 // ============================================================
 // 8. Grouped ranges `@L_N..` / `@L_N..M`: a range **within** one generator
 //    group (stable across array dispatch, like `@g_i`). Two generators
-//    (`<*().2>` → group 0, `<*().3>` → group 1); `@1_0..: Clone` constrains
+//    (`<*[].2>` → group 0, `<*[].3>` → group 1); `@1_0..: Clone` constrains
 //    only group 1's three fresh.
 // ============================================================
 struct MultiTarget;
 
 #[batch_impl(
-    <@0..> <@1..> PairGen<*().2, *().3> MultiTarget where{@1_0..: Clone}
+    <@0..> <@1..> PairGen<*[].2, *[].3> MultiTarget where{@1_0..: Clone}
     { fn m(&self) {} }
 )]
 #[allow(dead_code)]
@@ -141,7 +141,7 @@ fn grouped_range_where() {
 //    group 1 from position 1 onward (the group tail).
 // ============================================================
 #[batch_impl(
-    <@0..> <@1_1..> PairGenDecl<*().2, *().3> MultiTarget
+    <@0..> <@1_1..> PairGenDecl<*[].2, *[].3> MultiTarget
     { fn m(&self) {} }
 )]
 #[allow(dead_code)]
@@ -158,7 +158,7 @@ fn grouped_range_decl() {
 // ============================================================
 // 10. Exclusive `@N..M` in a **type position** (target type) normalizes to
 //     the inclusive protocol, matching the where-predicate path:
-//     `@0..2` covers P0, P1 (not P2). `GenConvX<*().3>` hoists 3 freshs;
+//     `@0..2` covers P0, P1 (not P2). `GenConvX<*[].3>` hoists 3 freshs;
 //     the 2-param target compiles only if the exclusive range excludes the
 //     third. Regression guard: the parse-layer range folding used to keep
 //     the raw end (inclusive) here while the where path excluded it — one
@@ -166,7 +166,7 @@ fn grouped_range_decl() {
 // ============================================================
 struct Wrap2Ty<A, B>(A, B);
 
-#[batch_impl(GenConvX<*().3> Wrap2Ty<@0..2> { fn m(&self) {} })]
+#[batch_impl(GenConvX<*[].3> Wrap2Ty<@0..2> { fn m(&self) {} })]
 #[allow(dead_code)]
 trait GenConvX<A, B, C> {
     fn m(&self);
@@ -184,7 +184,7 @@ fn exclusive_range_in_type_position_is_exclusive() {
 //     where-predicate path used to slice `slice[r.start..r.start+0]` with
 //     `r.start` past the scope length, panicking on `().2` with `@5..`).
 // ============================================================
-#[batch_impl(Wrap2<*().2> where{@5..: Clone} { fn m(&self) {} })]
+#[batch_impl(Wrap2<*[].2> where{@5..: Clone} { fn m(&self) {} })]
 #[allow(dead_code)]
 trait RangeWherePastEnd {
     fn m(&self);

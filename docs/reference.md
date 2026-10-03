@@ -102,7 +102,7 @@ Only the notations that have no section of their own — `@`, `#`, `<>`, the spl
 | `;` | separates `batch_trait!` trait sections or impl-entry specs (§1.1); also separates an array's element type and length (`[T; N]`) |
 | `,` | separates trait-entry specs, including those within one `batch_trait!` section (§1.1), and list, tuple, argument and directive-argument elements |
 | `-name` | an exclusion, in directive argument lists only (§6.2) |
-| `.N` / `()N` | the power: `T.*().2` splices the generated parameters, `T<()2>` keeps them as one tuple argument. A caret is **not** an operator — `(u8, u16)^2` gets the retired-operator message (§3.4, §10.1) |
+| `.N` / `()N` | the power: `T.*[].2` splices the generated parameters, `T<()2>` keeps them as one tuple argument. A caret is **not** an operator — `(u8, u16)^2` gets the retired-operator message (§3.4, §10.1) |
 
 ## 2. Position × Construct
 
@@ -152,7 +152,7 @@ Two consequences worth remembering: **to nest, chain with `.`** (`Box Vec u8` ne
 
 The power is written `.N`, attached to the value it repeats: `T.N` expands a tuple or a generator into the Cartesian product of `N` positions — `(u8, u16).2` is every ordered pair over `{u8, u16}`, i.e. four impls, and `Frac.*(*@u*).2` feeds both generic positions for 36 (`examples/typeclass.rs`; the argument spelling `Frac<*(*@u*).2>` gives the same 36). The per-spec ceiling of 1024 impls (§12) is what reports a mistyped exponent.
 
-`*().N` generates a pack of N fresh parameters, whose members are spliced into an argument or tuple host: `T.*().2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
+`*[].N` generates a pack of N fresh parameters, whose members are spliced into an argument or tuple host: `T.*[].2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
 
 **The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected with the retired-operator message quoted in §10.1 (`caret_power_retired`) — on the caret itself, naming the `.N` spelling that works. The same message covers a caret in a **bound** position (`<T: Tr^u8>`). Older docs spell the power with `^`, so write `.N`.
 
@@ -290,7 +290,7 @@ declarations but keeping ordinary tuples and choices intact, then use the
 ordinary power rules. The generated tuple in each branch is returned as
 a pack.
 
-`*().N` generates `N` independent parameters; `.0` allocates none.
+`*[].N` generates `N` independent parameters; `.0` allocates none.
 Copying a generated parameter preserves identity. Distinct generator
 executions allocate distinct groups. Thus `(*(),).2` becomes unit with
 no declarations, whereas `*(*(),).2` generates two parameters.
@@ -551,7 +551,7 @@ Once every fill has run, the predicates are parsed as **Rust predicates** and a 
 |---|---|
 | a missing `:` — `where{ A B }` | "a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out" (`where_not_a_predicate`) |
 | a splat inside a predicate — `(*(A,B)): Trait`, `X: Trait<*(A,B)>` | the same message: no stage expands a splat inside a predicate, so the check is what reports it |
-| a bare splat subject — `where{*(A,B): Trait}` | "a splat cannot be a where-predicate subject (`*(A,B): Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`)" (`where_splat_bad`) |
+| a bare splat subject — `where{*[A, B]: Trait}` | "a splat cannot be a where-predicate subject (`*[A, B]: Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`)" (`where_splat_bad`) |
 | an empty exclusive range — `where{@2..2: Clone}` | "empty exclusive range `@2..2` (start not below end)" (`where_empty_exclusive_range`) |
 
 ### 7.5 Boundaries
@@ -751,11 +751,11 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `leading_operator` | `.A`, and a leading `-` (`-usize`, `Vec<u8>, -u16`) | batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`) | DSL |
 | `num_as_left_operand` | `0.T` | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
 | `literal_and_range` | `1.5` / `1..x` | batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types | DSL |
-| `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*().2`) | DSL |
+| `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*[].2`) | DSL |
 | `semi_in_spec` | a stray `;` after a type | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
-| `caret_power_retired` | `(u8, u16)^2`, `<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator) | DSL |
-| `star_misuse` | a bare `*` | batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); raw pointers use `*const T` or `*mut T` | DSL |
+| `caret_power_retired` | `(u8, u16)^2`, `<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*[].2` for a generator) | DSL |
+| `star_misuse` | a bare `*` | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
 | `pack_single_slot` | a single-type host receives zero or multiple types; `<*(Vec<u8>,)>` declares a constructed type; or copying nested structures across 10 independent choice slots exceeds the cumulative budget | batch-impl: this type position requires exactly one type; the pack expands to 2 types (0 types for an empty pack); declaration error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type; work error: batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
 | `pack_flat_overlap` | overlapping flat family `(*Map *().1..=2 *().1..=3,)` | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
 | `pack_unused_axis` | `(*Map *().2 *().0,)` retains unconstrained first-axis parameters | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
@@ -901,7 +901,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | --- | --- | --- | --- |
 | `where_missing_body` | the input ends immediately after bare `where`, with no predicates | batch-impl: `where` predicates are missing a code block {...} | DSL |
 | `where_not_a_predicate` | `where{ A B }` | batch-impl: a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out | DSL |
-| `where_splat_bad` | `where{*(A,B): Clone}` | batch-impl: a splat cannot be a where-predicate subject (`*(A,B): Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`) | DSL |
+| `where_splat_bad` | `where{*[A, B]: Clone}` | batch-impl: a splat cannot be a where-predicate subject (`*[A, B]: Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`) | DSL |
 | `where_empty_exclusive_range` | `where{@2..2: Clone}` | batch-impl: empty exclusive range `@2..2` (start not below end) | DSL |
 
 ### 10.9 Preview channel
@@ -953,7 +953,7 @@ Two consequences worth keeping: `@` is the **only** pass that runs before pairin
 
 ### 11.4 splat × the others
 
-- a splat's elements may be `@` constants (11.2) or generators (`*().N`);
+- a splat's elements may be `@` constants (11.2) or generators (`*[].N`);
 - a splat inside an `impl{...}` template is a DSL operator, and a template must be a standard Rust type — rejected (§8.1);
 - a splat in a **body** is not interpreted at all (`a * b` stays a multiplication);
 - the same splat means "declarations" in a declaration block and "arguments" in an argument list: one construct, and the consumer decides (§2).
@@ -1021,7 +1021,7 @@ The marker is **ident-agnostic** — the spec's arguments are what go in, so `Ot
 
 ### 13.3 Fresh generics: naming, numbering, collisions
 
-- A construct that needs generated parameters (`().N`, `*().N`, `@0..` declarations) carries a fresh declaration until codegen names it; no internal carrier ever reaches the output.
+- A construct that needs generated parameters (`().N`, `*[].N`, `@0..` declarations) carries a fresh declaration until codegen names it; no internal carrier ever reaches the output.
 - **Display names** are `P0`, `P1`, … in **document order** — the same numbering `@N` uses.
 - The **collision set** is every ident the impl already writes: the spec's parameters, their inline bounds, the target type, the trait arguments, the inherited and written where predicates, the body, the attributes and the associated types. Template placeholders are **excluded** (the shape mapping rewrites them away, so counting them would shift visible numbering).
 - `@g_i` addresses a fresh by `(group, slot)` — stable across array distribution; `@N` is the flattened document-order form; `@N..` is open and empty when past the end.
@@ -1057,7 +1057,7 @@ Each of these is a question the surface invites, answered with the rule that pro
 
 **Why is `where{@5..: Clone}` not an error on a two-fresh impl?** An open range past the end contributes nothing — an arity-dependent spec must not fail just because a shorter case has fewer freshs.
 
-**Why is a fresh generator in a `<>` block an error?** The block *is* the impl's parameter list, so its freshs would be declared and never used (E0392). Write the generator on the type instead: `T.*().2` splices the generated parameters, while `T<()2>` keeps them as one tuple argument (both measured) — and a plain splat there is fine (`<*(A,B)>` → `<A, B>`).
+**Why is a fresh generator in a `<>` block an error?** The block *is* the impl's parameter list, so its freshs would be declared and never used (E0392). Write the generator on the type instead: `T.*[].2` splices the generated parameters, while `T<()2>` keeps them as one tuple argument (both measured) — and a plain splat there is fine (`<*(A,B)>` → `<A, B>`).
 
 **Why does an impl-entry spec list with nothing in it re-emit the block?** The entry is a *derivation* (`0..N` impls per spec), so an empty list is the identity: the block you wrote comes back unchanged.
 

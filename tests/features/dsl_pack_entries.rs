@@ -6,7 +6,7 @@ trait FunctionEntry {
     fn source(&self) -> &'static str;
 }
 
-batch_trait!(FunctionEntry: (*Vec *().1..=3,) {
+batch_trait!(FunctionEntry: (*Vec *[].1..=3,) {
     fn source(&self) -> &'static str { "function" }
 });
 
@@ -14,7 +14,7 @@ trait OnlyEntry {
     fn source(&self) -> &'static str;
 }
 
-#[batch_impl_only((*Vec *().1..=3,) #source { "only" })]
+#[batch_impl_only((*Vec *[].1..=3,) #source { "only" })]
 trait OnlyEntry {
     fn source(&self) -> &'static str;
 }
@@ -36,7 +36,7 @@ trait ExistingImpl {
     fn bytes() -> usize;
 }
 
-#[batch_impl(@Self: (*Vec *().1..=3,))]
+#[batch_impl(@Self: (*Vec *[].1..=3,))]
 impl ExistingImpl for Prototype {
     fn bytes() -> usize {
         core::mem::size_of::<Self>()
@@ -84,17 +84,17 @@ macro_rules! materialize_extension {
     };
 }
 
-#[batch_impl((*Vec *(u8, u16),) #materialize_extension(answer) { 42 })]
+#[batch_impl((*Vec *[u8, u16],) #materialize_extension(answer) { 42 })]
 trait OpenExtension {
     fn answer() -> usize;
 }
 
-#[batch_impl((*Pair *( *(u8, u16), *(u32, u64)),) #materialize_extension(answer) { 43 })]
+#[batch_impl((*Pair *[*[u8, u16], *[u32, u64]],) #materialize_extension(answer) { 43 })]
 trait OpenRows {
     fn answer() -> usize;
 }
 
-#[batch_impl(Pair *([u8,], u16) #materialize_extension(answer) { 44 })]
+#[batch_impl(Pair *[[u8,], u16] #materialize_extension(answer) { 44 })]
 trait OpenSingletonChoice {
     fn answer() -> usize;
 }
@@ -106,7 +106,7 @@ fn open_extensions_can_reparse_pack_rows_and_singleton_choices() {
     assert_eq!(<Pair<u8, u16> as OpenSingletonChoice>::answer(), 44);
 }
 
-#[batch_impl((*Pair (*(self, Vec) *().2),) where { @0..: Clone } #identity { self })]
+#[batch_impl((*Pair (*[self, Vec] *[].2),) where { @0..: Clone } #identity { self })]
 trait GeneratedWhere: Sized {
     fn identity(self) -> Self;
 }
@@ -122,7 +122,7 @@ fn body_and_where_references_follow_reused_fresh_identities() {
 }
 
 #[batch_impl(
-    (*Pair (*(self, Vec) *().1..=3),)
+    (*Pair (*[self, Vec] *[].1..=3),)
     where { @0..: Clone }
     #materialize_extension(answer) { 45 }
 )]
@@ -130,7 +130,7 @@ trait OpenFreshBranches {
     fn answer() -> usize;
 }
 
-#[batch_impl((*Vec *(<Clone>,).1..=2,) #materialize_extension(answer) { 46 })]
+#[batch_impl((*Vec *[<Clone>,].1..=2,) #materialize_extension(answer) { 46 })]
 trait OpenFreshBounds {
     fn answer() -> usize;
 }
@@ -161,12 +161,12 @@ macro_rules! prepend_generator {
     };
 }
 
-#[batch_impl((*Vec *().1..=2,) #append_generator(answer) { 47 })]
+#[batch_impl((*Vec *[].1..=2,) #append_generator(answer) { 47 })]
 trait OpenAppendedGenerator {
     fn answer() -> usize;
 }
 
-#[batch_impl((*Vec *().1..=2,) #prepend_generator(answer) { 48 })]
+#[batch_impl((*Vec *[].1..=2,) #prepend_generator(answer) { 48 })]
 trait OpenPrependedGenerator {
     fn answer() -> usize;
 }

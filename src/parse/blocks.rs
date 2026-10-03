@@ -110,7 +110,7 @@ pub(crate) fn star_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
         _ => match parse_block(cursor, ctx) {
             Some(ty) => ty.star().with_span(span),
             None => err_ty_at(
-                "batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); \
+                "batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); \
                  raw pointers use `*const T` or `*mut T`",
                 span,
             ),

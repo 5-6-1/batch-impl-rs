@@ -1,4 +1,4 @@
-error: batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); raw pointers use `*const T` or `*mut T`
+error: batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T`
  --> tests/ui/star_misuse.rs:4:14
   |
 4 | #[batch_impl(*)]

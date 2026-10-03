@@ -5,7 +5,7 @@ use batch_impl::batch_impl;
 // freshs would be declared and never used (E0392). Targeted error instead of
 // garbage Rust (before the check the `@`-carrying declaration tokens reached
 // rustc as "expected type, found `@`").
-#[batch_impl(<*().3> Vec<u8>)]
+#[batch_impl(<*[].3> Vec<u8>)]
 trait BadDecl {}
 
 fn main() {}

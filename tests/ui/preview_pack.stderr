@@ -1,11 +1,11 @@
 error: batch-impl preview: 1 impl(s) generated
 
-       #[batch_impl((*Vec *(u8, u16),))] trait Vectors {}
+       #[batch_impl((*Vec *[u8, u16],))] trait Vectors {}
        impl Vectors for (Vec < u8 > , Vec < u16 > ,) {}
  --> tests/ui/preview_pack.rs:4:1
   |
 4 | / batch_preview! {
-5 | |     #[batch_impl((*Vec *(u8, u16),))]
+5 | |     #[batch_impl((*Vec *[u8, u16],))]
 6 | |     trait Vectors {}
 7 | | }
   | |_^
@@ -14,13 +14,13 @@ error: batch-impl preview: 1 impl(s) generated
 
 error: batch-impl preview: 1 impl(s) generated
 
-       #[batch_impl((*Pair(*(self, Vec) *().2),))] trait Pairs {}
+       #[batch_impl((*Pair(*[self, Vec] *[].2),))] trait Pairs {}
        impl < P0, P1 > Pairs for
        (Pair < P0, Vec < P0 > > , Pair < P1, Vec < P1 > > ,) {}
   --> tests/ui/preview_pack.rs:9:1
    |
  9 | / batch_preview! {
-10 | |     #[batch_impl((*Pair (*(self, Vec) *().2),))]
+10 | |     #[batch_impl((*Pair (*[self, Vec] *[].2),))]
 11 | |     trait Pairs {}
 12 | | }
    | |_^

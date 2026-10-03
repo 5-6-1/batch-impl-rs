@@ -74,7 +74,7 @@ fn list_growth_guard_counts_mass_hidden_inside_a_pack() {
 #[test]
 fn errors_nested_in_splat_arguments_stop_the_public_pipeline() {
     let output = crate::entry::expand_attr_macro(
-        quote!(Wrapper<*(4 T,)>),
+        quote!(Wrapper<*[4 T,]>),
         syn::parse_quote!(
             trait Example {}
         ),

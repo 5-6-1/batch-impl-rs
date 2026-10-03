@@ -51,14 +51,14 @@ pub(super) fn split_decl(value: &Ty) -> (&TyTypeParam, &Ty) {
 
 #[test]
 fn star_opens_one_layer_and_is_idempotent() {
+    // A tuple is a type: starring it yields one member — the tuple itself.
     let nested = tuple(vec![tuple(vec![atom("A"), atom("B")]), choice(vec![atom("C"), atom("D")])]);
-    let opened = nested.star();
-    same(
-        &opened,
-        &pack(vec![tuple(vec![atom("A"), atom("B")]), choice(vec![atom("C"), atom("D")])]),
-    );
+    let opened = nested.clone().star();
+    same(&opened, &pack(vec![nested]));
     same(&opened.clone().star(), &opened);
     same(&atom("A").star(), &pack(vec![atom("A")]));
+    // A candidate list is opened, and a group stays transparent to the star.
+    same(&choice(vec![atom("A"), atom("B")]).star(), &pack(vec![atom("A"), atom("B")]));
     same(
         &TyGroup(choice(vec![atom("A"), atom("B")]).into()).to_ty().star(),
         &pack(vec![atom("A"), atom("B")]),
@@ -80,9 +80,9 @@ fn the_empty_list_stars_to_the_empty_pack_and_stays_empty_under_apply() {
 fn pack_serialization_retains_singleton_layers() {
     assert_eq!(
         pack(vec![pack(vec![atom("A"), atom("B")])]).to_token_stream().to_string(),
-        quote!(*(*(A, B,),)).to_string()
+        quote!(*[*[A, B,],]).to_string()
     );
-    assert_eq!(pack(vec![atom("A")]).to_token_stream().to_string(), quote!(*(A,)).to_string());
+    assert_eq!(pack(vec![atom("A")]).to_token_stream().to_string(), quote!(*[A,]).to_string());
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn star_keeps_unused_declarations_bounds_and_bindings() {
         params: vec![(atom("T").into(), Some(atom("Clone").into()))],
         bindings: vec![(atom("Item").into(), atom("u8").into())],
     };
-    let actual = TyWithType(params.clone(), tuple(vec![]).into()).to_ty().star();
+    let actual = TyWithType(params.clone(), choice(vec![]).into()).to_ty().star();
     same(&actual, &TyWithType(params, pack(vec![]).into()).to_ty());
 }
 

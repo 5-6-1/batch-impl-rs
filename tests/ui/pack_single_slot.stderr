@@ -1,7 +1,7 @@
 error: batch-impl: this type position requires exactly one type; the pack expands to 2 types
  --> tests/ui/pack_single_slot.rs:4:1
   |
-4 | #[batch_impl(&'static *(u8, u16))]
+4 | #[batch_impl(&'static *[u8, u16])]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -9,7 +9,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 0 types
  --> tests/ui/pack_single_slot.rs:7:1
   |
-7 | #[batch_impl(&'static *())]
+7 | #[batch_impl(&'static *[])]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -17,7 +17,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 2 types
   --> tests/ui/pack_single_slot.rs:10:1
    |
-10 | #[batch_impl(*mut *(u8, u16))]
+10 | #[batch_impl(*mut *[u8, u16])]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -25,7 +25,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 0 types
   --> tests/ui/pack_single_slot.rs:13:1
    |
-13 | #[batch_impl(*const *())]
+13 | #[batch_impl(*const *[])]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -33,7 +33,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 2 types
   --> tests/ui/pack_single_slot.rs:16:1
    |
-16 | #[batch_impl([*(u8, u16)])]
+16 | #[batch_impl([*[u8, u16]])]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -41,7 +41,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 0 types
   --> tests/ui/pack_single_slot.rs:19:1
    |
-19 | #[batch_impl([*()])]
+19 | #[batch_impl([*[]])]
    | ^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -49,7 +49,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 2 types
   --> tests/ui/pack_single_slot.rs:22:1
    |
-22 | #[batch_impl([*(u8, u16); 4])]
+22 | #[batch_impl([*[u8, u16]; 4])]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -57,7 +57,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 0 types
   --> tests/ui/pack_single_slot.rs:25:1
    |
-25 | #[batch_impl([*(); 4])]
+25 | #[batch_impl([*[]; 4])]
    | ^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -65,7 +65,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 2 types
   --> tests/ui/pack_single_slot.rs:28:1
    |
-28 | #[batch_impl(fn() -> *(u8, u16))]
+28 | #[batch_impl(fn() -> *[u8, u16])]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -73,7 +73,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: this type position requires exactly one type; the pack expands to 0 types
   --> tests/ui/pack_single_slot.rs:31:1
    |
-31 | #[batch_impl(fn() -> *())]
+31 | #[batch_impl(fn() -> *[])]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -81,7 +81,7 @@ error: batch-impl: this type position requires exactly one type; the pack expand
 error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type
   --> tests/ui/pack_single_slot.rs:34:1
    |
-34 | #[batch_impl(<*(Vec<u8>,)> u8)]
+34 | #[batch_impl(<*[Vec<u8>,]> u8)]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

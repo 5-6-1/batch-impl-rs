@@ -167,29 +167,29 @@ list the spec's generators produced:
 ```rust
 # use batch_impl::batch_impl;
 struct Wrap3<A, B, C>(A, B, C);
-#[batch_impl(Wrap3<*()3> where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*[]3> where @0..: Clone { fn m(&self) {} })]
 trait RangeAngle { fn m(&self); }
 // → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
 
 trait HasOut { type Out; }
-#[batch_impl(Wrap3<*()3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*[]3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
 // → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
 ```
 
 The fresh list a range indexes comes from the spec's generators
-(`*().N` / `().N`); a range in a spec with no fresh generics reports
+(`*[].N` / `().N`); a range in a spec with no fresh generics reports
 "out of range".
 
 **The impl-generic declaration position** works too: `<@0..>` declares
 every fresh the range covers as an impl param — so a spec can put the
-generator in the trait args (`GenConv<*().2>`) and reference the same fresh
+generator in the trait args (`GenConv<*[].2>`) and reference the same fresh
 batch in the declaration and the predicates:
 
 ```rust
 # use batch_impl::batch_impl;
 struct DeclTarget;
-#[batch_impl(<@0..> GenConv<*()2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(<@0..> GenConv<*[]2> DeclTarget where @0..: Clone { fn m(&self) {} })]
 trait GenConv<T, U> { fn m(&self); }
 // → impl<P0,P1> GenConv<P0,P1> for DeclTarget where P0: Clone, P1: Clone
 ```
@@ -199,14 +199,14 @@ parameters, like an empty `@1..` predicate.
 
 **Grouped ranges `@L_N..`** slice **within one generator group** — the
 in-group counterpart of `@g_i`, stable across array dispatch. With several
-generators in one spec (`<*().2>` → group 0, `<*().3>` → group 1),
+generators in one spec (`<*[].2>` → group 0, `<*[].3>` → group 1),
 `@1_0..` constrains only group 1's fresh:
 
 ```rust
 # use batch_impl::batch_impl;
 struct MultiTarget;
 #[batch_impl(
-    <@0..> <@1..> PairGen<*()2, *()3> MultiTarget where @1_0..: Clone
+    <@0..> <@1..> PairGen<*[]2, *[]3> MultiTarget where @1_0..: Clone
     { fn m(&self) {} }
 )]
 trait PairGen<A, B, C, D, E> { fn m(&self); }

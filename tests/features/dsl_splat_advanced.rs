@@ -17,7 +17,7 @@ struct Triple<A, B, C>(A, B, C);
 #[batch_impl((*(*[SplatD, SplatE]),))]
 trait SplatNested {}
 
-#[batch_impl([SplatA, *()])]
+#[batch_impl([SplatA, *[]])]
 trait SplatEmpty {}
 
 #[test]
@@ -29,10 +29,10 @@ fn splat_idempotent_and_empty() {
 }
 
 // trailing-comma splat; empty splat in the middle of a tuple
-#[batch_impl((*(SplatA,),))]
+#[batch_impl((*[SplatA,],))]
 trait SplatTrailingComma {}
 
-#[batch_impl((SplatA, *(), SplatB))]
+#[batch_impl((SplatA, *[], SplatB))]
 trait SplatMiddleEmpty {}
 
 #[test]
@@ -44,7 +44,7 @@ fn splat_trailing_comma_and_middle_empty() {
 }
 
 // The trailing comma selects a candidate list instead of a slice target.
-#[batch_impl([*(SplatA, SplatB),])]
+#[batch_impl([*[SplatA, SplatB],])]
 trait SplatLoneArray {}
 
 #[test]
@@ -54,12 +54,12 @@ fn splat_lone_array() {
     assert_t::<SplatB>();
 }
 
-// generic-arg splat: `Pair<*(A, B)>` → `Pair<A, B>` (one impl, multi-arg)
+// generic-arg splat: `Pair<*[A, B]>` → `Pair<A, B>` (one impl, multi-arg)
 // — distinct from `Pair<[A, B]>` which dispatches.
-#[batch_impl(Pair<*(SplatA, SplatB)>)]
+#[batch_impl(Pair<*[SplatA, SplatB]>)]
 trait SplatGenArgs {}
 
-#[batch_impl(Pair<*(SplatA, *(SplatB))>)]
+#[batch_impl(Pair<*[SplatA, *(SplatB)]>)]
 trait SplatGenArgsNested {}
 
 #[test]
@@ -75,16 +75,16 @@ fn splat_generic_args() {
 #[batch_impl(Pair.*[Vec, Box].u16)]
 trait SplatRule2 {}
 
-#[batch_impl(Pair.*(Vec<u8>, Box<u8>))]
+#[batch_impl(Pair.*[Vec<u8>, Box<u8>])]
 trait SplatRule1 {}
 
-#[batch_impl((SplatA, SplatB).*(SplatC, SplatD))]
+#[batch_impl((SplatA, SplatB).*[SplatC, SplatD])]
 trait SplatConcat2 {}
 
-#[batch_impl(Triple.*((SplatA, SplatB).SplatC))]
+#[batch_impl(Triple.*[SplatA, SplatB, SplatC])]
 trait SplatParenAppend {}
 
-#[batch_impl(*((SplatA, SplatB).SplatC))]
+#[batch_impl(*[SplatA, SplatB, SplatC])]
 trait SplatParenLeft {}
 
 #[batch_impl(*[Vec, Box].SplatC)]
@@ -98,7 +98,7 @@ fn splat_rules() {
     assert_r1::<Pair<Vec<u8>, Box<u8>>>();
     fn assert_c<T: SplatConcat2>() {}
     assert_c::<(SplatA, SplatB, SplatC, SplatD)>();
-    // Explicit grouping retains the old append targets before packing them.
+    // The list states the family: three members append into Triple's args.
     fn assert_pa<T: SplatParenAppend>() {}
     assert_pa::<Triple<SplatA, SplatB, SplatC>>();
     fn assert_pl<T: SplatParenLeft>() {}
@@ -110,42 +110,42 @@ fn splat_rules() {
     assert_bl::<Box<SplatC>>();
 }
 
-// `*(A,B).N` — pow Cartesian combos re-wrap into splats:
-// `*(A,B).2` = `[*(A,A), *(A,B), *(B,A), *(B,B)]`. Each combo is a
+// `*[A, B].N` — pow Cartesian combos re-wrap into splats:
+// `*[A, B].2` = `[*[A, A], *[A, B], *[B, A], *[B, B]]`. Each combo is a
 // param-position list — a right-splat chain flattens it into the container
-// (`A.*(A,B).2` = `A<A,A>`/`A<A,B>`/...; a lone target flattens to
-// duplicates, E0119 — use `(A,B).2` for tuple impls). `*().N` (empty
+// (`A.*[A, B].2` = `A<A,A>`/`A<A,B>`/...; a lone target flattens to
+// duplicates, E0119 — use `(A,B).2` for tuple impls). `*[].N` (empty
 // splat) keeps its splat shape so a carrier appends the fresh params into
-// it: `T.*().2` = `<A,B>T<A,B>` (bare `*().N` lone target → E0207).
-#[batch_impl(Pair.*(SplatA, SplatB).2)]
+// it: `T.*[].2` = `<A,B>T<A,B>` (bare `*[].N` lone target → E0207).
+#[batch_impl(Pair.*[SplatA, SplatB].2)]
 trait SplatTuplePow {}
 
-#[batch_impl(Pair.*().2)]
+#[batch_impl(Pair.*[].2)]
 trait SplatEmptyPowCarrier {}
 
 #[test]
 fn splat_pow() {
-    // `Pair.*(A,B).2` — the 4 Cartesian combos flatten into Pair's args.
+    // `Pair.*[A, B].2` — the 4 Cartesian combos flatten into Pair's args.
     fn assert_p<T: SplatTuplePow>() {}
     assert_p::<Pair<SplatA, SplatA>>();
     assert_p::<Pair<SplatA, SplatB>>();
     assert_p::<Pair<SplatB, SplatA>>();
     assert_p::<Pair<SplatB, SplatB>>();
-    // `Pair.*().2` emits `impl<P0, P1> SplatEmptyPowCarrier for
+    // `Pair.*[].2` emits `impl<P0, P1> SplatEmptyPowCarrier for
     // Pair<P0, P1>` — the carrier consumes the full fresh declaration.
     fn assert_c<T: SplatEmptyPowCarrier>() {}
     assert_c::<Pair<SplatA, SplatB>>();
 }
 
-// Splat expands ONE layer: tuples are types and stay intact — `*((a,b),)`
-// is one tuple impl, and `*(a,b,(c,d))` keeps `(c,d)` as a single element.
-#[batch_impl(*((SplatA, SplatB),))]
+// Splat expands ONE layer: tuples are types and stay intact — `*(a,b)`
+// is one tuple impl, and `*[a, b, (c,d)]` keeps `(c,d)` as a single element.
+#[batch_impl(*(SplatA, SplatB))]
 trait SplatTupleKeep {}
 
-#[batch_impl(*(SplatA, SplatB, (SplatC, SplatD)))]
+#[batch_impl(*[SplatA, SplatB, (SplatC, SplatD)])]
 trait SplatTupleKeepList {}
 
-#[batch_impl(*((SplatA, SplatB).(SplatC, SplatD)))]
+#[batch_impl(*[SplatA, SplatB, (SplatC, SplatD)])]
 trait SplatGroupRight {}
 
 // The repeat-list shorthand: `Pair.*(*@u*).2` = `Pair<@u*, @u*>` — one
@@ -161,8 +161,8 @@ fn splat_one_layer() {
     assert_kl::<SplatA>();
     assert_kl::<SplatB>();
     assert_kl::<(SplatC, SplatD)>();
-    // `.(c,d)` (group right) appends the tuple intact — same shape as
-    // writing `*(a,b,(c,d))` directly.
+    // The tuple element stays a single member — the same shape the list
+    // spells directly.
     fn assert_gr<T: SplatGroupRight>() {}
     assert_gr::<SplatA>();
     assert_gr::<SplatB>();
@@ -187,16 +187,16 @@ trait Two<A, B> {}
 struct Both;
 impl Two<u8, u16> for Both {}
 
-#[batch_impl(fn(u8, *(u16, u32)))]
+#[batch_impl(fn(u8, *[u16, u32]))]
 trait SplatFnParams {}
 
-#[batch_impl(<T: Fn(*(u8, u16)) -> u32> SplatCallable<T> Box<T>)]
+#[batch_impl(<T: Fn(*[u8, u16]) -> u32> SplatCallable<T> Box<T>)]
 trait SplatCallable<T> {}
 
-#[batch_impl(<T: Two<*(u8, u16)>> SplatInlineBound<T> u8)]
+#[batch_impl(<T: Two<*[u8, u16]>> SplatInlineBound<T> u8)]
 trait SplatInlineBound<T> {}
 
-#[batch_impl(<*(A, B)> SplatDecl<A, B> u8)]
+#[batch_impl(<*[A, B]> SplatDecl<A, B> u8)]
 trait SplatDecl<A, B> {}
 
 #[test]

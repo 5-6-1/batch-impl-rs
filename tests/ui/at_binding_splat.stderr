@@ -1,7 +1,7 @@
 error: batch-impl: this type position requires exactly one type; the pack expands to 2 types
  --> tests/ui/at_binding_splat.rs:5:1
   |
-5 | #[batch_impl(BadBindingSplat<Item=*(A,B)> usize)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+5 | #[batch_impl(BadBindingSplat<Item=*[A, B]> usize)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

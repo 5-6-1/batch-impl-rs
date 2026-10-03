@@ -8,13 +8,13 @@ struct Pair<T, U>(T, U);
 trait Same<T> {}
 impl<T> Same<T> for T {}
 
-#[batch_impl((*Map *().2 *().3,) where {
+#[batch_impl((*Map *[].2 *[].3,) where {
     @0_0: Same<u8>, @0_1: Same<u16>,
     @1_0: Same<u32>, @1_1: Same<u64>, @1_2: Same<u128>
 })]
 trait FlatGrid {}
 
-#[batch_impl((*((),) (*Map *().2 *().3),))]
+#[batch_impl((*() (*Map *[].2 *[].3),))]
 trait RowGrid {}
 
 #[test]
@@ -30,7 +30,7 @@ fn two_axes_share_five_parameters_in_right_outer_order() {
     )>();
 }
 
-#[batch_impl((*((),) (*Map *().1..=2 *().1..=3),))]
+#[batch_impl((*() (*Map *[].1..=2 *[].1..=3),))]
 trait RowFamily {}
 
 #[test]
@@ -48,13 +48,13 @@ fn row_shape_keeps_a_two_axis_length_family_coherent() {
     )>();
 }
 
-#[batch_impl(([*Vec, *Box] *().2,))]
+#[batch_impl(([*Vec, *Box] *[].2,))]
 trait UniformChoice {}
 
-#[batch_impl((*([Vec, Box],) *().2,))]
+#[batch_impl((*[[Vec, Box],] *[].2,))]
 trait LocalChoice {}
 
-#[batch_impl((*(Vec, Box) *().2,))]
+#[batch_impl((*[Vec, Box] *[].2,))]
 trait BothWrappers {}
 
 #[test]
@@ -71,10 +71,10 @@ fn choices_select_whole_constructors_or_each_copied_slot() {
     both::<(Vec<u8>, Box<u8>, Vec<u16>, Box<u16>)>();
 }
 
-#[batch_impl((*Vec [*(u8,), *(u16, u32)],))]
+#[batch_impl((*Vec [*[u8,], *[u16, u32]],))]
 trait BranchPacks {}
 
-#[batch_impl((*Vec *(().1..=2),))]
+#[batch_impl((*Vec *[].1..=2,))]
 trait CollectedFamily {}
 
 #[test]
@@ -86,7 +86,7 @@ fn choice_families_and_explicit_collection_have_different_shapes() {
     collected::<(Vec<(u8,)>, Vec<(u16, u32)>)>();
 }
 
-#[batch_impl(Pair.*(self, Vec).().2)]
+#[batch_impl(Pair.*[self, Vec].().2)]
 trait WholeTuple {}
 
 #[test]
@@ -95,16 +95,16 @@ fn an_unpacked_tuple_is_one_complete_input_row() {
     accepts::<Pair<(u8, u16), Vec<(u8, u16)>>>();
 }
 
-#[batch_impl((*(u8, u16),).2)]
+#[batch_impl((*[u8, u16],).2)]
 trait TupleCopiesPackSlot {}
 
-#[batch_impl((*(),).2)]
+#[batch_impl((*[],).2)]
 trait TupleCopiesEmptySlot {}
 
-#[batch_impl((*(*(),).2,))]
+#[batch_impl((*[*[],].2,))]
 trait PackConsumesEmptySlot {}
 
-#[batch_impl((*(().2),).0)]
+#[batch_impl((*[].2,).0)]
 trait ZeroCopiesDiscardSlot {}
 
 #[batch_impl(([u8, u16],).2)]
@@ -131,10 +131,10 @@ struct First<A, B>(A, B);
 struct Second<A, B>(A, B);
 struct Third<A, B>(A, B);
 
-#[batch_impl(*([*First, *Second],) *( *(u8, u16),))]
+#[batch_impl(*[[*First, *Second],] *[*[u8, u16],])]
 trait ChoiceInMapTask {}
 
-#[batch_impl(*([*(First, Second), *Third],) *( *(u8, u16),))]
+#[batch_impl(*[[*[First, Second], *Third],] *[*[u8, u16],])]
 trait NestedChoiceInMapTask {}
 
 #[test]
@@ -148,10 +148,10 @@ fn a_left_choice_does_not_split_a_complete_pack_row_again() {
     nested::<Third<u8, u16>>();
 }
 
-#[batch_impl((*(self, Vec) ([u8, u16],),))]
+#[batch_impl((*[self, Vec] ([u8, u16],),))]
 trait HiddenChoice {}
 
-#[batch_impl((*(self, Vec) [(u8,), (u16,)],))]
+#[batch_impl((*[self, Vec] [(u8,), (u16,)],))]
 trait ExposedChoice {}
 
 #[test]

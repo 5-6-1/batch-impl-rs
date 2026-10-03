@@ -113,7 +113,7 @@ impl Ty {
                 // (Cartesian across multiple arrays). This is the single
                 // authority for array-arg distribution: literal `[A,B]`, the
                 // `[u8,...]` from a `@u*` constant, and the `TyArray` produced
-                // by splat powers (`*(*@u*).2` → `[*(u8,u8), ...]`) all reach
+                // by splat powers (`*(*@u*).2` → `[*[u8, u8], ...]`) all reach
                 // params as a `TyArray` and distribute here.
                 if g.1.params.iter().any(|(n, _)| matches!(n.kind, TyKind::Array(_))) {
                     let dims =

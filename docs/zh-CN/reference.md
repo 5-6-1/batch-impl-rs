@@ -100,7 +100,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | `;` | 分隔 `batch_trait!` 的 trait 段或 impl 入口的 spec（§1.1）；也分隔数组的元素类型与长度（`[T; N]`） |
 | `,` | 分隔 trait 入口的 spec，包括 `batch_trait!` 每个段内的 spec（§1.1），以及列表、元组、实参与指令参数的元素 |
 | `-name` | 排除项，仅指令参数列表（§6.2） |
-| `.N` / `()N` | 幂：`T.*().2` 把生成的参数拼进去，`T<()2>` 把它们保持为一个元组实参。`^` **不是**算子——`(u8, u16)^2` 得到的是退休算子消息（§3.4、§10.1） |
+| `.N` / `()N` | 幂：`T.*[].2` 把生成的参数拼进去，`T<()2>` 把它们保持为一个元组实参。`^` **不是**算子——`(u8, u16)^2` 得到的是退休算子消息（§3.4、§10.1） |
 
 ## 2. 位置 × 构造
 
@@ -150,7 +150,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 幂写作 `.N`，跟在被重复的那个值后面：`T.N` 把元组或生成器展开成 `N` 个位置的笛卡尔积——`(u8, u16).2` 是 `{u8, u16}` 上的全部有序对，即 4 个 impl；`Frac.*(*@u*).2` 把 `@u*` 列表喂进两个泛型位，得到 36 个（`examples/typeclass.rs` 就是这个拼写；实参形式 `Frac<*(*@u*).2>` 给出同样的 36 个）。单 spec 的 1024 impl 上限（§12）就是用来报出打错的指数的。
 
-`*().N` 生成含 N 个 fresh 参数的包，由实参或元组等宿主拼入成员：`T.*().2` 声明两个 fresh 并用在目标里（`impl<P0, P1> … for T<P0, P1>`）。
+`*[].N` 生成含 N 个 fresh 参数的包，由实参或元组等宿主拼入成员：`T.*[].2` 声明两个 fresh 并用在目标里（`impl<P0, P1> … for T<P0, P1>`）。
 
 **`^` 不是算子**：`(u8, u16)^2`、`Box^*()^2`、`Box<()^2>` 一律被拒，报的是 §10.1 逐字引用的退休算子消息（`caret_power_retired`）——span 落在这个 `^` 上，并给出可用的 `.N` 拼写。**bound 位置**的 `^`（`<T: Tr^u8>`）报同一条消息。更早的文档用 `^` 写幂，请写 `.N`。
 
@@ -276,7 +276,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 包的幂则先拼平嵌套包与透明分组，携带声明，但保留普通元组和候选，
 再使用普通幂规则；每个分支生成的元组重新成为包。
 
-`*().N` 生成 `N` 个独立参数，`.0` 不分配参数。
+`*[].N` 生成 `N` 个独立参数，`.0` 不分配参数。
 复制已生成参数保留身份；执行不同生成器创建不同参数组。
 因此 `(*(),).2` 是无声明的单元元组，
 `*(*(),).2` 却会生成两个参数。
@@ -524,7 +524,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 |---|---|
 | 漏 `:`——`where{ A B }` | "a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out"（`where_not_a_predicate`） |
 | 谓词里的 splat——`(*(A,B)): Trait`、`X: Trait<*(A,B)>` | 同一条消息：没有任何阶段展开谓词里的 splat，所以由终检报出 |
-| 裸 splat 主体——`where{*(A,B): Trait}` | "a splat cannot be a where-predicate subject (`*(A,B): Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`)"（`where_splat_bad`） |
+| 裸 splat 主体——`where{*[A, B]: Trait}` | "a splat cannot be a where-predicate subject (`*[A, B]: Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`)"（`where_splat_bad`） |
 | 空排他区间——`where{@2..2: Clone}` | "empty exclusive range `@2..2` (start not below end)"（`where_empty_exclusive_range`） |
 
 ### 7.5 边界情形
@@ -723,11 +723,11 @@ impl<const N: usize> Width for Bytes<N> {
 | `leading_operator` | `.A`，以及前导 `-`（`-usize`、`Vec<u8>, -u16`） | batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`) | DSL |
 | `num_as_left_operand` | `0.T` | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
 | `literal_and_range` | `1.5` / `1..x` | batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types | DSL |
-| `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*().2`) | DSL |
+| `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*[].2`) | DSL |
 | `semi_in_spec` | 类型后多写 `;` | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
-| `caret_power_retired` | `(u8, u16)^2`、`<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator) | DSL |
-| `star_misuse` | 裸 `*` | batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); raw pointers use `*const T` or `*mut T` | DSL |
+| `caret_power_retired` | `(u8, u16)^2`、`<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*[].2` for a generator) | DSL |
+| `star_misuse` | 裸 `*` | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
 | `pack_single_slot` | 单类型槽收到零个或多个类型；`<*(Vec<u8>,)>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
 | `pack_flat_overlap` | `(*Map *().1..=2 *().1..=3,)` 的扁平类型族重叠 | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
 | `pack_unused_axis` | `(*Map *().2 *().0,)` 保留未受约束的第一轴参数 | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
@@ -873,7 +873,7 @@ impl<const N: usize> Width for Bytes<N> {
 | --- | --- | --- | --- |
 | `where_missing_body` | 输入在裸 `where` 后立即结束，没有谓词 | batch-impl: `where` predicates are missing a code block {...} | DSL |
 | `where_not_a_predicate` | `where{ A B }` | batch-impl: a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out | DSL |
-| `where_splat_bad` | `where{*(A,B): Clone}` | batch-impl: a splat cannot be a where-predicate subject (`*(A,B): Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`) | DSL |
+| `where_splat_bad` | `where{*[A, B]: Clone}` | batch-impl: a splat cannot be a where-predicate subject (`*[A, B]: Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`) | DSL |
 | `where_empty_exclusive_range` | `where{@2..2: Clone}` | batch-impl: empty exclusive range `@2..2` (start not below end) | DSL |
 
 ### 10.9 预览通道
@@ -925,7 +925,7 @@ impl<const N: usize> Width for Bytes<N> {
 
 ### 11.4 splat × 其它
 
-- splat 的元素可以是 `@` 常量（11.2），也可以是生成器（`*().N`）；
+- splat 的元素可以是 `@` 常量（11.2），也可以是生成器（`*[].N`）；
 - `impl{...}` 模板里的 splat 是 DSL 算子，而模板必须是标准 Rust 类型——被拒（§8.1）；
 - **body** 里的 splat 完全不被解释（`a * b` 仍是乘法）；
 - 同一个 splat 在声明块里意为"声明"，在实参表里意为"实参"：构造只有一个，由消费者决定（§2）。
@@ -993,7 +993,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 
 ### 13.3 fresh 泛型：命名、编号、冲突
 
-- 需要生成参数的构造（`().N`、`*().N`、`@0..` 声明）在 Ty 里**携带 fresh 声明**直到 codegen 改名；任何内部载体都不会出现在输出里。
+- 需要生成参数的构造（`().N`、`*[].N`、`@0..` 声明）在 Ty 里**携带 fresh 声明**直到 codegen 改名；任何内部载体都不会出现在输出里。
 - **显示名**是 `P0`、`P1`……按**文档序**——与 `@N` 用的是同一套编号。
 - **冲突集**是 impl 已经写下的每一个 ident：spec 的参数、它们的内联 bound、目标类型、trait 实参、继承与手写的 where 谓词、body、属性、关联类型。模板占位符被**排除**（形状映射会把它们改写掉，计入会让可见编号漂移）。
 - `@g_i` 用 `(组, 槽)` 寻址——跨数组分发保持稳定；`@N` 是文档序摊平形式；`@N..` 是开区间，越过末尾即为空。
@@ -1029,7 +1029,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 
 **为什么两 fresh 的 impl 上 `where{@5..: Clone}` 不报错？** 越过末尾的开区间什么都不贡献——依赖元数的 spec 不该因为短的那个 fresh 少就失败。
 
-**为什么 `<>` 块里的 fresh 生成器报错？** 那个块**就是** impl 的参数表，其 fresh 会被声明却永不被使用（E0392）。把生成器写在类型上：`T.*().2` 把生成的参数拼进去，`T<()2>` 把它们保持为一个元组实参（两者都实测过）——而那里的普通 splat 是合法的（`<*(A,B)>` → `<A, B>`）。
+**为什么 `<>` 块里的 fresh 生成器报错？** 那个块**就是** impl 的参数表，其 fresh 会被声明却永不被使用（E0392）。把生成器写在类型上：`T.*[].2` 把生成的参数拼进去，`T<()2>` 把它们保持为一个元组实参（两者都实测过）——而那里的普通 splat 是合法的（`<*(A,B)>` → `<A, B>`）。
 
 **为什么 impl 入口的空 spec 列表会原样重发那个块？** 入口是**派生**（每段 spec 派生 0..N 个 impl），所以空列表就是恒等：你写的那个块原样回来。
 

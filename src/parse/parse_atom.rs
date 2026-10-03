@@ -51,7 +51,7 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, ctx: Ctx<'_>) -> Ty {
         delimiter![()] => {
             // Empty or comma-separated parentheses construct a tuple. A
             // comma-less group is transparent even when it contains a pack:
-            // `(*(A,B))` is a pack, while `(*(A,B),)` consumes it into a tuple.
+            // `(*[A, B])` is a pack, while `(*[A, B],)` consumes it into a tuple.
             if contents.is_empty() || contains_punct(&contents, ',') {
                 TyTuple(parse_list(&contents, Op::Comma, ctx.plain()))
                     .to_ty()
@@ -110,7 +110,7 @@ fn is_range_fresh(ty: &Ty) -> bool {
 /// (`TyArray([])`), which starred is the empty pack (`*[]`) and sized is the
 /// generator (`*[].N`); otherwise a slice/array type via the `;` separator
 /// (`[T]` slice / `[T; N]` fixed length). Packs do not change the host
-/// grammar: `[*(A,B)]` has a single slice-element slot; `[*(A,B),]` is a
+/// grammar: `[*[A, B]]` has a single slice-element slot; `[*[A, B],]` is a
 /// candidate list.
 fn parse_array_group(contents: &[TokenTree], span: proc_macro2::Span, ctx: Ctx<'_>) -> Ty {
     if contains_punct(contents, ',') {

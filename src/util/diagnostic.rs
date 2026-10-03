@@ -14,7 +14,7 @@ use quote::quote;
 /// splat group, a `dyn` tail) and the `where`-predicate check (the clause is
 /// token-level to the output, so the predicate parser is the first thing to see
 /// it). One wording, so the two routes cannot drift apart.
-pub(crate) const RETIRED_CARET: &str = "batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*().2` for a generator)";
+pub(crate) const RETIRED_CARET: &str = "batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*[].2` for a generator)";
 
 /// The retired `-` operator's diagnostic. Three routes meet the spelling: a `-`
 /// **inside** a chain (`Box - u8`, the chain boundary helper), a `-` inside an

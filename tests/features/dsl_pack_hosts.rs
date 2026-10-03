@@ -5,13 +5,13 @@ use batch_impl::batch_impl;
 struct Quad<A, B, C, D>(A, B, C, D);
 struct Pair<A, B>(A, B);
 
-#[batch_impl(Quad<*(u8, u16), *(u32, u64)>)]
+#[batch_impl(Quad<*[u8, u16], *[u32, u64]>)]
 trait DirectArguments {}
 
-#[batch_impl(Pair *((u8, u16), (u32, u64)))]
+#[batch_impl(Pair *[(u8, u16), (u32, u64)])]
 trait TupleArguments {}
 
-#[batch_impl(Pair<*(*Vec *(u8, u16))>)]
+#[batch_impl(Pair<*(*Vec *[u8, u16])>)]
 trait MappedArguments {}
 
 #[test]
@@ -24,7 +24,7 @@ fn direct_generic_arguments_are_collected_without_reapplication() {
     mapped::<Pair<Vec<u8>, Vec<u16>>>();
 }
 
-#[batch_impl(TraitArguments<*(u8, u16)> u32 #sum { u32::from(a) + u32::from(b) })]
+#[batch_impl(TraitArguments<*[u8, u16]> u32 #sum { u32::from(a) + u32::from(b) })]
 trait TraitArguments<A, B> {
     fn sum(a: A, b: B) -> u32;
 }
@@ -40,7 +40,7 @@ impl Two<u8, u16> for Adder {
     }
 }
 
-#[batch_impl(<T: Two<*(u8, u16)>> Box<T> #sum { self.combine(3, 5) })]
+#[batch_impl(<T: Two<*[u8, u16]>> Box<T> #sum { self.combine(3, 5) })]
 trait InlineBound {
     fn sum(&self) -> u32;
 }
@@ -51,17 +51,17 @@ fn trait_arguments_and_inline_bounds_consume_the_same_pack() {
     assert_eq!(InlineBound::sum(&Box::new(Adder)), 8);
 }
 
-#[batch_impl(fn(*(u8, u16)) -> *(u32,) #invoke { self(3, 5) })]
+#[batch_impl(fn(*[u8, u16]) -> *[u32,] #invoke { self(3, 5) })]
 trait FunctionSlots {
     fn invoke(&self) -> u32;
 }
 
-#[batch_impl(fn(*()) -> u8 #invoke_empty { self() })]
+#[batch_impl(fn(*[]) -> u8 #invoke_empty { self() })]
 trait EmptyFunctionSlots {
     fn invoke_empty(&self) -> u8;
 }
 
-#[batch_impl(<F: Fn(*(u8, u16)) -> *(u32,)> Box<F> #invoke_box { self(3, 5) })]
+#[batch_impl(<F: Fn(*[u8, u16]) -> *[u32,]> Box<F> #invoke_box { self(3, 5) })]
 trait CallableSlots {
     fn invoke_box(&self) -> u32;
 }
@@ -79,19 +79,19 @@ fn callable_parameters_and_single_return_slots_support_actual_calls() {
     assert_eq!(Box::new(add).invoke_box(), 8);
 }
 
-#[batch_impl(&'static *(u8,))]
+#[batch_impl(&'static *[u8,])]
 trait ReferenceSlot {}
 
-#[batch_impl(*const *(u8,))]
+#[batch_impl(*const *[u8,])]
 trait ConstPointerSlot {}
 
 #[batch_impl(*mut *u8)]
 trait MutPointerSlot {}
 
-#[batch_impl([*(u8,)])]
+#[batch_impl([*[u8,]])]
 trait SliceSlot {}
 
-#[batch_impl([*(u8,); 4])]
+#[batch_impl([*[u8,]; 4])]
 trait ArraySlot {}
 
 #[test]
@@ -108,10 +108,10 @@ fn single_slot_hosts_accept_one_materialized_type() {
     array::<[u8; 4]>();
 }
 
-#[batch_impl(&'static *([u8, u16],))]
+#[batch_impl(&'static *[[u8, u16],])]
 trait BranchReferenceSlot {}
 
-#[batch_impl(fn() -> *([u8, u16],))]
+#[batch_impl(fn() -> *[[u8, u16],])]
 trait BranchReturnSlot {}
 
 #[test]
@@ -124,7 +124,7 @@ fn single_slot_cardinality_is_checked_per_candidate_branch() {
     returned::<fn() -> u16>();
 }
 
-#[batch_impl(unsafe extern "C" fn(*(u8, u16)) -> *u32
+#[batch_impl(unsafe extern "C" fn(*[u8, u16]) -> *u32
     #invoke_abi { unsafe { self(a, b) } }
 )]
 trait UnsafeAbiSlots {

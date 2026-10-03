@@ -93,11 +93,12 @@ impl ToTokens for Ty {
                 quote!((#(#elems,)*))
             }
             // DSL serialization only: the trailing comma preserves a singleton
-            // pack's layer (`*(*(A,B),)` must not become `*(*(A,B))`). Rust
+            // pack's layer (`*[*[A, B],]` must not become `*[*[A, B]]`), and a
+            // bracket list re-parses as a list, never as a slice. Rust
             // generation must materialize packs before reaching this renderer.
             TyKind::Pack(p) => {
                 let elems = &p.0;
-                quote!(*(#(#elems,)*))
+                quote!(*[#(#elems,)*])
             }
             TyKind::Group(g) => {
                 let inner = g.0.to_token_stream();

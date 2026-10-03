@@ -33,7 +33,7 @@ fn impls(tokens: TokenStream) -> Vec<syn::ItemImpl> {
 #[test]
 fn lifted_declarations_preserve_attributes_and_where_scope_per_range_branch() {
     let out = trait_output(quote!(
-        #[allow(dead_code)] <'a> &'a (*Vec *().1..=2,) where { @0..: Clone }
+        #[allow(dead_code)] <'a> &'a (*Vec *[].1..=2,) where { @0..: Clone }
     ));
     let items = impls(out);
     assert_eq!(items.len(), 2);
@@ -49,7 +49,7 @@ fn lifted_declarations_preserve_attributes_and_where_scope_per_range_branch() {
 
 #[test]
 fn copying_generated_slots_reuses_one_generic_after_the_full_pipeline() {
-    let items = impls(trait_output(quote!((*(().1),).2)));
+    let items = impls(trait_output(quote!((*[].1,).2)));
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].generics.params.len(), 1);
     let syn::Type::Tuple(tuple) = items[0].self_ty.as_ref() else { panic!("expected tuple") };
@@ -62,23 +62,23 @@ fn copying_generated_slots_reuses_one_generic_after_the_full_pipeline() {
 
 #[test]
 fn named_abi_function_parameters_keep_their_single_slot_boundary() {
-    let items = impls(trait_output(quote!(extern "C" fn(value: *(u8,)) -> *(u16,))));
+    let items = impls(trait_output(quote!(extern "C" fn(value: *[u8,]) -> *[u16,])));
     assert_eq!(items.len(), 1);
     let syn::Type::FnPtr(function) = items[0].self_ty.as_ref() else { panic!("expected fn") };
     assert_eq!(function.abi.as_ref().unwrap().name.as_ref().unwrap().value(), "C");
     assert_eq!(function.inputs[0].name.as_ref().unwrap().0.to_string(), "value");
-    let out = trait_output(quote!(extern "C" fn(value: *(u8,u16))));
+    let out = trait_output(quote!(extern "C" fn(value: *[u8, u16])));
     assert!(out.to_string().contains("requires exactly one type"), "{out}");
 }
 
 #[test]
 fn public_empty_collections_and_an_explicit_empty_row_differ() {
-    assert!(impls(trait_output(quote!([*(),]))).is_empty());
-    assert!(impls(trait_output(quote!(*F * ()))).is_empty());
-    let tuple = impls(trait_output(quote!((*(),))));
+    assert!(impls(trait_output(quote!([*[],]))).is_empty());
+    assert!(impls(trait_output(quote!(*F * []))).is_empty());
+    let tuple = impls(trait_output(quote!((*[],))));
     assert_eq!(tuple.len(), 1);
     assert_eq!(tuple[0].self_ty.to_token_stream().to_string(), "()");
-    let row = impls(trait_output(quote!(*F * (*(),))));
+    let row = impls(trait_output(quote!(*F * [*[],])));
     assert_eq!(row.len(), 1);
     assert_eq!(row[0].self_ty.to_token_stream().to_string(), "F");
 }
@@ -86,7 +86,7 @@ fn public_empty_collections_and_an_explicit_empty_row_differ() {
 #[test]
 fn the_spec_limit_counts_pack_targets_from_every_top_level_candidate() {
     let members = vec![quote!(u8); 64];
-    let one_pack = quote!(*(#(#members,)*));
+    let one_pack = quote!(*[#(#members,)*]);
     let packs = vec![one_pack.clone(); 16];
     assert_eq!(impls(trait_output(quote!([#(#packs),*]))).len(), 1024);
     let packs = vec![one_pack; 17];
@@ -98,7 +98,7 @@ fn the_spec_limit_counts_pack_targets_from_every_top_level_candidate() {
 #[test]
 fn impl_leaf_predicates_cannot_be_shadowed_by_lifted_fresh_parameters() {
     let out = expand_impl_entry(
-        quote!(@Self: ((*Vec *().1,) where { u8: Bound<P0> })),
+        quote!(@Self: ((*Vec *[].1,) where { u8: Bound<P0> })),
         syn::parse_quote!(impl Marker for Prototype {}),
     )
     .unwrap();
@@ -113,7 +113,7 @@ fn impl_leaf_predicates_cannot_be_shadowed_by_lifted_fresh_parameters() {
 
 #[test]
 fn impl_generator_bounds_are_retained_and_participate_in_fresh_naming() {
-    for spec in [quote!(@Self: (*Vec *(<Bound<P0>>,).2,)), quote!((*Vec *(<Bound<P0>>,).2,))] {
+    for spec in [quote!(@Self: (*Vec *[<Bound<P0>>,].2,)), quote!((*Vec *[<Bound<P0>>,].2,))] {
         let out = expand_impl_entry(spec, syn::parse_quote!(impl Marker for Prototype {})).unwrap();
         let items = impls(out);
         assert_eq!(items.len(), 1);
@@ -129,7 +129,7 @@ fn impl_generator_bounds_are_retained_and_participate_in_fresh_naming() {
 
 #[test]
 fn impl_generator_bounds_resolve_references_against_the_same_fresh_context() {
-    for spec in [quote!(@Self: (*Vec *(<Bound<@0>>,).1,)), quote!((*Vec *(<Bound<@0>>,).1,))] {
+    for spec in [quote!(@Self: (*Vec *[<Bound<@0>>,].1,)), quote!((*Vec *[<Bound<@0>>,].1,))] {
         let out = expand_impl_entry(spec, syn::parse_quote!(impl Marker for Prototype {})).unwrap();
         let items = impls(out);
         let predicates = &items[0].generics.where_clause.as_ref().unwrap().predicates;
@@ -141,16 +141,19 @@ fn impl_generator_bounds_resolve_references_against_the_same_fresh_context() {
 #[test]
 fn reference_and_bound_modifiers_do_not_restart_pack_pairing() {
     let cases: [(TokenStream, syn::Type); 6] = [
-        (quote!((*(&*Pair,) * (*(u8, u16),),)), syn::parse_quote!((&Pair<u8, u16>,))),
-        (quote!((*(&'static *Pair,) *(*(u8,u16),),)), syn::parse_quote!((&'static Pair<u8, u16>,))),
-        (quote!((*(&mut *Pair,) * (*(u8, u16),),)), syn::parse_quote!((&mut Pair<u8, u16>,))),
-        (quote!((*(*const *Pair,) *(*(u8,u16),),)), syn::parse_quote!((*const Pair<u8, u16>,))),
+        (quote!((*[&*Pair,] * [*[u8, u16],],)), syn::parse_quote!((&Pair<u8, u16>,))),
         (
-            quote!((*(dyn *Pair + Send,) *(*(u8,u16),),)),
+            quote!((*[&'static *Pair,] *[*[u8, u16],],)),
+            syn::parse_quote!((&'static Pair<u8, u16>,)),
+        ),
+        (quote!((*[&mut *Pair,] * [*[u8, u16],],)), syn::parse_quote!((&mut Pair<u8, u16>,))),
+        (quote!((*[*const *Pair,] *[*[u8, u16],],)), syn::parse_quote!((*const Pair<u8, u16>,))),
+        (
+            quote!((*[dyn *Pair + Send,] *[*[u8, u16],],)),
             syn::parse_quote!((dyn Pair<u8, u16> + Send,)),
         ),
         (
-            quote!((*(dyn for<'a> *Pair + Send,) *(*(u8,u16),),)),
+            quote!((*[dyn for<'a> *Pair + Send,] *[*[u8, u16],],)),
             syn::parse_quote!((dyn for<'a> Pair<u8, u16> + Send,)),
         ),
     ];

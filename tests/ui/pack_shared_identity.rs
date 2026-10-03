@@ -3,10 +3,10 @@ use batch_impl::{batch_impl, batch_impl_only};
 
 struct Pair<T, U>(T, U);
 
-#[batch_impl((*Pair (*(self, Vec) *().1),))]
+#[batch_impl((*Pair (*[self, Vec] *[].1),))]
 trait SamePosition {}
 
-#[batch_impl(([*Vec, *Box] *().2,))]
+#[batch_impl(([*Vec, *Box] *[].2,))]
 trait UniformChoice {}
 
 fn same<T: SamePosition>() {}
@@ -19,7 +19,7 @@ macro_rules! relay {
     };
 }
 
-#[batch_impl((*Pair (*(self, Vec) *().1..=2),) where { @0..: Clone } #relay() {})]
+#[batch_impl((*Pair (*[self, Vec] *[].1..=2),) where { @0..: Clone } #relay() {})]
 trait ThroughExtension {}
 
 struct NotClone;

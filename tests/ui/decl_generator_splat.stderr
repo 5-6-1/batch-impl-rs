@@ -1,7 +1,7 @@
-error: batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*().2`)
+error: batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*[].2`)
  --> tests/ui/decl_generator_splat.rs:8:1
   |
-8 | #[batch_impl(<*().3> Vec<u8>)]
+8 | #[batch_impl(<*[].3> Vec<u8>)]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -543,7 +543,7 @@ direct members of a tuple or choice list; any other type becomes a one-member
 pack. A pack does not remember whether it came from `()` or `[]`.
 
 Three steps cover the common cases: **open members, apply a rule, place the
-result**. `(*Vec *().3,)` opens three fresh parameters, wraps each in `Vec`,
+result**. `(*Vec *[].3,)` opens three fresh parameters, wraps each in `Vec`,
 then places the results in one tuple.
 
 ### 4.1 In-list / in-tuple splicing
@@ -557,10 +557,10 @@ use batch_impl::batch_impl;
 #[batch_impl([u8, *[u16, u32]])]
 trait Each {}
 
-#[batch_impl((u8, *(u16, u32)))]
+#[batch_impl((u8, *[u16, u32]))]
 trait Together {}
 
-#[batch_impl(*((u8, u16),))]
+#[batch_impl(*(u8, u16))]
 trait OneTuple {}
 
 fn main() {
@@ -575,10 +575,10 @@ fn main() {
 
 ### 4.2 Left operand: apply one rule to each member
 
-A left pack maps its members over the right operand. `*(Vec, Box) u8`
-and `*[Vec, Box] u8` both produce `Vec<u8>` and `Box<u8>`.
+A left pack maps its members over the right operand. `*[Vec, Box] u8`
+produces `Vec<u8>` and `Box<u8>`.
 An ordinary left type keeps the right pack as one argument slot:
-`Pair *(u8, u16)` becomes `Pair<u8, u16>` when that slot is consumed.
+`Pair *[u8, u16]` becomes `Pair<u8, u16>` when that slot is consumed.
 
 When both operands are packs, each **direct right member is one row**.
 All left members receive that whole row. Right rows are outermost; left
@@ -590,13 +590,13 @@ use batch_impl::batch_impl;
 
 struct Pair<A, B>(A, B);
 
-#[batch_impl((*Vec *().1..=3,))]
+#[batch_impl((*Vec *[].1..=3,))]
 trait Wrapped {}
 
-#[batch_impl((*Pair (*(self, Vec) *().1..=3),))]
+#[batch_impl((*Pair (*[self, Vec] *[].1..=3),))]
 trait Paired {}
 
-#[batch_impl((*((),) (*(self, Vec) *().3),))]
+#[batch_impl((*() (*[self, Vec] *[].3),))]
 trait Rows {}
 
 fn main() {
@@ -609,13 +609,13 @@ fn main() {
 }
 ```
 
-`self` returns its whole argument. Thus `*(self, Vec)` builds the two
+`self` returns its whole argument. Thus `*[self, Vec]` builds the two
 members `T, Vec<T>` for each independently generated `T`. `*Pair`
-consumes each such row as generic arguments; `*((),)` consumes each row
+consumes each such row as generic arguments; `*()` consumes each row
 as tuple elements. This is the same mapping rule in both examples.
 
-Space remains left-associative. Use `(*Vec (*Box *().2),)` for
-`(Vec<Box<T0>>, Vec<Box<T1>>)`; `*Vec *Box *().2` first builds
+Space remains left-associative. Use `(*Vec (*Box *[].2),)` for
+`(Vec<Box<T0>>, Vec<Box<T1>>)`; `*Vec *Box *[].2` first builds
 `Vec<Box>`, then appends another argument.
 
 ### 4.3 Generic args and trait paths
@@ -629,10 +629,10 @@ use batch_impl::batch_impl;
 
 struct Pair<A, B>(A, B);
 
-#[batch_impl(Pair<*(u8, u16)>)]
+#[batch_impl(Pair<*[u8, u16]>)]
 trait Concrete {}
 
-#[batch_impl(Convert<*(u8, u16)> Pair<u8, u16>)]
+#[batch_impl(Convert<*[u8, u16]> Pair<u8, u16>)]
 trait Convert<A, B> {}
 
 #[batch_impl(Pair<*[u8, u16].2>)]
@@ -651,14 +651,14 @@ fn main() {
 
 The last expression selects a two-position Cartesian product, then fills
 two generic argument slots. An ordinary choice remains a branch:
-`Pair<*(u8, [u16, u32])>` gives two impls, not three arguments.
+`Pair<*[u8, [u16, u32]]>` gives two impls, not three arguments.
 
 ### 4.4 Container rule
 
 Parentheses do not inspect the type inside them: `(X)` is a group,
 `(X,)` is a tuple. Likewise `[X]` is a slice and `[X,]` is a choice
-list. Consequently `(*(u8, u16))` is a grouped pack (two target impls),
-while `(*(u8, u16),)` is one tuple. `[*(u8, u16)]` is invalid: a
+list. Consequently `(*[u8, u16])` is a grouped pack (two target impls),
+while `(*[u8, u16],)` is one tuple. `[*[u8, u16]]` is invalid: a
 slice has exactly one element-type slot.
 
 Nested prefixes are idempotent: `*(*X)` is `*X`. There is no separate
@@ -667,12 +667,12 @@ generic host, as in §4.2.
 
 ### 4.5 Generators and dimensions
 
-`*().N` generates a pack of `N` independent parameters. Copying a
+`*[].N` generates a pack of `N` independent parameters. Copying a
 generated member preserves its identity; executing another generator
-creates another group. `*().0` creates no parameters.
+creates another group. `*[].0` creates no parameters.
 
 Ordinary tuple powers still repeat their **direct slots**:
-`([u8, u16],).2` has four combinations, and `(*(u8, u16),).2`
+`([u8, u16],).2` has four combinations, and `(*[u8, u16],).2`
 materializes as `(u8, u16, u8, u16)`. Pack powers first splice nested
 packs, then use the resulting members as their choices.
 
@@ -684,7 +684,7 @@ use batch_impl::batch_impl;
 
 struct Map<T, U>(T, U);
 
-#[batch_impl((*((),) (*Map *().1..=2 *().1..=3),))]
+#[batch_impl((*() (*Map *[].1..=2 *[].1..=3),))]
 trait Grid {}
 
 fn main() {
@@ -697,7 +697,7 @@ fn main() {
 }
 ```
 
-There are six shapes. A fixed `(*Map *().2 *().3,)` instead splices
+There are six shapes. A fixed `(*Map *[].2 *[].3,)` instead splices
 the six members into one flat tuple and shares five parameters.
 Flattening *ranges* of both dimensions can generate overlapping impls:
 the `1 × 2` and `2 × 1` patterns can describe the same Rust type.
@@ -713,9 +713,9 @@ function returns, individual bounds and associated-type binding values
 require exactly one type **in each branch**. Empty or multi-member packs
 there produce a targeted error.
 
-Declaration blocks splice names (`<*(A, B)>`); a fresh generator cannot
+Declaration blocks splice names (`<*[A, B]>`); a fresh generator cannot
 declare names there because its own declarations have no target to inhabit.
-Constructed types are not parameter declarations either: `<*(Vec<u8>,)>` is an error.
+Constructed types are not parameter declarations either: `<*[Vec<u8>,]>` is an error.
 Raw pointers `*const T` and `*mut T` keep their Rust meaning. A bare
 `*` with no block is an error.
 
@@ -793,7 +793,7 @@ struct A2; struct B2;
 trait GenTup {}
 // → impl<P0,P1> GenTup for Wrap<(P0, P1)>(the tuple stays a single arg)
 
-#[batch_impl(Pair3<*()2>)]             // generator splat: <P0,P1> Pair3<P0,P1>
+#[batch_impl(Pair3<*[].2>)]             // generator splat: <P0,P1> Pair3<P0,P1>
 trait GenSpl {}
 // → impl<P0,P1> GenSpl for Pair3<P0, P1>(flattened into two args)
 
@@ -1014,28 +1014,28 @@ list the spec's generators produced:
 ```rust
 # use batch_impl::batch_impl;
 struct Wrap3<A, B, C>(A, B, C);
-#[batch_impl(Wrap3<*()3> where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*[].3> where @0..: Clone { fn m(&self) {} })]
 trait RangeAngle { fn m(&self); }
 // → impl<P0,P1,P2> RangeAngle for Wrap3<P0,P1,P2> where P0: Clone, P1: Clone, P2: Clone
 
 trait HasOut { type Out; }
-#[batch_impl(Wrap3<*()3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
+#[batch_impl(Wrap3<*[].3> where @0..: HasOut, @0..::Out: Clone { fn m(&self) {} })]
 trait RangeAssoc { fn m(&self); }
 // → where P0: HasOut, P0::Out: Clone, P1: HasOut, P1::Out: Clone, P2: HasOut, P2::Out: Clone
 ```
 
-The fresh list a range indexes comes from the spec's generators (`*().N` /
+The fresh list a range indexes comes from the spec's generators (`*[].N` /
 `().N`); a range in a spec with no fresh generics reports "out of range".
 
 **The impl-generic declaration position** works too: `<@0..>` declares every
 fresh the range covers as an impl param — so a spec can put the generator in
-the trait args (`GenConv<*().2>`) and reference the same fresh batch in the
+the trait args (`GenConv<*[].2>`) and reference the same fresh batch in the
 declaration and the predicates:
 
 ```rust
 # use batch_impl::batch_impl;
 struct DeclTarget;
-#[batch_impl(<@0..> GenConv<*()2> DeclTarget where @0..: Clone { fn m(&self) {} })]
+#[batch_impl(<@0..> GenConv<*[].2> DeclTarget where @0..: Clone { fn m(&self) {} })]
 trait GenConv<T, U> { fn m(&self); }
 // → impl<P0,P1> GenConv<P0,P1> for DeclTarget where P0: Clone, P1: Clone
 ```
@@ -1045,14 +1045,14 @@ parameters, like an empty `@1..` predicate.)
 
 **Grouped ranges `@L_N..`** (0.9.2) slice **within one generator group** —
 the in-group counterpart of `@g_i`, stable across array dispatch. With
-several generators in one spec (such as `PairGen<*().2, *().3>`), the first is group 0 and the second group 1;
+several generators in one spec (such as `PairGen<*[].2, *[].3>`), the first is group 0 and the second group 1;
 `@1_0..` constrains only group 1's fresh:
 
 ```rust
 # use batch_impl::batch_impl;
 struct MultiTarget;
 #[batch_impl(
-    <@0..> <@1..> PairGen<*()2, *()3> MultiTarget where @1_0..: Clone
+    <@0..> <@1..> PairGen<*[].2, *[].3> MultiTarget where @1_0..: Clone
     { fn m(&self) {} }
 )]
 trait PairGen<A, B, C, D, E> { fn m(&self); }
@@ -1712,12 +1712,12 @@ Four spellings, all measured:
 
 | Spelling | What it generates | Example |
 |---|---|---|
-| `()N` | **N fresh parameters** (a generator) — the carrier decides how they are spliced | `Pair3<*().2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
-| `*()N` | the same generator **spliced**, so a carrier can append its parameters | `T.*().2` → `<P0,P1>T<P0,P1>` |
+| `()N` | **N fresh parameters** (a generator) — the carrier decides how they are spliced | `Pair3<*[].2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
+| `*[].N` | the same generator **spliced**, so a carrier can append its parameters | `T.*[].2` → `<P0,P1>T<P0,P1>` |
 | `(A, B,)N` | the **N-fold Cartesian product** of the elements (tuples of length N) | `(u8, u16,)2` → 4 impls |
 | `().1..=M` | one impl **per tuple arity** 1..=M, each with its own fresh parameters (the "ranges" of README's table) | `().1..=3` → `impl<P0> … for (P0,)`, `impl<P0,P1> … for (P0, P1,)`, `impl<P0,P1,P2> … for (P0, P1, P2,)` |
 
-The power is the **`.N` suffix** (`(u8, u16).2` = four tuple impls); the juxtaposed form `()N` / `(u8, u16)2` is accepted as well, while the old `^` spelling is rejected with its own retirement message (§12). The suffix binds to its block, so `Box.*().2` applies the generator to `Box` rather than to something else.
+The power is the **`.N` suffix** (`(u8, u16).2` = four tuple impls); the juxtaposed form `()N` / `(u8, u16)2` is accepted as well, while the old `^` spelling is rejected with its own retirement message (§12). The suffix binds to its block, so `Box.*[].2` applies the generator to `Box` rather than to something else.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -1735,7 +1735,7 @@ trait Arities {}
 
 ### 9.2 Cartesian products
 
-`[A, B] [C, D]` full combinations; a splat power — `(*(A,B)).2` or the juxtaposed `*(A,B)2` — produces a Cartesian combo list:
+`[A, B] [C, D]` full combinations; a splat power — `(*[A, B]).2` or the juxtaposed `*[A, B]2` — produces a Cartesian combo list:
 
 ```rust
 # use batch_impl::batch_impl;
@@ -1851,8 +1851,8 @@ error and compile again. Common cases include:
 - **`@N`/`@g_i` out of range or dangling**: `@5` beyond the impl's generated generic count, or a missing `@2_0` group — the fresh generics are numbered from 0 in document order and print as `P0`, `P1`, …; a dangling reference is intercepted in the macro, never a raw rustc E0412
 - **`where` predicate that is not a Rust predicate**: `where{ A B }` (a missing `:`) is reported once the predicate is final, with the fix named; a **splat** in a predicate is reported too, because that clause is token-level all the way to the output
 - **`=`/`:` in the wrong argument list**: bounds and bindings belong on a trait path (`Conv<Item = u32> X`) or in a bound (`T: Iterator<Item = u8>`, same inside `dyn` / `for<'a>`); a `<>` **declaration** block declares parameters, so a binding there is reported with the spelling that works
-- **A fresh generator in a `<>` declaration block**: write it on the type instead — `T.*().2` to splice the generated parameters, `T<()2>` to keep them as one tuple argument
-- **The retired `^` power**: `(u8, u16)^2` / `T^()^2` get their own message; the power is the `.N` suffix (`(u8, u16).2`, `T.*().2`)
+- **A fresh generator in a `<>` declaration block**: write it on the type instead — `T.*[].2` to splice the generated parameters, `T<()2>` to keep them as one tuple argument
+- **The retired `^` power**: `(u8, u16)^2` / `T^()^2` get their own message; the power is the `.N` suffix (`(u8, u16).2`, `T.*[].2`)
 
 Everything else — every class with its **exact wording** and the fixture that locks it — is `docs/reference.md` §10.
 
