@@ -250,8 +250,8 @@ right-associative dot. The dispatch order is:
 |---|---|
 | `(*[Vec, Box] u8,)` | `(Vec<u8>, Box<u8>)` |
 | `(*Vec *[u8, u16],)` | `(Vec<u8>, Vec<u16>)` |
-| `(*Pair (*[self, Vec] *[].2),)` | `(Pair<T0, Vec<T0>>, Pair<T1, Vec<T1>>)` |
-| `(*() (*[self, Vec] *[].2),)` | `((T0, Vec<T0>), (T1, Vec<T1>))` |
+| `(*Pair (*[self, Vec] *[].2),)` | `(Pair<P0, Vec<P0>>, Pair<P1, Vec<P1>>)` |
+| `(*() (*[self, Vec] *[].2),)` | `((P0, Vec<P0>), (P1, Vec<P1>))` |
 | `(*Map *[].2 *[].3,)` | `(Map<T0,U0>, Map<T1,U0>, Map<T0,U1>, Map<T1,U1>, Map<T0,U2>, Map<T1,U2>)` |
 
 An ordinary left type does not map: `Pair *[A, B]` keeps the pack in an
@@ -1068,7 +1068,7 @@ The marker is **ident-agnostic** — the spec's arguments are what go in, so `Ot
 
 - A construct that needs generated parameters (`().N`, `*[].N`, `@0..` declarations) carries a fresh declaration until codegen names it; no internal carrier ever reaches the output.
 - **Display names** are `P0`, `P1`, … in **document order** — the same numbering `@N` uses.
-- The **collision set** is every ident the impl already writes: the spec's parameters, their inline bounds, the target type, the trait arguments, the inherited and written where predicates, the body, the attributes and the associated types. Template placeholders are **excluded** (the shape mapping rewrites them away, so counting them would shift visible numbering).
+- The **collision set** is every ident the impl already writes: the spec's parameters, their inline bounds, the target type, the trait arguments, the inherited and written where predicates, the body, the attributes and the associated types. Template placeholders are **excluded** (the shape mapping rewrites them away, so counting them would shift visible numbering). The set is **per impl**: a name the crate defines but *this* spec never writes does not shift the numbering — a `struct P0;` elsewhere does not turn the fresh `P0` into `P0A` unless `P0` appears in this spec's parameters, bounds, target or body.
 - `@g_i` addresses a fresh by `(group, slot)` — stable across array distribution; `@N` is the flattened document-order form; `@N..` is open and empty when past the end.
 
 ### 13.4 Shape templates, variadic segments and repeat blocks

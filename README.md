@@ -151,9 +151,10 @@ Start with ordinary Rust types and lists. Space applies arguments from left to r
 | `Vec u8` | `Vec<u8>` |
 | `HashMap u32 String` | `HashMap<u32, String>` |
 | `Box (Vec u8)` / `Box.Vec.u8` | `Box<Vec<u8>>` |
+| `Box.Vec u32` | `Box<Vec, u32>` — `.` binds first, so the space appends a *second* argument (three probes read this as a mistake) |
 | `[Box, Vec] [u8, u16]` | Four container/type combinations |
 | `().3` | One generic three-element tuple implementation |
-| `(*Vec *[].3,)` | One tuple with independently generated `Vec<T0>`, `Vec<T1>`, `Vec<T2>` members |
+| `(*Vec *[].3,)` | One tuple with independently generated `Vec<P0>`, `Vec<P1>`, `Vec<P2>` members (fresh generics are named `P0…`) |
 
 Space and `.` remain left- and right-associative respectively; `.` binds before space. Parentheses make the intended grouping explicit. The [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md) develops these rules through examples; the [reference](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) records their boundaries.
 

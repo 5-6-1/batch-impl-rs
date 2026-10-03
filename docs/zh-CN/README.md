@@ -150,9 +150,10 @@ batch_impl::batch_preview! {
 | `Vec u8` | `Vec<u8>` |
 | `HashMap u32 String` | `HashMap<u32, String>` |
 | `Box (Vec u8)` / `Box.Vec.u8` | `Box<Vec<u8>>` |
+| `Box.Vec u32` | `Box<Vec, u32>` —— `.` 先结合，所以后面的空格是**第二个**实参（三个探针都把它读成了笔误） |
 | `[Box, Vec] [u8, u16]` | 四种容器与类型组合 |
 | `().3` | 一个泛型三元组实现 |
-| `(*Vec *[].3,)` | 一个元组，各成员为独立生成的 `Vec<T0>`、`Vec<T1>`、`Vec<T2>` |
+| `(*Vec *[].3,)` | 一个元组，各成员为独立生成的 `Vec<P0>`、`Vec<P1>`、`Vec<P2>`（fresh 泛型名为 `P0…`） |
 
 空格保持左结合，`.` 保持右结合且优先于空格；括号可直接表明分组。[教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)通过例子逐步展开这些规则，[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)记录完整边界。
 
