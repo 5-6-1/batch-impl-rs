@@ -1,0 +1,7 @@
+error: batch-impl: a `<>` block declares the impl's own parameters, not a type — write the target after it (e.g. `<T> Vec<T>`)
+ --> tests/ui/decl_block_as_target.rs:8:1
+  |
+8 | #[batch_impl(<T>)]
+  | ^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

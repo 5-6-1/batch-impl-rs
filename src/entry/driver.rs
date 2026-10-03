@@ -33,6 +33,16 @@ use crate::util::Cursor;
 /// constrain would each render invalid Rust (`impl Tr for *const {}`). Returns the
 /// wording for the first such carrier, if the target tree contains one.
 fn leaked_carrier(value: &Ty) -> Option<&'static str> {
+    // A `<>` block *declares* the impl's own parameters (`parse/mod.rs` states the rule);
+    // as the whole target nothing was ever applied to it, so it is not a type and rendered
+    // `impl Tr for <T> {}`. Judged here, at the root: `<T> Vec<T>` has the applied result
+    // at its root and never matches, and a plain type name is a different kind.
+    if let TyKind::TypeParam(_) = &value.kind {
+        return Some(
+            "a `<>` block declares the impl's own parameters, not a type — write the target \
+             after it (e.g. `<T> Vec<T>`)",
+        );
+    }
     // Judged on the root only: nested inside a type, `!` is the documented never return
     // type (`fn(u8) -> !`), which the recursive scan below cannot distinguish from a bang
     // used as the whole target. A root `!` is invalid as a target either way.
