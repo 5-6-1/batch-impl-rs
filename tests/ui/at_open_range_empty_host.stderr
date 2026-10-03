@@ -1,0 +1,7 @@
+error: batch-impl: this target has an empty argument list (`Vec<>`) — a fresh range expands to nothing when the impl has no fresh generics for it; write the arguments out or drop the range
+ --> tests/ui/at_open_range_empty_host.rs:8:1
+  |
+8 | #[batch_impl(Vec<@0..> #d{"x".to_string()})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

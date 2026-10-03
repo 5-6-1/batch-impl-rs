@@ -807,6 +807,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `literal_too_large` | an integer literal that does not fit `usize` | batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit | DSL |
 | `bare_number_target` | a bare number or range where a target belongs (`1`, `0..3`) | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target | DSL |
 | `array_length_pack` | a pack or a list in an array length (`[u8; *[u8, u16]]`) | batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]` | DSL |
+| `at_open_range_empty_host` | a fresh range with no fresh generics in scope (`Vec<@0..>`) | batch-impl: this target has an empty argument list (`Vec<>`) — a fresh range expands to nothing when the impl has no fresh generics for it; write the arguments out or drop the range | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
 | `global_path_no_ident` | a trailing `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |

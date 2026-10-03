@@ -175,6 +175,14 @@ pub(crate) fn generate_parts(
             Ok(t) => t,
             Err(e) => return e,
         };
+    // A fresh range that covers nothing leaves an empty argument list: with no fresh
+    // generics in scope, `Vec<@0..>` becomes `Vec<>`. Returning zero is deliberate in
+    // `range_count` *for where predicates*, but an empty `<>` is never a legal target
+    // type, and handing it over produced a half-built impl whose only complaint was
+    // rustc's E0107, aimed at the type rather than at the attribute.
+    if let Some(err) = empty_angle_group(&target_tokens) {
+        return err;
+    }
     // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
     // rewrites to where predicates + body. The matrix leaf is already final
@@ -333,4 +341,22 @@ fn caret_span(tokens: TokenStream) -> Option<proc_macro2::Span> {
         proc_macro2::TokenTree::Group(g) => caret_span(g.stream()),
         _ => None,
     })
+}
+/// A rendered target that contains an empty argument list (`Vec<>`).
+///
+/// A fresh range covering nothing empties its host's brackets: with no fresh
+/// generics in scope, `Vec<@0..>` renders as `Vec < >`. Returning zero is deliberate
+/// in `range_count` *for where predicates*, but an empty `<>` is never a legal target
+/// type — handing it over produced a half-built impl whose only complaint was rustc's
+/// E0107, aimed at the type rather than at the attribute.
+fn empty_angle_group(tokens: &proc_macro2::TokenStream) -> Option<proc_macro2::TokenStream> {
+    if tokens.to_string().replace(' ', "").contains("<>") {
+        return Some(crate::util::compile_error_str(
+            "batch-impl: this target has an empty argument list (`Vec<>`) — a fresh \
+             range expands to nothing when the impl has no fresh generics for it; \
+             write the arguments out or drop the range",
+            proc_macro2::Span::call_site(),
+        ));
+    }
+    None
 }
