@@ -7,17 +7,24 @@
 
 ## Unreleased
 
-- **Breaking: complete the Pack redesign of `*`.** `*T` opens a tuple/list's
-  direct members or one whole type. Both `*(F,G) T` and `*[F,G] T` map the
-  constructors over `T`; an ordinary left type still splices right packs
-  into its arguments. Nested rows support independent per-position wrappers,
-  shared parameters within each row, and multiple generated dimensions.
-  Use `(*Vec *().3,)` or `(*Pair (*(self,Vec) *().3),)`; the bilingual tutorial
-  provides complete programs. Bare `*` remains an error; raw pointers are unchanged.
-- **Pack migration:** write `*((F,G) T)` for the former tuple-splat append;
-  write `(*X,)` / `[*X,]` for explicit containers. `(*X)` is an ordinary group
-  and `[*X]` is a slice. Both source bracket forms now share Cartesian power
-  semantics. Nested ordinary choices keep branching until explicitly opened.
+- **Breaking: `*` opens only a candidate list.** `*[A, B]` is two members and
+  `*[A,]` is one; a tuple, the unit type, a slice and an array are *types*, so
+  `*(A, B)` is one member of the tuple type, and `*[T]` / `*[T; N]` are one member
+  of the slice/array type. `*[]` is the empty pack and `*[].N` sizes it into the
+  generator. A family is stated as a list: use `(*Vec *[].3,)` or
+  `(*Pair (*[self, Vec] *[].3),)`; the bilingual tutorial has complete programs.
+  Bare `*` remains an error; raw pointers are unchanged.
+- **Pack migration:** collectors move to the bracket list — `*(A, B)` -> `*[A, B]`,
+  `*(A,)` -> `*[A,]`, `*()` -> `*[]`, `*().N` -> `*[].N` — while the one-element
+  container idioms become the plain type: `*((A, B),)` -> `*(A, B)`,
+  `*((),)` -> `*()`. `(*X)` is an ordinary group and `[*X]` a slice. The empty-base
+  slice/array builder is gone: write `[[A, B]]` / `[[A, B]; N]`, where the element
+  slot takes the list and distributes.
+- **Diagnostics where silence used to be:** a spec that expands to zero targets
+  (`*Vec *[]`, `*[].0`), an argument that expands to none (`Vec<*[]>`), a carrier
+  left as the whole target (`*const`, `*self`, a bare `where{...}`), a non-type
+  operand (`*1`, `*'static`), and a `*` inside a `::`-tail each report a targeted
+  message instead of rendering invalid Rust.
 - Materialize packs consistently across trait, function-like, impl and preview
   entries. Multi-slot hosts splice members; single-type hosts reject zero or
   multiple members. Keep fresh identities, empty-result declarations and
