@@ -333,7 +333,38 @@ impl Apply for TyPrimitiveArray {
         match (self.0, self.1) {
             (None, None) => TyPrimitiveArray(o.into(), None).to_ty().with_span(span),
             (Some(elem), None) => {
-                TyPrimitiveArray(elem.into(), o.to_token_stream().into()).to_ty().with_span(span)
+                let length = o.to_token_stream();
+                // A builtin type name is not one of the three documented length forms, and
+                // `[u8].u16` rendered `[u8; u16]`, which rustc rejects. No name resolution is
+                // available, so this is a fixed vocabulary - the same technique the preview
+                // uses for one-arity containers. The whole stream's text is compared, which
+                // keeps a literal, a const generic and a braced expression out of it.
+                if matches!(
+                    length.to_string().as_str(),
+                    "u8" | "u16"
+                        | "u32"
+                        | "u64"
+                        | "u128"
+                        | "usize"
+                        | "i8"
+                        | "i16"
+                        | "i32"
+                        | "i64"
+                        | "i128"
+                        | "isize"
+                        | "f32"
+                        | "f64"
+                        | "bool"
+                        | "char"
+                        | "str"
+                ) {
+                    return err_ty_at(
+                        "batch-impl: an array length takes a const expression, not a builtin \
+                         type — write `[u8; 3]` or `[u8; N]`",
+                        span,
+                    );
+                }
+                TyPrimitiveArray(elem.into(), length.into()).to_ty().with_span(span)
             }
             _ => err_ty_at("batch-impl: fixed-size array `[T; N]` cannot be a left operand", span),
         }

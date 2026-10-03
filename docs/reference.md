@@ -891,6 +891,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `bare_attr_carrier` | an attribute with no type after it | batch-impl: an attribute is not a type — attach it to the type it annotates (`#[…] T`) | DSL |
 | `bare_bang_target` | `!` as the whole target | batch-impl: `!` cannot be a target: it is the never type, not a type you can implement for — write the real target | DSL |
 | `bound_on_repeated_parameter` | `(<T: Clone>,).2` | batch-impl: a bound cannot ride on a repeated parameter — `(<T: Clone>).N` rewrites the template into N fresh parameters, so the bound would have to be copied with it; write the bound where the parameter is used instead | DSL |
+| `array_length_builtin_type` | `[u8].u16` | batch-impl: an array length takes a const expression, not a builtin type — write `[u8; 3]` or `[u8; N]` | DSL |
 | `single_name_not_found` | `#name` for an unknown item | batch-impl: item `no_such` not found in trait `T` | DSL |
 | `delegate_on_non_fn` | `#delegate` on a const | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
 | `delegate_const` | the same on another const | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |

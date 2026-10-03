@@ -1,0 +1,7 @@
+error: batch-impl: an array length takes a const expression, not a builtin type — write `[u8; 3]` or `[u8; N]`
+ --> tests/ui/array_length_builtin_type.rs:8:1
+  |
+8 | #[batch_impl([u8].u16)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
