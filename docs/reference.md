@@ -95,7 +95,7 @@ Only the notations that have no section of their own — `@`, `#`, `<>`, the spl
 | Notation | Meaning |
 |---|---|
 | `.` / space | the two associativities of one apply: `.` nests (right-assoc) and the space accumulates (left-assoc); also the element boundary before an absolute-path target (§3.2, §1.2) |
-| `[A, B]` / `[A,]` | a type list, one impl per element; `A` is one target, `[A]` is a slice type, and `[A; N]` is a fixed-size array (§3.3) |
+| `[A, B]` / `[A,]` | a type list, one impl per element; `A` is one target, `[A]` is a slice type, and `[A; N]` is a fixed-size array (§3.3). In an **argument position** the brackets stay brackets — measured: `Vec[u8]` is `Vec<[u8]>`, not `Vec<u8>`, while `Vec [u8, u16]` distributes into `Vec<u8>` and `Vec<u16>` (two impls) |
 | `(...)` / `(A)` | a tuple / a transparent group — one **argument** when applied (§3.2) |
 | `&` `&mut` `*const` `*mut` `unsafe` `self` `#[...]` `!` | prefixes and modifiers, each applying to the block that follows: `self` is the identity, `unsafe.fn(A) -> B` marks the impl while `unsafe fn(A) -> B` is a fn type, `!` is a return type (§3.5) |
 | `{body}` / `where{...}` / `impl{...}` | the three attachment blocks, allowed in any order (§7, §8) |
