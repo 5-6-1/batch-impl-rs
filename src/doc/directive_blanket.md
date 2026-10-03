@@ -19,7 +19,11 @@ method type and const arguments are passed explicitly, with lifetimes inferred.
   `#delegate`: `@all`-family markers, name lists, `-` subtraction);
 - `wrapper list` — comma-separated **type expressions** wrapping a fresh
   generic `T`: `&`, `&mut`, `Box`, `Rc`, `Arc`, `MyPtr`, nested chains,
-  `Cow<'_>`, ... Each wrapper yields one impl.
+  `Cow<'_>`, ... Each wrapper yields one impl. The wrapper is written into the
+  generated code exactly as you wrote it, so it has to be **in scope** where the impl
+  lands: `#blanket(…){Box, Rc}` needs `use std::rc::Rc;`, and without it rustc reports
+  `E0425: cannot find type `Rc` in this scope` with the span on the wrapper list -
+  measured, and it reads as if the wrapper itself were wrong.
 
   **The fresh generic is `Sized` unless you write `@?` after the wrapper** —
   `Box@?`, `&@?`, `Rc@?`, `Arc@?` are what make the blanket cover `Box<str>`,
