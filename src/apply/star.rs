@@ -45,14 +45,6 @@ fn star_inner(value: Ty) -> Ty {
         TyKind::Pack(p) => p.to_ty().with_span(span),
         TyKind::Tuple(t) => TyPack(t.0).to_ty().with_span(span),
         TyKind::Array(a) => TyPack(a.0).to_ty().with_span(span),
-        // `[]` — the container whose element has not been given yet. Each operator
-        // asks it its own question: `*` asks "how many members?" and reads it as the
-        // **empty list** (`*[]` is the empty pack, and `*[].N` sizes that emptiness
-        // into a generator), while apply asks "what goes in?" and builds the
-        // slice/array (`[] T` = `[T]`). No parser rule is involved either way.
-        TyKind::PrimitiveArray(pa) if pa.0.is_none() && pa.1.is_none() => {
-            TyPack(vec![]).to_ty().with_span(span)
-        }
         other => TyPack(vec![Ty { span, kind: other }]).to_ty().with_span(span),
     }
 }

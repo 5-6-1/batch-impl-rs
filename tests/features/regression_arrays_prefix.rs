@@ -13,7 +13,7 @@ use std::collections::HashMap;
 //     - `<const N> []-X-N` => `[X; N]`: the whole matrix wrapped into a const generic array
 //     - `().N` fresh generic tuples auto-extracted when used as generic args / array elements
 // ============================================================
-#[batch_impl([].u8)]
+#[batch_impl([u8])]
 trait ArrSlice {}
 
 #[batch_impl([u8].3)]
@@ -28,7 +28,7 @@ trait ArrRange {}
 #[batch_impl([u8].[1, 2, 4])]
 trait ArrList {}
 
-#[batch_impl(<const N: usize> [] [&, self, Box].[u8, i8, ().0..3] N)]
+#[batch_impl(<const N: usize> [[&u8].N, [i8].N, [()].N, [(u8, i8)].N, [Box<u8>].N])]
 trait ArrMatrix {}
 
 #[batch_impl(Box.().0..3)]

@@ -106,16 +106,18 @@ fn is_range_fresh(ty: &Ty) -> bool {
     matches!(&ty.kind, TyKind::Fresh(f) if f.0.is_range())
 }
 
-/// `[...]` group: comma → list (`TyArray`), empty → array/slice builder base,
-/// else array/slice via the `;` separator (`[T]` slice / `[T; N]` fixed
-/// length). Packs do not change the host grammar: `[*(A,B)]` has a single
-/// slice-element slot; `[*(A,B),]` is a candidate list.
+/// `[...]` group: comma → list (`TyArray`); empty → the **empty list**
+/// (`TyArray([])`), which starred is the empty pack (`*[]`) and sized is the
+/// generator (`*[].N`); otherwise a slice/array type via the `;` separator
+/// (`[T]` slice / `[T; N]` fixed length). Packs do not change the host
+/// grammar: `[*(A,B)]` has a single slice-element slot; `[*(A,B),]` is a
+/// candidate list.
 fn parse_array_group(contents: &[TokenTree], span: proc_macro2::Span, ctx: Ctx<'_>) -> Ty {
     if contains_punct(contents, ',') {
         let flat = parse_list(contents, Op::Comma, ctx);
         TyArray(flat).to_ty().with_span(span)
     } else if contents.is_empty() {
-        TyPrimitiveArray(None, None).to_ty().with_span(span)
+        TyArray(vec![]).to_ty().with_span(span)
     } else {
         let mut cursor = Cursor::new(contents);
         let element = parse_item(&mut cursor, Op::Semi, ctx).unwrap_or_else(empty);
