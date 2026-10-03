@@ -1,4 +1,8 @@
 /target
+# Any nested target/ as well: tests/consumer/ is its own package, and its build
+# products (419 files, 76 MiB) were once committed because only the root was
+# anchored. Keep the anchored form too — it documents the intent.
+target/
 **/*.rs.bk
 Cargo.lock
 .idea/
