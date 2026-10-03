@@ -100,7 +100,10 @@ class Parser:
             return values[0] if len(values) == 1 and not comma else tup(*values)
         if token == "[":
             if self.peek() == "]":
-                raise ModelError("unsupported-syntax", "empty slice builder [] is outside this parser subset")
+                # `[]` is the empty candidate list; starred it is the empty pack
+                # (`*[]`) and sized it is the generator (`*[].N`).
+                self.take()
+                return choices()
             first = self.expression()
             if self.peek() == ";":
                 self.take()

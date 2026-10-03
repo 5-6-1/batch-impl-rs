@@ -66,7 +66,10 @@ def star(value):
         return carry(value.params, star(value.children[0]))
     if value.kind == "pack":
         return value
-    if value.kind in ("tuple", "choices"):
+    # Only a candidate list is opened. A tuple, the unit type, a slice and an
+    # array are *types*, so each contributes exactly one whole member: `*[A, B]`
+    # is two members while `*(A, B)` is one member of the tuple type.
+    if value.kind == "choices":
         return pack(*value.children)
     return pack(value)
 

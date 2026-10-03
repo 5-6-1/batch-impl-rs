@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let dry = args.iter().any(|a| a == "--dry-run");
+    let strings_only = args.iter().any(|a| a == "--strings-only");
     let roots: Vec<PathBuf> = args.iter().filter(|a| !a.starts_with("--")).map(PathBuf::from).collect();
 
     let mut files = Vec::new();
@@ -45,7 +46,8 @@ fn main() {
                 continue;
             }
         };
-        let (new, changes) = transform(&text);
+        let mask = strings_only.then(|| string_mask(&text));
+        let (new, changes) = transform(&text, mask.as_deref());
         if changes.is_empty() {
             continue;
         }
@@ -97,40 +99,82 @@ fn collect(dir: &Path, files: &mut Vec<PathBuf>, skipped: &mut Vec<(PathBuf, Str
         }
         if path.is_dir() {
             collect(&path, files, skipped);
-        } else if name.ends_with(".rs") || name.ends_with(".stderr") || name.ends_with(".md") {
+        } else if name.ends_with(".rs")
+            || name.ends_with(".stderr")
+            || name.ends_with(".md")
+            || name.ends_with(".py")
+        {
             files.push(path);
         }
     }
 }
 
 /// Rewrite every `*(...)` in `text`; returns the new text and the (old, new) spans.
-fn transform(text: &str) -> (String, Vec<(String, String)>) {
+/// With `mask` present, only positions inside a string literal are rewritten — the
+/// model's Python corpus spells its DSL inside quotes, while `*(...)` in Python
+/// code is argument unpacking and must never be touched.
+fn transform(text: &str, mask: Option<&[bool]>) -> (String, Vec<(String, String)>) {
     let mut out = String::with_capacity(text.len());
     let mut changes = Vec::new();
-    let mut rest = text;
-    while let Some(pos) = rest.find("*(") {
-        let (before, from_star) = rest.split_at(pos);
-        out.push_str(before);
+    let mut start = 0usize;
+    while let Some(rel) = text[start..].find("*(") {
+        let pos = start + rel;
+        if mask.is_some_and(|m| !m.get(pos).copied().unwrap_or(false)) {
+            out.push_str(&text[start..pos + 2]);
+            start = pos + 2;
+            continue;
+        }
+        let from_star = &text[pos..];
         match match_paren(from_star, 1) {
             Some(close) => {
+                out.push_str(&text[start..pos]);
                 let whole = &from_star[..=close];
                 let content = &from_star[2..close];
-                let new = rewrite(content);
+                let new = rewrite(content, mask);
                 if new != whole {
                     changes.push((whole.to_string(), new.clone()));
                 }
                 out.push_str(&new);
-                rest = &from_star[close + 1..];
+                start = pos + close + 1;
             }
             None => {
                 // Unbalanced (a comment or a stray token): leave it alone.
-                out.push_str("*(");
-                rest = &from_star[2..];
+                out.push_str(&text[start..pos + 2]);
+                start = pos + 2;
             }
         }
     }
-    out.push_str(rest);
+    out.push_str(&text[start..]);
     (out, changes)
+}
+
+/// Whether each byte of `text` sits inside a `"`/`'` string literal.
+fn string_mask(text: &str) -> Vec<bool> {
+    let mut mask = vec![false; text.len()];
+    let mut quote: Option<u8> = None;
+    let mut escaped = false;
+    for (i, b) in text.bytes().enumerate() {
+        mask[i] = quote.is_some();
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match quote {
+            Some(q) => {
+                if b == b'\\' {
+                    escaped = true;
+                } else if b == q {
+                    quote = None;
+                }
+            }
+            None => {
+                if b == b'"' || b == b'\'' {
+                    quote = Some(b);
+                }
+            }
+        }
+    }
+    mask
 }
 
 /// The star's content, classified syntactically (groups are transparent to `*`).
@@ -163,10 +207,10 @@ fn classify(content: &str) -> Class {
 }
 
 /// Emit the new spelling for a star whose content is `content`.
-fn rewrite(content: &str) -> String {
+fn rewrite(content: &str, _mask: Option<&[bool]>) -> String {
     // Nested stars inside the content migrate first, so classification sees the
     // new spelling (a nested pack stays a pack either way).
-    let (inner, _) = transform(content);
+    let (inner, _) = transform(content, None);
     match classify(&inner) {
         Class::Members(items, trailing) => {
             if items.is_empty() {

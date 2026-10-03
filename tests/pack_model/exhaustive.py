@@ -1,7 +1,7 @@
 """Independent bounded properties for the Pack v2 proposal, not full Rust.
 
 The core corpus is every Pack/Tuple/nonempty-List tree through three nodes
-over A, B, self, (), and *(). Source spelling is checked independently from
+over A, B, self, (), and *[]. Source spelling is checked independently from
 application. No production source or sibling proposal file is changed.
 """
 
@@ -22,7 +22,7 @@ def spell(value):
     """Exact source form for the generated nonnumeric structural corpus."""
     children = [spell(child) for child in value.children]
     if value.kind == "pack":
-        return "*(" + ",".join(children) + ("," if children else "") + ")"
+        return "*[" + ", ".join(children) + ("," if children else "") + "]"
     if value.kind == "tuple":
         return "(" + ",".join(children) + ("," if children else "") + ")"
     if value.kind == "choices":
@@ -179,15 +179,15 @@ for value in (atom("A"), tup(atom("A"), atom("B")), pack(atom("A"), atom("B")),
         counts["typed_host_source_roundtrip"] += 1
 
 examples = {
-    "(*([*F,*G],) *(*(A,B),),)": ["(F<A,B>,)", "(G<A,B>,)"],
-    "(*Vec [*(A,),*(B,C)],)": ["(Vec<A>,)", "(Vec<B>,Vec<C>)"],
-    "(*F *(),)": ["()"],
-    "(*F *(*(),),)": ["(F,)"],
-    "(*(A,B),).2": ["(A,B,A,B)"],
-    "(*(*(A,B),).2,)": ["(A,A)", "(A,B)", "(B,A)", "(B,B)"],
+    "(*[[*F,*G],] *[*[A, B],],)": ["(F<A,B>,)", "(G<A,B>,)"],
+    "(*Vec [*[A,],*[B, C]],)": ["(Vec<A>,)", "(Vec<B>,Vec<C>)"],
+    "(*F *[],)": ["()"],
+    "(*F *[*[],],)": ["(F,)"],
+    "(*[A, B],).2": ["(A,B,A,B)"],
+    "(*[*[A, B],].2,)": ["(A,A)", "(A,B)", "(B,A)", "(B,B)"],
     "(self ([A,B],)).2": ["(A,A)", "(A,B)", "(B,A)", "(B,B)"],
-    "Vec<*(A,B)>": ["Vec<A,B>"],
-    "*Vec<*(A,B)>": ["Vec<A,B>"],
+    "Vec<*[A, B]>": ["Vec<A,B>"],
+    "*Vec<*[A, B]>": ["Vec<A,B>"],
     "A::B": ["A::B"],
 }
 for source, expected in examples.items():
@@ -196,7 +196,7 @@ for source, expected in examples.items():
     complete(rows)
     counts["targeted_structure_and_lexer_regressions"] += 1
 
-for source in ("&*(A,B)", "*const *(A,B)", "[*(A,B)]", "[*(A,B);2]", "fn()->*(A,B)"):
+for source in ("&*[A, B]", "*const *[A, B]", "[*[A, B]]", "[*[A, B];2]", "fn()->*[A, B]"):
     try:
         rendered(source)
     except ModelError as error:
@@ -215,10 +215,10 @@ for source in ("*Vec ? A", "A+B", "T:Trait", "@Self", "A=>B"):
     counts["unsupported_syntax_rejected"] += 1
 
 for source, wanted_groups, wanted_names in (
-    ("(Vec.*().1,).3", 1, 1),
-    ("(*Pair.*(self,Vec).*().3,)", 1, 3),
-    ("(*Map *().2 *().0,)", 1, 2),
-    ("(*Map *().0 *().2,)", 1, 2),
+    ("(Vec.*[].1,).3", 1, 1),
+    ("(*Pair.*[self, Vec].*[].3,)", 1, 3),
+    ("(*Map *[].2 *[].0,)", 1, 2),
+    ("(*Map *[].0 *[].2,)", 1, 2),
 ):
     value, engine = parse(source)
     declared = parameters(value)
@@ -226,11 +226,11 @@ for source, wanted_groups, wanted_names in (
     complete(rows, declared)
     assert engine.group == wanted_groups
     assert len(declared) == wanted_names
-    if "*().0" in source:
+    if "*[].0" in source:
         assert len(unused(rows[0])) == wanted_names
     counts["fresh_copy_and_zero_axis_diagnostics"] += 1
 
-value, engine = parse("(*().0..=2,)")
+value, engine = parse("(*[].0..=2,)")
 rows = engine.finish(value)
 complete(rows, parameters(value))
 assert [row.params for row in rows] == [(), ("G0P0",), ("G1P0", "G1P1")]

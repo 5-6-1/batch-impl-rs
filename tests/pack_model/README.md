@@ -30,7 +30,7 @@ are preserved, including unused parameters; targets are not silently deduplicate
 To evaluate one expression with the same model:
 
 ```text
-python tests/pack_model/run.py --eval "(*((),) (*(self,Vec) *().3),)"
+python tests/pack_model/run.py --eval "(*() (*[self, Vec] *[].3),)"
 ```
 
 Paths are resolved relative to the scripts, so an absolute path to `run.py` also

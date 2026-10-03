@@ -54,7 +54,7 @@ MapTask proceeds in this order:
 4. For an ordinary left leaf, call ordinary Apply with the row as a complete input.
 
 The v1 correction matters: step 2 originally omitted left candidates, allowing
-`*([*F,*G],) *( *(A,B),)` to split its row again. V2 produces two candidates,
+`*[[*F,*G],] *[*[A, B],]` to split its row again. V2 produces two candidates,
 `F<A,B>` and `G<A,B>`, without adding another kind of marker.
 
 ## 3. Generation and copying
@@ -71,9 +71,9 @@ pack is empty is determined by this consumed member list.
 Consequently:
 
 ```text
-(*(A,B),).2  -> one (A,B,A,B) target
-(*(),).2     -> (), with no fresh parameters
-*(*(),).2    -> power of an empty pack, generating two fresh parameters
+(*[A, B],).2  -> one (A,B,A,B) target
+(*[],).2     -> (), with no fresh parameters
+*[*[],].2    -> power of an empty pack, generating two fresh parameters
 ```
 
 Ranges produce candidate families with declarations belonging to their generation
@@ -94,7 +94,7 @@ Structural expressions become ordinary types at the end:
 - Reference targets, pointer targets, slice/array elements and function returns require exactly one type in each branch; zero or multiple types produce a single-slot diagnostic.
 - A bare target pack yields one target per member, without automatic deduplication.
 
-Direct `F<...>` constructs an argument host. Materializing `F<*(A,B),*(C,D)>`
+Direct `F<...>` constructs an argument host. Materializing `F<*[A, B],*[C, D]>`
 produces `F<A,B,C,D>`; do not replay these received arguments as a new apply chain.
 This closes the previously identified stage-dependent-equivalence loophole.
 
@@ -122,7 +122,7 @@ references to one identity declare it only once.
 
 Two cases intentionally differ:
 
-- `(*Map *().2 *().0,)` retains two carried declarations for target `()`; Rust reports E0207.
+- `(*Map *[].2 *[].0,)` retains two carried declarations for target `()`; Rust reports E0207.
 - `(*(().2),).0` repeats the entire ordinary-tuple template slot zero times. Its declaration carrier does not enter the result, leaving `()` with no declarations.
 
 This follows which declaration carriers enter the result structurally; it is not

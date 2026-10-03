@@ -84,7 +84,7 @@ def main():
         emitted, size = family(name, source)
         code += emitted
         count += size
-    nested = "(*((),) (*Map *().1..=2 *().1..=3),)"
+    nested = "(*() (*Map *[].1..=2 *[].1..=3),)"
     emitted, size = family("nested-range", nested)
     code += emitted
     count += size
@@ -116,9 +116,9 @@ def main():
     if ran.returncode:
         raise AssertionError(ran.stderr)
     negatives = {
-        "flat_overlap": ("(*Map *().1..=2 *().1..=3,)", "E0119"),
-        "unused_axis": ("(*Map *().2 *().0,)", "E0207"),
-        "bare_fresh_pack": ("*().2", "E0207"),
+        "flat_overlap": ("(*Map *[].1..=2 *[].1..=3,)", "E0119"),
+        "unused_axis": ("(*Map *[].2 *[].0,)", "E0207"),
+        "bare_fresh_pack": ("*[].2", "E0207"),
     }
     failures = {}
     for name, (source, diagnostic) in negatives.items():

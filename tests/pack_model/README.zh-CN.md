@@ -27,7 +27,7 @@ fresh 声明，包括未受约束的参数，也不静默去重目标。
 只想用模型求值一条表达式时：
 
 ```text
-python tests/pack_model/run.py --eval "(*((),) (*(self,Vec) *().3),)"
+python tests/pack_model/run.py --eval "(*() (*[self, Vec] *[].3),)"
 ```
 
 路径按脚本位置解析，因此在其他目录使用 `run.py` 的绝对路径也可以运行。

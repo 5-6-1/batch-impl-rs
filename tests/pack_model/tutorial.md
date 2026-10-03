@@ -18,11 +18,11 @@ of the right pack.**
 
 ## 1. Start with a pack of arguments
 
-`*(u8,u16)` is a pack with two members. Given to ordinary `Pair`, they become two generic arguments:
+`*[u8, u16]` is a pack with two members. Given to ordinary `Pair`, they become two generic arguments:
 
 <!-- example: args -->
 ```text
-Pair *(u8,u16)
+Pair *[u8, u16]
 ```
 <!-- output: args -->
 ```rust
@@ -33,7 +33,7 @@ Starring the left side instead means that its constructor processes each member 
 
 <!-- example: map -->
 ```text
-(*Vec *(u8,u16),)
+(*Vec *[u8, u16],)
 ```
 <!-- output: map -->
 ```rust
@@ -53,12 +53,12 @@ are spliced during final collection.
 Consider column storage where each column has its own element type and uses a `Vec`.
 The desired shape is `(Vec<T0>, Vec<T1>, Vec<T2>)`.
 
-`().3` generates an ordinary tuple with three fresh parameters; `*().3` generates
+`().3` generates an ordinary tuple with three fresh parameters; `*[].3` generates
 a pack with three parameters. Give that pack to `*Vec`:
 
 <!-- example: vec-fixed -->
 ```text
-(*Vec *().3,)
+(*Vec *[].3,)
 ```
 <!-- output: vec-fixed -->
 ```rust
@@ -73,7 +73,7 @@ To support one through three columns, change only the length to a range:
 
 <!-- example: vec-range -->
 ```text
-(*Vec *().1..=3,)
+(*Vec *[].1..=3,)
 ```
 <!-- output: vec-range -->
 ```rust
@@ -91,14 +91,14 @@ also carry generator identity, with the same relationships.
 Suppose each field also stores a current value, requiring `Pair<T, Vec<T>>`.
 Both occurrences of `T` within a position must agree; different positions remain independent.
 
-The small step `*(self,Vec) T` builds a pack containing `T` and `Vec<T>`. Here `self`
+The small step `*[self, Vec] T` builds a pack containing `T` and `Vec<T>`. Here `self`
 is the DSL identity prefix: it returns its input. It is neither a Rust method receiver nor `@Self`.
 
 Apply this step to every fresh parameter, then let `Pair` receive each row:
 
 <!-- example: pair-fixed -->
 ```text
-(*Pair (*(self,Vec) *().3),)
+(*Pair (*[self, Vec] *[].3),)
 ```
 <!-- output: pair-fixed -->
 ```rust
@@ -116,7 +116,7 @@ Once familiar, use right-associative dots to reduce parentheses. The length fami
 
 <!-- example: pair-range -->
 ```text
-(*Pair.*(self,Vec).*().1..=3,)
+(*Pair.*[self, Vec].*[].1..=3,)
 ```
 <!-- output: pair-range -->
 ```rust
@@ -132,11 +132,11 @@ previous example's spaces and explicit grouping.
 
 For `(T, Vec<T>)` instead of a custom `Pair`, use the ordinary tuple constructor `()`.
 
-However, `*()` is empty. A pack containing one `()` constructor is written `*((),)`:
+However, `*[]` is empty. A pack containing one `()` constructor is written `*()`:
 
 <!-- example: tuple-fixed -->
 ```text
-(*((),) (*(self,Vec) *().3),)
+(*() (*[self, Vec] *[].3),)
 ```
 <!-- output: tuple-fixed -->
 ```rust
@@ -151,7 +151,7 @@ Without the inner tuple construction, the members remain flat:
 
 <!-- example: flat-members -->
 ```text
-(*(self,Vec) *().2,)
+(*[self, Vec] *[].2,)
 ```
 <!-- output: flat-members -->
 ```rust
@@ -172,7 +172,7 @@ front/back or read/write buffer layouts:
 
 <!-- example: double-buffer -->
 ```text
-(*((),) (*(Vec,Vec) *().2),)
+(*() (*[Vec, Vec] *[].2),)
 ```
 <!-- output: double-buffer -->
 ```rust
@@ -187,14 +187,14 @@ First put every parameter in `Box`, then every result in `Vec`:
 
 <!-- example: nested-wrap -->
 ```text
-(*Vec (*Box *().2),)
+(*Vec (*Box *[].2),)
 ```
 <!-- output: nested-wrap -->
 ```rust
 (Vec<Box<T0>>,Vec<Box<T1>>)
 ```
 
-Do not remove the grouping to get `*Vec *Box *().2`. Spaces associate left, so that
+Do not remove the grouping to get `*Vec *Box *[].2`. Spaces associate left, so that
 form first constructs `Vec Box`, then appends arguments; it does not return to fill
 the inside of `Box`.
 
@@ -208,7 +208,7 @@ Suppose input and output type axes have two and three members respectively, and
 
 <!-- example: flat-grid -->
 ```text
-(*Map *().2 *().3,)
+(*Map *[].2 *[].3,)
 ```
 <!-- output: flat-grid -->
 ```rust
@@ -223,7 +223,7 @@ an ordinary tuple constructor to produce a two-dimensional layout:
 
 <!-- example: row-grid -->
 ```text
-(*((),) (*Map *().2 *().3),)
+(*() (*Map *[].2 *[].3),)
 ```
 <!-- output: row-grid -->
 ```rust
@@ -244,15 +244,15 @@ These requests differ:
 
 | Request | Expression | Result count |
 |---|---|---:|
-| Use Vec or Box uniformly | `([*Vec,*Box] *().2,)` | 2 targets |
-| Choose Vec or Box at each position | `(*([Vec,Box],) *().2,)` | 4 targets |
-| Keep both Vec and Box at each position | `(*(Vec,Box) *().2,)` | 1 target with 4 members |
+| Use Vec or Box uniformly | `([*Vec,*Box] *[].2,)` | 2 targets |
+| Choose Vec or Box at each position | `(*[[Vec,Box],] *[].2,)` | 4 targets |
+| Keep both Vec and Box at each position | `(*[Vec, Box] *[].2,)` | 1 target with 4 members |
 
 The full result of the second row is:
 
 <!-- example: local-choice -->
 ```text
-(*([Vec,Box],) *().2,)
+(*[[Vec,Box],] *[].2,)
 ```
 <!-- output: local-choice -->
 ```rust
@@ -266,7 +266,7 @@ Candidates can also choose whole packs of different lengths:
 
 <!-- example: branch-packs -->
 ```text
-(*Vec [*(u8,),*(u16,u32)],)
+(*Vec [*[u8,],*[u16, u32]],)
 ```
 <!-- output: branch-packs -->
 ```rust
@@ -286,7 +286,7 @@ the complete tuple can be one input:
 
 <!-- example: whole-tuple -->
 ```text
-Pair.*(self,Vec).().2
+Pair.*[self, Vec].().2
 ```
 <!-- output: whole-tuple -->
 ```rust
@@ -307,8 +307,8 @@ containing two Vec types, each wrapping an entire tuple:
 
 **A star does not turn a single slot into multiple slots.** Generic arguments,
 tuple fields and function parameters accept multiple entries. Reference and pointer
-targets, slice elements and function return types accept exactly one. `&*(u8,)`
-can materialize as `&u8`; `&*(u8,u16)` must report an error.
+targets, slice elements and function return types accept exactly one. `&*[u8,]`
+can materialize as `&u8`; `&*[u8, u16]` must report an error.
 
 **Commas identify containers.** For this tutorial's ordinary types and packs, `(X)`
 is transparent and `(X,)` is a one-tuple; `[X]` is a slice and `[X,]` is a one-item
@@ -316,12 +316,12 @@ candidate list. Rust raw pointers `*const` and `*mut` take parsing precedence.
 Existing positional-reference meta-syntax such as `@` has its own grouping contract;
 Pack support does not redefine it, and the independent model does not cover it.
 
-**An empty pack differs from a pack containing an empty tuple.** `*()` has no members;
-`*((),)` has one ordinary tuple constructor; `*(*(),)` has one empty argument-pack row.
+**An empty pack differs from a pack containing an empty tuple.** `*[]` has no members;
+`*()` has one ordinary tuple constructor; `*[*[],]` has one empty argument-pack row.
 The latter two also differ.
 
 **Constructing a type does not guarantee a valid impl.** For example,
-`(*Map *().2 *().0,)` produces `()`, but carries two unconstrained parameters and
+`(*Map *[].2 *[].0,)` produces `()`, but carries two unconstrained parameters and
 therefore E0207. The model retains this error instead of silently deleting parameters.
 Duplicate targets are not deduplicated either.
 
@@ -329,16 +329,19 @@ Duplicate targets are not deduplicated either.
 
 | Existing behavior or expression | 0.10.0 Pack semantics | Preserve the previous intention |
 |---|---|---|
-| `*(F,G) T` appends T | Apply F and G separately | `*((F,G) T)` |
-| `*(...)` and `*[...]` retain tuple/list origins | One pack representation | Use ordinary tuples or explicit candidates for the required distinction |
-| `*[F,G].2` applies the number to each constructor | Use tuple-style power on the pack | `*(F.2,G.2)` |
-| `(*(A,B))` implicitly supplies an outer tuple | Ordinary grouping is transparent | `(*(A,B),)` |
-| `[*(A,B)]` uses the lone-splat exception as a list | Without a comma it remains a slice | `[*(A,B),]` |
+| `*[F, G] T` appends T | Apply F and G separately — state the family as a list | `*((F, G) T)` is one member: the appended tuple type |
+| `*(A, B)` collects two members | A tuple is a type, so it contributes **one** member | Write the list: `*[A, B]` |
+| `*()` is the empty pack | `()` is the unit type — one member | Write the empty list: `*[]` |
+| `*().N` is the generator | The star of the unit type, then a power | Write `*[].N` |
+| `[] [A, B]`, `[] [A, B] N` build a slice or array | `[]` is the empty list, and applying it stays empty | Write `[[A, B]]` / `[[A, B]; N]` — the element slot takes the list |
+| `(*[A, B])` implicitly supplies an outer tuple | Ordinary grouping is transparent | `(*[A, B],)` |
+| `[*[A, B]]` uses the lone-splat exception as a list | Without a comma it remains a slice | `[*[A, B],]` |
 | Ordinary candidates inside a pack flatten into simultaneous members | Candidates remain choices | Explicitly star the candidate layer to collect |
 
-This is a breaking 0.10.0 semantic change, not fully compatible syntax sugar.
-Ordinary tuple power keeps its existing direct-slot rule: `(*(A,B),).2`
-remains a single `(A,B,A,B)` target.
+This is a breaking 0.10.0 semantic change, not fully compatible syntax sugar: `*`
+opens **only a candidate list**, so a tuple, the unit type, a slice and an array
+each contribute one whole member. Ordinary tuple power keeps its direct-slot rule:
+`(*[A, B],).2` remains a single `(A,B,A,B)` target.
 
 ## 10. Run the model and inspect validation
 
@@ -346,7 +349,7 @@ From the repository root:
 
 ```text
 python tests/pack_model/run.py
-python tests/pack_model/run.py --eval "(*((),) (*(self,Vec) *().3),)"
+python tests/pack_model/run.py --eval "(*() (*[self, Vec] *[].3),)"
 ```
 
 `syntax.py` is a strict subset parser: unsupported input reports an error rather
