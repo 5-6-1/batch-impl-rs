@@ -314,7 +314,14 @@ impl Apply for TyFresh {
     }
 }
 impl Apply for TyPrimitiveArray {
-    /// `[].T` => `[T]` (empty base wraps a slice); `[T].N` => `[T; N]` (fixed-size array)
+    /// The internal slice/array node while it is still being built: a node with no element
+    /// applied to `T` becomes the slice `[T]`, and a node that already has an element takes the
+    /// length (`[T].N` => `[T; N]`).
+    ///
+    /// This is **not** the user's `[]`: that spelling is the empty *candidate list*, which stays
+    /// empty under apply, so `[T]` and `[T; N]` remain the only ways to write a slice or array
+    /// type (`src/apply/pack_tests.rs` locks that down). Writing the examples as `[].T` here is
+    /// what invited a reference row promising a slice/array builder that does not exist.
     ///
     /// The length right side can be a numeric literal (`[u8].3`), a const generic (`[u8].N`), or a
     /// list/range (expanded item-wise by the top-level right-operand dispatch); re-applying to
