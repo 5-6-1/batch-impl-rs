@@ -153,7 +153,11 @@ class Parser:
             # that expands to none is reported here. A pack inside a tuple or a
             # list goes through tup()/choices() and keeps vanishing (probe rows
             # mid2/mid3 agree with the macro), so this guard never reaches them.
-            if any(a.kind == "pack" and not a.children for a in args):
+            # An empty candidate list vanishes exactly like an empty pack does, and the
+            # macro reports both (`Vec<[]>` and `Vec<*[]>`); the model used to report only
+            # the pack, so `Vec<[]>` came back empty while its sibling errored. `choices`
+            # is a different kind from `tuple`, so an empty tuple is untouched.
+            if any(a.kind in ("pack", "choices") and not a.children for a in args):
                 raise ModelError(
                     "empty-pack-argument",
                     "this argument list requires at least one type, but the pack "
