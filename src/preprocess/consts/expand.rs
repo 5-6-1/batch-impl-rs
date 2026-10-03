@@ -16,7 +16,7 @@ use crate::util::{
 
 /// Recognizes and expands an `@` constant reference at `tokens[0]`; returns
 /// `Some((expanded output, tokens consumed))`; `None` keeps it as-is
-/// (batch_trait!'s `@trait` — handled by segment-level substitution).
+/// (the external-path `@trait` — handled by segment-level substitution).
 ///
 /// Forms (`@` is `tokens[0]`):
 /// - `@` Ident `=` … → user definition segment (appears only during

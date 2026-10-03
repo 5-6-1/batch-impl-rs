@@ -179,7 +179,7 @@ fn expand_at(
             result.extend(expanded);
             Ok(consumed)
         }
-        // `None` (batch_trait!'s `@trait`, or `@N` position refs — Literal
+        // `None` (the external-path `@trait`, or `@N` position refs — Literal
         // after `@`): keep as-is and do not recurse (otherwise `@trait`
         // expands to itself → hit again → infinite recursion; `@N` is
         // resolved by codegen where the impl generic list is known).
