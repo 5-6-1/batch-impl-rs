@@ -76,6 +76,62 @@ def check_documents():
     return counts
 
 
+def check_migration():
+    """The migration table promises that each old spelling and its replacement mean the
+    same thing.
+
+    Read straight from the reference rather than kept as a copy here: the claim is a
+    property of the two spellings, so evaluating both and comparing is an executable
+    check of the row, where matching its text would only prove the row exists.
+    """
+    document = (MODEL_ROOT.parents[1] / "docs" / "reference.md").read_text(encoding="utf-8")
+    lines = document.splitlines()
+    headings = [
+        index
+        for index, line in enumerate(lines)
+        if "Old spelling" in line and "New spelling" in line
+    ]
+    if not headings:
+        raise AssertionError("docs/reference.md no longer has a migration table")
+    rows = []
+    # Only the rows directly under that heading: the reference has several tables, and a
+    # loose "a backticked cell" filter picked up an unrelated one.
+    for line in lines[headings[0] + 1 :]:
+        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        if len(cells) != 3:
+            break
+        if not cells[0].startswith("`") or "unchanged" in cells[2]:
+            continue
+        new = re.findall(r"`([^`]+)`", cells[2])
+        if new:
+            rows.append((cells[1], new))
+    if len(rows) < 5:
+        raise AssertionError(("the migration table lost rows", len(rows)))
+
+    # The table is historical: the middle column says what the old spelling *meant*, and
+    # the right column is what to write now. So the checkable claim is that each new
+    # spelling produces that many members - not that the two columns are equivalent, which
+    # is what the first version of this check assumed and the table never promised.
+    cardinality = {"two members": 2, "one member": 1, "the empty pack": 0}
+    checked = {}
+    for meaning, spellings in rows:
+        wanted = next((count for prefix, count in cardinality.items() if meaning.startswith(prefix)), None)
+        # A generator is not a member count: its length is symbolic, so the property is
+        # that the spelling evaluates at all. (`*[].N` legitimately yields no rows here.)
+        generator = meaning.startswith("the generator")
+        if wanted is None and not generator:
+            raise AssertionError(("unrecognised meaning column", meaning))
+        for spelling in spellings:
+            try:
+                rows_out = [readable(row) for row in evaluate(spelling)]
+            except Exception as error:  # noqa: BLE001 - the spelling is the diagnosis
+                raise AssertionError((spelling, meaning, "did not evaluate", str(error))) from error
+            if wanted is not None and len(rows_out) != wanted:
+                raise AssertionError((spelling, meaning, wanted, rows_out))
+            checked[spelling] = len(rows_out)
+    return checked
+
+
 def main():
     prologue = ["#![allow(dead_code)]", "use std::marker::PhantomData;",
                 "struct Pair<T,U>(T,U);", "struct Map<T,U,V=()>(PhantomData<(T,U,V)>);"]
@@ -135,6 +191,7 @@ def main():
         "positive_impls": count,
         "consumer_result": ran.stdout.strip(),
         "document_examples": check_documents(),
+        "migration_rows": check_migration(),
         "negative_cases": failures,
         "scope": "Independent proposal, declaration-preserving Rust output; no production macro changes",
     }
