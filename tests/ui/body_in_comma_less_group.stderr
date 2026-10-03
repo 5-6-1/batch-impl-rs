@@ -1,0 +1,15 @@
+error: batch-impl: a per-element `{body}` needs a list — a comma-less `[T]` is the slice type; write `[A { … }, B]`, or give the whole group one body (`[A] { … }`)
+ --> tests/ui/body_in_comma_less_group.rs:7:1
+  |
+7 | #[batch_impl([u8 { fn k() -> u8 { 1 } }])]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a per-element `{body}` needs a list — a comma-less `[T]` is the slice type; write `[A { … }, B]`, or give the whole group one body (`[A] { … }`)
+  --> tests/ui/body_in_comma_less_group.rs:12:1
+   |
+12 | #[batch_impl(<T> [Cell<T> { fn k() -> u8 { 2 } }])]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

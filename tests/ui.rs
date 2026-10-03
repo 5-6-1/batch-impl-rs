@@ -159,6 +159,7 @@ fn ui() {
     t.compile_fail("tests/ui/bare_number_target.rs");
     t.compile_fail("tests/ui/array_length_pack.rs");
     t.compile_fail("tests/ui/at_open_range_empty_host.rs");
+    t.compile_fail("tests/ui/body_in_comma_less_group.rs");
     // `*` needs a type operand — a literal used to be packed as one member and
     // rendered `impl … for 1 {}`
     t.compile_fail("tests/ui/star_non_type.rs");

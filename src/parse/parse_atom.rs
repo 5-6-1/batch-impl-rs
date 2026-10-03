@@ -153,6 +153,18 @@ fn parse_array_group(contents: &[TokenTree], span: proc_macro2::Span, ctx: Ctx<'
             let length = length_tokens.iter().cloned().collect::<TokenStream>();
             TyPrimitiveArray(element.into(), length.into()).to_ty().with_span(span)
         } else {
+            // A comma-less bracket group is the **slice type**, not a list, so an
+            // attachment inside it (`[u8 { .. }]`, `[Cell<T> { .. }]`) would be emitted
+            // as part of the element and reach rustc as `expected `;` or `]`` — with
+            // nothing pointing at the attribute. A per-element body belongs to a list.
+            if matches!(element.kind, TyKind::WithCode(..)) {
+                return err_ty_at(
+                    "batch-impl: a per-element `{body}` needs a list — a comma-less `[T]` \
+                     is the slice type; write `[A { … }, B]`, or give the whole group one \
+                     body (`[A] { … }`)",
+                    span,
+                );
+            }
             TyPrimitiveArray(element.into(), None).to_ty().with_span(span)
         }
     }

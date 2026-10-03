@@ -775,6 +775,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `bare_number_target` | 该写目标的位置写了裸数字或区间（`1`、`0..3`） | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target | DSL |
 | `array_length_pack` | 数组长度位置写了 pack 或列表（`[u8; *[u8, u16]]`） | batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]` | DSL |
 | `at_open_range_empty_host` | 作用域内没有 fresh 泛型时的 fresh 区间（`Vec<@0..>`） | batch-impl: this target has an empty argument list (`Vec<>`) — a fresh range expands to nothing when the impl has no fresh generics for it; write the arguments out or drop the range | DSL |
+| `body_in_comma_less_group` | 无逗号组里的逐元素 body（`[u8 { … }]`、`[Cell<T> { … }]`） | batch-impl: a per-element `{body}` needs a list — a comma-less `[T]` is the slice type; write `[A { … }, B]`, or give the whole group one body (`[A] { … }`) | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
 | `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
 | `global_path_no_ident` | 结尾的 `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
@@ -996,7 +997,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 | 单 spec 的 impl 数 | **1024**，`.N` 幂、范围与笛卡尔积共用（`src/ast/op.rs`） | 定向错误，点出乘积与上限："… expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo"（`expand_limit`、`bound_gen_over_limit`） |
 | 展开质量 | **1024 个 AST 节点**，列表、链、包与笛卡尔积共用（`src/apply/mod.rs`、`src/apply/pack_limits.rs`） | "`list chain expansion` reaches an expansion mass of 1406 nodes (limit 1024)"。标签会点出触发它的形状（`list chain expansion`、`range chain expansion`，两者均已实测）。它**不是** impl 数：展开成 300 个 impl 的规格可能撞上它，恰好 1024 个 impl 的规格也可能——两个量是分开计量的 |
 | 物化工作量 | **131072 步**（`MAX_EXPAND × MAX_NEST_DEPTH`，`src/ast/materialize.rs`） | "this type needs too much materialization work — it has too many slots or an oversized list"。真正的驱动是生成器造出大量 fresh 参数（`(u8,).700` 会撞上）；**平铺**的 500 槽元组不会（实测） |
-| 嵌套深度 | 内部上限 **128**，因此**可写的最深嵌套是 127**；链与附件多算一层，`[` 嵌套每个括号算两层，所以 65 个 `[` 才会撞上 —— 这是实测的第一个被拒值（64 可通过）（`src/util/mod.rs`） | 组、常量值与 delegate body 报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`、`delegate_call_depth`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
+| 嵌套深度 | 内部上限 **128**，因此**可写的最深嵌套是 127**；链与附件多算一层，`[` 嵌套每个括号算两层，所以方括号嵌套从 64 或 65 个起被拒，取决于里面是什么 —— 包着普通原子时是 65、包着列表时是 64（两者均已实测）；守卫每个括号算两层（`src/util/mod.rs`） | 组、常量值与 delegate body 报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`、`delegate_call_depth`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
 | 重复块输出 | **65536 token**（`src/codegen/repeat.rs`） | 预算守卫报出跑飞的那个块 |
 | `#blanket` deref 深度 | **128** | "#blanket `:999999` is too large (deref depth must be ≤ 128)"（`blanket_bad_huge_depth`） |
 
