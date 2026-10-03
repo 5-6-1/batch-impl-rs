@@ -47,10 +47,12 @@ use crate::util::Cursor;
 /// The parse layer's one piece of ambient state, carried down the whole
 /// type-recursion by value (it is `Copy`).
 ///
-/// * `trait_name` — the trait being implemented. A bare ident head that names
-///   it is the **trait head** (`Trait U8` → `TyTrait`, so the args may carry
-///   bindings); any other head is a plain type. This is the classification
-///   authority for `TyTrait` vs `TyGeneric`.
+/// * `trait_name` — the trait being implemented, and specifically the
+///   **annotated** trait's own name. A bare ident head that names it is the
+///   **trait head** (`Trait U8` → `TyTrait`, so the args may carry bindings);
+///   any other head is a plain type (`Other u8` under `#[batch_impl] trait Tr`
+///   becomes `impl Tr for Other<u8>`). This is the classification authority for
+///   `TyTrait` vs `TyGeneric`.
 /// * `bound` — the position is a **bound** one. Rust allows associated-type
 ///   bindings on *any* trait path in a bound (`T: Iterator<Item = u8>`), after
 ///   `dyn`, and after a `for<'a>` binder, while a plain type's args are a plain
