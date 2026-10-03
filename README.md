@@ -195,7 +195,7 @@ Existing token semantics are covered by the syntax-freeze commitment introduced 
 This development cycle targets **0.10.0**, rather than the previously planned 0.9.8, because it includes deliberate breaking changes. Cargo's `"0.9.7"` requirement permits 0.9.8 but excludes 0.10.0; see [Cargo's version rules](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements).
 
 - Replace removed `@all_fresh` with `@0..`.
-- `*` now forms a pack: `*(F,G) T` maps both members. For the previous tuple-append behavior, write `*((F,G) T)`. A lone pack no longer turns a group into a container: use `(*X,)` / `[*X,]`. See [the Pack migration rules](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md#46-branches-coherence-and-migration).
+- `*` opens candidate lists only: write `*[F,G] T` to map both constructors. A tuple is a type, so `*(F,G)` is one member — the tuple — and `*(F,G) T` appends `T` into it. A lone pack no longer turns a group into a container: use `(*X,)` / `[*X,]`. See [the Pack migration rules](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md#46-branches-coherence-and-migration).
 - Rename custom constants named `Self`; `@Self` is now reserved for the impl entry's input self type.
 - Named type-family ranges follow Rust's endpoint convention: `@u8..u16` selects only `u8`; use `@u8..=u16` to keep both. Omitted upper endpoints still include the family's final member.
 

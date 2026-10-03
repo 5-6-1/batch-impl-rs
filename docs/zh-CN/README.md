@@ -194,7 +194,7 @@ batch_impl::batch_preview! {
 本轮开发目标是 **0.10.0**，取代此前计划的 0.9.8，因为包含刻意的破坏性改动。Cargo 的 `"0.9.7"` 依赖约束允许升级到 0.9.8，却不允许升级到 0.10.0；见 [Cargo 版本规则](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements)。
 
 - 将已移除的 `@all_fresh` 替换为 `@0..`。
-- `*` 现在构造包：`*(F,G) T` 映射两个成员，旧的元组追加行为写作 `*((F,G) T)`。单独的包不再将分组升格为容器，需要容器时写 `(*X,)` / `[*X,]`。见[包的迁移规则](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md#46-分支重叠与迁移)。
+- `*` 现在只打开候选列表：映射两个构造器要写 `*[F,G] T`。元组是类型，所以 `*(F,G)` 是一个成员——该元组——`*(F,G) T` 则把 `T` 追加进去。单独的包不再将分组升格为容器，需要容器时写 `(*X,)` / `[*X,]`。见[包的迁移规则](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md#46-分支重叠与迁移)。
 - 重命名原来叫 `Self` 的自定义常量；`@Self` 现在保留给 impl 入口的输入自身类型。
 - 命名类型族范围采用 Rust 的端点规则：`@u8..u16` 只选择 `u8`；要保留两种类型，使用 `@u8..=u16`。省略上界时仍包含族的最后一项。
 
