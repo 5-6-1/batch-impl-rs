@@ -865,12 +865,23 @@ fn normalise_diagnostic(raw: &str) -> String {
                 _ => out.push(c),
             },
             '{' => {
-                for c2 in chars.by_ref() {
-                    if c2 == '}' {
-                        break;
+                if chars.peek() == Some(&'{') {
+                    // `{{` is a literal brace in a format string, not a placeholder.
+                    chars.next();
+                    out.push('{');
+                } else {
+                    for c2 in chars.by_ref() {
+                        if c2 == '}' {
+                            break;
+                        }
                     }
+                    out.push('\u{1}');
                 }
-                out.push('\u{1}');
+            }
+            '}' if chars.peek() == Some(&'}') => {
+                // the matching half: `}}` is a literal brace too
+                chars.next();
+                out.push('}');
             }
             c if c.is_whitespace() => {
                 if !out.ends_with(' ') {
