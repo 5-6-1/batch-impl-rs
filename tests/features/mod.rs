@@ -8,6 +8,7 @@
 //! helper types/macros live next to their tests.
 
 pub(crate) mod block_model;
+pub(crate) mod doc_table_claims;
 pub(crate) mod dsl_assoc_adaptation;
 pub(crate) mod dsl_at_refs;
 pub(crate) mod dsl_basic;
