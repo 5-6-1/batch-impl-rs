@@ -21,6 +21,15 @@ method type and const arguments are passed explicitly, with lifetimes inferred.
   generic `T`: `&`, `&mut`, `Box`, `Rc`, `Arc`, `MyPtr`, nested chains,
   `Cow<'_>`, ... Each wrapper yields one impl.
 
+  **The fresh generic is `Sized` unless you write `@?` after the wrapper** —
+  `Box@?`, `&@?`, `Rc@?`, `Arc@?` are what make the blanket cover `Box<str>`,
+  `Box<[T]>` and `Box<dyn Trait>`. Without it those impls are simply absent,
+  and nothing in the expansion says so: the only signal is an `E0277` at the
+  *use* site (or an `E0599` miss), whose help points at the attribute span but
+  never names `@?` — measured, and the reason a user reaches this section only
+  after a failure. See "@? — unsized wrappers" below for the spelling and the
+  resulting `where P0: Trait + ?Sized`.
+
 ```rust
 # use batch_impl::batch_impl;
 #[batch_impl(#blanket(@all_methods){Box})]
