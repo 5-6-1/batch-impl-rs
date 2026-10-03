@@ -1,0 +1,35 @@
+[package]
+name = "batch-impl-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Consumer-side contract for batch-impl: strict lints, hostile scope"
+
+# Its own workspace: this crate is a probe of the *consumer* axis, not a member
+# of the library's build.
+[workspace]
+
+[dependencies]
+batch-impl = { path = "../.." }
+
+# A downstream crate that denies warnings and runs clippy::pedantic. The parent
+# suite cannot see this axis: the parent *is* the crate, so its own lint set and
+# its own module scope are not a consumer's. Generated code has to survive here.
+[lints.rust]
+warnings = "deny"
+missing_docs = "deny"
+unused_qualifications = "deny"
+single_use_lifetimes = "deny"
+elided_lifetimes_in_paths = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unreachable_pub = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+# Noise for a crate whose whole job is to be a consumer: the trait methods it
+# defines are deliberately not `#[must_use]`, and the shadowing module is
+# deliberately empty.
+must_use_candidate = "allow"
+items_after_statements = "allow"

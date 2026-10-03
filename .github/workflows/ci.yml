@@ -68,6 +68,24 @@ jobs:
       - run: cargo test --lib --test dsl --test no_panic --test doc_consistency
       - run: cargo test --doc
 
+  consumer:
+    name: consumer contract (strict lints, hostile scope)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tests/consumer
+      # The library is the crate, so its own lint set and module scope are not a
+      # consumer's: this job compiles the generated impls the way a downstream
+      # crate does - warnings denied, clippy pedantic, and a module that shadows
+      # every name the expansion could reach for.
+      - run: cargo clippy --manifest-path tests/consumer/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path tests/consumer/Cargo.toml
+
   pack-model:
     name: Pack semantics model
     runs-on: ubuntu-latest
