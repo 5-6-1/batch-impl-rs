@@ -3,7 +3,7 @@ error: batch-impl preview: 1 impl(s) generated
        #[batch_impl(Box.Vec u32)] trait Pv2 {}
        impl Pv2 for Box < Vec, u32 > {}
 
-       batch-impl note: `Box<Vec, u32>` has 2 args but `Box` takes 1 — space accumulates args side by side (`A.B C` = `A B C` = `A<B, C>`); did you mean `Box.Vec.u32`?
+       batch-impl note: `Box<Vec, u32>` has 2 args but `Box` takes 1 — space accumulates args side by side (`A B C` = `A<B, C>`), while a dot nests (`A.B.C` = `A<B<C>>`), so write the container that takes 2 arguments or nest explicitly
  --> tests/ui/preview_miswrite.rs:5:1
   |
 5 | / batch_preview! {

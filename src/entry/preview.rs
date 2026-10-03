@@ -202,12 +202,13 @@ fn miswrite_note(g: &TyGeneric) -> Option<String> {
         return None;
     }
     Some(format!(
-        "batch-impl note: `{}<{}>` has {} args but `{}` takes 1 — space accumulates args side by side (`A.B C` = `A B C` = `A<B, C>`); did you mean `{}.{}`?",
+        "batch-impl note: `{}<{}>` has {} args but `{}` takes 1 — space accumulates args side \
+         by side (`A B C` = `A<B, C>`), while a dot nests (`A.B.C` = `A<B<C>>`), so write the \
+         container that takes {} arguments or nest explicitly",
         base,
         args.join(", "),
         args.len(),
         base,
-        base,
-        args.join("."),
+        args.len(),
     ))
 }
