@@ -449,7 +449,7 @@ another way to write nesting: `Box.Vec.u32` and `Box (Vec u32)` both give
 > (`Box u8`, `HashMap<u8> String`). For nested containers, group the inner
 > type with parentheses (`Box (Vec u32)`) or use dots (`Box.Vec.u32`).
 
-**The bare trait name** applies as the impl trait: `Tr u8` = `impl Tr for u8`, `Tr<A> u8` = `impl Tr<A> for u8`. Write `Tr<u8>` for the **type** `Tr<u8>`. In general, a bare `Tr` is not recommended.
+**The annotated trait's own name** applies as the impl trait: with the attribute on `trait Tr`, writing `Tr u8` gives `impl Tr for u8` and `Tr<A> u8` gives `impl Tr<A> for u8`. Any *other* bare ident is a type, not a trait head — with the attribute on `Tr`, a spec `Other u8` produces `impl Tr for Other<u8>`. Write `Tr<u8>` for the **type** `Tr<u8>`. In general, a bare `Tr` is not recommended.
 
 Precedence from low to high: `;` < `,` < space < `.`; `()` grouping sits above all operators.
 

@@ -102,7 +102,8 @@ Only the notations that have no section of their own — `@`, `#`, `<>`, the spl
 | `;` | separates `batch_trait!` trait sections or impl-entry specs (§1.1); also separates an array's element type and length (`[T; N]`) |
 | `,` | separates trait-entry specs, including those within one `batch_trait!` section (§1.1), and list, tuple, argument and directive-argument elements |
 | `-name` | an exclusion, in directive argument lists only (§6.2) |
-| `.N` / `()N` | the power: `T.*[].2` splices the generated parameters, `T<()2>` keeps them as one tuple argument. A caret is **not** an operator — `(u8, u16)^2` gets the retired-operator message (§3.4, §10.1) |
+| `.N` | the power, dispatched by the left operand: a tuple or generator raises (`(u8, u16).2`), a **list distributes instead** (`[u8, u16].2` is `u8<2>` and `u16<2>`, not four combinations), and a pack is composed Cartesially and re-wrapped. A caret is **not** an operator — `(u8, u16)^2` gets the retired-operator message (§3.4, §10.1) |
+| `()N` | the generator, and only where the juxtaposition is a **block**: bare `()2` mints two fresh parameters, `T<()2>` keeps them as one tuple argument, and `Fn()2` is special-cased into `Fn(P0, P1)`. Anywhere else a juxtaposed number is two applications (`T ()2` is `T<(), 2>`), so prefer `T.*[].2` |
 
 ## 2. Position × Construct
 

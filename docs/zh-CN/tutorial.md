@@ -416,7 +416,7 @@ batch_impl::batch_preview! {
 
 优先级从低到高：`;` < `,` < 空格 < `.`，`()` 分组在所有运算符之上。
 
-**裸 trait 名**按 impl trait 应用：`Tr u8` = `impl Tr for u8`、`Tr<A> u8` = `impl Tr<A> for u8`。要**类型** `Tr<u8>` 直接写 `Tr<u8>`。一般情况下，不推荐使用裸Tr。
+**被注解 trait 自己的名字**才按 impl trait 应用：属性挂在 `trait Tr` 上时，写 `Tr u8` 得到 `impl Tr for u8`、`Tr<A> u8` 得到 `impl Tr<A> for u8`。**其他**裸标识符是类型而不是 trait 头——属性挂在 `Tr` 上时，spec `Other u8` 产出 `impl Tr for Other<u8>`。要**类型** `Tr<u8>` 直接写 `Tr<u8>`。一般情况下，不推荐使用裸 `Tr`。
 
 > **混合分组**：`Box.Vec u32` 中点号先分组，随后空格再添加一个实参，
 > 因此得到 `Box<Vec, u32>`。如果想要 `Box<Vec<u32>>`，应写
