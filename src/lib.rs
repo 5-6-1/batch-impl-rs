@@ -282,7 +282,8 @@ pub fn batch_impl_consts(_: proc_macro::TokenStream) -> proc_macro::TokenStream 
     proc_macro::TokenStream::from(util::compile_error_str(
         "batch-impl: `batch_impl_consts!` is a documentation-only entry point \
          for the `@` constant system — write `@name=value;` sections directly \
-         (only `batch_trait!` supports custom constants)",
+         (only `batch_trait!` supports *custom* constants; the built-in `@trait` and \
+         the `@u*` / `@num` families work in every entry)",
         proc_macro2::Span::call_site(),
     ))
 }
