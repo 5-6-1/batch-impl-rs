@@ -1021,6 +1021,24 @@ fn every_source_diagnostic_is_locked_or_listed() {
          `UNREACHABLE_DIAGNOSTICS` / `UNLOCKED_DIAGNOSTICS`:\n  {}",
         unlocked.join("\n  ")
     );
+
+    // Both lists are debt, and debt that no longer matches anything has stopped being debt:
+    // it is bookkeeping that reads like a guard. This is the reverse direction of the check
+    // above - there, every message needs an entry; here, every entry needs a message. A
+    // stale entry appears whenever a listed message is later locked by a fixture (which is
+    // the intended end of an entry) or deleted, and nothing else would notice.
+    let stale: Vec<String> = UNLOCKED_DIAGNOSTICS
+        .iter()
+        .chain(UNREACHABLE_DIAGNOSTICS.iter())
+        .filter(|(pat, _)| !literals.iter().any(|(_, lit)| lit.contains(pat)))
+        .map(|(pat, _)| (*pat).to_string())
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "debt entries that match no diagnostic literal any more - drop them, or the lists \
+         are bookkeeping rather than a guard:\n  {}",
+        stale.join("\n  ")
+    );
 }
 
 /// The catalog is a **multiset**, not a set: a fixture named twice inside one
