@@ -17,6 +17,7 @@
 //! composable: a new node kind only needs its own `star` result, and no
 //! "is this a list?" question is ever asked while parsing.
 
+use super::err_ty_at;
 use super::pack::carry;
 use super::pack_limits::{checked_input, checked_result};
 use crate::ast::*;
@@ -50,6 +51,13 @@ fn star_inner(value: Ty) -> Ty {
         TyKind::WithType(w) => carry(w.0, star_inner(*w.1), span),
         TyKind::Pack(p) => p.to_ty().with_span(span),
         TyKind::Array(a) => TyPack(a.0).to_ty().with_span(span),
+        // A literal, a range or a lifetime is not a type: packing one as a member
+        // would leak invalid Rust (`impl Tr for 1 {}`). Say what `*` needs instead.
+        TyKind::Num(_) | TyKind::Range(_) | TyKind::Lifetime(_) => err_ty_at(
+            "batch-impl: `*` needs a type operand — a literal, range or lifetime is not a \
+             type (write `*T` or `*[A, B]`)",
+            span,
+        ),
         other => TyPack(vec![Ty { span, kind: other }]).to_ty().with_span(span),
     }
 }

@@ -73,8 +73,12 @@ fn named_abi_function_parameters_keep_their_single_slot_boundary() {
 
 #[test]
 fn public_empty_collections_and_an_explicit_empty_row_differ() {
-    assert!(impls(trait_output(quote!([*[],]))).is_empty());
-    assert!(impls(trait_output(quote!(*F * []))).is_empty());
+    // A spec with no targets at all is diagnosed, whichever way it is spelled: an
+    // empty collection is not a silent no-op.
+    for spec in [quote!([*[],]), quote!(*F * [])] {
+        let out = trait_output(spec);
+        assert!(out.to_string().contains("expands to zero impls"), "{out}");
+    }
     let tuple = impls(trait_output(quote!((*[],))));
     assert_eq!(tuple.len(), 1);
     assert_eq!(tuple[0].self_ty.to_token_stream().to_string(), "()");

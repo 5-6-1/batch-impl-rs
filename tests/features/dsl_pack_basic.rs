@@ -86,23 +86,17 @@ fn nested_application_builds_each_inner_wrapper_before_the_outer_one() {
 #[batch_impl((*[].0,))]
 trait EmptyTuple {}
 
-#[batch_impl(*Vec *[])]
-trait NoTargets {}
-
-// This blanket remains coherent only if the empty map emits no impls.
-impl<T> NoTargets for T {}
-
 #[batch_impl(*u8 *[*[],])]
 trait EmptyRow {}
 
 #[test]
-fn empty_packs_and_a_pack_with_one_empty_row_are_distinct() {
+fn an_empty_axis_and_a_pack_with_one_empty_row_are_distinct() {
     fn empty<T: EmptyTuple>() {}
     fn row<T: EmptyRow>() {}
+    // `(*[].0,)` is one target — the empty axis leaves a unit tuple — while a spec
+    // that expands to *zero* targets is diagnosed (ui `pack_zero_targets`).
     empty::<()>();
     row::<u8>();
-    fn no_targets<T: NoTargets>() {}
-    no_targets::<u8>();
 }
 
 #[batch_impl((*(*u8),))]

@@ -1,0 +1,7 @@
+error: batch-impl: this spec expands to zero impls — a star over an empty list (`*[]`, `*[].0`) has no members; write the targets out or drop the spec
+ --> tests/ui/pack_zero_targets.rs:6:1
+  |
+6 | #[batch_impl(*Vec *[])]
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

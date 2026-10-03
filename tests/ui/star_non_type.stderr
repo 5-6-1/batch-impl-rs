@@ -1,0 +1,7 @@
+error: batch-impl: `*` needs a type operand — a literal, range or lifetime is not a type (write `*T` or `*[A, B]`)
+ --> tests/ui/star_non_type.rs:5:1
+  |
+5 | #[batch_impl(*1)]
+  | ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

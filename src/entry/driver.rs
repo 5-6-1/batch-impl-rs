@@ -108,6 +108,15 @@ pub(crate) fn collect_spec_leaves(
                 break;
             }
         }
+        // A spec that materializes to nothing is a mistake, not a no-op. The one
+        // deliberate empty spelling is a star over the empty list (`*[]`, `*[].0`),
+        // and it is reported here instead of silently emitting no impls at all.
+        if tys.len() == start {
+            tys.push(err_ty(
+                "batch-impl: this spec expands to zero impls — a star over an empty list \
+                 (`*[]`, `*[].0`) has no members; write the targets out or drop the spec",
+            ));
+        }
         // Global backstop behind the per-step expansion checks (Array
         // dispatch / range chains / tuple powers / Cartesian products): if a
         // future growth point ever bypasses them, the spec is rejected at
