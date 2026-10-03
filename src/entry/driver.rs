@@ -194,7 +194,8 @@ pub(crate) fn collect_spec_leaves(
         if produced > MAX_EXPAND {
             tys.truncate(start);
             tys.push(err_ty(&format!(
-                "batch-impl: the spec expands to {produced} impls (limit {MAX_EXPAND}); \
+                "batch-impl: the spec expands to more than {MAX_EXPAND} impls (limit \
+                 {MAX_EXPAND}) — the count stops at the cap, so the real total is larger; \
                  likely exponential/range/Cartesian typo"
             )));
         }
