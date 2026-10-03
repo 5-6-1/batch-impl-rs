@@ -538,9 +538,11 @@ so each target receives only one definition.
 
 ## 4. Packs `*` — Mapping and Splicing
 
-A pack is a list of type expressions waiting for a host. `*X` opens the
-direct members of a tuple or choice list; any other type becomes a one-member
-pack. A pack does not remember whether it came from `()` or `[]`.
+A pack is a list of type expressions waiting for a host. `*X` opens the direct
+members of a **candidate list**; every other type — including a tuple, the unit
+type, a slice and an array — becomes a one-member pack. The star is what tells
+`*[A, B]` (two members) from `*(A, B)` (one member of the tuple type), and `*[]`
+(the empty pack) from `*()` (one member of the unit type).
 
 Three steps cover the common cases: **open members, apply a rule, place the
 result**. `(*Vec *[].3,)` opens three fresh parameters, wraps each in `Vec`,
