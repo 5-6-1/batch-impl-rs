@@ -7,6 +7,13 @@ mod pack_limit_tests;
 mod pack_limits;
 #[cfg(test)]
 mod pack_tests;
+pub(crate) mod star;
+
+// The [`Star`] trait is the prefix operator `*X` — `X.star()` — the sibling of
+// [`Apply`]: `Apply` combines two type expressions, `Star` opens one into a Pack.
+// Its whole semantics is a table keyed by the operand's node kind, so the parser
+// never decides what `*` means.
+pub(crate) use star::Star;
 
 // The [`Apply`] trait defines the binary operation `A.apply(B)`: `.` (right-assoc) /
 // space (left-assoc).

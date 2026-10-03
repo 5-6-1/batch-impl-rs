@@ -10,6 +10,7 @@
 //! (`&'a mut u8`), the fn family (`fn(u8) -> u8`) and the Pack prefix `*T`,
 //! which consumes exactly one following block.
 
+use crate::apply::Star;
 use crate::apply::err_ty_at;
 use crate::ast::*;
 use crate::parse::Ctx;
@@ -107,7 +108,7 @@ pub(crate) fn star_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Ty {
             TyWithPrefix(TyPrefix::PtrMut, None).to_ty()
         }
         _ => match parse_block(cursor, ctx) {
-            Some(ty) => crate::apply::pack::packify(ty).with_span(span),
+            Some(ty) => ty.star().with_span(span),
             None => err_ty_at(
                 "batch-impl: `*` needs a type block (write `*T`, `*(A,B)` or `*[A,B]`); \
                  raw pointers use `*const T` or `*mut T`",

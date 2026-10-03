@@ -110,10 +110,11 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   ├── apply/                运算层
   │   ├── mod.rs            Apply trait：默认 `apply` 做右操作数结构化分发（Array/Group/WithCode/WithImpl/WithWhere/WithType/Range/Error 通用处理；其余落到 `apply_help`，故其右操作数必为普通类型）；各子类型实现 `apply_help`，`impl Apply for TyKind` 按变体转发（WithDyn/WithFor/Prefixed 下沉进内层；Lifetime/BoundList 直接报错）；Ty::apply 单点取 span
   │   ├── apply_tuple.rs    元组与容器运算符 + 元组展开（.N / 笛卡尔积 / 范围 / fresh 泛型）
-  │   ├── pack.rs           公开 Pack 内核：packify 构包 + 保持整行的 map_task + 数字包生成
+  │   ├── pack.rs           公开 Pack 内核：保持整行的 map_task + 数字包生成 + 包运算
   │   ├── pack_limits.rs    Pack 输入深度/质量检查及分配前生成成本检查
   │   ├── pack_tests.rs     Pack AST 回归（cfg(test)）：分组、行身份、元数据与声明顺序
-  │   └── pack_limit_tests.rs Pack 宿主、元数据与资源边界回归（cfg(test)）
+  │   ├── pack_limit_tests.rs Pack 宿主、元数据与资源边界回归（cfg(test)）
+  │   └── star.rs           `*` 前缀算子：`Star::star` —— 按节点种类把操作数打开成 Pack 的那张表
   ├── codegen/              代码生成
   │   ├── mod.rs            generate_impl：开放扩展输出，或从已物化目标生成普通代码
   │   ├── extract.rs        Ty → ImplParts（extract_impl_parts / substitute_trait_generics / hoist_type_params / split_impl_attachments）
@@ -270,7 +271,7 @@ impl 入口的目标或形参时才有意义；今天没有这样的特性，因
   （`ParamKind`，取自 `syn` 变体），不再由 codegen 从名字字符串反推；
   `impl_names` 里 `const N` 经 `ParamKind::bare_name` 归一为 `N`。（此处曾有
   一套 `syn::visit` 引用收集器，产物无人读取——R4 已删除。）
-- **参数包 `*` 前缀**：`star_block` 只读取紧随其后的一个块，`*const` / `*mut` 优先识别为指针。`packify` 打开普通元组或候选列表的直接成员，穿过分组和声明载体，已有 Pack 保持不变，其余类型构成单成员包。因此 `*(A)` 是单成员包，`(*(A,B))` 是包外的透明分组，`(*(A,B),)` 才是显式元组宿主；`(@0..)` 保留范围引用元组的规则。列表序列化保留单成员逗号（`[A,]`），空候选列表写成 `[,]`，使开放扩展重解析不会把列表变成 slice 或空构造器。
+- **参数包 `*` 前缀**：`star_block` 只读取紧随其后的一个块，`*const` / `*mut` 优先识别为指针，随后把该操作数交给 `Star::star`（`apply/star.rs`）—— 解析器自身不含任何 `*` 语义。`star` 打开普通元组或候选列表的直接成员，穿过分组和声明载体，已有 Pack 保持不变，其余类型构成单成员包。因此 `*(A)` 是单成员包，`(*(A,B))` 是包外的透明分组，`(*(A,B),)` 才是显式元组宿主；`(@0..)` 保留范围引用元组的规则。列表序列化保留单成员逗号（`[A,]`），空候选列表写成 `[,]`，使开放扩展重解析不会把列表变成 slice 或空构造器。
 - **映射与生成**：左 Pack 逐成员映射；双 Pack 运算只把右包拆成直接行一次，`map_task` 在选择候选与穿过元数据时始终把该行整体传递。嵌套 Pack 到消费前保留结构。标量应用仍把右包作为实参节点追加；`F<...>` 已是泛型宿主，物化不会对其中实参重跑 apply。包的数字应用将嵌套包消费成模板槽并复用元组生成；普通元组幂保留自身槽位：`(*(),).2` 是两个最终消费为空的槽，得到 unit；`*(*(),).2` 则生成两个 fresh 参数。声明随复制及空结果保留，不静默裁剪未使用的生成参数。
 - **物化边界**：`materialize_targets` 拼接 Pack 成员并选择普通候选分支，保持候选的笛卡尔组合与声明顺序。元组成员、泛型实参、泛型声明名及无名函数参数是多槽位置；引用/指针/slice 元素、固定 Rust 前缀、函数返回值、每项 bound 和关联类型绑定值在每个分支中只能得到一个类型。声明名在展开后校验，构造类型和声明内 fresh 生成器仍有定向错误。普通元组在单槽宿主中始终是一个类型。共享驱动的 `Expand::Leaf` 分支保留开放扩展 DSL，并物化全部普通目标；整 spec 上限在汇总全部目标后检查。因此 trait 生成、impl 入口匹配与 preview 收到同一批已物化目标。标准 Rust where 子句、body、impl 模板及限定路径尾部不增加 Pack 语法。
 

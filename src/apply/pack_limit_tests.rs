@@ -1,7 +1,8 @@
 //! Continuation, host and resource-bound regression cases for Pack integration.
 
-use super::pack::{map_task, packify};
+use super::pack::map_task;
 use super::pack_tests::*;
+use super::star::Star;
 use crate::ast::*;
 use crate::util::MAX_NEST_DEPTH;
 use quote::{ToTokens, quote};
@@ -73,7 +74,7 @@ fn right_metadata_is_lifted_before_selecting_a_shared_candidate() {
 }
 
 #[test]
-fn packify_treats_complete_rust_type_hosts_as_single_items() {
+fn star_treats_complete_rust_type_hosts_as_single_items() {
     let nested = pack(vec![atom("A"), atom("B")]);
     let hosts = [
         TyWithPrefix(TyPrefix::Ref, nested.clone().into()).to_ty(),
@@ -83,7 +84,7 @@ fn packify_treats_complete_rust_type_hosts_as_single_items() {
         TyFn(Some(vec![nested]), None, false, FnKind::Bare).to_ty(),
     ];
     for host in hosts {
-        same(&packify(host.clone()), &pack(vec![host]));
+        same(&host.clone().star(), &pack(vec![host]));
     }
 }
 
@@ -111,12 +112,12 @@ fn pair_mapping_keeps_each_shared_fresh_argument_pack_intact() {
 #[test]
 fn direct_ast_inputs_are_checked_for_depth_and_mass() {
     let deep = (0..MAX_NEST_DEPTH + 2).fold(atom("F"), |inner, _| TyGroup(inner.into()).to_ty());
-    for error in [packify(deep.clone()), map_task(deep, atom("A"))] {
+    for error in [deep.clone().star(), map_task(deep, atom("A"))] {
         assert!(matches!(error.kind, TyKind::Error(_)));
         assert!(error.to_token_stream().to_string().contains("nesting depth"));
     }
     let too_wide = pack(vec![atom("F"); MAX_EXPAND + 1]);
-    assert!(matches!(packify(too_wide.clone()).kind, TyKind::Error(_)));
+    assert!(matches!(too_wide.clone().star().kind, TyKind::Error(_)));
     assert!(matches!(map_task(too_wide, atom("A")).kind, TyKind::Error(_)));
 }
 
@@ -140,7 +141,7 @@ fn merged_declarations_and_new_pack_shells_obey_the_result_limit() {
     let wide = tuple(vec![atom("A"); MAX_EXPAND - 2]);
     // Input fits exactly, but wrapping a non-container needs another node.
     let host = TyWithPrefix(TyPrefix::Ref, wide.into()).to_ty();
-    assert!(matches!(packify(host).kind, TyKind::Error(_)));
+    assert!(matches!(host.star().kind, TyKind::Error(_)));
     let carrier = |inner: Ty| {
         TyWithType(
             TyTypeParam {

@@ -1,7 +1,8 @@
 //! Structural assertions for the internal kernel. No test uses the legacy
 //! splat collector as a substitute for future Pack materialization.
 
-use super::pack::{map_task, packify};
+use super::pack::map_task;
+use super::star::Star;
 use crate::ast::*;
 use quote::{ToTokens, quote};
 
@@ -49,17 +50,17 @@ pub(super) fn split_decl(value: &Ty) -> (&TyTypeParam, &Ty) {
 }
 
 #[test]
-fn packify_opens_one_layer_and_is_idempotent() {
+fn star_opens_one_layer_and_is_idempotent() {
     let nested = tuple(vec![tuple(vec![atom("A"), atom("B")]), choice(vec![atom("C"), atom("D")])]);
-    let opened = packify(nested);
+    let opened = nested.star();
     same(
         &opened,
         &pack(vec![tuple(vec![atom("A"), atom("B")]), choice(vec![atom("C"), atom("D")])]),
     );
-    same(&packify(opened.clone()), &opened);
-    same(&packify(atom("A")), &pack(vec![atom("A")]));
+    same(&opened.clone().star(), &opened);
+    same(&atom("A").star(), &pack(vec![atom("A")]));
     same(
-        &packify(TyGroup(choice(vec![atom("A"), atom("B")]).into()).to_ty()),
+        &TyGroup(choice(vec![atom("A"), atom("B")]).into()).to_ty().star(),
         &pack(vec![atom("A"), atom("B")]),
     );
 }
@@ -74,12 +75,12 @@ fn pack_serialization_retains_singleton_layers() {
 }
 
 #[test]
-fn packify_keeps_unused_declarations_bounds_and_bindings() {
+fn star_keeps_unused_declarations_bounds_and_bindings() {
     let params = TyTypeParam {
         params: vec![(atom("T").into(), Some(atom("Clone").into()))],
         bindings: vec![(atom("Item").into(), atom("u8").into())],
     };
-    let actual = packify(TyWithType(params.clone(), tuple(vec![]).into()).to_ty());
+    let actual = TyWithType(params.clone(), tuple(vec![]).into()).to_ty().star();
     same(&actual, &TyWithType(params, pack(vec![]).into()).to_ty());
 }
 

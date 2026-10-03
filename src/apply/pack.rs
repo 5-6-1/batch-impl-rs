@@ -1,5 +1,7 @@
-//! Pack application kernel. Mapping preserves direct right rows; ordinary
-//! hosts consume the resulting packs later in `ast::materialize`.
+//! Pack application kernel: mapping preserves direct right rows, ordinary hosts
+//! consume the resulting packs later in `ast::materialize`, and the arithmetic of
+//! packs (powers, rows, splicing) lives in the `Apply` impls here. Opening a
+//! starred operand — `X.star()` — is the sibling operator, in [`super::star`].
 
 use proc_macro2::Span;
 
@@ -7,31 +9,10 @@ use super::pack_limits::{check_depth, check_generation, checked_input, checked_r
 use super::{Apply, apply_tuple::tuple_pow, check_expand_mass};
 use crate::ast::*;
 
-/// Opens only a value's direct container layer. A normal tuple or candidate
-/// nested inside that layer remains an ordinary type/candidate node.
-pub(crate) fn packify(value: Ty) -> Ty {
-    match checked_input(value) {
-        Ok(value) => checked_result(packify_inner(value)),
-        Err(error) => error,
-    }
-}
-
-fn packify_inner(value: Ty) -> Ty {
-    let Ty { span, kind } = value;
-    match kind {
-        TyKind::Group(g) => packify_inner(*g.0),
-        TyKind::WithType(w) => carry(w.0, packify_inner(*w.1), span),
-        TyKind::Pack(p) => p.to_ty().with_span(span),
-        TyKind::Tuple(t) => TyPack(t.0).to_ty().with_span(span),
-        TyKind::Array(a) => TyPack(a.0).to_ty().with_span(span),
-        other => TyPack(vec![Ty { span, kind: other }]).to_ty().with_span(span),
-    }
-}
-
 /// Keeps declarations independently of the result's used names, including
 /// empty packs. Bounds and bindings are not deduplicated here: fresh identity
 /// merging belongs to the existing codegen declaration pass.
-fn carry(mut params: TyTypeParam, value: Ty, span: Span) -> Ty {
+pub(crate) fn carry(mut params: TyTypeParam, value: Ty, span: Span) -> Ty {
     match value.kind {
         TyKind::WithType(inner) => {
             params.extend(inner.0);
@@ -180,8 +161,8 @@ fn numeric_slots(value: Ty, slots: &mut Vec<Ty>, decl: &mut Option<TyTypeParam>)
     }
 }
 
-/// Changes only the result containers produced by tuple generation; applying
-/// `packify` to a candidate result would accidentally collect its branches.
+/// Changes only the result containers produced by tuple generation; starring a
+/// candidate result (`X.star()`) would accidentally collect its branches.
 fn generated_pack(value: Ty) -> Ty {
     let Ty { span, kind } = value;
     match kind {
