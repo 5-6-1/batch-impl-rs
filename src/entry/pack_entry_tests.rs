@@ -99,7 +99,7 @@ fn the_spec_limit_counts_pack_targets_from_every_top_level_candidate() {
     assert_eq!(impls(trait_output(quote!([#(#packs),*]))).len(), 1024);
     let packs = vec![one_pack; 17];
     let out = trait_output(quote!([#(#packs),*]));
-    assert!(out.to_string().contains("the spec expands to 1088 impls"), "{out}");
+    assert!(out.to_string().contains("more than 1024 impls"), "{out}");
     assert!(!out.to_string().contains("impl Marker"), "partial impls escaped: {out}");
 }
 
