@@ -159,7 +159,9 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(row.params, ())
 
     def test_long_application_chain_has_a_semantic_depth_guard(self):
-        source = "(*F " + " ".join("*[A,]" for _ in range(100)) + ",)"
+        # 200, not 100: the guard sits at the macro's own limit (128), so a chain that
+        # overruns it has to be longer than that to exercise it at all.
+        source = "(*F " + " ".join("*[A,]" for _ in range(200)) + ",)"
         with self.assertRaises(ModelError) as error:
             evaluate(source)
         self.assertEqual(error.exception.code, "depth-limit")

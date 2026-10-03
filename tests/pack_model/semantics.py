@@ -19,7 +19,12 @@ def guarded(method):
     def call(self, *args):
         self.depth += 1
         try:
-            if self.depth > 64:
+            # The macro's limit is MAX_NEST_DEPTH = 128, and a differential probe measured
+            # this guard refusing 64..127 levels that the macro accepts and compiles - four
+            # times tighter than the parser's own guard (syntax.py allows 128 levels,
+            # measured), so the model contradicted itself before it contradicted the macro.
+            # Matching the macro is what keeps the two answers comparable.
+            if self.depth > 128:
                 raise ModelError("depth-limit", "semantic nesting exceeds the experiment limit")
             return method(self, *args)
         finally:
