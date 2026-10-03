@@ -661,6 +661,11 @@ list. Consequently `(*[u8, u16])` is a grouped pack (two target impls),
 while `(*[u8, u16],)` is one tuple. `[*[u8, u16]]` is invalid: a
 slice has exactly one element-type slot.
 
+A **list distributes** where a pack is rejected: the element slot of a slice or
+array takes a list, so `[[u8, u16]]` is two slices and `[[u8, u16]; 4]` is
+`[u8; 4]` and `[u16; 4]` — the way to wrap a family when there is no builder
+spelling. A pack in the same slot is the cardinality error above.
+
 Nested prefixes are idempotent: `*(*X)` is `*X`. There is no separate
 double-star operation. To retain a row, put it in an ordinary tuple or
 generic host, as in §4.2.
@@ -670,6 +675,11 @@ generic host, as in §4.2.
 `*[].N` generates a pack of `N` independent parameters. Copying a
 generated member preserves its identity; executing another generator
 creates another group. `*[].0` creates no parameters.
+
+Emptiness is a *base*, not a target: `*[]` on its own is a spec that expands to
+nothing and is diagnosed (write the targets out, or size it), while `*[].N` is
+the generator above. An empty pack in an argument position (`Vec<*[]>`) is
+diagnosed too.
 
 Ordinary tuple powers still repeat their **direct slots**:
 `([u8, u16],).2` has four combinations, and `(*[u8, u16],).2`

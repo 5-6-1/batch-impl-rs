@@ -110,13 +110,13 @@ The same construct is legal in different places because the gate is a property o
 
 | Position | bound `T: Clone` | binding `Item = u32` | pack `*X` | generator `().N` | `@` refs | `X<>` sync |
 |---|---|---|---|---|---|---|
-| Trait application `Conv<…> X` | ✓ | ✓ (hoisted into the impl body — `impl Trait<Item=u8> for X` is E0229) | ✓ `Conv<*(A,B)> X` → `Conv<A,B>` | ✓ (fresh declarations hoisted onto the impl) | ✓ | ✓ |
-| Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✓ `<*(A,B)>` → `<A, B>` | ✗ targeted error (the block *is* the impl's parameter list, so its freshs would never be used; ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
-| Plain type args `Vec<…>` | ✗ targeted error | ✗ targeted error (ui `concrete_binding` / `concrete_bound`) | ✓ `T<*(A,B)>` → `T<A,B>` | ✓ | ✓ | ✓ |
-| Inline bound `<T: …>` | ✓ | ✓ | ✓ `<T: Tr<*(u8, u16)>>` → `<T: Tr<u8, u16>>` | ✓ (`Fn.().N` freshs hoist onto the impl) | ✓ | ✓ |
-| `dyn` / `for<'a>` tail | ✓ | ✓ | ✓ `dyn Tr<*(A,B)>` → `dyn Tr<A,B>` (measured) | ✓ | ✓ | ✓ |
+| Trait application `Conv<…> X` | ✓ | ✓ (hoisted into the impl body — `impl Trait<Item=u8> for X` is E0229) | ✓ `Conv<*[A, B]> X` → `Conv<A,B>` | ✓ (fresh declarations hoisted onto the impl) | ✓ | ✓ |
+| Generic declaration `<…>` | ✓ | ✗ targeted error (a declaration declares **parameters**; the message gives the trait-application spelling) | ✓ `<*[A, B]>` → `<A, B>` | ✗ targeted error (the block *is* the impl's parameter list, so its freshs would never be used; ui `decl_generator_splat`) | ✓ (`<@0..>` declares freshs) | ✓ (`A<>` expands in the head) |
+| Plain type args `Vec<…>` | ✗ targeted error | ✗ targeted error (ui `concrete_binding` / `concrete_bound`) | ✓ `T<*[A, B]>` → `T<A,B>` | ✓ | ✓ | ✓ |
+| Inline bound `<T: …>` | ✓ | ✓ | ✓ `<T: Tr<*[u8, u16]>>` → `<T: Tr<u8, u16>>` | ✓ (`Fn.().N` freshs hoist onto the impl) | ✓ | ✓ |
+| `dyn` / `for<'a>` tail | ✓ | ✓ | ✓ `dyn Tr<*[A, B]>` → `dyn Tr<A,B>` (measured) | ✓ | ✓ | ✓ |
 | `where` predicate | ✓ | — | ✗ reported by the final predicate check (see §7) | — | ✓ (the `@N` family) | ✓ |
-| Target type (a callable's parameter list is the same list) | ✗ | ✗ | ✓ `fn(u8, *(u16, u32))` → `fn(u8, u16, u32)`, as inside a tuple | ✓ | ✓ | ✓ |
+| Target type (a callable's parameter list is the same list) | ✗ | ✗ | ✓ `fn(u8, *[u16, u32])` → `fn(u8, u16, u32)`, as inside a tuple | ✓ | ✓ | ✓ |
 | `impl{...}` template | — | — | ✗ (a template is a standard Rust type; syn rejects DSL operators) | ✗ same | ✓ (`@trait` / `@` expand via `expand_consts`) | ✓ |
 | Body | — | — | ✗ (not interpreted; `a * b` stays a multiplication) | — | ✓ (`@N`; `@{N}` needs the `impl{@{}}` switch) | — |
 | Directive argument `#fill(…)` | — | — | — | — | ✓ (`@all` families, `[a,b]` lists) | — |
@@ -154,7 +154,7 @@ The power is written `.N`, attached to the value it repeats: `T.N` expands a tup
 
 `*[].N` generates a pack of N fresh parameters, whose members are spliced into an argument or tuple host: `T.*[].2` declares two freshs and uses them in the target (`impl<P0, P1> … for T<P0, P1>`).
 
-**The caret is not an operator**: `(u8, u16)^2`, `Box^*()^2` and `Box<()^2>` are all rejected with the retired-operator message quoted in §10.1 (`caret_power_retired`) — on the caret itself, naming the `.N` spelling that works. The same message covers a caret in a **bound** position (`<T: Tr^u8>`). Older docs spell the power with `^`, so write `.N`.
+**The caret is not an operator**: `(u8, u16)^2`, `Box^*[]^2` and `Box<()^2>` are all rejected with the retired-operator message quoted in §10.1 (`caret_power_retired`) — on the caret itself, naming the `.N` spelling that works. The same message covers a caret in a **bound** position (`<T: Tr^u8>`). Older docs spell the power with `^`, so write `.N`.
 
 ### 3.5 `self` and the bare-type placeholder
 
@@ -174,7 +174,7 @@ When the head names the annotated trait (or is `@trait`), the first element is t
 | `Box u8 u16` | `Box<u8, u16>` — two arguments, not nested generics |
 | `Box Vec u8` | `Box<Vec, u8>` — the space accumulates; use grouping (`Box (Vec u8)`) or `.` (`Box.Vec.u8`) for `Box<Vec<u8>>` |
 | `& Box u8` | `&Box<u8>` — the prefix takes the following block |
-| `*(A,B)` alone as the target | one impl per element; `(A,B)` instead gives one tuple impl (collision rules: §4.6) |
+| `*[A, B]` alone as the target | one impl per element; `(A,B)` instead gives one tuple impl (collision rules: §4.6) |
 | a nested type like `HashMap<String, Vec<(u8, u16)>>` | written and parsed directly — no passthrough form |
 
 ### 3.8 Prefixes and attributes
@@ -196,14 +196,18 @@ A prefix is a block that takes the block after it (`& Box u8` = `&Box<u8>`). Whe
 ### 4.1 The rule
 
 `*X` opens one block into a **pack**. Transparent groups do not change it.
-A tuple or choice list contributes its direct members; a pack stays a pack;
-any other type contributes one whole member. Declaration carriers accompany
-their members. Opening does not recursively enter ordinary types.
+**Only a candidate list is opened**: its direct members become the pack's
+members. A pack stays a pack. A tuple, the unit type, a slice `[T]` and an
+array `[T; N]` are *types*, so each contributes **one whole member**.
+Declaration carriers accompany their members. Opening does not recursively
+enter ordinary types.
 
-`*(A, B)` and `*[A, B]` therefore have the same pack representation.
-`*A` is a singleton, `*()` is empty, and `*(*X)` equals `*X`.
-There is no special double-star operation. `*const T` and `*mut T`
-are raw pointers, selected before the pack prefix is considered.
+`*[A, B]` is therefore two members, while `*(A, B)` is one member whose type is
+the tuple `(A, B)`; `*[A,]` is one member and `*[]` is empty. A spec that
+expands to nothing is diagnosed (§10), and `*[].N` sizes that emptiness into a
+generator (§4.5). `*A` is a singleton and `*(*X)` equals `*X`. There is no
+special double-star operation. `*const T` and `*mut T` are raw pointers,
+selected before the pack prefix is considered.
 
 ### 4.2 Groups, tuples and choices
 
@@ -214,13 +218,13 @@ spelling keeps its separate rule (§5).
 
 | Written | Meaning |
 |---|---|
-| `(*(A, B))` | a grouped pack; two targets at the root |
-| `(*(A, B),)` | one tuple `(A, B)` |
-| `[*(A, B)]` | a slice element slot containing two members: error |
-| `[*(A, B),]` | a choice whose pack contributes targets `A`, `B` |
-| `*((A, B),)` | one pack member: the whole tuple `(A, B)` |
-| `*(A, [B, C])` | two branches, containing `A, B` or `A, C` |
-| `*(A, *[B, C])` | one pack containing `A, B, C` |
+| `(*[A, B])` | a grouped pack; two targets at the root |
+| `(*[A, B],)` | one tuple `(A, B)` |
+| `[*[A, B]]` | a slice element slot containing two members: error |
+| `[*[A, B],]` | a choice whose pack contributes targets `A`, `B` |
+| `*(A, B)` | one pack member: the whole tuple `(A, B)` |
+| `*[A, [B, C]]` | two branches, containing `A, B` or `A, C` |
+| `*[A, *[B, C]]` | one pack containing `A, B, C` |
 
 Choices do not turn into members merely because they are inside a pack.
 They keep their branching role until explicitly opened.
@@ -243,13 +247,13 @@ right-associative dot. The dispatch order is:
 
 | Written | Result when placed in a tuple |
 |---|---|
-| `(*(Vec, Box) u8,)` | `(Vec<u8>, Box<u8>)` |
-| `(*Vec *(u8, u16),)` | `(Vec<u8>, Vec<u16>)` |
-| `(*Pair (*(self, Vec) *().2),)` | `(Pair<T0, Vec<T0>>, Pair<T1, Vec<T1>>)` |
-| `(*((),) (*(self, Vec) *().2),)` | `((T0, Vec<T0>), (T1, Vec<T1>))` |
-| `(*Map *().2 *().3,)` | `(Map<T0,U0>, Map<T1,U0>, Map<T0,U1>, Map<T1,U1>, Map<T0,U2>, Map<T1,U2>)` |
+| `(*[Vec, Box] u8,)` | `(Vec<u8>, Box<u8>)` |
+| `(*Vec *[u8, u16],)` | `(Vec<u8>, Vec<u16>)` |
+| `(*Pair (*[self, Vec] *[].2),)` | `(Pair<T0, Vec<T0>>, Pair<T1, Vec<T1>>)` |
+| `(*() (*[self, Vec] *[].2),)` | `((T0, Vec<T0>), (T1, Vec<T1>))` |
+| `(*Map *[].2 *[].3,)` | `(Map<T0,U0>, Map<T1,U0>, Map<T0,U1>, Map<T1,U1>, Map<T0,U2>, Map<T1,U2>)` |
 
-An ordinary left type does not map: `Pair *(A, B)` keeps the pack in an
+An ordinary left type does not map: `Pair *[A, B]` keeps the pack in an
 argument slot and materializes as `Pair<A, B>`.
 Literal `F<...>` consumes its arguments directly; it never replays
 application. These are evaluation rules, not unrestricted rewrites of
@@ -267,14 +271,24 @@ No apply or fresh generation occurs during this step.
 | Tuple elements, generic / trait arguments, callable parameters | any number of members, in order |
 | Reference or pointer target, slice / array element, function return | exactly one member in each branch |
 | Individual `+` bound, associated-type binding value, parsed type head of a qualified path | exactly one member in each branch |
-| Declaration block `<*(A, B)>` | splice names, then validate declarations; a fresh generator here is rejected |
+| Declaration block `<*[A, B]>` | splice names, then validate declarations; a fresh generator here is rejected |
 | `where{...}`, `impl{...}` template | standard Rust type domain; no pack operators |
 | Body / directive arguments | their own syntax domain; no pack interpretation |
 
-For example, `fn(*(u8, u16))` is `fn(u8, u16)`,
-`&*u8` is `&u8`, and `&*(u8, u16)` is a targeted error.
+For example, `fn(*[u8, u16])` is `fn(u8, u16)`,
+`&*u8` is `&u8`, and `&*[u8, u16]` is a targeted error.
 A choice with no branches emits nothing; a selected empty pack in a
 single-type slot is an error.
+
+A **list** and a **pack** differ in a single-slot host: a list there
+*distributes* (`[[u8, u16]; 4]` is `[u8; 4]` and `[u16; 4]`, `[[u8, u16]]` is two
+slices), while a pack there is the cardinality error above (`[*[u8, u16]; 4]`).
+That is how a family is wrapped in a slice or an array: the element slot takes
+the list.
+
+Emptiness is meaningful only where it is the point; the two cases that are not
+are diagnosed rather than rendered — a spec that expands to zero targets
+(`*Vec *[]`, `*[].0`) and an argument that expands to none (`Vec<*[]>`).
 
 The `::Assoc<...>` continuation of a qualified path and the trait path after
 `as` in `<T as Trait>::Assoc` remain ordinary Rust paths; packs are not spliced
@@ -284,7 +298,7 @@ inside those parts. They differ from the parsed type head that can receive a pac
 
 Ordinary tuple powers operate on direct slots:
 `([A, B],).2` retains four combinations, while
-`(*(A, B),).2` repeats the one pack slot and becomes `(A, B, A, B)`.
+`(*[A, B],).2` repeats the one pack slot and becomes `(A, B, A, B)`.
 Pack powers first flatten nested packs and transparent groups, carrying
 declarations but keeping ordinary tuples and choices intact, then use the
 ordinary power rules. The generated tuple in each branch is returned as
@@ -292,11 +306,11 @@ a pack.
 
 `*[].N` generates `N` independent parameters; `.0` allocates none.
 Copying a generated parameter preserves identity. Distinct generator
-executions allocate distinct groups. Thus `(*(),).2` becomes unit with
-no declarations, whereas `*(*(),).2` generates two parameters.
+executions allocate distinct groups. Thus `(*[],).2` becomes unit with
+no declarations, whereas `*[*[],].2` generates two parameters.
 
 Declarations are not erased because a host has no members:
-`(*Map *().2 *().0,)` leaves two unused parameters on unit (E0207).
+`(*Map *[].2 *[].0,)` leaves two unused parameters on unit (E0207).
 By contrast, `(*(().2),).0` discards the whole template before
 materialization and has no declarations.
 
@@ -308,27 +322,46 @@ promise that every nested construction of that length fits.
 
 ### 4.6 Branches, coherence and migration
 
-`([*Vec, *Box] *().2,)` makes two uniform branches.
-`(*([Vec, Box],) *().2,)` makes four independent choices.
-`(*(Vec, Box) *().2,)` makes one tuple containing four members.
+`([*Vec, *Box] *[].2,)` makes two uniform branches.
+`(*[[Vec, Box],] *[].2,)` makes four independent choices.
+`(*[Vec, Box] *[].2,)` makes one tuple containing four members.
 There is no global step that freezes every nested choice before apply.
 
 A fixed two-axis pack can share five parameters across six members.
 Flattening two *length ranges* can nevertheless yield overlapping generic
 impl patterns (E0119). Retaining rows with
-`(*((),) (*Map *().1..=2 *().1..=3),)` preserves the dimensions.
+`(*() (*Map *[].1..=2 *[].1..=3),)` preserves the dimensions.
 Repeated targets are never silently removed.
 
 Migration from the previous splat behavior:
 
-- `*(F, G) T` now maps both constructors. For the old tuple-append
-  behavior, write `*((F, G) T)`.
-- `*[F, G].2` now uses the same pack power as `*(F, G).2`.
+- `*[F, G] T` maps both constructors; state the family as a list. The old
+  tuple-append spelling `*((F, G) T)` is one member now, because a tuple is a
+  type — open a list when you mean to gather.
+- `*[F, G].2` uses the same pack power as the old spelling.
 - A lone pack no longer promotes a group to a container. Add the comma
   when you mean `(*X,)` or `[*X,]`.
 - Nested ordinary choices remain choices. Use another explicit `*`
   when you intend to gather their members.
-- Existing right-side splicing such as `T.*(A, B)` still works.
+- Right-side splicing such as `T.*[A, B]` still works.
+
+Migration to the list-only `*` (this release) — one naming, one job per bracket:
+
+| Old spelling | Meaning then | New spelling |
+|---|---|---|
+| `*(A, B)` | two members | `*[A, B]` |
+| `*(A,)` | one member `A` | `*[A,]` |
+| `*()` | the empty pack | `*[]` |
+| `*((A, B),)` | one member: the tuple `(A, B)` | `*(A, B)` |
+| `*((),)` | one member: the unit type | `*()` |
+| `*().N`, `*(().N)` | the generator | `*[].N` |
+| `[] [A, B]`, `[] [A, B] N` | the slice/array builder | `[[A, B]]`, `[[A, B]; N]` |
+| `*[A]`, `*[A,]`, `*[T]`, `*[T; N]` | unchanged | unchanged |
+
+A tuple is a type, so `*(A, B)` is one member; only a list is opened. A spec
+that expands to nothing (`*Vec *[]`) and an argument that expands to none
+(`Vec<*[]>`), and a carrier left as the whole target (`*const`, `*self`), are
+diagnosed rather than rendered.
 
 The [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md)
 §4 includes complete programs. The
@@ -550,7 +583,7 @@ Once every fill has run, the predicates are parsed as **Rust predicates** and a 
 | Shape | What it reports |
 |---|---|
 | a missing `:` — `where{ A B }` | "a where predicate must be a Rust predicate — write `T: Bound` (a missing `:`, `T Clone`, is the usual cause); a `*(…)` splat is not expanded inside a predicate, so write the types out" (`where_not_a_predicate`) |
-| a splat inside a predicate — `(*(A,B)): Trait`, `X: Trait<*(A,B)>` | the same message: no stage expands a splat inside a predicate, so the check is what reports it |
+| a splat inside a predicate — `(*[A, B]): Trait`, `X: Trait<*[A, B]>` | the same message: no stage expands a splat inside a predicate, so the check is what reports it |
 | a bare splat subject — `where{*[A, B]: Trait}` | "a splat cannot be a where-predicate subject (`*[A, B]: Trait`) — a `*(…)` list is a parameter position, and a predicate is a constraint, not a list; write the predicates out (`A: Trait, B: Trait`)" (`where_splat_bad`) |
 | an empty exclusive range — `where{@2..2: Clone}` | "empty exclusive range `@2..2` (start not below end)" (`where_empty_exclusive_range`) |
 
@@ -751,7 +784,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `leading_operator` | `.A`, and a leading `-` (`-usize`, `Vec<u8>, -u16`) | batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`) | DSL |
 | `num_as_left_operand` | `0.T` | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
 | `literal_and_range` | `1.5` / `1..x` | batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types | DSL |
-| `decl_generator_splat` | `<*().3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*[].2`) | DSL |
+| `decl_generator_splat` | `<*[].3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*[].2`) | DSL |
 | `semi_in_spec` | a stray `;` after a type | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
 | `caret_power_retired` | `(u8, u16)^2`, `<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*[].2` for a generator) | DSL |
@@ -762,11 +795,11 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `star_bare_self` | `*self` (a lone `self` carrier) | batch-impl: `self` is the whole right operand (`self.T` applies `T` to it), not a type on its own | DSL |
 | `star_bare_where` | `*where { … }` (a predicate with no type) | batch-impl: a `where{…}` block is not a type — attach it to the type it constrains (`X where { … }`) | DSL |
 | `pack_zero_targets` | `*Vec *[]` (a spec with no targets) | batch-impl: this spec expands to zero impls — a star over an empty list (`*[]`, `*[].0`) has no members; write the targets out or drop the spec | DSL |
-| `pack_single_slot` | a single-type host receives zero or multiple types; `<*(Vec<u8>,)>` declares a constructed type; or copying nested structures across 10 independent choice slots exceeds the cumulative budget | batch-impl: this type position requires exactly one type; the pack expands to 2 types (0 types for an empty pack); declaration error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type; work error: batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
-| `pack_flat_overlap` | overlapping flat family `(*Map *().1..=2 *().1..=3,)` | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
-| `pack_unused_axis` | `(*Map *().2 *().0,)` retains unconstrained first-axis parameters | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
-| `pack_bare_fresh` | `*().2` emits individual targets with the complete declarations | conflicting implementations of trait `BareFresh`; unconstrained parameters are also reported | rustc E0119 / E0207 |
-| `pack_duplicate` | `*(u8,u8)` does not deduplicate | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
+| `pack_single_slot` | a single-type host receives zero or multiple types; `<*[Vec<u8>,]>` declares a constructed type; or copying nested structures across 10 independent choice slots exceeds the cumulative budget | batch-impl: this type position requires exactly one type; the pack expands to 2 types (0 types for an empty pack); declaration error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type; work error: batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
+| `pack_flat_overlap` | overlapping flat family `(*Map *[].1..=2 *[].1..=3,)` | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
+| `pack_unused_axis` | `(*Map *[].2 *[].0,)` retains unconstrained first-axis parameters | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
+| `pack_bare_fresh` | `*[].2` emits individual targets with the complete declarations | conflicting implementations of trait `BareFresh`; unconstrained parameters are also reported | rustc E0119 / E0207 |
+| `pack_duplicate` | `*[u8, u8]` does not deduplicate | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
 | `pack_shared_identity` | mismatched Pair types at one fresh position, or mixing a uniform wrapper choice | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
 | `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: unexpected `#` in a type position | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
@@ -816,7 +849,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `at_range_in_type` | `Vec<@0..=2>` with none | batch-impl: `@0..=2` out of range — this scope has 0 fresh generics (numbered from 0 in document order) | DSL |
 | `at_empty_range_in_angle` | `Box<@2..1>` | batch-impl: empty exclusive range `@2..1` (start not below end) | DSL |
 | `at_open_range_bare` | a top-level `A@..` | batch-impl: range constant `@..` must name an end point (e.g. `@..u128`, `@..=f64`) | DSL |
-| `at_binding_splat` | `Tr<Item = *(A,B)>`; a binding value accepts one type per branch | batch-impl: this type position requires exactly one type; the pack expands to 2 types | DSL |
+| `at_binding_splat` | `Tr<Item = *[A, B]>`; a binding value accepts one type per branch | batch-impl: this type position requires exactly one type; the pack expands to 2 types | DSL |
 | `at_segment_carrier_in_body` | a `@{...}` carrier in a body | batch-impl: `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are referenced through repeat blocks (`@A`) or an explicit template name (`impl{(A0, @A..)}`), never as `@{...}` | DSL |
 | `error_aggregation_codegen` | several dangling `@N` references | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `empty_range` | an empty numeric range in a spec | batch-impl: range `3..2` is empty (start not below end); no impls will be generated | DSL |
@@ -1057,13 +1090,13 @@ Each of these is a question the surface invites, answered with the rule that pro
 
 **Why is a splat refused in a `where` predicate?** The clause stays token-level all the way to the output, so the final predicate check reports it. Every other parameter-position list expands (§4).
 
-**How does `*(A,B)` alone as the target differ from `(A,B)`?** The standalone splat generates an impl for each element; the tuple generates one impl for `(A,B)`. Distinct elements such as `u8` and `u16` work in the splat form. E0119 comes from overlapping generated impls, for example `*(u8, u8)`, not from using a splat as the target (§4.6).
+**How does `*[A, B]` alone as the target differ from `(A,B)`?** The standalone splat generates an impl for each element; the tuple generates one impl for `(A,B)`. Distinct elements such as `u8` and `u16` work in the splat form. E0119 comes from overlapping generated impls, for example `*[u8, u8]`, not from using a splat as the target (§4.6).
 
 **Why does `@0..2` cover two freshs?** An exclusive range excludes its end in *every* position, so the type path and the where-predicate path agree — write `@0..=1` for the inclusive spelling.
 
 **Why is `where{@5..: Clone}` not an error on a two-fresh impl?** An open range past the end contributes nothing — an arity-dependent spec must not fail just because a shorter case has fewer freshs.
 
-**Why is a fresh generator in a `<>` block an error?** The block *is* the impl's parameter list, so its freshs would be declared and never used (E0392). Write the generator on the type instead: `T.*[].2` splices the generated parameters, while `T<()2>` keeps them as one tuple argument (both measured) — and a plain splat there is fine (`<*(A,B)>` → `<A, B>`).
+**Why is a fresh generator in a `<>` block an error?** The block *is* the impl's parameter list, so its freshs would be declared and never used (E0392). Write the generator on the type instead: `T.*[].2` splices the generated parameters, while `T<()2>` keeps them as one tuple argument (both measured) — and a plain splat there is fine (`<*[A, B]>` → `<A, B>`).
 
 **Why does an impl-entry spec list with nothing in it re-emit the block?** The entry is a *derivation* (`0..N` impls per spec), so an empty list is the identity: the block you wrote comes back unchanged.
 
