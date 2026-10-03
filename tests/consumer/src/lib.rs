@@ -2,7 +2,7 @@
 //!
 //! Everything here is written the way a *downstream* crate uses the macros: a
 //! path dependency, `warnings = "deny"`, clippy `pedantic`, and a module that
-//! shadows every name the expansion might reach for. The library's own suite
+//! shadows the names the expansions are known to reach for. The library's own suite
 //! cannot see this axis — the library *is* the crate, so its lints and its scope
 //! are not a consumer's. Run it with:
 //!
@@ -31,7 +31,7 @@ pub trait Width {
 }
 
 /// The expansion must not resolve anything through the *invoking module's* scope:
-/// every name it could reach for by name is shadowed here.
+/// the names the expansions reach for are shadowed here.
 ///
 /// Note the import spelling. A module item called `batch_impl` shadows the extern
 /// crate's name, so the macro has to be named through the leading `::`. That is
@@ -76,7 +76,10 @@ pub mod hostile {
     /// Shadows the crate root's `alloc`.
     pub mod alloc {}
 
-    /// Shadows the first fresh generic name a generator would mint.
+    /// Shadows the first fresh generic name a generator would mint. A generated impl
+    /// binds its fresh names as generic parameters of that impl, and a generic parameter
+    /// legally shadows an outer item, so what this can actually catch is a rendering that
+    /// emits the name as a type instead of binding it.
     ///
     /// This one is a *statement about the render*, not a trap: the fresh name is
     /// a generic parameter of the generated impl, and a generic parameter
