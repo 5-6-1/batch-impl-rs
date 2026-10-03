@@ -4,7 +4,7 @@ use syn::ItemTrait;
 
 use crate::TraitBounds;
 use crate::apply::err_ty;
-use crate::ast::{Expand, MAX_EXPAND, Op, Ty, TyError, TyKind, reset_fresh_counter};
+use crate::ast::{Expand, MAX_EXPAND, Op, Ty, TyError, TyKind, TyPrefix, reset_fresh_counter};
 use crate::codegen::generate_impl;
 use crate::parse::{Ctx, parse_item};
 use crate::util::Cursor;
@@ -28,6 +28,42 @@ use crate::util::Cursor;
 /// leaf to emit the corresponding impl block. Note: a bare code block `WithCode(None, ...)`
 /// is also a leaf, injected verbatim as a top-level item by `generate_impl` (the carrier of
 /// open instruction extensions).
+/// A target that is still a bare carrier never became a type: a pointer prefix
+/// without a pointee, a lone `self`, or a `where{…}` block with nothing to
+/// constrain would each render invalid Rust (`impl Tr for *const {}`). Returns the
+/// wording for the first such carrier, if the target tree contains one.
+fn leaked_carrier(value: &Ty) -> Option<&'static str> {
+    fn scan(value: &Ty, found: &mut Option<&'static str>) {
+        if found.is_some() {
+            return;
+        }
+        *found = match &value.kind {
+            TyKind::WithPrefix(w) if w.1.is_none() => match w.0 {
+                TyPrefix::PtrConst | TyPrefix::PtrMut => {
+                    Some("`*const` / `*mut` needs a pointee type — write `*const T`")
+                }
+                TyPrefix::SelfType => Some(
+                    "`self` is the whole right operand (`self.T` applies `T` to it), not a type \
+                     on its own",
+                ),
+                _ => None,
+            },
+            TyKind::WithWhere(w) if w.0.is_none() => Some(
+                "a `where{…}` block is not a type — attach it to the type it constrains \
+                 (`X where { … }`)",
+            ),
+            _ => None,
+        };
+        value.clone().map_children(&mut |child| {
+            scan(&child, found);
+            child
+        });
+    }
+    let mut found = None;
+    scan(value, &mut found);
+    found
+}
+
 // Pipeline entry with many context params (spec tokens, trait path/name,
 // bounds, fresh-name list) — clippy's default 7-arg threshold is not useful
 // here; a context struct would obscure the one-shot pipeline flow.
@@ -116,6 +152,12 @@ pub(crate) fn collect_spec_leaves(
                 "batch-impl: this spec expands to zero impls — a star over an empty list \
                  (`*[]`, `*[].0`) has no members; write the targets out or drop the spec",
             ));
+        }
+        // A target that is still a bare carrier never became a type; report the
+        // first one instead of rendering `impl Tr for *const {}`.
+        if let Some(what) = tys.iter().skip(start).find_map(leaked_carrier) {
+            tys.truncate(start);
+            tys.push(err_ty(&format!("batch-impl: {what}")));
         }
         // Global backstop behind the per-step expansion checks (Array
         // dispatch / range chains / tuple powers / Cartesian products): if a

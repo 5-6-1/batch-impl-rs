@@ -730,6 +730,9 @@ impl<const N: usize> Width for Bytes<N> {
 | `star_misuse` | 裸 `*` | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
 | `star_non_type` | `*1`（字面量操作数） | batch-impl: `*` needs a type operand — a literal, range or lifetime is not a type (write `*T` or `*[A, B]`) | DSL |
 | `pack_empty_argument` | `Vec<*[]>`（展开为空的实参） | batch-impl: this argument list requires at least one type, but the pack expands to none (`*[]` is a star over the empty list) | DSL |
+| `star_bare_pointer` | `*const`（缺指向类型的指针前缀） | batch-impl: `*const` / `*mut` needs a pointee type — write `*const T` | DSL |
+| `star_bare_self` | `*self`（孤立的 `self` 载体） | batch-impl: `self` is the whole right operand (`self.T` applies `T` to it), not a type on its own | DSL |
+| `star_bare_where` | `*where { … }`（没有类型的谓词） | batch-impl: a `where{…}` block is not a type — attach it to the type it constrains (`X where { … }`) | DSL |
 | `pack_zero_targets` | `*Vec *[]`（没有任何目标的 spec） | batch-impl: this spec expands to zero impls — a star over an empty list (`*[]`, `*[].0`) has no members; write the targets out or drop the spec | DSL |
 | `pack_single_slot` | 单类型槽收到零个或多个类型；`<*(Vec<u8>,)>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
 | `pack_flat_overlap` | `(*Map *().1..=2 *().1..=3,)` 的扁平类型族重叠 | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
@@ -739,7 +742,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `pack_shared_identity` | 同位置的 Pair 参数不相同，或整体包装选择被混用 | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
 | `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | batch-impl: unexpected `#` in a type position | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
-| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…`) are not allowed there | DSL |
+| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
 | `global_path_no_ident` | 结尾的 `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
 | `path_prefix_mismatch` | `# path::Other: Trait` | batch-impl: path prefix `#...Other` has a trailing ident that differs from the trait name `MyTrait`; the two must be identical | DSL |
 | `group_angle_bare` | `(...)` 里的 `<...>` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |

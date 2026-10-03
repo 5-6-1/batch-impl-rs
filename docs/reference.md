@@ -758,6 +758,9 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `star_misuse` | a bare `*` | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
 | `star_non_type` | `*1` (a literal operand) | batch-impl: `*` needs a type operand — a literal, range or lifetime is not a type (write `*T` or `*[A, B]`) | DSL |
 | `pack_empty_argument` | `Vec<*[]>` (an argument that expands to none) | batch-impl: this argument list requires at least one type, but the pack expands to none (`*[]` is a star over the empty list) | DSL |
+| `star_bare_pointer` | `*const` (a pointer prefix with no pointee) | batch-impl: `*const` / `*mut` needs a pointee type — write `*const T` | DSL |
+| `star_bare_self` | `*self` (a lone `self` carrier) | batch-impl: `self` is the whole right operand (`self.T` applies `T` to it), not a type on its own | DSL |
+| `star_bare_where` | `*where { … }` (a predicate with no type) | batch-impl: a `where{…}` block is not a type — attach it to the type it constrains (`X where { … }`) | DSL |
 | `pack_zero_targets` | `*Vec *[]` (a spec with no targets) | batch-impl: this spec expands to zero impls — a star over an empty list (`*[]`, `*[].0`) has no members; write the targets out or drop the spec | DSL |
 | `pack_single_slot` | a single-type host receives zero or multiple types; `<*(Vec<u8>,)>` declares a constructed type; or copying nested structures across 10 independent choice slots exceeds the cumulative budget | batch-impl: this type position requires exactly one type; the pack expands to 2 types (0 types for an empty pack); declaration error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type; work error: batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
 | `pack_flat_overlap` | overlapping flat family `(*Map *().1..=2 *().1..=3,)` | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
@@ -767,7 +770,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `pack_shared_identity` | mismatched Pair types at one fresh position, or mixing a uniform wrapper choice | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
 | `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: unexpected `#` in a type position | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
-| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…`) are not allowed there | DSL |
+| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
 | `global_path_no_ident` | a trailing `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
 | `path_prefix_mismatch` | `# path::Other: Trait` | batch-impl: path prefix `#...Other` has a trailing ident that differs from the trait name `MyTrait`; the two must be identical | DSL |
 | `group_angle_bare` | `<...>` inside `(...)` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |

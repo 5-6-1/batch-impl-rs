@@ -1,0 +1,7 @@
+error: batch-impl: a `where{…}` block is not a type — attach it to the type it constrains (`X where { … }`)
+ --> tests/ui/star_bare_where.rs:5:1
+  |
+5 | #[batch_impl(*where { u8: Clone })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

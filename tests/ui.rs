@@ -160,6 +160,12 @@ fn ui() {
     // an argument list cannot lose its argument: an empty pack there used to emit
     // `Vec<>` and surface as rustc's E0107
     t.compile_fail("tests/ui/pack_empty_argument.rs");
+    // a target that is still a bare carrier is not a type: a pontee-less pointer
+    // prefix, a lone `self`, and a `where{…}` block with nothing to constrain each
+    // used to render invalid Rust (`impl Tr for *const {}`)
+    t.compile_fail("tests/ui/star_bare_pointer.rs");
+    t.compile_fail("tests/ui/star_bare_self.rs");
+    t.compile_fail("tests/ui/star_bare_where.rs");
 
     // concrete-type args reject bindings/bounds (trait paths and generic
     // declarations are their only valid homes)

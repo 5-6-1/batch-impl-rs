@@ -543,8 +543,8 @@ pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead) -> Ty {
         // appear in a Rust path at all, so reporting them is exact.
         if let Some(span) = dsl_token_in(&seg_ts) {
             return crate::apply::err_ty_at(
-                "batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…`) \
-                 are not allowed there",
+                "batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` \
+                 / a `*` pack prefix) are not allowed there",
                 span,
             );
         }
@@ -558,13 +558,24 @@ pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead) -> Ty {
     }
 }
 
-/// The span of the first DSL-only token (`@` / `#`, at any depth) in a
-/// `::`-tail segment, if any — see [`qualified_tail`].
+/// The span of the first DSL-only token (`@` / `#` / a `*` pack prefix, at any
+/// depth) in a `::`-tail segment, if any — see [`qualified_tail`]. A `*` that
+/// names its pointee (`*const T` / `*mut T`) is ordinary Rust and is not flagged.
 fn dsl_token_in(tokens: &TokenStream) -> Option<proc_macro2::Span> {
-    for tree in tokens.clone() {
+    let trees: Vec<TokenTree> = tokens.clone().into_iter().collect();
+    for (i, tree) in trees.iter().enumerate() {
         match tree {
             TokenTree::Punct(p) if p.as_char() == '@' || p.as_char() == '#' => {
                 return Some(p.span());
+            }
+            TokenTree::Punct(p) if p.as_char() == '*' => {
+                let names_pointee = matches!(
+                    trees.get(i + 1),
+                    Some(TokenTree::Ident(ident)) if ident == "const" || ident == "mut"
+                );
+                if !names_pointee {
+                    return Some(p.span());
+                }
             }
             TokenTree::Group(g) => {
                 if let Some(span) = dsl_token_in(&g.stream()) {

@@ -1,0 +1,7 @@
+error: batch-impl: `self` is the whole right operand (`self.T` applies `T` to it), not a type on its own
+ --> tests/ui/star_bare_self.rs:5:1
+  |
+5 | #[batch_impl(*self)]
+  | ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
