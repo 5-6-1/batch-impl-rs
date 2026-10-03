@@ -46,8 +46,11 @@ class Parser:
 
     def enter(self):
         self.depth += 1
-        if self.depth > 64:
-            raise ModelError("depth-limit", "expression nesting exceeds 64")
+        # Two call sites bump this counter per level (dotted() and primary()),
+        # so the guard is four times the depth the macro allows
+        # (MAX_NEST_DEPTH = 128): 256 here accepts 128 levels, as measured.
+        if self.depth > 256:
+            raise ModelError("depth-limit", "expression nesting exceeds 128")
 
     def expression(self):
         value = self.dotted()
@@ -146,6 +149,16 @@ class Parser:
         if self.peek() == "<":
             self.take()
             args, _ = self.sequence(">")
+                        # An argument list needs at least one type; a pack among the arguments
+            # that expands to none is reported here. A pack inside a tuple or a
+            # list goes through tup()/choices() and keeps vanishing (probe rows
+            # mid2/mid3 agree with the macro), so this guard never reaches them.
+            if any(a.kind == "pack" and not a.children for a in args):
+                raise ModelError(
+                    "empty-pack-argument",
+                    "this argument list requires at least one type, but the pack "
+                    "expands to none",
+                )
             return atom(path, *args)
         return atom(path)
 
@@ -175,6 +188,17 @@ if __name__ == "__main__":
     args = cli.parse_args()
     for result in evaluate(args.expression):
         decl = "<" + ",".join(result.params) + "> " if result.params else ""
-        print(decl + render(result.items[0]))
+        # `self` marks the whole right operand (`self.T` applies T to it), so it may be an
+        # operand but never a result. The check reads the same expression the print below
+        # reads: a result is a row of items, not a bare node - rendering the row itself is
+        # what broke the first attempt at this patch.
+        rendered = render(result.items[0])
+        if rendered.strip() == "self":
+            raise ModelError(
+                "bare-self",
+                "`self` is the whole right operand (`self.T` applies `T` to it), "
+                "not a type on its own",
+            )
+        print(decl + rendered)
         if unused(result):
             print("  unused generated parameters (not removed): " + ",".join(unused(result)))

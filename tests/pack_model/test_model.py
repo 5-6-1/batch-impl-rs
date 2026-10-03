@@ -124,7 +124,7 @@ class ModelTests(unittest.TestCase):
                  "*": "missing-operand", "() .": "missing-operand", "(A,": "missing-operand",
                  "A)": "trailing-token", "*[].2..2": "empty-range", "*[].3..=2": "empty-range",
                  "*[].1000000000": "expansion-limit", "(A,B).30": "expansion-limit",
-                 "*[].0..=1000000000": "expansion-limit", "*" * 100 + "A": "depth-limit",
+                 "*[].0..=1000000000": "expansion-limit", "*" * 300 + "A": "depth-limit",
                  "fn()->": "missing-operand", "A::": "missing-operand"}
         cases.update({"dyn Send": "unsupported-syntax", "unsafe fn()": "unsupported-syntax"})
         for source, code in cases.items():
