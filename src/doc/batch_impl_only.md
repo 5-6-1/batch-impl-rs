@@ -50,6 +50,16 @@ trait Greet { fn hello(&self) -> &str; }
 // → impl Greet for usize { fn hello(&self) -> &str { "hi" } }
 ```
 
+## Where the generated impls find the trait
+
+Without a path prefix the impls name the trait by the annotated mirror's own
+ident, so that name has to resolve **where the impls land**: a submodule needs
+`use crate::TheTrait;` even though the same module also contains the mirror.
+The failure is easy to misread — `E0405: cannot find trait \`X\` in this scope`
+points at the mirror's definition, which looks correct precisely because the
+mirror is what you wrote. Adding the import, or using the path prefix below, is
+the fix; the macro cannot do it for you, because a bare name carries no path.
+
 ## The external-trait path prefix
 
 When the real trait is defined **elsewhere**, write the annotated dummy
