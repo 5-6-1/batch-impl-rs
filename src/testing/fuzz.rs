@@ -31,6 +31,8 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         // DSL / Rust keywords and common type names
         Just(Tok::Ident("usize")),
         Just(Tok::Ident("isize")),
+        Just(Tok::Ident("r#type")),
+        Just(Tok::Ident("r#value")),
         Just(Tok::Ident("Vec")),
         Just(Tok::Ident("Box")),
         Just(Tok::Ident("T")),
@@ -108,7 +110,10 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
 
 fn to_token(tok: &Tok) -> TokenTree {
     match tok {
-        Tok::Ident(s) => Ident::new(s, proc_macro2::Span::call_site()).into(),
+        Tok::Ident(s) => match s.strip_prefix("r#") {
+            Some(rest) => Ident::new_raw(rest, proc_macro2::Span::call_site()).into(),
+            None => Ident::new(s, proc_macro2::Span::call_site()).into(),
+        },
         Tok::Literal(s) => Literal::from_str(s).unwrap().into(),
         Tok::Punct(c, sp) => Punct::new(*c, *sp).into(),
         Tok::Group(d, inner) => {
