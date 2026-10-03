@@ -198,7 +198,7 @@ This development cycle targets **0.10.0**, rather than the previously planned 0.
 - Replace removed `@all_fresh` with `@0..`.
 - `*` opens candidate lists only: write `*[F,G] T` to map both constructors. A tuple is a type, so `*(F,G)` is one member — the tuple — and `*(F,G) T` appends `T` into it. A lone pack no longer turns a group into a container: use `(*X,)` / `[*X,]`. See [the Pack migration rules](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md#46-branches-coherence-and-migration).
 - Rename custom constants named `Self`; `@Self` is now reserved for the impl entry's input self type.
-- Named type-family ranges follow Rust's endpoint convention: `@u8..u16` selects only `u8`; use `@u8..=u16` to keep both. Omitted upper endpoints still include the family's final member.
+- Named type-family ranges follow Rust's endpoint convention: `@u8..u16` selects only `u8`; use `@u8..=u16` to keep both. Omitted upper endpoints still include the family's **maximum** - `@u16..` is `@u16..=u128`, and neither `usize` nor `isize` belongs to a range family.
 
 The [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) records the full migration. The source and docs on `main` describe ongoing development; use a release's versioned documentation when maintaining that release.
 
