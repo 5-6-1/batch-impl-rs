@@ -1,0 +1,7 @@
+error: batch-impl: a bound cannot ride on a repeated parameter — `(<T: Clone>).N` rewrites the template into N fresh parameters, so the bound would have to be copied with it; write the bound where the parameter is used instead
+ --> tests/ui/bound_on_repeated_parameter.rs:8:1
+  |
+8 | #[batch_impl((<T: Clone>,).2)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

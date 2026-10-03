@@ -84,7 +84,10 @@ fn pow_single(template: Ty, n: usize) -> Ty {
         // From `(<Bound>).N`: exactly one unbound param (guaranteed by parse_angle_bracket_contents)
         if tp.params.len() != 1 || tp.params.first().is_some_and(|(_, b)| b.is_some()) {
             return err_ty(
-                "batch-impl: unexpected bound parameter in (<Trait>)⁁; this is an internal error",
+                "batch-impl: a bound cannot ride on a repeated parameter — \
+                 `(<T: Clone>).N` rewrites the template into N fresh parameters, so the \
+                 bound would have to be copied with it; write the bound where the parameter \
+                 is used instead",
             );
         }
         if n == 0 {
