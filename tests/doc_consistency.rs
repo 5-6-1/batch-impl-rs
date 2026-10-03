@@ -895,6 +895,13 @@ fn normalise_diagnostic(raw: &str) -> String {
 }
 
 /// `\u{1}` in `pattern` matches any run of characters in `text`.
+/// A rendered message keeps its braces literally: they are characters the
+/// compiler printed, not format placeholders. Escaping them first routes them through
+/// the literal-brace branch above.
+fn normalise_rendered(raw: &str) -> String {
+    normalise_diagnostic(&raw.replace('{', "{{").replace('}', "}}"))
+}
+
 fn wildcard_match(pattern: &str, text: &str) -> bool {
     let mut rest = text;
     for (i, part) in pattern.split('\u{1}').enumerate() {
@@ -966,7 +973,7 @@ fn every_source_diagnostic_is_locked_or_listed() {
         for line in text.lines() {
             let Some((head, rest)) = line.split_once(": ") else { continue };
             if head.starts_with("error") && rest.starts_with("batch-impl") {
-                rendered.push(normalise_diagnostic(rest));
+                rendered.push(normalise_rendered(rest));
             }
         }
     }
