@@ -46,7 +46,13 @@ fn leaked_carrier(value: &Ty) -> Option<&'static str> {
                     "`self` is the whole right operand (`self.T` applies `T` to it), not a type \
                      on its own",
                 ),
-                _ => None,
+                // Every other prefix with no operand is the same leak: `&`, `&mut` and
+                // `unsafe` rendered as `impl Tr for & {}`, which rustc answers with a parse
+                // error that never names the mistake (measured for a bare `&`).
+                _ => Some(
+                    "a bare type prefix needs a type — write `&T`, `&mut T` or \
+                     `unsafe fn(…)` rather than the prefix alone",
+                ),
             },
             TyKind::WithWhere(w) if w.0.is_none() => Some(
                 "a `where{…}` block is not a type — attach it to the type it constrains \

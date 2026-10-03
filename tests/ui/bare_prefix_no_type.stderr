@@ -1,0 +1,15 @@
+error: batch-impl: a bare type prefix needs a type — write `&T`, `&mut T` or `unsafe fn(…)` rather than the prefix alone
+ --> tests/ui/bare_prefix_no_type.rs:8:1
+  |
+8 | #[batch_impl(&)]
+  | ^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a bare type prefix needs a type — write `&T`, `&mut T` or `unsafe fn(…)` rather than the prefix alone
+  --> tests/ui/bare_prefix_no_type.rs:11:1
+   |
+11 | #[batch_impl(unsafe)]
+   | ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

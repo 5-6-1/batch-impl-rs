@@ -887,6 +887,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `minus_bad_target` | `#fill(-1)` | batch-impl: in directive arguments, after `-` expected an identifier or `[...]` list (e.g. `-foo`, `-[a,b]`) | DSL |
 | `directive_bad_follow` | `#m` with no args/body | batch-impl: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
 | `directive_missing_tail` | `#fill`, `#fill(@all)`, `#wrap`, `#wrap(a)[b]` | batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}` | DSL |
+| `bare_prefix_no_type` | `&` or `unsafe` alone as the target | batch-impl: a bare type prefix needs a type — write `&T`, `&mut T` or `unsafe fn(…)` rather than the prefix alone | DSL |
 | `single_name_not_found` | `#name` for an unknown item | batch-impl: item `no_such` not found in trait `T` | DSL |
 | `delegate_on_non_fn` | `#delegate` on a const | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
 | `delegate_const` | the same on another const | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |
