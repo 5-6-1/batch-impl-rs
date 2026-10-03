@@ -1577,7 +1577,7 @@ trait NeverRet { fn call(&self, x: u8) -> !; }
 // → impl NeverRet for fn(u8) -> ! { fn call(&self, _: u8) -> ! { unreachable!() } }
 ```
 
-**数组/切片 builder**：`[u8; 3]` 定长、`[u8]` 切片：
+**数组/切片类型**：`[u8; 3]` 定长、`[u8]` 切片：
 
 ```rust
 # use batch_impl::batch_impl;

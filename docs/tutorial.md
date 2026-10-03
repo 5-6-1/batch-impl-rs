@@ -1789,7 +1789,7 @@ trait NeverRet { fn call(&self, x: u8) -> !; }
 
 **Arbitrarily nested types are native**: `HashMap<String, Vec<(u8, u16)>>`, `Result<Box<dyn Fn(u8) -> u16>, String>` etc. write and parse directly — the DSL covers nearly every type form, no "passthrough" needed.
 
-**Array and slice builders**: `[u8; 3]` is a fixed array, `[u8]` a slice:
+**Array and slice types**: `[u8; 3]` is a fixed array, `[u8]` a slice:
 
 ```rust
 # use batch_impl::batch_impl;
