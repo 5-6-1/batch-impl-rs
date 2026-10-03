@@ -129,6 +129,7 @@ class ModelTests(unittest.TestCase):
                   # empty pack contributes no type to an argument list, which the macro
                   # reports as a zero-impl spec.
                   "Vec<u8, *[], u16>": "empty-pack-argument",
+                  "self": "bare-self",
                  "fn()->": "missing-operand", "A::": "missing-operand"}
         cases.update({"dyn Send": "unsupported-syntax", "unsafe fn()": "unsupported-syntax"})
         for source, code in cases.items():

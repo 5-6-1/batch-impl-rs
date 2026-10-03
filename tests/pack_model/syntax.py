@@ -169,7 +169,19 @@ class Parser:
         return value
 
     def run(self):
-        return self.engine.finish(self.parse())
+        rows = list(self.engine.finish(self.parse()))
+        # `self` is the whole right operand (`self.T` applies T to it), so it may be an
+        # operand but never a result - the macro reports it at the spec level, and the
+        # model has to agree here rather than in the CLI: the CLI, the exhaustive audit
+        # and any differential all read the model through this entry point.
+        for row in rows:
+            if row.items and render(row.items[0]).strip() == "self":
+                raise ModelError(
+                    "bare-self",
+                    "`self` is the whole right operand (`self.T` applies `T` to it), "
+                    "not a type on its own",
+                )
+        return rows
 
 
 def evaluate(source):
@@ -188,17 +200,6 @@ if __name__ == "__main__":
     args = cli.parse_args()
     for result in evaluate(args.expression):
         decl = "<" + ",".join(result.params) + "> " if result.params else ""
-        # `self` marks the whole right operand (`self.T` applies T to it), so it may be an
-        # operand but never a result. The check reads the same expression the print below
-        # reads: a result is a row of items, not a bare node - rendering the row itself is
-        # what broke the first attempt at this patch.
-        rendered = render(result.items[0])
-        if rendered.strip() == "self":
-            raise ModelError(
-                "bare-self",
-                "`self` is the whole right operand (`self.T` applies `T` to it), "
-                "not a type on its own",
-            )
-        print(decl + rendered)
+        print(decl + render(result.items[0]))
         if unused(result):
             print("  unused generated parameters (not removed): " + ",".join(unused(result)))
