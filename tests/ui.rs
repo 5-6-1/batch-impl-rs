@@ -157,6 +157,9 @@ fn ui() {
     // `*` needs a type operand — a literal used to be packed as one member and
     // rendered `impl … for 1 {}`
     t.compile_fail("tests/ui/star_non_type.rs");
+    // an argument list cannot lose its argument: an empty pack there used to emit
+    // `Vec<>` and surface as rustc's E0107
+    t.compile_fail("tests/ui/pack_empty_argument.rs");
 
     // concrete-type args reject bindings/bounds (trait paths and generic
     // declarations are their only valid homes)

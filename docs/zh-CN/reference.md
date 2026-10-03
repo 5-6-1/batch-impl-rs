@@ -729,6 +729,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `caret_power_retired` | `(u8, u16)^2`、`<T: Tr^u8>` | batch-impl: `^` is no longer a type operator (the power is the `.N` suffix — write `(u8, u16).2` for a tuple and `T.*[].2` for a generator) | DSL |
 | `star_misuse` | 裸 `*` | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
 | `star_non_type` | `*1`（字面量操作数） | batch-impl: `*` needs a type operand — a literal, range or lifetime is not a type (write `*T` or `*[A, B]`) | DSL |
+| `pack_empty_argument` | `Vec<*[]>`（展开为空的实参） | batch-impl: this argument list requires at least one type, but the pack expands to none (`*[]` is a star over the empty list) | DSL |
 | `pack_zero_targets` | `*Vec *[]`（没有任何目标的 spec） | batch-impl: this spec expands to zero impls — a star over an empty list (`*[]`, `*[].0`) has no members; write the targets out or drop the spec | DSL |
 | `pack_single_slot` | 单类型槽收到零个或多个类型；`<*(Vec<u8>,)>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: materialization work limit exceeded; simplify the nested candidates | DSL |
 | `pack_flat_overlap` | `(*Map *().1..=2 *().1..=3,)` 的扁平类型族重叠 | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |

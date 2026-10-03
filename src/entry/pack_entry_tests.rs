@@ -72,7 +72,7 @@ fn named_abi_function_parameters_keep_their_single_slot_boundary() {
 }
 
 #[test]
-fn public_empty_collections_and_an_explicit_empty_row_differ() {
+fn empty_collections_and_empty_arguments_are_diagnosed() {
     // A spec with no targets at all is diagnosed, whichever way it is spelled: an
     // empty collection is not a silent no-op.
     for spec in [quote!([*[],]), quote!(*F * [])] {
@@ -82,9 +82,13 @@ fn public_empty_collections_and_an_explicit_empty_row_differ() {
     let tuple = impls(trait_output(quote!((*[],))));
     assert_eq!(tuple.len(), 1);
     assert_eq!(tuple[0].self_ty.to_token_stream().to_string(), "()");
-    let row = impls(trait_output(quote!(*F * [*[],])));
-    assert_eq!(row.len(), 1);
-    assert_eq!(row[0].self_ty.to_token_stream().to_string(), "F");
+    // An empty pack where an argument has to be is diagnosed too (it used to
+    // leave a bare base for rustc to reject with E0107).
+    let empty_row = trait_output(quote!(*F * [*[],]));
+    assert!(
+        empty_row.to_string().contains("argument list requires at least one type"),
+        "{empty_row}"
+    );
 }
 
 #[test]

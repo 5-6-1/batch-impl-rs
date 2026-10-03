@@ -1,0 +1,7 @@
+error: batch-impl: this argument list requires at least one type, but the pack expands to none (`*[]` is a star over the empty list)
+ --> tests/ui/pack_empty_argument.rs:6:1
+  |
+6 | #[batch_impl(Vec<*[]>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -13,6 +13,21 @@ impl Materializer {
         let mut rows = vec![Branch::bare(TyTypeParam { params: vec![], bindings: vec![] }, 0)];
         for (name, bound) in params.params {
             let names = self.slots(*name, depth + 1)?;
+            // An argument list cannot lose its argument: a pack that expands to no
+            // members would leave `Vec<>` for rustc to reject with E0107. (An empty
+            // `<>` block is the deliberate `X<>` sync spelling and never gets here —
+            // it has no source entry to expand.)
+            if !declarations {
+                for row in &names {
+                    if row.value.is_empty() {
+                        return Err(crate::util::compile_error_str(
+                            "batch-impl: this argument list requires at least one type, but the \
+                             pack expands to none (`*[]` is a star over the empty list)",
+                            span,
+                        ));
+                    }
+                }
+            }
             if declarations {
                 for row in &names {
                     if row.decl.is_some() {
