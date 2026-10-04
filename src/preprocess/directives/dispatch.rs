@@ -240,6 +240,29 @@ fn expand_delegate(
                 trait_def.ident
             ));
         };
+        // A method with no receiver cannot be reached through `self`, and a body that says
+        // `self` would be emitted as `(self).associated()`: measured, that dies with a bare
+        // E0424 that never mentions `#delegate`. Only the combination is an error - a body
+        // that calls the trait's function directly is a legal delegation.
+        //
+        // The scan is token-level and literal (proc-macro input carries no comments, so
+        // nothing else can look like an identifier); a body that mentions `self` without
+        // using it fails with E0424 anyway, so the message stays true either way.
+        fn mentions_self(tokens: &proc_macro2::TokenStream) -> bool {
+            tokens.clone().into_iter().any(|t| match t {
+                proc_macro2::TokenTree::Ident(id) => id == "self",
+                proc_macro2::TokenTree::Group(g) => mentions_self(&g.stream()),
+                _ => false,
+            })
+        }
+        if f.sig.receiver().is_none() && mentions_self(&target_stream) {
+            return Err(compile_err!(
+                "batch-impl: `#delegate` cannot forward `{}` — it has no `self` receiver, so a \
+                 body that reaches it through `self` cannot compile; exclude it from the \
+                 selection (a `-name` entry) or delegate it separately",
+                name
+            ));
+        }
         // The delegated target method: the rename mapping or the same name.
         let call_name = match renames.get(&name.to_string()) {
             Some(c) => match c.strip_prefix("r#") {

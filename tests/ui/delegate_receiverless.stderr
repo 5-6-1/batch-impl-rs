@@ -1,0 +1,7 @@
+error: batch-impl: `#delegate` cannot forward `associated` — it has no `self` receiver, so a body that reaches it through `self` cannot compile; exclude it from the selection (a `-name` entry) or delegate it separately
+ --> tests/ui/delegate_receiverless.rs:8:1
+  |
+8 | #[batch_impl(u8 #delegate(@all_static_methods){self})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
