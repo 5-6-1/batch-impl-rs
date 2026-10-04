@@ -1170,12 +1170,19 @@ comma-less paren holding a range placeholder re-opens as a tuple, so the
 arity-1 impl still renders a real 1-tuple `(P0,)` (never a group `(P0)`).
 
 **Several bound generators** in one spec distribute as the Cartesian product
-of their arities, and the target then addresses each generator's fresh by
-**grouped ranges** (`@0_0..` for the first bound's fresh, `@1_0..` for the
-second's) — the flat `@N..` form indexes across all groups, so two flat
-ranges in one tuple would overlap. A grouped range requires its group to
-exist (a `Fn()0..N` bound's arity-0 impl has no fresh for that group, so
-the reference errors there — the same rule as `@g_i`).
+of their arities, and the **flat** `@N..` form addresses their fresh across all
+of them — `<R, T: Fn()1..3 R> … (@0..)` is the measured spelling, and two flat
+ranges in one tuple do not overlap because the second tuple element puts the
+second range in argument position.
+
+**Grouped ranges** (`@0_0..` for the first bound's fresh, `@1_0..` for the
+second's) address fresh *within* one group, and a group exists only while the
+bound's arity is **fixed**: measured, every grouped reference (`@0_0`,
+`@0_0..`, and `where{@0_..: …}`) fails on a `Fn()1..3` bound in **every** leaf —
+not only the arity-0 one — while the fixed `Fn()2` form works (`@0_0, @0_1`
+and `@0_0..`). A grouped range also requires its group to have fresh for that
+leaf: a `Fn()0..N` bound's arity-0 impl has none, so the reference errors
+there, the same rule as `@g_i`.
 
 ## 7. The Directive System `#`
 
