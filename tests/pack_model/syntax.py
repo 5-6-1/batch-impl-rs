@@ -187,14 +187,28 @@ class Parser:
         # operand but never a result - the macro reports it at the spec level, and the
         # model has to agree here rather than in the CLI: the CLI, the exhaustive audit
         # and any differential all read the model through this entry point.
+        #
+        # Every materialized position, not the rendered top level: comparing
+        # `render(row.items[0])` caught the whole result `self` and nothing else, so one
+        # level of nesting escaped - probe E's D1 measured ten spellings (`F<self>`,
+        # `(self,)`, `[self]`, `*F self`, `(*[self,],)`, `F.self`, …) that the macro
+        # rejects and the model happily rendered into types that cannot compile.
         for row in rows:
-            if row.items and render(row.items[0]).strip() == "self":
-                raise ModelError(
-                    "bare-self",
-                    "`self` is the whole right operand (`self.T` applies `T` to it), "
-                    "not a type on its own",
-                )
+            for node in row.items:
+                if _mentions_bare_self(node):
+                    raise ModelError(
+                        "bare-self",
+                        "`self` is the whole right operand (`self.T` applies `T` to it), "
+                        "not a type on its own",
+                    )
         return rows
+
+
+def _mentions_bare_self(node):
+    """Whether this node or any node under it renders as the bare operand `self`."""
+    if render(node).strip() == "self":
+        return True
+    return any(_mentions_bare_self(child) for child in getattr(node, "children", ()))
 
 
 def evaluate(source):

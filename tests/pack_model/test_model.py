@@ -47,6 +47,27 @@ def not_expressible_cases(path=None):
 
 
 class ModelTests(unittest.TestCase):
+    def test_bare_self_never_survives_into_a_type(self):
+        # Probe E's D1: the macro rejects all ten of these, and the model rendered each one into a
+        # type that cannot compile (`F<self>` is `error[E0573]: expected type, found module self`),
+        # because the check compared the rendered top level instead of walking the positions.
+        for spec in (
+            "F<self>",
+            "(self,)",
+            "[self]",
+            "*F self",
+            "(*F self,)",
+            "(*[self,],)",
+            "F.self",
+            "F<*[self,]>",
+            "*[self]",
+            "*F *[self,]",
+        ):
+            with self.subTest(spec=spec):
+                with self.assertRaises(ModelError) as caught:
+                    outputs(spec)
+                self.assertEqual(caught.exception.code, "bare-self")
+
     def test_teaching_examples(self):
         for name, (source, expected) in CASES.items():
             with self.subTest(name=name):
