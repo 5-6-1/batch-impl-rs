@@ -778,7 +778,13 @@ can therefore be right for one member of a list and wrong for another: measured,
 `use: self`, and taking the advice fails with `expected &str, found &char` on the `char`
 member.
 
-Two ways out, in order of preference: make the body type-agnostic (bind the value first,
+A cast is the case the second way cannot reach: a body like `f64::from(*self)` needs the
+concrete type, and pinning the impl with a fully qualified call does not help - measured,
+sharing that body across a list reports `E0277` for every member that is not the one the cast
+names. Split the family instead: give that member its own spec, or its own `{body}`, so each
+expansion keeps the type it was written for.
+
+Three ways out, in order of preference: make the body type-agnostic (bind the value first,
 e.g. `let text = self.to_string(); w.quoted(&text)`), or pin the impl you mean with a
 fully qualified call (`<&Marker as ToJson>::to_json(&&Marker(1))`) when the test is what
 needs pinning. An `#[allow]` on the shared body silences the lint for every member, which

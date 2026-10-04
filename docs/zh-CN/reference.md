@@ -740,7 +740,9 @@ impl<const N: usize> Width for Bytes<N> {
 
 一个 `{body}` 会被**逐字复制**进该 spec 生成的每个 impl，于是 lint 逐个分析**具体展开**。一个其*修复建议*假设了具体接收者类型的 lint，可能对列表里某个成员是对的、对另一个是错的：实测 `clippy::unnecessary_to_owned` 对 `[String, char, str]` 的共享 body 建议 `use: self`，照做会在 `char` 成员上以 `expected &str, found &char` 失败。
 
-两条出路，按优先级：把 body 写得**与具体类型无关**（先绑定值，如 `let text = self.to_string(); w.quoted(&text)`）；或当"被钉住的其实是测试"时，用完全限定调用钉住你想测的那个 impl（`<&Marker as ToJson>::to_json(&&Marker(1))`）。在共享 body 上写 `#[allow]` 会替**每个**成员静音，把 lint 本来判对的那些成员也一起盖住。
+三条出路，按优先级：把 body 写得**与具体类型无关**（先绑定值，如 `let text = self.to_string(); w.quoted(&text)`）；或当"被钉住的其实是测试"时，用完全限定调用钉住你想测的那个 impl（`<&Marker as ToJson>::to_json(&&Marker(1))`）。在共享 body 上写 `#[allow]` 会替**每个**成员静音，把 lint 本来判对的那些成员也一起盖住。
+
+cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body 需要**具体类型**，用完全限定调用也救不了 —— 实测把该 body 共享给一个列表时，不属于该 cast 所指类型的成员会报 `E0277`。此时应**拆开这个家族**：给那个成员单独的 spec、或单独的 `{body}`，让每个展开都保留它被写出时针对的那个类型。
 
 ## 10. 诊断目录
 
