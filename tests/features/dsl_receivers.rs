@@ -1,6 +1,7 @@
 //! dsl.rs receiver-kind `@all` filter tests: `@all_ref_methods` /
-//! `@all_value_methods` / `@all_static_methods` (incl. typed receivers and
-//! marker-minus-marker subtraction).
+//! `@all_value_methods` / `@all_static_methods` (typed receivers count as
+//! by-value only when they are not references; `self: &Self` follows the
+//! reference rule) plus marker-minus-marker subtraction.
 //! (split from the former single-file `tests/dsl.rs`)
 
 use batch_impl::batch_impl;

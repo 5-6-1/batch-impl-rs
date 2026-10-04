@@ -296,7 +296,7 @@ exclusions. The selectors:
 | `@all_default*` | only items **with** a default implementation |
 | `@all_required*` | only items **without** a default (required) |
 | `@all_ref_methods` | only `&self` / `&mut self` methods |
-| `@all_value_methods` | only by-value `self` methods (incl. typed receivers) |
+| `@all_value_methods` | only by-value `self` methods (a **typed** receiver counts only when it is not a reference: `self: &Self` / `self: &mut Self` follow the reference rule) |
 | `@all_static_methods` | only associated functions (no receiver) |
 
 `@all` family is exclusive to `#[batch_impl]` / `#[batch_impl_only]`

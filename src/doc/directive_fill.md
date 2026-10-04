@@ -38,7 +38,7 @@ expression for a method body, a value for a const, a type for a type item).
 | `@all_default_constants` / `@all_default_types` | default consts / types |
 | `@all_required_constants` / `@all_required_types` | required consts / types |
 | `@all_ref_methods` | only `&self` / `&mut self` methods |
-| `@all_value_methods` | only by-value `self` methods (incl. typed receivers) |
+| `@all_value_methods` | only by-value `self` methods (a **typed** receiver counts only when it is not a reference: `self: &Self` / `self: &mut Self` follow the reference rule) |
 | `@all_static_methods` | only associated functions (no receiver) |
 | `@all_default` / `@all_required` | all kinds, filtered by default state |
 
