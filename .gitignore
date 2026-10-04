@@ -10,3 +10,8 @@ Cargo.lock
 /wip/
 # local Rust 2024 feature notes (project-adjacent reference, not packaged)
 /rust-2024-feature.md
+# Python bytecode: the model suite is Python, and its `__pycache__/` was committed once -
+# four `.pyc` files that change on every run and on every interpreter bump, so running the
+# suite dirtied the tree. Ignored here and removed from the index; the files stay on disk.
+__pycache__/
+*.pyc
