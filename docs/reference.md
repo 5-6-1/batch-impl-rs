@@ -269,7 +269,7 @@ No apply or fresh generation occurs during this step.
 | Host | Consumption |
 |---|---|
 | Bare target | one impl per pack member; no deduplication |
-| Tuple elements, generic / trait arguments, callable parameters | any number of members, in order |
+| Tuple elements, generic / trait arguments, callable parameters | any number of members, in order — and a splice of exactly **one** member needs its comma: `Vec<*[A,]>` is `Vec<A>`, while `Vec<*[A]>` is the *slice* type `Vec<[A]>` (no comma means a slice wherever a list would also make sense, `@Self: [X]` included) |
 | Reference or pointer target, slice / array element, function return | exactly one member in each branch |
 | Individual `+` bound, associated-type binding value, parsed type head of a qualified path | exactly one member in each branch |
 | Declaration block `<*[A, B]>` | splice names, then validate declarations; a fresh generator here is rejected |
