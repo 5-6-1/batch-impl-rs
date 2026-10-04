@@ -105,6 +105,12 @@ are not freely interchangeable expressions.
 Keep `Pack()` distinct from `Pack(Pack())`. Given to `*F`, the former produces zero
 entries while the latter produces one F with no arguments.
 
+That row cannot supply an *argument*, though: an argument slot needs at least one
+member to splice, so `*F *[*[],]` — one entry whose argument list is empty — is an
+error, while `*F *[]` stays legal because it produces no entry at all. (Round-7 probe E
+measured the macro rejecting the former and this model accepting it; the macro is the
+consistent reading, since an empty pack yields no argument for the host to take.)
+
 ## 5. Candidate and declaration scopes
 
 Only dispatch candidates exposed at the current operation; do not preselect choices
