@@ -57,6 +57,37 @@ fn assert_tokens_report(tokens: TokenStream, needle: &str) {
     );
 }
 
+/// The detectors this guard promises, each with a source that has to trip it. The individual tests
+/// below check one detector against its near-miss controls; this table checks the *inventory*, which
+/// nothing did: probe C's G9 deleted `visit_expr_call` together with its two self-test assertions and
+/// the suite stayed green while a live `Option::unwrap(o)` sat in production code. Adding a detector
+/// means adding a row here; removing one means the row's source stops reporting.
+const DETECTORS: &[(&str, &str)] = &[
+    ("panic!", "fn f() { panic!(\"boom\"); }"),
+    ("unwrap()", "fn f() { let _ = x.unwrap(); }"),
+    ("expect()", "fn f() { let _ = x.expect(\"boom\"); }"),
+    ("assert!", "fn f() { assert!(true); }"),
+    ("assert_eq!", "fn f() { assert_eq!(1, 1); }"),
+    ("unreachable!", "fn f() { unreachable!(); }"),
+    ("todo!", "fn f() { todo!(); }"),
+    ("unimplemented!", "fn f() { unimplemented!(); }"),
+];
+
+#[test]
+fn every_promised_detector_is_live() {
+    for (what, src) in DETECTORS {
+        let violations = scan(src);
+        assert!(
+            !violations.is_empty(),
+            "nothing reports `{what}` any more: `{src}` came back clean, so that arm of the visitor \
+             has stopped matching (this is the failure the whole no-panic promise cannot tolerate)"
+        );
+    }
+    // The count is the inventory: a detector quietly dropped from this table would otherwise take its
+    // own evidence with it.
+    assert_eq!(DETECTORS.len(), 8, "the detector inventory changed - say why, in this table");
+}
+
 /// Every panic macro the guard names, plus the exactness of the `#[cfg(test)]`
 /// gate (the earlier version skipped `#[cfg(not(test))]` items too).
 #[test]
