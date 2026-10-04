@@ -169,18 +169,28 @@ fn the_crate_denies_the_panic_and_indexing_families() {
     let strip_inner = |flat: &str| {
         flat.strip_prefix("#![").and_then(|s| s.strip_suffix(']')).unwrap_or(flat).to_string()
     };
-    let bodies: Vec<String> = parsed
+    // Identity, not substring. The attribute has to *be* a `cfg_attr` whose own tokens open with the
+    // deny - `contains` accepted any attribute whose text carried the string, so probe C's G1
+    // carried the whole contract inside `#![doc = "cfg_attr(not(test), deny(…))"]` and this test
+    // stayed green while the deny was dead.
+    let bodies: Vec<(bool, String)> = parsed
         .attrs
         .iter()
-        .map(|a| strip_inner(&normalized(&a.meta.to_token_stream().to_string())))
+        .map(|a| {
+            (
+                a.path().is_ident("cfg_attr"),
+                strip_inner(&normalized(&a.meta.to_token_stream().to_string())),
+            )
+        })
         .collect();
+    let expect = |contract: &str| strip_inner(&normalized(contract));
     assert!(
-        bodies.iter().any(|b| b.contains(&strip_inner(&normalized(CRATE_INDEXING_DENY)))),
-        "src/lib.rs lost its crate-level `{CRATE_INDEXING_DENY}` as a live inner attribute"
+        bodies.iter().any(|(is_cfg, b)| *is_cfg && b.starts_with(&expect(CRATE_INDEXING_DENY))),
+        "src/lib.rs lost its crate-level `{CRATE_INDEXING_DENY}` as a live `cfg_attr` inner attribute"
     );
     assert!(
-        bodies.iter().any(|b| b.contains(&strip_inner(&normalized(CRATE_PANIC_DENY)))),
-        "src/lib.rs lost the crate-level panic-family deny:\n  {CRATE_PANIC_DENY}"
+        bodies.iter().any(|(is_cfg, b)| *is_cfg && b.starts_with(&expect(CRATE_PANIC_DENY))),
+        "src/lib.rs lost the crate-level panic-family deny as a live `cfg_attr`:\n  {CRATE_PANIC_DENY}"
     );
 }
 
