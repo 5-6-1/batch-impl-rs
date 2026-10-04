@@ -1152,19 +1152,33 @@ fn every_source_diagnostic_is_locked_or_listed() {
     );
 
     let mut unlocked = vec![];
+    let mut exempted = 0usize;
     for (file, lit) in &literals {
         if rendered.iter().any(|r| wildcard_match(lit, r)) {
             continue;
         }
         if UNREACHABLE_DIAGNOSTICS.iter().any(|(pat, _)| lit.contains(pat)) {
+            exempted += 1;
             continue;
         }
-        if let Some((_, reason)) = UNLOCKED_DIAGNOSTICS.iter().find(|(pat, _)| lit.contains(pat)) {
-            let _ = reason;
+        if UNLOCKED_DIAGNOSTICS.iter().any(|(pat, _)| lit.contains(pat)) {
+            exempted += 1;
             continue;
         }
         unlocked.push(format!("{file}: {lit}"));
     }
+    // The lists exempt messages, and a message is matched by a *fragment*, so a new literal that
+    // merely contains a listed fragment used to be exempt the day it was written - probe C's G11:
+    // a fresh `batch-impl: this user constant …` slipped past the `user constant` entry and no count
+    // noticed. Pinning how many literals the lists actually cover closes that: a new one moves this
+    // number, and the failure sends the reader back here to lock it with a fixture or to widen an
+    // entry on purpose. Fragment matching stays (62 entries describing ~200 messages is the honest
+    // shape of this debt); it is the *silence* of a new arrival that is gone.
+    assert_eq!(
+        exempted, EXEMPTED_DIAGNOSTICS,
+        "the debt lists now exempt {exempted} literals, not {EXEMPTED_DIAGNOSTICS} — a message \
+         arrived through a fragment match; lock it with a UI fixture, or widen an entry on purpose"
+    );
     assert!(
         unlocked.is_empty(),
         "these diagnostics are neither rendered by a UI snapshot nor listed in \
@@ -1584,6 +1598,9 @@ fn collect_stderr(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         }
     }
 }
+
+/// How many `batch-impl` literals the two debt lists exempt today. See the assertion that reads it.
+const EXEMPTED_DIAGNOSTICS: usize = 98;
 
 /// Files with the given extension under a directory, recursively.
 fn count_files_below(dir: &Path, ext: &str) -> usize {
