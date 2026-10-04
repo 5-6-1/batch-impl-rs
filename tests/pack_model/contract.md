@@ -123,13 +123,26 @@ inexpressible (140 values became 127), the audit's engine calls tolerate a refus
 outcome, and `test_model.py` asserts the refusal instead of pinning `["F"]`.
 
 **Deliberate silence, recorded here because this is the file to read (round-8 probe E's D3).** A
-spec that expands to zero targets — `[]`, `*[]`, `*[].0`, `*F *[]` — is **reported** by the macro
-("this spec expands to zero impls — no target survived"; `docs/reference.md` says such a spec is
-reported rather than dropped) and produces no rows in the model. That is by design, not a gap: the
-model describes structure, so it has nothing to say about an entry that does not exist. The
-divergence was stated only in `test_model.py` before this paragraph, which is a test file; the
-attribute-level reading of `*F *[]` also cannot be expressed here at all, because the model has no
-multi-spec attribute (`not_expressible.txt`, `trailing-token`).
+spec that expands to zero targets — `[]`, `*[]`, `*[].0`, `*F *[]`, and (measured by round-9 probe E's
+E-C) `self *[]`, `[[]]`, `*[[]]`, `Vec<[[]]>` — is **reported** by the macro ("this spec expands to zero
+impls — no target survived"; `docs/reference.md` says such a spec is reported rather than dropped) and
+produces no rows in the model. That is by design, not a gap: the model describes structure, so it has
+nothing to say about an entry that does not exist. The divergence was stated only in `test_model.py`
+before this paragraph, which is a test file; the attribute-level reading of `*F *[]` also cannot be
+expressed here at all, because the model has no multi-spec attribute (`not_expressible.txt`,
+`trailing-token`). The last three spellings sit on §0's `[]`-as-slice-prefix boundary, which is why the
+enumeration above is longer than the four that were first written down.
+
+**A boundary the model cannot draw, recorded rather than faked (round-9 probe E's E-A).** On the ident
+that is **not** the annotated trait, an empty `<>` with no arguments to fill from is refused by the
+macro (`empty_angle_on_other_ident`, and on the token surfaces `empty_angle_where_surface` /
+`_template_surface` / `_body_surface`); the model renders the brackets away instead — ten spellings
+(`Vec<>` → `Vec`, `F<>` → `F`, `(*Vec<>,)` → `(Vec,)`, `A<B<>>` → `A<B>`, `(*Vec<>, A)` → `(Vec,A)`,
+`Vec<B<>>` → `Vec<B>`, `*F *[Vec<>,]` → `F<Vec>`, `&Vec<>` → `&Vec`, `fn(Vec<>)` → `fn(Vec)`,
+`[Vec<>; 2]` → `[Vec;2]`). A blanket refusal would be **wrong** and is not the repair: the rule is
+contextual — `Qz<>` on the annotated trait itself and `(*F<> A)` are both accepted by the macro — and
+the model has no trait context to decide with. So the model keeps rendering, and the differential
+(`ONLY-MODEL` rows) is where the difference is visible.
 
 ## 5. Candidate and declaration scopes
 
