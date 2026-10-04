@@ -73,8 +73,8 @@ const CRATE_PANIC_DENY: &str = concat!(
 /// set could not pass, and it could. The counts are now measured rather than
 /// remembered and the slack is one file, so a single extra name in the skip set trips
 /// this - probe C's mutation, replayed as this change's acceptance.
-const MIN_SOURCE_FILES: usize = 93;
-const MIN_PRODUCTION_FILES: usize = 79;
+const MIN_SOURCE_FILES: usize = 94;
+const MIN_PRODUCTION_FILES: usize = 80;
 
 #[test]
 fn production_code_has_no_panic_constructs() {
@@ -87,10 +87,12 @@ fn production_code_has_no_panic_constructs() {
         files.len()
     );
 
-    // Pass 1: `#[cfg(test)] mod x;` declarations — those modules (and the
-    // directories named after them) are test-only and out of scope. The
-    // in-file `#[cfg(test)] mod tests { … }` form is handled by the visitor.
-    let mut test_mods = BTreeSet::new();
+    // Pass 1: `#[cfg(test)] mod x;` declarations — those modules (and the directories named after
+    // them) are test-only and out of scope. Keyed by the **resolved module path**, not by the bare
+    // name: probe C's G2 added `#[cfg(test)] mod scan;` to `src/ast/mod.rs`, which by name alone also
+    // removed `src/util/scan.rs` from the walk, and the production count then landed exactly on its
+    // floor (79 of 79) so a live `assert!` in that file went unreported by every suite.
+    let mut test_mods: BTreeSet<PathBuf> = BTreeSet::new();
     for file in &files {
         let Ok(text) = fs::read_to_string(file) else {
             continue; // pass 2 reports the unreadable file
@@ -98,12 +100,15 @@ fn production_code_has_no_panic_constructs() {
         let Ok(parsed) = syn::parse_file(&text) else {
             continue;
         };
+        let root = module_root(file);
         for item in &parsed.items {
             if let syn::Item::Mod(m) = item
                 && m.content.is_none()
                 && is_cfg_test(&m.attrs)
             {
-                test_mods.insert(m.ident.to_string());
+                let name = m.ident.to_string();
+                test_mods.insert(root.join(format!("{name}.rs")));
+                test_mods.insert(root.join(&name));
             }
         }
     }
@@ -116,7 +121,7 @@ fn production_code_has_no_panic_constructs() {
     let mut violations = vec![];
     let mut scanned = 0;
     for file in &files {
-        if is_test_only(file, &src, &test_mods) {
+        if is_test_only(file, &test_mods) {
             continue;
         }
         let text = match fs::read_to_string(file) {
@@ -185,15 +190,28 @@ fn normalized(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
-/// Whether a file belongs to a `#[cfg(test)]`-declared module (its own stem,
-/// or any directory on its path, names one).
-fn is_test_only(file: &Path, src: &Path, test_mods: &BTreeSet<String>) -> bool {
-    let Ok(rest) = file.strip_prefix(src) else { return false };
-    rest.components().any(|c| {
-        let name = c.as_os_str().to_string_lossy();
-        let stem = name.strip_suffix(".rs").unwrap_or(&name);
-        test_mods.contains(stem)
-    })
+/// Whether a file belongs to a `#[cfg(test)]`-declared module: it is the module's own file
+/// (`x.rs` or `x/mod.rs`) or lives under its directory. Keyed on the resolved path, so a
+/// declaration in one directory can no longer hide a file in another - probe C's G2 hid a live
+/// `assert!` in `src/util/scan.rs` behind `#[cfg(test)] mod scan;` in `src/ast/mod.rs`.
+fn is_test_only(file: &Path, test_mods: &BTreeSet<PathBuf>) -> bool {
+    test_mods.iter().any(|module| module.as_path() == file || file.starts_with(module))
+}
+
+/// The directory a `mod x;` declaration in this file resolves against: a crate root (`lib.rs` /
+/// `main.rs`) and a `mod.rs` declare into their own directory, any other file into a directory
+/// named after it (Rust 2018's rule) - which is what makes `mod scan;` in `src/ast/mod.rs` mean
+/// `src/ast/scan.rs` and nothing else, and `mod testing;` in `src/lib.rs` mean `src/testing/`.
+fn module_root(file: &Path) -> PathBuf {
+    let parent = file.parent().unwrap_or_else(|| Path::new(""));
+    let declares_in_place = file
+        .file_name()
+        .is_some_and(|name| name == "mod.rs" || name == "lib.rs" || name == "main.rs");
+    if declares_in_place {
+        parent.to_path_buf()
+    } else {
+        parent.join(file.file_stem().unwrap_or_default())
+    }
 }
 
 fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
