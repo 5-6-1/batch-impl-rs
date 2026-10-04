@@ -133,6 +133,12 @@ class ModelTests(unittest.TestCase):
     def test_direct_hosts_are_not_reapplied(self):
         self.assertEqual(outputs("F<G<T>>"), ["F<G<T>>"])
         self.assertEqual(outputs("F<*[A, B],*[C, D]>"), ["F<A,B,C,D>"])
+        # One-member splices: `<\*[` appeared in this suite only in two-member spellings, which
+        # is the coverage gap round-7 probe E identified. A comma-less `[X]` is the slice type, so
+        # `F<*[A]>` renders `F<[A]>` - the macro does the same, so the two agree here - while the
+        # trailing comma asks for a one-element list and gives `F<A>`.
+        self.assertEqual(outputs("F<*[A]>"), ["F<[A]>"])
+        self.assertEqual(outputs("F<*[A,]>"), ["F<A>"])
         self.assertEqual(outputs("*F *[*[A, B], *[C, D]]"), ["F<A,B>", "F<C,D>"])
         self.assertEqual(outputs("F *[(A,B), (C,D)]"), ["F<(A,B),(C,D)>"])
 
