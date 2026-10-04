@@ -25,6 +25,38 @@ enum Tok {
     Group(Delimiter, Vec<Tok>),
 }
 
+/// The alphabet must be able to spell the shapes the recorded failures needed, and this drives
+/// the real generator rather than a copy of its list. The drawing is seeded and runs four
+/// thousand cases rather than the default 256 on purpose: a sampled assertion at that size
+/// flaked eight times in three thousand runs while these tokens were missing, so this one is
+/// deterministic - it fails the day a token is removed, and never before.
+#[test]
+fn the_alphabet_can_spell_the_shapes_that_once_escaped_it() {
+    use proptest::test_runner::{Config, TestRunner};
+
+    let mut runner = TestRunner::new(Config { cases: 4000, ..Config::default() });
+    // `run` takes an `Fn`, so what a drawing saw is recorded through a `Cell` rather than a
+    // captured `mut` binding.
+    let arrow = std::cell::Cell::new(false);
+    let string = std::cell::Cell::new(false);
+    let keyword = std::cell::Cell::new(false);
+    let outcome = runner.run(&tokens(0), |toks| {
+        for t in &toks {
+            match t {
+                Tok::Punct('-', Spacing::Joint) => arrow.set(true),
+                Tok::Literal(l) if l.starts_with('"') => string.set(true),
+                Tok::Ident("extern") | Tok::Ident("dyn") => keyword.set(true),
+                _ => {}
+            }
+        }
+        Ok(())
+    });
+    assert!(outcome.is_ok(), "the generator itself failed: {outcome:?}");
+    assert!(arrow.get(), "no Joint `-` in 4000 drawings: `->` cannot be generated at all");
+    assert!(string.get(), "no string literal in 4000 drawings");
+    assert!(keyword.get(), "no extern/dyn keyword in 4000 drawings");
+}
+
 /// Depth-limited token list generator (covers DSL keywords, operators, bracket nesting)
 fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
     let leaf = prop_oneof![
