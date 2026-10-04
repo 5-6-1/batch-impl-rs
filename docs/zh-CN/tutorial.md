@@ -950,7 +950,7 @@ trait RangeAssoc { fn m(&self); }
 ```
 
 范围索引的 fresh 列表来自本 spec 的生成器（`*[].N` / `().N`）；spec 无
-fresh 泛型时范围报 "out of range"。
+fresh 泛型时**闭区间**范围报 "out of range"，而**开区间**（`@0..`）既不产生谓词也不报错（arity-1 的 impl 本来就不贡献这类谓词）。
 
 **impl 泛型声明位置同样可用**：`<@0..>` 把范围覆盖的每个 fresh 声明为
 impl 参数——生成器放在 trait 实参（`GenConv<*[].2>`），声明与谓词引用
@@ -1402,7 +1402,7 @@ body 里写 @{0}，完全没有模板
   → batch-impl: a repeat block needs a driving segment or a fresh-binding
     switch (`impl{@0..}`) to determine its length
 
-完全没有模板，却写了纯游标块
+唯一驱动是形状模板、但它没有对应的 repeat 驱动，却写了纯游标块
   → 没有 DSL 诊断——块原样到达 rustc，由它报
     expected one of `.`, `;`, `?`, `}`, or an operator, found `,`
     （由 tests/ui/impl_shape_repeat_no_driver.rs 锁定）

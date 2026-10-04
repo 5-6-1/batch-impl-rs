@@ -1037,7 +1037,7 @@ trait RangeAssoc { fn m(&self); }
 ```
 
 The fresh list a range indexes comes from the spec's generators (`*[].N` /
-`().N`); a range in a spec with no fresh generics reports "out of range".
+`().N`); a **closed** range in a spec with no fresh generics reports "out of range", while an **open** one (`@0..`) contributes no predicate and no error (an arity-1 impl contributes no such predicate).
 
 **The impl-generic declaration position** works too: `<@0..>` declares every
 fresh the range covers as an impl param — so a spec can put the generator in
@@ -1601,7 +1601,7 @@ a cursor-only block with `impl{@{}}` but without the fresh-binding switch
   → batch-impl: a repeat block needs a driving segment or a fresh-binding
     switch (`impl{@0..}`) to determine its length
 
-a cursor-only block with no template at all
+a cursor-only block whose only driver is a shape template, but which has no repeat driver for it
   → no DSL diagnostic — the block reaches rustc, which reports
     expected one of `.`, `;`, `?`, `}`, or an operator, found `,`
     (locked by tests/ui/impl_shape_repeat_no_driver.rs)
