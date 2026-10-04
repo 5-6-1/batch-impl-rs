@@ -496,7 +496,9 @@
 - **A fifth review pass over the docs** — an independent cold read of every
   document found that the architecture testing matrix had never been measured: it
   claimed 104 UI fixtures, 9 goldens, 299 feature tests and 29 impls for
-  `examples/simplify.rs`, where the tree has **112**, **10**, **300** and **30**.
+  `examples/simplify.rs`, where the tree **then** had **112**, **10**, **300** and
+  **30** (today it holds **158** fixtures, 10 goldens, **383** feature tests and 30
+  impls, and the guard below is what keeps those numbers honest).
   A guard now derives those counts from the tree (and checks both language
   mirrors), so they cannot drift again. The same pass corrected the README's bare
   `§` citations (they named no document, and both documents have those numbers),

@@ -41,6 +41,13 @@
   snapshots, followed by a normal verification run. Eight complete bilingual
   Pack tutorial programs compile and run; 33 public previews match the model.
   The independent model's full suite also passes. No release or publication.
+- **Current tip, measured while preparing 0.10.0** (the row above is the dated
+  acceptance run and is kept as history): Windows stable passes **243** unit
+  tests, **383** feature tests, **7** no-panic guards, **18** documentation
+  guards, fmt, all-target check/clippy, warning-free rustdoc and three examples;
+  `tests/ui` holds **158** `compile_fail` fixtures plus 4 `pass`. The doctest
+  count and the Rust-1.95 / Linux rows are from the dated run and have not been
+  re-measured.
 
 - Pack integration, stage 1 (2026-09-26): save the reviewed independent model,
   bilingual contract/tutorial and repeatable checks in `tests/pack_model/`;
