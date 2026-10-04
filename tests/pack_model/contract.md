@@ -107,9 +107,12 @@ entries while the latter produces one F with no arguments.
 
 That row cannot supply an *argument*, though: an argument slot needs at least one
 member to splice, so `*F *[*[],]` — one entry whose argument list is empty — is an
-error, while `*F *[]` stays legal because it produces no entry at all. (Round-7 probe E
-measured the macro rejecting the former and this model accepting it; the macro is the
-consistent reading, since an empty pack yields no argument for the host to take.)
+error. `*F *[]` reads differently in the two positions it can appear in: as a
+sub-expression it stays legal because it produces no entry at all, while as one spec of a
+multi-spec attribute the macro reports "this spec expands to zero impls — no target
+survived". (Round-7 probe E measured the macro rejecting the former shape and this model
+accepting it; the macro is the consistent reading, since an empty pack yields no argument
+for the host to take.)
 
 **Aligned (round-8 probe E's D2).** The model now refuses that shape too: `Engine.apply` raises
 `single-slot` when an argument slot would receive an empty pack, so `*F *[*[],]` and the five other
@@ -118,6 +121,15 @@ inputs of the family (`*F *[*[], A]`, `*F *[A, *[]]`, `(*Vec *[*[],],)`, `(*F *[
 two earlier attempts failed: the audit's value generator now prunes shapes the rule makes
 inexpressible (140 values became 127), the audit's engine calls tolerate a refusal as a counted
 outcome, and `test_model.py` asserts the refusal instead of pinning `["F"]`.
+
+**Deliberate silence, recorded here because this is the file to read (round-8 probe E's D3).** A
+spec that expands to zero targets — `[]`, `*[]`, `*[].0`, `*F *[]` — is **reported** by the macro
+("this spec expands to zero impls — no target survived"; `docs/reference.md` says such a spec is
+reported rather than dropped) and produces no rows in the model. That is by design, not a gap: the
+model describes structure, so it has nothing to say about an entry that does not exist. The
+divergence was stated only in `test_model.py` before this paragraph, which is a test file; the
+attribute-level reading of `*F *[]` also cannot be expressed here at all, because the model has no
+multi-spec attribute (`not_expressible.txt`, `trailing-token`).
 
 ## 5. Candidate and declaration scopes
 
