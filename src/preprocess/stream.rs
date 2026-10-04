@@ -157,13 +157,44 @@ impl Stream<Paired> {
         Ok(Stream { tokens, _state: PhantomData })
     }
 
-    /// `batch_trait!` tail: no `#` expansion and no directive rejection — the
-    /// segment loop handles `@trait` per segment; straight to the bare-`where`
-    /// rewrite.
+    /// `batch_trait!` tail: no `#` expansion — the segment loop handles `@trait`
+    /// per segment — but a bare `#` is rejected with the documented reason
+    /// instead of reaching the parse layer as a generic error.
     pub(crate) fn where_process(self) -> Result<Stream<WhereDone>, TokenStream> {
+        if let Some((span, name)) = bare_directive(&self.tokens) {
+            return Err(crate::util::compile_error_str(
+                &format!(
+                    "batch-impl: `#{name}` is supported only by `#[batch_impl]` / \
+                     `#[batch_impl_only]` (directives need the trait definition as the signature \
+                     source of truth; `batch_trait!` is a function-like macro without one)"
+                ),
+                span,
+            ));
+        }
         let tokens = where_process(&self.tokens)?;
         Ok(Stream { tokens, _state: PhantomData })
     }
+}
+
+/// The first bare `#` directive at depth 0, with the name that follows it (for the message).
+/// `#[...]` attributes are a `#` in front of a bracket group and are not directives - exactly the
+/// distinction `src/doc/batch_trait.md:43-49` draws when it lists `#` directives as unsupported.
+fn bare_directive(tokens: &[TokenTree]) -> Option<(proc_macro2::Span, String)> {
+    for (i, token) in tokens.iter().enumerate() {
+        let TokenTree::Punct(p) = token else { continue };
+        if p.as_char() != '#' {
+            continue;
+        }
+        match tokens.get(i + 1) {
+            Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Bracket => {}
+            Some(TokenTree::Ident(id)) => return Some((p.span(), id.to_string())),
+            Some(TokenTree::Group(g)) if g.delimiter() == proc_macro2::Delimiter::Parenthesis => {
+                return Some((p.span(), String::from("(...)")));
+            }
+            _ => return Some((p.span(), String::from("..."))),
+        }
+    }
+    None
 }
 
 impl Stream<DirectivesResolved> {

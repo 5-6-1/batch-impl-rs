@@ -1,0 +1,7 @@
+error: batch-impl: `#fill` is supported only by `#[batch_impl]` / `#[batch_impl_only]` (directives need the trait definition as the signature source of truth; `batch_trait!` is a function-like macro without one)
+ --> tests/ui/batch_trait_directive_unsupported.rs:7:1
+  |
+7 | batch_trait! { Bm: u8 #fill([m]){0}; }
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

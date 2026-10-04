@@ -173,6 +173,8 @@ fn ui() {
     t.compile_fail("tests/ui/empty_angle_where_surface.rs");
     t.compile_fail("tests/ui/empty_angle_template_surface.rs");
     t.compile_fail("tests/ui/empty_angle_body_surface.rs");
+    // `batch_trait!` has no trait definition, so a `#` directive is rejected with that reason.
+    t.compile_fail("tests/ui/batch_trait_directive_unsupported.rs");
     t.compile_fail("tests/ui/directive_missing_tail.rs");
     t.compile_fail("tests/ui/bare_prefix_no_type.rs");
     t.compile_fail("tests/ui/bare_attr_carrier.rs");
