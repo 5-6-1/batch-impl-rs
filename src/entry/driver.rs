@@ -170,7 +170,7 @@ pub(crate) fn parse_batch_trait_entry(
 
 /// Collect the `::core::compile_error!("…")` invocations of an already-rendered stream, so a
 /// diagnostic that a renderer wrote *into* a type can be reported on its own.
-fn extract_error_carriers(tokens: &TokenStream, out: &mut Vec<TokenStream>) {
+pub(crate) fn extract_error_carriers(tokens: &TokenStream, out: &mut Vec<TokenStream>) {
     use proc_macro2::{Punct, Spacing, TokenTree};
     let items: Vec<TokenTree> = tokens.clone().into_iter().collect();
     let mut i = 0;

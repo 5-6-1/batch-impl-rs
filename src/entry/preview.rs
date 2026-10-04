@@ -86,28 +86,44 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
     }
     // The driver counts final targets, including nested host choices and
     // bare packs. Extension calls remain opaque DSL protocol invocations.
-    let count = leaves.len();
     let mut rendered = vec![];
     if let Some(t) = &p.start_trait {
         rendered.push(render_angles(quote!(#t)).to_string());
     }
     let mut notes = vec![];
+    let mut errors = vec![];
+    let mut count = 0;
     for leaf in leaves {
+        let generated = generate_impl(
+            leaf.clone(),
+            &p.trait_full_path,
+            p.is_unsafe,
+            &p.trait_bounds,
+            &p.trait_param_names,
+        );
+        // A leaf that fails while its target type is rendered returns a diagnostic *instead* of an
+        // impl - the promise `driver.rs` keeps on the attribute path. The preview must neither
+        // print that carrier as generated code nor count it as an impl: probe D's F3 caught both,
+        // showing "2 impl(s) generated" for a spec whose real expansion holds none. Same helper
+        // and same policy, so the two channels cannot drift apart again.
+        let mut carriers = vec![];
+        crate::entry::driver::extract_error_carriers(&generated, &mut carriers);
+        if !carriers.is_empty() {
+            errors.extend(carriers);
+            continue;
+        }
         // The miswrite shape lives in the target type — extract it so the
         // walker sees type positions only (no trait/decl wrappers, no bodies).
-        notes.extend(miswrite_notes(&extract_impl_parts(leaf.clone()).target_type));
+        notes.extend(miswrite_notes(&extract_impl_parts(leaf).target_type));
         // One item per line: the preview is for reading, not formatting —
         // a full pretty-printer is out of scope.
-        rendered.push(
-            render_angles(generate_impl(
-                leaf,
-                &p.trait_full_path,
-                p.is_unsafe,
-                &p.trait_bounds,
-                &p.trait_param_names,
-            ))
-            .to_string(),
-        );
+        count += 1;
+        rendered.push(render_angles(generated).to_string());
+    }
+    if !errors.is_empty() {
+        // The real expansion holds no impl here, so the preview reports what a reader would get
+        // from the attribute instead: the diagnostic, on its own.
+        return Ok(errors.into_iter().collect());
     }
     let expansion = rendered.join("\n");
     let mut msg = format!("batch-impl preview: {} impl(s) generated\n\n{}", count, expansion);
