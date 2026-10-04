@@ -613,19 +613,38 @@ fn reference_quotes_no_diagnostic_the_crate_never_prints() {
     );
 
     // A quote ends where its sentence does: `;` and `|` end a cell fragment, the straight and curly
-    // quote marks close a prose citation, and the CJK mirror spells its own punctuation.
+    // quote marks close a prose citation, and the CJK mirror spells its own punctuation. Only the
+    // §10 catalogue is read: prose elsewhere cites messages by *shape* (`` `#m` must be followed …``
+    // stands for the `#fill`/`#wrap` family), and a shape can never match a printed line.
     const ENDS: [char; 8] = [';', '|', '"', '\u{201c}', '\u{201d}', '。', '；', '\n'];
     let mut misses = vec![];
     for doc in ["docs/reference.md", "docs/zh-CN/reference.md"] {
         let text = fs::read_to_string(root.join(doc)).unwrap_or_else(|e| panic!("{doc}: {e}"));
+        let catalog = text
+            .split_once("## 10.")
+            .and_then(|(_, rest)| rest.split_once("## 11."))
+            .map(|(catalog, _)| catalog)
+            .unwrap_or_else(|| panic!("{doc}: no `## 10.` … `## 11.` catalog section"));
         let mut seen: Vec<String> = vec![];
-        for (start, _) in text.match_indices("batch-impl:") {
-            let rest = &text[start..];
+        for (start, _) in catalog.match_indices("batch-impl:") {
+            let rest = &catalog[start..];
             let end = rest.find(&ENDS[..]).unwrap_or(rest.len());
             let quote = rest[..end].trim().to_string();
             if !seen.contains(&quote) {
                 seen.push(quote.clone());
-                if !snapshots.contains(&quote) {
+                // A snapshot line carries `error: ` or `error[E0xxx]: ` before the message, so the
+                // comparison is against the message part; a quote that is a *prefix* of a printed
+                // message counts too, because a message the crate mints may itself contain a `;`.
+                let printed = snapshots.lines().any(|l| {
+                    let msg = l
+                        .trim_start()
+                        .strip_prefix("error[")
+                        .and_then(|rest| rest.split_once("]: ").map(|(_, m)| m))
+                        .or_else(|| l.trim_start().strip_prefix("error: "))
+                        .unwrap_or(l.trim_start());
+                    msg.starts_with(&quote)
+                });
+                if !printed {
                     misses.push(format!("{doc}: {quote}"));
                 }
             }
