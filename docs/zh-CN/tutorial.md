@@ -1600,7 +1600,7 @@ trait Slices {}
 
 下表区分生成入口与辅助宏。`batch_impl`、`batch_impl_only` 和 `batch_trait`
 提供不同的 trait／impl 输入方式；`batch_preprocess_test!` 消费开放扩展协议，
-`batch_preview!` 接收待预览的宏调用或带属性的 Rust item，并不共用一种完整
+`batch_preview!` 接收带属性的 Rust item（`#[batch_impl(...)] trait … {}` 或对应的 `impl`），并不共用一种完整
 输入文法。各入口的参数规则见 rustdoc，trait 路径与继承规则见参考手册 §9。
 
 | 入口 | 形态 | 说明 |

@@ -1815,8 +1815,8 @@ trait Slices {}
 The table distinguishes generation entries from helper macros.
 `batch_impl`, `batch_impl_only` and `batch_trait` offer different trait/impl
 inputs. `batch_preprocess_test!` consumes the open-extension protocol,
-while `batch_preview!` accepts a macro invocation or an annotated Rust item
-to preview; these do not share one complete input grammar. Each entry's
+while `batch_preview!` takes an annotated Rust item — `#[batch_impl(...)] trait … {}` or the matching
+`impl` — to preview; these do not share one complete input grammar. Each entry's
 argument rules are in rustdoc, with trait-path and inheritance rules in
 reference §9.
 
