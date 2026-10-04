@@ -46,6 +46,58 @@ const DOCS: &[&str] = &[
     "src/doc/directive_name.md",
 ];
 
+/// The row of a Markdown table that carries `needle`, so a number is read where its claim
+/// lives rather than anywhere in the file.
+#[cfg(test)]
+fn ceiling_row<'a>(text: &'a str, needle: &str) -> &'a str {
+    text.lines()
+        .find(|l| l.contains(needle))
+        .unwrap_or_else(|| panic!("no ceiling row containing `{needle}`"))
+}
+
+/// The ceilings the reference states in prose are numbers the code owns, and this checks the
+/// table says what the constants say - including the two numbers the table states on its own
+/// authority rather than reading from anywhere: the writable nesting depth is one less than
+/// the internal limit, and the materialization budget is the product of the two constants. A
+/// constant bumped alone, or a row edited alone, fails here instead of in a reader's build.
+#[cfg(test)]
+#[test]
+fn the_ceiling_table_states_the_constants() {
+    use crate::ast::op::MAX_EXPAND;
+    use crate::util::MAX_NEST_DEPTH;
+
+    let mirrors = [
+        ("docs/reference.md", "Impls per spec", "Nesting depth", "Materialization work"),
+        ("docs/zh-CN/reference.md", "单 spec 的 impl 数", "嵌套深度", "物化工作量"),
+    ];
+    for (path, impls_row, depth_row, work_row) in mirrors {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+
+        let impls = ceiling_row(&text, impls_row);
+        assert!(
+            impls.contains(&MAX_EXPAND.to_string()),
+            "{path}: the impl ceiling does not state MAX_EXPAND ({MAX_EXPAND}):\n{impls}"
+        );
+
+        let depth = ceiling_row(&text, depth_row);
+        assert!(
+            depth.contains(&MAX_NEST_DEPTH.to_string()),
+            "{path}: the depth row does not state MAX_NEST_DEPTH ({MAX_NEST_DEPTH}):\n{depth}"
+        );
+        assert!(
+            depth.contains(&(MAX_NEST_DEPTH - 1).to_string()),
+            "{path}: the writable depth is not stated as one less than MAX_NEST_DEPTH:\n{depth}"
+        );
+
+        let work = ceiling_row(&text, work_row);
+        let product = MAX_EXPAND * MAX_NEST_DEPTH;
+        assert!(
+            work.contains(&product.to_string()),
+            "{path}: the work ceiling is not stated as MAX_EXPAND x MAX_NEST_DEPTH ({product}):\n{work}"
+        );
+    }
+}
+
 /// One documented example: the attribute plus the item it annotates, lifted out of a
 /// fenced block, with the line the attribute sits on (the claim association key — a
 /// block may annotate two or three items, and taking the *first* one is exactly the
