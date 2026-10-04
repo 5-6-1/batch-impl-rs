@@ -1827,7 +1827,7 @@ reference §9.
 | `#[batch_impl_only]` | attribute macro on a `trait` definition | generates impls only, the trait comes from outside (prefix `# path::To::Trait:` to rename) |
 | `batch_trait!` | function-like macro | sections plus custom `@name=value;` constant sections; **no** `#` directives |
 | `batch_preprocess_test!` | reference open-extension macro | consumes protocol input and emits a complete impl; the legacy in-impl input emits associated items |
-| `batch_preview!` | diagnostic channel | prints the expansion as `compile_error!` text (the only stable terminal channel) **and the number of impls it produced**, which is the quickest way to check that a spec generated what you meant |
+| `batch_preview!` | diagnostic channel | prints the expansion as `compile_error!` text (the only stable terminal channel) **and, on the trait entry, the number of impls it produced** (the impl entry prints one stream and reports no count), which is the quickest way to check that a spec generated what you meant |
 
 ```rust
 # use batch_impl::batch_impl_only;

@@ -1610,7 +1610,7 @@ trait Slices {}
 | `#[batch_impl_only]` | 属性宏，挂在 `trait` 定义上 | 只生成 impl，trait 来自外部（改名前缀 `# path::To::Trait:`） |
 | `batch_trait!` | 函数式宏 | 分段 + 自定义 `@name=值;` 常量段；**不支持** `#` 指令 |
 | `batch_preprocess_test!` | 开放扩展参考宏 | 消费协议输入，生成完整 impl；旧的 impl 内输入生成关联成员 |
-| `batch_preview!` | 诊断通道 | 把展开结果作为 `compile_error!` 文本打印（唯一稳定的终端通道），**并报出它生成了多少个 impl**——这是检查“这条 spec 是否生成了你想要的东西”最快的办法 |
+| `batch_preview!` | 诊断通道 | 把展开结果作为 `compile_error!` 文本打印（唯一稳定的终端通道），**并在 trait 入口报出它生成了多少个 impl**（impl 入口只打印一个 token 流，不报数量）——这是检查“这条 spec 是否生成了你想要的东西”最快的办法 |
 
 ```rust
 # use batch_impl::batch_impl_only;
