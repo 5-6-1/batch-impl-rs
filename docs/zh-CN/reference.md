@@ -806,10 +806,10 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `nested_bracket_too_deep` | 131 层 `[` 组 | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
 | `chain_too_deep` | 129 层运算符链 | batch-impl: operator chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `segments_too_deep` | 129 层空格应用链 | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
-| `attach_too_deep` | 129 个附件 | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
+| `attach_too_deep` | 128 个附件 | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `impl_attach_too_deep` | 同样的链走 impl 入口 | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `const_value_deep_nesting` | 常量值嵌套 130 层 | batch-impl: nesting depth exceeds 128 levels in a constant value (perhaps an accidental extra bracket) | DSL |
-| `delegate_call_depth` | delegate body 嵌套超过 128 层组 | batch-impl: nesting depth exceeds 128 levels in a delegate template (perhaps an accidental extra bracket) | DSL |
+| `delegate_call_depth` | delegate body 嵌套 129 层组或更深 | batch-impl: nesting depth exceeds 128 levels in a delegate template (perhaps an accidental extra bracket) | DSL |
 
 ### 10.3 `@` 常量、引用与范围
 

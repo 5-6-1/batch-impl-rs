@@ -852,10 +852,10 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `nested_bracket_too_deep` | 131 nested `[` groups | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
 | `chain_too_deep` | a 129-level operator chain | batch-impl: operator chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `segments_too_deep` | a 129-level space chain | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
-| `attach_too_deep` | 129 attachments | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
+| `attach_too_deep` | 128 attachments | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `impl_attach_too_deep` | the same through the impl entry | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `const_value_deep_nesting` | a constant value nested 130 deep | batch-impl: nesting depth exceeds 128 levels in a constant value (perhaps an accidental extra bracket) | DSL |
-| `delegate_call_depth` | a delegate body nested beyond 128 groups | batch-impl: nesting depth exceeds 128 levels in a delegate template (perhaps an accidental extra bracket) | DSL |
+| `delegate_call_depth` | a delegate body nested 129 groups or deeper | batch-impl: nesting depth exceeds 128 levels in a delegate template (perhaps an accidental extra bracket) | DSL |
 
 ### 10.3 `@` constants, references and ranges
 

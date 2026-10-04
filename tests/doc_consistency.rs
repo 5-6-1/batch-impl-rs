@@ -594,17 +594,28 @@ fn reference_names_every_ui_fixture() {
 fn reference_counts_the_trigger_it_states() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     // (fixture stem, brackets in the fixture, the count the catalog row must state).
-    for (stem, brackets, stated) in [
-        ("deep_nesting", 201, 200),
-        ("nested_bracket_too_deep", 132, 131),
-        ("const_value_deep_nesting", 130, 130),
+    // (fixture stem, the unit to count in the fixture, that count, the number the row states).
+    // A row states the **threshold**, not what its fixture happens to hold: `deep_nesting` writes
+    // 201 brackets and says 200, `attach_too_deep` holds 129 attachments and says 128 (measured:
+    // 127 pass, 128 report), and `delegate_call_depth` nests 136 parens while saying 129 - the
+    // count at which the *delegate-template* wording starts, because 127 already reports the
+    // generic nesting sentence. Probe A's F5 and probe B's D4 each measured one of those
+    // thresholds once; re-measured here while landing, so the rows state what the crate does.
+    for (stem, unit, counted, stated) in [
+        ("deep_nesting", "[", 201, 200),
+        ("nested_bracket_too_deep", "[", 132, 131),
+        ("const_value_deep_nesting", "[", 130, 130),
+        // The unit is the whole attachment, not `{`: the fixture's braces include the attribute's
+        // and the trait body's, so counting `{` reads 131 where there are 129 attachments.
+        ("attach_too_deep", "{1}", 129, 128),
+        ("delegate_call_depth", "(", 136, 129),
     ] {
         let fixture = fs::read_to_string(root.join(format!("tests/ui/{stem}.rs")))
             .unwrap_or_else(|e| panic!("{stem}: {e}"));
-        let actual = fixture.matches('[').count();
+        let actual = fixture.matches(unit).count();
         assert_eq!(
-            actual, brackets,
-            "{stem}: the fixture now has {actual} `[`; this test records {brackets}"
+            actual, counted,
+            "{stem}: the fixture now has {actual} `{unit}`; this test records {counted}"
         );
         for doc in ["docs/reference.md", "docs/zh-CN/reference.md"] {
             let text = fs::read_to_string(root.join(doc)).unwrap_or_else(|e| panic!("{doc}: {e}"));
