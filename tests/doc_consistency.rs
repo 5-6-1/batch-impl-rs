@@ -1433,6 +1433,58 @@ fn section_citations_match_their_subject() {
     assert!(bad.is_empty(), "citations that do not match their subject:\n  {}", bad.join("\n  "));
 }
 
+/// A `compile_fail` snapshot must carry the crate's diagnostic and nothing from another source:
+/// the crate promises that an error *replaces* the impl, so a snapshot that also holds rustc
+/// complaining about the leftover half is a broken promise, not a fixture detail. Measured before
+/// this guard: of 154 snapshots, none was empty and none mixed sources once the 11 fixtures that
+/// never declared `fn main()` stopped collecting trybuild's `E0601` trailer - which is why the
+/// hygiene landed first: a guard whose first red is fixture noise teaches the reader to ignore it.
+#[test]
+fn every_ui_snapshot_keeps_a_single_source_of_error() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files: Vec<std::path::PathBuf> = vec![];
+    collect_stderr(&root.join("tests/ui"), &mut files);
+    assert!(!files.is_empty(), "no .stderr snapshots under tests/ui");
+    let mut mixed = vec![];
+    for path in files {
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let ours = text.lines().filter(|l| l.starts_with("error: batch-impl")).count();
+        let theirs = text
+            .lines()
+            .filter(|l| {
+                l.starts_with("error[")
+                    || (l.starts_with("error:") && !l.starts_with("error: batch-impl"))
+            })
+            .count();
+        assert!(
+            ours + theirs > 0,
+            "{}: a `compile_fail` snapshot with no error at all",
+            path.display()
+        );
+        if ours > 0 && theirs > 0 {
+            mixed.push(path.display().to_string());
+        }
+    }
+    assert!(
+        mixed.is_empty(),
+        "these snapshots mix the crate's diagnostic with another source:\n  {}",
+        mixed.join("\n  ")
+    );
+}
+
+/// Every `.stderr` under `tests/ui` - `pass/` fixtures have none, so this is exactly the
+/// `compile_fail` set.
+fn collect_stderr(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_stderr(&path, out);
+        } else if path.extension().is_some_and(|e| e == "stderr") {
+            out.push(path);
+        }
+    }
+}
+
 /// Floors for the testing-matrix guard (112 fixtures, 50 modules, 300 feature
 /// tests, 10 goldens today).
 const MIN_MATRIX_FIXTURES: usize = 100;
