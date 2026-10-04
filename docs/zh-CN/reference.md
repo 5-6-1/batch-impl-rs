@@ -866,6 +866,7 @@ impl<const N: usize> Width for Bytes<N> {
 | `bound_on_repeated_parameter` | `(<T: Clone>,).2` | batch-impl: a bound cannot ride on a repeated parameter — `(<T: Clone>).N` rewrites the template into N fresh parameters, so the bound would have to be copied with it; write the bound where the parameter is used instead | DSL |
 | `array_length_builtin_type` | `[u8].u16` | batch-impl: an array length takes a const expression, not a builtin type — write `[u8; 3]` or `[u8; N]` | DSL |
 | `decl_block_as_target` | `<T>` alone as the target | batch-impl: a `<>` block declares the impl's own parameters, not a type — write the target after it (e.g. `<T> Vec<T>`) | DSL |
+| `spec_dropped_silently` | a spec starting with a punctuation that cannot open a block (`^u8`, `u8, ^u16`) | batch-impl: `^` cannot start a type — the spec would be dropped without an impl | DSL |
 | `single_name_not_found` | `#name` 指向不存在的成员 | batch-impl: item `no_such` not found in trait `T` | DSL |
 | `delegate_on_non_fn` | 对常量用 `#delegate` | batch-impl: #delegate only works on methods; `VALUE` in trait `HasConst` is not a method | DSL |
 | `delegate_const` | 同上，另一个常量 | batch-impl: #delegate only works on methods; `LIMIT` in trait `ConstApi` is not a method | DSL |

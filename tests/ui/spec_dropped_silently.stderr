@@ -1,0 +1,17 @@
+error: batch-impl: `^` cannot start a type — the spec would be dropped without an impl
+ --> tests/ui/spec_dropped_silently.rs:8:14
+  |
+8 | #[batch_impl(^u8)]
+  |              ^
+
+error: batch-impl: `^` cannot start a type — the spec would be dropped without an impl
+  --> tests/ui/spec_dropped_silently.rs:11:18
+   |
+11 | #[batch_impl(u8, ^u16)]
+   |                  ^
+
+error: batch-impl: `^` cannot start a type — the spec would be dropped without an impl
+  --> tests/ui/spec_dropped_silently.rs:14:18
+   |
+14 | #[batch_impl(u8: ^u8)]
+   |                  ^

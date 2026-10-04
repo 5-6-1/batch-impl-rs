@@ -23,6 +23,7 @@ use proc_macro2::TokenTree;
 pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, ctx: Ctx<'_>) -> Option<Ty> {
     match level {
         Op::Semi | Op::Comma => loop {
+            let before = cursor.pos();
             if let Some(item) = parse_operand(cursor, level, ctx) {
                 return item.into();
             }
@@ -42,7 +43,32 @@ pub(crate) fn parse_item(cursor: &mut Cursor, level: Op, ctx: Ctx<'_>) -> Option
                     .into();
                 }
             } else {
-                return None;
+                // The general rule, instead of a list of the spellings that are known to
+                // disappear: a refusal that *consumed* tokens has dropped a spec, which
+                // `docs/reference.md:1060` promises cannot happen silently (`#[batch_impl(^u8)]`,
+                // `#[batch_impl(u8, ^u16)]` - and every punctuation nobody has thought of yet,
+                // because this arm names no punctuation at all). A refusal that consumed
+                // nothing is the ordinary end of the list and stays `None`.
+                //
+                // `;` is the one documented exception: `#[batch_impl(;)]` is a deliberate
+                // empty spelling, so a lone `;` keeps behaving exactly as before.
+                let rest = cursor.slice_at(before, usize::MAX);
+                if cursor.pos() == before
+                    || matches!(rest.first(), Some(TokenTree::Punct(p)) if p.as_char() == ';')
+                {
+                    return None;
+                }
+                // Clippy is right that the missing-token case *is* this function's `None`:
+                // the cursor only moves forward when something was there.
+                let t = rest.first()?;
+                return err_ty_at(
+                    &format!(
+                        "batch-impl: `{t}` cannot start a type — the spec would be dropped \
+                         without an impl"
+                    ),
+                    t.span(),
+                )
+                .into();
             }
         },
         Op::Space => parse_space_chain(cursor, ctx),
