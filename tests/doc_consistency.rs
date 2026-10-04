@@ -584,12 +584,65 @@ fn reference_names_every_ui_fixture() {
     }
 }
 
-/// A Trigger cell that states a count must state the count its fixture has. This is the third
-/// column of the catalog: naming is locked by `reference_names_every_ui_fixture` and wording by
-/// `reference_quotes_every_diagnostic_verbatim`, but a trigger was free to describe a fixture
-/// that had changed underneath it — `deep_nesting` claimed "129 nested groups" for a fixture
-/// that has written 200 brackets since v0.6.1, and `const_value_deep_nesting` claimed 129 for
-/// 130. Round-7 probe B found both by counting the fixtures; this test counts them.
+/// The catalog quotes wordings a reader will meet; the reverse must hold too, or a row can promise
+/// a sentence the crate never prints. Probe B's D1 was exactly that: §10's `pack_single_slot` row
+/// quoted `batch-impl: materialization work limit exceeded` - a string that lived nowhere but the
+/// two doc mirrors - while §12 quoted the real sentence, so the book contradicted itself and no
+/// guard could see it: the forward check compares only each snapshot's *first* diagnostic, and the
+/// work error sits twelfth in that fixture.
+#[test]
+fn reference_quotes_no_diagnostic_the_crate_never_prints() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut snapshots = String::new();
+    let mut stack = vec![root.join("tests/ui")];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "stderr") {
+                snapshots.push_str(&fs::read_to_string(&path).unwrap_or_default());
+                snapshots.push('\n');
+            }
+        }
+    }
+    assert!(
+        snapshots.len() > MIN_UI_FIXTURES,
+        "the snapshot walk read almost nothing: {} bytes",
+        snapshots.len()
+    );
+
+    // A quote ends where its sentence does: `;` and `|` end a cell fragment, the straight and curly
+    // quote marks close a prose citation, and the CJK mirror spells its own punctuation.
+    const ENDS: [char; 8] = [';', '|', '"', '\u{201c}', '\u{201d}', '。', '；', '\n'];
+    let mut misses = vec![];
+    for doc in ["docs/reference.md", "docs/zh-CN/reference.md"] {
+        let text = fs::read_to_string(root.join(doc)).unwrap_or_else(|e| panic!("{doc}: {e}"));
+        let mut seen: Vec<String> = vec![];
+        for (start, _) in text.match_indices("batch-impl:") {
+            let rest = &text[start..];
+            let end = rest.find(&ENDS[..]).unwrap_or(rest.len());
+            let quote = rest[..end].trim().to_string();
+            if !seen.contains(&quote) {
+                seen.push(quote.clone());
+                if !snapshots.contains(&quote) {
+                    misses.push(format!("{doc}: {quote}"));
+                }
+            }
+        }
+    }
+    assert!(
+        misses.is_empty(),
+        "the catalog quotes wordings no fixture prints:\n  {}",
+        misses.join("\n  ")
+    );
+}
+
+/// A Trigger cell that states a count states the **threshold** - the count at which the crate
+/// reports - not the count its fixture happens to hold. The fixture usually holds one more (201
+/// brackets in `deep_nesting` for a stated 200; 129 attachments for a stated 128), and where the
+/// row describes its fixture instead, this test still pins that number, so a fixture that changes
+/// under a row is caught either way.
 #[test]
 fn reference_counts_the_trigger_it_states() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
