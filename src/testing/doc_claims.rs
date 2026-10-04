@@ -50,9 +50,16 @@ const DOCS: &[&str] = &[
 /// lives rather than anywhere in the file.
 #[cfg(test)]
 fn ceiling_row<'a>(text: &'a str, needle: &str) -> &'a str {
+    // Anchor on the row's own first cell, not on "the first line containing the needle": a row
+    // that merely *mentions* another row's phrase hijacked the lookup. Adding a parenthetical
+    // that named the work budget to the `Impls per spec` row made this function return that row
+    // for the work needle, so the work assertion failed while pointing at the wrong line (the
+    // added words were correct; the lookup was not). The needles are table cells, so `| <cell> |`
+    // is the anchor.
+    let anchor = format!("| {needle} |");
     text.lines()
-        .find(|l| l.contains(needle))
-        .unwrap_or_else(|| panic!("no ceiling row containing `{needle}`"))
+        .find(|l| l.trim_start().starts_with(&anchor))
+        .unwrap_or_else(|| panic!("no ceiling row starting with `{anchor}`"))
 }
 
 /// The ceilings the reference states in prose are numbers the code owns, and this checks the
