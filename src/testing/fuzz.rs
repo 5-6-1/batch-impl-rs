@@ -42,6 +42,20 @@ fn the_alphabet_can_spell_the_shapes_that_once_escaped_it() {
     for t in ALPHABET {
         assert!(seen.insert(format!("{t:?}")), "duplicate alphabet entry: {t:?}");
     }
+    assert_eq!(
+        seen.len(),
+        ALPHABET.len(),
+        "duplicate alphabet entry (the distinct set is smaller than the table)"
+    );
+    // The count is deliberate, like the corpus floors in `tests/no_panic`: adding or removing a
+    // token is a decision, and this makes it one. Without it, deleting a token that no fixed
+    // shape check names (the six directive words, `impl`, `@`) stayed invisible - which is what
+    // probe C measured by deletion. `seen` above already proves the entries are distinct.
+    assert_eq!(
+        ALPHABET.len(),
+        52,
+        "the alphabet changed size: was a token added or removed deliberately?"
+    );
     assert!(
         ALPHABET.iter().any(|t| matches!(t, Tok::Punct('-', Spacing::Joint))),
         "the alphabet has no Joint `-`: `->` cannot be generated at all"
