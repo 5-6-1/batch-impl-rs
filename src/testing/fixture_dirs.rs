@@ -48,6 +48,7 @@ fn every_regression_file_maps_to_a_source_file() {
         "the regression directory exists but holds no `.txt` - the walk is broken"
     );
     let mut orphans = vec![];
+    let mut empty = vec![];
     for file in &files {
         let relative = file.strip_prefix(&root).expect("walk stays under the root");
         // proptest mirrors the source path, so reverse the mirror: `a/b.txt` names
@@ -60,7 +61,19 @@ fn every_regression_file_maps_to_a_source_file() {
                 source.strip_prefix(manifest_dir()).unwrap_or(&source).display()
             ));
         }
+        // A file that maps correctly but holds no cases is bookkeeping rather than a guard: probe
+        // C's G10 emptied this one and `--lib` stayed green. proptest writes each recorded case on a
+        // line beginning `cc `, so one such line is the least a regression file can carry.
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        if !text.lines().any(|line| line.starts_with("cc ")) {
+            empty.push(format!("{} holds no `cc ` case line", relative.display()));
+        }
     }
+    assert!(
+        empty.is_empty(),
+        "these regression files hold no cases (an emptied file is no guard at all):\n  {}",
+        empty.join("\n  ")
+    );
     assert!(
         orphans.is_empty(),
         "these regression files are read by nobody - no source file derives their path \
