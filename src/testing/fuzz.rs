@@ -305,3 +305,46 @@ fn blanket_single_group_wrapper_no_panic() {
     };
     let _ = expand_attr_macro(attr, trait_def, true);
 }
+
+/// Regression (alga2, round 10): a **varseg template written with a trailing comma**
+/// (`impl{(A@..,)}`) used together with a `where` clause produced a malformed type — the body landed
+/// where a type belongs and rustc reported ``expected type, found `{` `` with nothing pointing at the
+/// spec. The template alone works, and so does the comma-less spelling with a where clause.
+#[test]
+fn varseg_comma_template_with_a_where_clause_keeps_the_body_out_of_the_type() {
+    let attr: TokenStream =
+        "(u8, u16) ().1..=2 where @0..: Clone impl{(A@..,)} #n{0}".parse().unwrap();
+    let trait_def: syn::ItemTrait = syn::parse_quote! {
+        trait TrV { fn n(&self) -> usize; }
+    };
+    let out = match expand_attr_macro(attr, trait_def, true) {
+        Ok(ts) => ts.to_string(),
+        Err(e) => e.to_string(),
+    };
+    println!("EXPANSION(A): {out}");
+    assert!(
+        !out.contains("for {") && !out.contains("::core::compile_error!"),
+        "the spec did not expand into a type: {out}"
+    );
+}
+
+/// Regression (alga2, round 10): a bare `where` region ending in a **trailing comma** before the
+/// spec's body (`where T: Clone, { … }`) left that comma in the stream, so the body became a spec of
+/// its own — "a bare `{...}` block without an attached type generates no impl". Working in 0.9.6.
+#[test]
+fn bare_where_trailing_comma_keeps_the_body_attached() {
+    let attr: TokenStream =
+        "<T: Clone> TrW<T> T where T: Clone, { fn f(&self) -> u8 { 0 } }".parse().unwrap();
+    let trait_def: syn::ItemTrait = syn::parse_quote! {
+        trait TrW<T> { fn f(&self) -> u8; }
+    };
+    let out = match expand_attr_macro(attr, trait_def, true) {
+        Ok(ts) => ts.to_string(),
+        Err(e) => e.to_string(),
+    };
+    println!("EXPANSION(B): {out}");
+    assert!(
+        !out.contains("without an attached type"),
+        "the body was taken as a spec of its own: {out}"
+    );
+}

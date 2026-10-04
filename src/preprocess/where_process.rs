@@ -268,10 +268,33 @@ fn scan_body_boundary(
                 return (result, j).into();
             }
             // `,` ends the region when the caller's comma rule says so; the
-            // `,` stays in the stream (the attr entry's spec-list separator).
+            // `,` stays in the stream (the attr entry's spec-list separator) —
+            // **unless** nothing that could start a spec follows it. A trailing
+            // comma before the body (`where T: Clone, { … }`) or before the spec
+            // terminator (`…, ;`) belongs to the **predicate list**, which Rust
+            // allows to end in a comma; leaving it in the stream turned the
+            // attachment into a spec of its own ("a bare `{...}` block without an
+            // attached type generates no impl"), which is the 0.9.6 → 0.10.0
+            // regression alga2 hit. `@{...}` carriers begin with `@`, not `{`, so
+            // they keep the old path.
             TokenTree::Punct(p)
                 if depth.at_top() && p.as_char() == ',' && comma_boundary(tokens, j) =>
             {
+                let starts_nothing = match tokens.get(j + 1) {
+                    None => true,
+                    Some(TokenTree::Group(g)) => g.delimiter() == delimiter![{}],
+                    Some(TokenTree::Punct(next)) => next.as_char() == ';',
+                    // An `impl{...}` **attachment** is not the start of a spec either - a spec needs a
+                    // target type, and a template has none. Missing this case split the reported spec
+                    // into `… where @0..: Clone` plus a target-less template, which rustc reported as
+                    // ``expected type, found `{` `` pointing at the whole attribute (alga2's case B).
+                    Some(TokenTree::Ident(_)) => is_impl_template(tokens, j + 1),
+                    _ => false,
+                };
+                if starts_nothing {
+                    result.push(cur.clone());
+                    return (result, j + 1).into();
+                }
                 return (result, j).into();
             }
             _ => result.push(cur.clone()),
