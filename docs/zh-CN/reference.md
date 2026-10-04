@@ -389,7 +389,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 - **排他区间在每个位置都不含末尾**：实测 `().3 where{@0..2: Clone}` → 三 fresh 的 impl 上得到 `where P0: Clone, P1: Clone`。
 - **越过末尾的开区间什么都不贡献**：实测 `().2 where{@5..: Clone}` → 没有谓词、也不报错。依赖元数的 spec 不该因为短的那个情形就失败。
 - **`@N` 越过末尾是定向错误**（ui `at_num_in_type`；spec 里闭区间的对应物是 `empty_range`）。
-- **blanket 包装的 where 子句里，`@0` 指目标泛型**：实测 `#blanket(own){Box where{@0: Copy}}` → `impl<P0> … for Box<P0> where P0: Trait, P0: Copy`。
+- **blanket 包装的 where 子句里，`@0` 指目标泛型**：实测 `#blanket(@all_methods){Box where{@0: Copy}}` → `impl<P0> … for Box<P0> where P0: Trait, P0: Copy`。
 - **`@all_fresh` 已移除**：将既有用法改为 `@0..`。
 
 ### 5.5 定义

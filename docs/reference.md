@@ -413,7 +413,7 @@ records the evaluation stages and counterexamples.
 - **An exclusive range excludes its end in every position**: measured `().3 where{@0..2: Clone}` → `where P0: Clone, P1: Clone` on a three-fresh impl.
 - **An open range past the end contributes nothing**: measured `().2 where{@5..: Clone}` → no predicate, no error. An arity-dependent spec must not fail on its shorter case.
 - **`@N` past the end is a targeted error** (ui `at_num_in_type`; the closed-range counterpart in a spec is `empty_range`).
-- **In a blanket wrapper's where clause, `@0` is the target generic**: measured `#blanket(own){Box where{@0: Copy}}` → `impl<P0> … for Box<P0> where P0: Trait, P0: Copy`.
+- **In a blanket wrapper's where clause, `@0` is the target generic**: measured `#blanket(@all_methods){Box where{@0: Copy}}` → `impl<P0> … for Box<P0> where P0: Trait, P0: Copy`.
 - **`@all_fresh` has been removed**: replace existing uses with `@0..`.
 
 ### 5.5 Definitions
