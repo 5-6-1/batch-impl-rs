@@ -1607,7 +1607,7 @@ trait Slices {}
 |---|---|---|
 | `#[batch_impl]` | 属性宏，挂在 `trait` 定义上 | 重发 trait 定义 + 生成 impl |
 | `#[batch_impl]` | 属性宏，挂在 `impl` 块上（**impl 入口**，0.8.0） | 从一个手写 impl × 形状模板批量实例化 |
-| `#[batch_impl_only]` | 属性宏，挂在 `trait` 定义上 | 只生成 impl，trait 来自外部（改名前缀 `# path::To::Trait:`） |
+| `#[batch_impl_only]` | 属性宏，挂在 `trait` 定义上 | 只生成 impl，trait 来自外部（改名前缀 `# path::To::Trait:` —— 它**写在属性列表最前面、只写一次**：前缀属于整条属性、不属于某条 spec，逐 spec 重复只会得到一条误导性的 “`#std` must be followed by `(args)`/`[args]` or a code block `{body}`”） |
 | `batch_trait!` | 函数式宏 | 分段 + 自定义 `@name=值;` 常量段；**不支持** `#` 指令 |
 | `batch_preprocess_test!` | 开放扩展参考宏 | 消费协议输入，生成完整 impl；旧的 impl 内输入生成关联成员 |
 | `batch_preview!` | 诊断通道 | 把展开结果作为 `compile_error!` 文本打印（唯一稳定的终端通道），**并在 trait 入口报出它生成了多少个 impl**（impl 入口只打印一个 token 流，不报数量）——这是检查“这条 spec 是否生成了你想要的东西”最快的办法 |

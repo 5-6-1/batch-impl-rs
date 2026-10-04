@@ -1824,7 +1824,7 @@ reference §9.
 |---|---|---|
 | `#[batch_impl]` | attribute macro on a `trait` definition | re-emits the trait and generates impls |
 | `#[batch_impl]` | attribute macro on an `impl` block (the **impl entry**, 0.8.0) | batch-instantiates a hand-written impl from a shape template × matrix |
-| `#[batch_impl_only]` | attribute macro on a `trait` definition | generates impls only, the trait comes from outside (prefix `# path::To::Trait:` to rename) |
+| `#[batch_impl_only]` | attribute macro on a `trait` definition | generates impls only, the trait comes from outside (prefix `# path::To::Trait:` to rename — write it **once, in front of the attribute's list**: it belongs to the attribute, not to a spec, so repeating it per spec only produces a misleading "`#std` must be followed by `(args)`/`[args]` or a code block `{body}`") |
 | `batch_trait!` | function-like macro | sections plus custom `@name=value;` constant sections; **no** `#` directives |
 | `batch_preprocess_test!` | reference open-extension macro | consumes protocol input and emits a complete impl; the legacy in-impl input emits associated items |
 | `batch_preview!` | diagnostic channel | prints the expansion as `compile_error!` text (the only stable terminal channel) **and, on the trait entry, the number of impls it produced** (the impl entry prints one stream and reports no count), which is the quickest way to check that a spec generated what you meant |
