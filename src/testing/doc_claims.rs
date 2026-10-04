@@ -7,10 +7,12 @@
 //! newlines carry a gutter, or a human-format wrap that chops a long type, cannot produce
 //! a false difference here.
 //!
-//! Scope, measured: the English side carries 100 `// →` claims across 7 files -
-//! `docs/tutorial.md` (62) and six `src/doc/*.md` (12+7+6+6+5+2). The Chinese mirror (60
-//! more) is not checked here: mirror consistency already has its own guard, and checking
-//! both would be the same fact in two homes.
+//! Scope: the English side of `docs/tutorial.md` and the six `src/doc/*.md` chapters. The
+//! per-file split is deliberately not restated here - `cargo test --lib doc_claims` prints
+//! the live one (exact / partial / skipped) for whatever the tree holds today, and a number
+//! copied into a comment is a number nobody re-measures. The Chinese mirror is not checked
+//! here: mirror consistency already has its own guard, and checking both would be the same
+//! fact in two homes.
 //!
 //! A documented `compile_fail` example is expected to fail expansion, so an example whose
 //! expansion reports an error is skipped rather than failed: the macro's own message is
