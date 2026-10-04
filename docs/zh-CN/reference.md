@@ -802,7 +802,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
-| `deep_nesting` | 129 层嵌套组 | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
+| `deep_nesting` | 200 层 `[` 组 | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
 | `nested_bracket_too_deep` | 130 层 `[` 组 | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
 | `chain_too_deep` | 129 层运算符链 | batch-impl: operator chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `segments_too_deep` | 129 层空格应用链 | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |

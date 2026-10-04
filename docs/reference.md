@@ -848,7 +848,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 
 | Fixture | Trigger | Locked message | Source |
 | --- | --- | --- | --- |
-| `deep_nesting` | 129 nested groups | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
+| `deep_nesting` | 200 nested `[` groups | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
 | `nested_bracket_too_deep` | 130 nested `[` groups | batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra bracket) | DSL |
 | `chain_too_deep` | a 129-level operator chain | batch-impl: operator chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
 | `segments_too_deep` | a 129-level space chain | batch-impl: space-application chain exceeds 129 levels (limit 128); split the chain into separate impl-specs | DSL |
