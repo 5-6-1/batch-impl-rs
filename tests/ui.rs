@@ -15,6 +15,9 @@ fn ui() {
     // the diagnostic promise: an error replaces the impl, so a leaf that fails during codegen
     // must not leave the impls generated before it in the expansion
     t.compile_fail("tests/ui/half_built_impl.rs");
+    // a diagnostic minted while the target type is rendered (absent from the leaf tree, so the
+    // walk above cannot see it)
+    t.compile_fail("tests/ui/nested_error_target.rs");
 
     t.compile_fail("tests/ui/trait_path_no_ident.rs");
     t.compile_fail("tests/ui/path_prefix_mismatch.rs");

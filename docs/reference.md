@@ -967,6 +967,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | --- | --- | --- | --- |
 | `implentry_at_num_banned` | `@0` on an impl-entry spec with no fresh | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `half_built_impl` | one leaf fails during codegen, another succeeds | batch-impl: `@3` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `nested_error_target` | a diagnostic minted while the target type is rendered | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
 | `implentry_direct_not_type` | a directive where a type belongs | batch-impl: this form implements one type at a time — to batch targets, put `#[batch_impl(...)]` on a trait definition, or use `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] trait Tr { … }`) | DSL |
 | `implentry_hash_banned` | `#fill` on the impl entry | batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly) | DSL |
 | `top_level_block_not_last` | `{! m!{…}}` before other blocks | batch-impl: a `{! ...}` top-level block must be the last block | DSL |

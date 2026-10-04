@@ -1,0 +1,5 @@
+error: batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T`
+  --> tests/ui/nested_error_target.rs:10:21
+   |
+10 | #[batch_impl([u8] * *)]
+   |                     ^
