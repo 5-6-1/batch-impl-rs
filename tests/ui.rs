@@ -336,4 +336,8 @@ fn ui() {
     // an empty attribute derives nothing, so the impl entry emits the original
     // block unchanged (the `need` calls in the fixture fail if it is swallowed)
     t.pass("tests/ui/pass/impl_entry_empty_attribute.rs");
+
+    // the trait entry's half of the same promise: `#[batch_impl(;)]` and `#[batch_impl()]`
+    // both re-emit the trait unchanged
+    t.pass("tests/ui/pass/trait_entry_empty_attribute.rs");
 }

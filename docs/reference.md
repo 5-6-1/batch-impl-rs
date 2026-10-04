@@ -999,7 +999,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `impl_trait_sync_body_negative` | a body `X<>` without a `Tr<>`-carrying template | trait takes 1 generic argument but 0 generic arguments were supplied | rustc |
 | `unsafe_non_fn` | `unsafe` on a non-unsafe trait | implementing the trait `T` is not unsafe | rustc |
 
-The **3 `pass` fixtures** are the other half of the lock: `constant_named_type_arg` (a type parameter merely *named* `constant` is never a `const` parameter), `tests/ui/pass/basic.rs` and `tests/ui/pass/impl_entry_empty_attribute.rs` must keep compiling.
+The **4 `pass` fixtures** are the other half of the lock: `constant_named_type_arg` (a type parameter merely *named* `constant` is never a `const` parameter), `tests/ui/pass/basic.rs`, `tests/ui/pass/impl_entry_empty_attribute.rs` and `tests/ui/pass/trait_entry_empty_attribute.rs` must keep compiling.
 
 ## 11. Crossings
 

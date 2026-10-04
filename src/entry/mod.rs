@@ -75,6 +75,15 @@ fn run_pipeline(
 pub(crate) fn expand_attr_macro(
     attr: TokenStream, trait_item: ItemTrait, include_trait: bool,
 ) -> Result<TokenStream, TokenStream> {
+    // Nothing to derive: hand the trait back unchanged, exactly as the impl entry does for its
+    // own empty list (`entry/impl_entry.rs`). Separators are not content, so `#[batch_impl(;)]`
+    // and `#[batch_impl()]` are the same instruction — `docs/reference.md` documents both as
+    // "re-emit the item unchanged". This bypasses the pipeline on purpose: the zero-impl gate
+    // would otherwise report an empty expansion and turn the documented identity into an error.
+    let attr_vec: Vec<TokenTree> = attr.clone().into_iter().collect();
+    if crate::parse::split_at_depth0(&attr_vec, ';').iter().all(|spec| spec.is_empty()) {
+        return Ok(if include_trait { quote!(#trait_item) } else { quote!() });
+    }
     let p = prepare_attr_expansion(attr, trait_item, include_trait)?;
     run_pipeline(
         &p.expanded,

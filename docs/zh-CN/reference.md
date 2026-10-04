@@ -953,7 +953,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `impl_trait_sync_body_negative` | body 里写 `X<>` 但模板不带 `Tr<>` | trait takes 1 generic argument but 0 generic arguments were supplied | rustc |
 | `unsafe_non_fn` | 对非 unsafe trait 用 `unsafe` | implementing the trait `T` is not unsafe | rustc |
 
-锁的另一半是 **3 个 `pass` fixture**：`constant_named_type_arg`（只是*名字*叫 `constant` 的类型参数绝不是 `const` 参数）、`tests/ui/pass/basic.rs` 与 `tests/ui/pass/impl_entry_empty_attribute.rs` 必须保持可编译。
+锁的另一半是 **4 个 `pass` fixture**：`constant_named_type_arg`（只是*名字*叫 `constant` 的类型参数绝不是 `const` 参数）、`tests/ui/pass/basic.rs`、`tests/ui/pass/impl_entry_empty_attribute.rs` 与 `tests/ui/pass/trait_entry_empty_attribute.rs` 必须保持可编译。
 
 ## 11. 交叉
 
