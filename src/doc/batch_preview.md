@@ -121,6 +121,16 @@ known container name costs a wrong note, never a wrong build.
 - Impl inputs call the real `expand_impl_entry` pipeline, including
   constant expansion, shape matching and impl assembly. They do not take
   the trait preview's leaf-collection route.
+- With attributes stacked on the impl, one preview expands **one stage**:
+  the others stay in place, so the printed target can still name a parameter
+  a later stage would bind (`impl Tag for Pair<u8, B>` with `B` unbound, and
+  both attributes re-emitted). That is the honest picture of stage 1, not a
+  broken expansion.
+- The expansion is printed with raw token spacing (`& self`, `format! (`),
+  not rustfmt's rendering, while the `→` comments in `docs/` are
+  rustfmt-formatted — normalise spacing before comparing, and expect the
+  renderer's trailing comma on every tuple target (`for (u8, u16,)`, never
+  `for (u8, u16)`).
 - `compile_fail` marks these doctests because the preview deliberately
   reports an error. A normal build after removing the wrapper is still
   needed to validate the displayed Rust.
