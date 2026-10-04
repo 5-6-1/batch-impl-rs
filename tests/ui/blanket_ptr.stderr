@@ -5,9 +5,3 @@ error: batch-impl: #blanket does not support `*const`/`*mut` wrappers (deref is 
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0601]: `main` function not found in crate `$CRATE`
- --> tests/ui/blanket_ptr.rs:6:2
-  |
-6 | }
-  |  ^ consider adding a `main` function to `$DIR/tests/ui/blanket_ptr.rs`

@@ -5,9 +5,3 @@ error: batch-impl: nesting depth exceeds 128 levels (perhaps an accidental extra
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0601]: `main` function not found in crate `$CRATE`
- --> tests/ui/deep_nesting.rs:4:21
-  |
-4 | trait DeepNesting {}
-  |                     ^ consider adding a `main` function to `$DIR/tests/ui/deep_nesting.rs`

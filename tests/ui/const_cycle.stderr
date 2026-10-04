@@ -8,9 +8,3 @@ error: batch-impl: constant `@a` references unknown `@a` (undefined or defined l
   | |_^
   |
   = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0601]: `main` function not found in crate `$CRATE`
- --> tests/ui/const_cycle.rs:7:3
-  |
-7 | );
-  |   ^ consider adding a `main` function to `$DIR/tests/ui/const_cycle.rs`

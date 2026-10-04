@@ -5,9 +5,3 @@ error: batch-impl: unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` `
   | ^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0601]: `main` function not found in crate `$CRATE`
- --> tests/ui/const_unknown.rs:4:13
-  |
-4 | trait Bad {}
-  |             ^ consider adding a `main` function to `$DIR/tests/ui/const_unknown.rs`

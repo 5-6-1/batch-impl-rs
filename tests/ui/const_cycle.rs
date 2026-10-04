@@ -5,3 +5,5 @@ batch_trait!(
     @a=@a;
     T: @a;
 );
+
+fn main() {}

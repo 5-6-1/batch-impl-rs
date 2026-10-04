@@ -7,3 +7,5 @@ use batch_impl::batch_impl;
 
 #[batch_impl(A@..)]
 trait T {}
+
+fn main() {}

@@ -4,3 +4,5 @@ use batch_impl::batch_impl;
 trait BadDepth {
     fn m(&self) -> u32;
 }
+
+fn main() {}

@@ -5,9 +5,3 @@ error: batch-impl: after #blanket `:abc` must come a number (e.g. `Box.Arc:2`)
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0601]: `main` function not found in crate `$CRATE`
- --> tests/ui/blanket_bad_depth.rs:6:2
-  |
-6 | }
-  |  ^ consider adding a `main` function to `$DIR/tests/ui/blanket_bad_depth.rs`

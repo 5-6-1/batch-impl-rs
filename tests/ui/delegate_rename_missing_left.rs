@@ -5,3 +5,5 @@ use batch_impl::batch_impl;
 
 #[batch_impl(Wrapper<T> #delegate(=foo){self.0})]
 trait D {}
+
+fn main() {}

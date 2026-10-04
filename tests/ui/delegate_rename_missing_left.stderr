@@ -5,9 +5,3 @@ error: batch-impl: #delegate rename `X = Y` needs identifiers on both sides (e.g
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0601]: `main` function not found in crate `$CRATE`
- --> tests/ui/delegate_rename_missing_left.rs:7:11
-  |
-7 | trait D {}
-  |           ^ consider adding a `main` function to `$DIR/tests/ui/delegate_rename_missing_left.rs`

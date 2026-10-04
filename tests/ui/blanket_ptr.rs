@@ -4,3 +4,5 @@ use batch_impl::batch_impl;
 trait BadPtr {
     fn m(&self) -> u32;
 }
+
+fn main() {}

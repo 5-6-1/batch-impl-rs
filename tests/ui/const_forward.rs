@@ -6,3 +6,5 @@ batch_trait!(
     @b=[u8];
     T: @a;
 );
+
+fn main() {}

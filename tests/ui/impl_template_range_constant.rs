@@ -8,3 +8,5 @@ use batch_impl::batch_impl;
 
 #[batch_impl(Box u8 impl{Vec<@..u128>})]
 trait T {}
+
+fn main() {}

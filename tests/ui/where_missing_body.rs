@@ -7,3 +7,5 @@ use batch_impl::batch_impl;
 trait Sortable<T> {
     fn is_sorted(&self) -> bool;
 }
+
+fn main() {}
