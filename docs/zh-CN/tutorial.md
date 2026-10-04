@@ -705,7 +705,7 @@ trait ArrayLen {}
 # use batch_impl::batch_impl;
 #[batch_impl(A<> Vec<u8>)]
 trait A<T: Clone, const N: usize> {}
-// → impl<T: Clone, const N: usize> A<T, N> for Vec<u8> {}
+// → impl<T: Clone, const N: usize> A<T, N> for Vec<u8> where T : Clone {}
 ```
 
 这个简写属于 **spec 头部**（trait 应用处）：正是它在声明那些形参。写在别处——

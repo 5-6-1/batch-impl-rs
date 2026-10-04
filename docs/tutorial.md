@@ -758,7 +758,7 @@ trait ArrayLen {}
 
 ### 5.2 `A<>` — copied as-is
 
-An empty `<>` copies the trait's own generics verbatim:
+An empty `<>` copies the trait's own generics - bounds and `where` predicates included - as the impl's generics:
 
 ```rust
 # use batch_impl::batch_impl;
