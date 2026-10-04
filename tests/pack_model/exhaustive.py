@@ -43,6 +43,19 @@ def spell(value):
     raise AssertionError(value.kind)
 
 
+def legal(value):
+    """Whether this value is expressible at all: an argument slot needs a member to splice.
+
+    Probe E's D2 aligned the model with the macro on that rule, so a shape like `(*[],)` - a tuple
+    whose member is an empty pack - is no longer something the model can build, and this audit
+    builds its corpus out of values.
+    """
+    if value.kind in ("atom", "tuple"):
+        if any(child.kind == "pack" and not child.children for child in value.children):
+            return False
+    return all(legal(child) for child in value.children)
+
+
 def bounded_values():
     by_size = {1: {atom("A"), atom("B"), atom("self"), pack(), tup()}}
     wrappers = (pack, tup, choices)
@@ -55,7 +68,11 @@ def bounded_values():
             for left, right in product(by_size[left_size], by_size[right_size]):
                 values.update(wrapper(left, right) for wrapper in wrappers)
         by_size[size] = values
-    return sorted(set().union(*by_size.values()), key=lambda value: (len(spell(value)), spell(value)))
+    everything = set().union(*by_size.values())
+    return sorted(
+        (value for value in everything if legal(value)),
+        key=lambda value: (len(spell(value)), spell(value)),
+    )
 
 
 def walk(value):
@@ -96,8 +113,24 @@ def parameters(value):
 
 
 counts = Counter()
+
+
+def applied(call, *args):
+    """One engine call, with a refusal read as an outcome rather than a failure.
+
+    The model refuses an empty argument slot and the macro does too (probe E's D2 measured the
+    family at six inputs), so an audit that walks shape pairs still meets refusals that the corpus
+    itself cannot express - `pack()` appears among the constructors and inputs on purpose. They are
+    counted here and reported as `None`, which callers skip; the tolerance lives in one place.
+    """
+    try:
+        return call(*args)
+    except ModelError:
+        counts["empty_argument_refused"] += 1
+        return None
+
 values = bounded_values()
-assert len(values) == 140
+assert len(values) == 127
 
 for value in values:
     assert star(star(value)) == star(value), value
@@ -112,7 +145,9 @@ for value in values:
 
 for left, right in product(values, repeat=2):
     engine = Engine()
-    result = engine.apply(left, right)
+    result = applied(engine.apply, left, right)
+    if result is None:
+        continue
     rows = engine.finish(result)
     complete(rows)
     assert engine.group == 0
@@ -121,7 +156,9 @@ for left, right in product(values, repeat=2):
     # Deliberately unused declarations must survive. Inferring parameters
     # from names present in the final types would fail this property.
     carried_engine = Engine()
-    carried = carried_engine.apply(carry(("LeftP",), left), carry(("RightP",), right))
+    carried = applied(carried_engine.apply, carry(("LeftP",), left), carry(("RightP",), right))
+    if carried is None:
+        continue
     carried_rows = carried_engine.finish(carried)
     assert carried_rows == [Row(row.items, ("LeftP", "RightP")) for row in rows]
     complete(carried_rows, ("LeftP", "RightP"))
@@ -133,7 +170,9 @@ constructors = (atom("F"), atom("G"), pack(atom("F")), pack(),
 inputs = (atom("A"), pack(), pack(atom("A")), pack(atom("A"), atom("B")),
           pack(pack(atom("A"), atom("B"))), tup(atom("A"), atom("B")))
 for first, second, row in product(constructors, constructors, inputs):
-    result = Engine().map_task(pack(choices(first, second)), row)
+    result = applied(Engine().map_task, pack(choices(first, second)), row)
+    if result is None:
+        continue
     expected = tuple(
         output for selected in (first, second)
         for output in materialized_tuple(Engine().map_task(pack(selected), row))
@@ -142,7 +181,9 @@ for first, second, row in product(constructors, constructors, inputs):
     counts["left_choice_keeps_current_map_task"] += 1
 
 for left, first, second in product(constructors, inputs, inputs):
-    result = Engine().map_task(pack(left), choices(first, second))
+    result = applied(Engine().map_task, pack(left), choices(first, second))
+    if result is None:
+        continue
     expected = tuple(
         output for selected in (first, second)
         for output in materialized_tuple(Engine().map_task(pack(left), selected))
@@ -155,8 +196,15 @@ for dimensions in (2, 3):
         engine = Engine()
         axes = [engine.generate(pack(), count) for count in lengths]
         result = pack(atom("Map"))
+        refused = False
         for axis in axes:
-            result = engine.apply(result, axis)
+            stepped = applied(engine.apply, result, axis)
+            if stepped is None:
+                refused = True
+                break
+            result = stepped
+        if refused:
+            continue
         actual = engine.finish(tup(result))
         declared = parameters(result)
         complete(actual, declared)
@@ -182,7 +230,6 @@ examples = {
     "(*[[*F,*G],] *[*[A, B],],)": ["(F<A,B>,)", "(G<A,B>,)"],
     "(*Vec [*[A,],*[B, C]],)": ["(Vec<A>,)", "(Vec<B>,Vec<C>)"],
     "(*F *[],)": ["()"],
-    "(*F *[*[],],)": ["(F,)"],
     "(*[A, B],).2": ["(A,B,A,B)"],
     "(*[*[A, B],].2,)": ["(A,A)", "(A,B)", "(B,A)", "(B,B)"],
     "(self ([A,B],)).2": ["(A,A)", "(A,B)", "(B,A)", "(B,B)"],
@@ -196,7 +243,8 @@ for source, expected in examples.items():
     complete(rows)
     counts["targeted_structure_and_lexer_regressions"] += 1
 
-for source in ("&*[A, B]", "*const *[A, B]", "[*[A, B]]", "[*[A, B];2]", "fn()->*[A, B]"):
+for source in ("&*[A, B]", "*const *[A, B]", "[*[A, B]]", "[*[A, B];2]", "fn()->*[A, B]",
+               "(*F *[*[],],)"):
     try:
         rendered(source)
     except ModelError as error:

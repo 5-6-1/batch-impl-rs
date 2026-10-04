@@ -111,12 +111,13 @@ error, while `*F *[]` stays legal because it produces no entry at all. (Round-7 
 measured the macro rejecting the former and this model accepting it; the macro is the
 consistent reading, since an empty pack yields no argument for the host to take.)
 
-**Known divergence.** This model does not implement that refusal yet: it renders `F` for
-`*F *[*[],]`, a reading pinned by `test_model.py` and relied on by the finite corpus
-(`exhaustive.py`). Two attempts to add the check locally failed against those dependants,
-which is what makes the alignment a corpus-wide change rather than a local one. Until that
-change is made deliberately, the rule above describes the **macro**, and the model is known
-to be behind it on this one shape.
+**Aligned (round-8 probe E's D2).** The model now refuses that shape too: `Engine.apply` raises
+`single-slot` when an argument slot would receive an empty pack, so `*F *[*[],]` and the five other
+inputs of the family (`*F *[*[], A]`, `*F *[A, *[]]`, `(*Vec *[*[],],)`, `(*F *[*[],], (A,))`,
+`(*Vec *[*[],] (A,))`) are errors on both sides. Three things had to move together, which is why
+two earlier attempts failed: the audit's value generator now prunes shapes the rule makes
+inexpressible (140 values became 127), the audit's engine calls tolerate a refusal as a counted
+outcome, and `test_model.py` asserts the refusal instead of pinning `["F"]`.
 
 ## 5. Candidate and declaration scopes
 

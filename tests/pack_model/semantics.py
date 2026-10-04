@@ -185,6 +185,15 @@ class Engine:
         if left == atom("self"):
             return right
         if left.kind in ("atom", "tuple"):
+            # An argument slot needs at least one member to splice: appending an empty pack used to
+            # add nothing and render the host bare (`*F *[*[],]` as `F`), while the macro reports it.
+            # Probe E's D2 measured the family at six inputs, three of them rendering shapes the
+            # macro never produces (`(Vec,)`, `(F,(A,))`, `Vec<(A,)>`).
+            if right.kind == "pack" and not right.children:
+                raise ModelError(
+                    "single-slot",
+                    "an argument slot needs at least one member to splice",
+                )
             self.bounded(len(left.children) + 1)
             return Node(left.kind, left.name, (*left.children, right))
         raise ModelError("invalid-head", f"{left.kind} is not a constructor in this model")

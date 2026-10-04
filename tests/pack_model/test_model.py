@@ -160,7 +160,12 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(outputs("*F *[A, B]"), ["F<A>", "F<B>"])
         self.assertEqual(outputs("*F *[*[A, B],]"), ["F<A,B>"])
         self.assertEqual(outputs("*F *[]"), [])
-        self.assertEqual(outputs("*F *[*[],]"), ["F"])
+        # The empty argument slot: this line used to pin `["F"]`, the divergence probe E's D2 widened
+        # to six inputs. The macro reports it ("an argument slot needs at least one member to
+        # splice"), and so does the model now, so the pair agrees instead of diverging.
+        with self.assertRaises(ModelError) as caught:
+            outputs("*F *[*[],]")
+        self.assertEqual(caught.exception.code, "single-slot")
 
     def test_direct_hosts_are_not_reapplied(self):
         self.assertEqual(outputs("F<G<T>>"), ["F<G<T>>"])
