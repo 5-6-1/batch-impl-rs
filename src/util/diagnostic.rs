@@ -32,7 +32,25 @@ pub(crate) const RETIRED_DASH: &str = "batch-impl: `-` is no longer a type opera
 /// keeps call-site spans (avoiding rustc treating it as user code in item
 /// position — "macros that expand to items must be delimited with braces or
 /// followed by a semicolon").
+/// Every diagnosis this crate emits starts with `batch-impl`, and it is applied here rather
+/// than written at each call site: a message that forgets it becomes impossible by
+/// construction instead of invisible to the check meant to find it - that check enumerated
+/// candidates *by* looking for the marker text, so a message without it could not be a
+/// candidate. The marker is the bare name and not the colon form on purpose: the preview
+/// payloads say `batch-impl preview: …`, which is inside the promise and was measured to fall
+/// outside the colon-shaped check. Applying it is idempotent, so no existing snapshot changes.
+///
+/// (This comment is also a live example of that check being loose: writing the colon form out
+/// here made it treat this paragraph as a diagnostic, because it scans source text for the
+/// marker and takes what follows up to a quote.)
+const PREFIX: &str = "batch-impl";
+
+fn prefixed(msg: &str) -> String {
+    if msg.starts_with(PREFIX) { msg.to_string() } else { format!("batch-impl: {msg}") }
+}
+
 pub(crate) fn compile_error_str(msg: &str, span: Span) -> TokenStream {
+    let msg = prefixed(msg);
     let err_ident = Ident::new("compile_error", span);
     quote! { :: core :: #err_ident!(#msg); }
 }
@@ -41,6 +59,7 @@ pub(crate) fn compile_error_str(msg: &str, span: Span) -> TokenStream {
 /// inside generic args / type positions a semicolon is a syntax error; same
 /// ident-span scheme as [`compile_error_str`].
 pub(crate) fn compile_error_ty(msg: &str, span: Span) -> TokenStream {
+    let msg = prefixed(msg);
     let err_ident = Ident::new("compile_error", span);
     quote! { :: core :: #err_ident!(#msg) }
 }
