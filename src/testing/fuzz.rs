@@ -91,6 +91,18 @@ fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
         Just(Tok::Punct('+', Spacing::Alone)),
         Just(Tok::Punct('?', Spacing::Alone)),
         Just(Tok::Punct('\'', Spacing::Alone)),
+        // Shapes the vocabulary could not spell at all, so whole paths went unexercised:
+        // `->` needs a **Joint** `-` (there was only an Alone one), and the recorded fuzz
+        // failure for `Op::Arrow` was therefore misread as a parser gap rather than the
+        // alphabet's. A string literal and the `extern` / `dyn` / `for` / `const` / `mut`
+        // keywords close the same class (probe C, measured by absence).
+        Just(Tok::Punct('-', Spacing::Joint)),
+        Just(Tok::Literal("\"C\"")),
+        Just(Tok::Ident("extern")),
+        Just(Tok::Ident("dyn")),
+        Just(Tok::Ident("for")),
+        Just(Tok::Ident("const")),
+        Just(Tok::Ident("mut")),
     ];
     if depth == 0 {
         prop::collection::vec(leaf, 0..6).boxed()
