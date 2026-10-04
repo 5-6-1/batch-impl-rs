@@ -391,6 +391,13 @@ itself mean the DSL input is invalid. Check the target types and method
 signatures in the output, restore the ordinary attribute form, and rerun
 `cargo run`. Preview is a temporary inspection step.
 
+Two things about that output are worth knowing before you read it, and both are
+explained in `src/doc/batch_preview.md`: the preview prints **raw tokens** while
+the expansion arrows in these docs show **rustfmt-formatted** Rust (`& self` vs
+`&self`, a trailing comma inside a call), and on a **stacked-attribute** example
+it shows only the first stage — the second attribute is re-emitted rather than
+applied, which is the intended picture, not a broken example.
+
 For a method-free marker trait, the targets alone are enough. For more
 involved impls, the spec can also name generics and the trait application:
 
