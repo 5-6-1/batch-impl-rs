@@ -889,7 +889,7 @@ const UNREACHABLE_DIAGNOSTICS: [(&str, &str); 6] = [
 /// fixture. A cold review found this class by hand (`-` in leading position,
 /// `#blanket :0`, two top-level blocks, …) — those now have fixtures and are
 /// gone from here; what remains is the rest of the same class.
-const UNLOCKED_DIAGNOSTICS: [(&str, &str); 62] = [
+const UNLOCKED_DIAGNOSTICS: [(&str, &str); 61] = [
     (
         "batch-impl preview:",
         "preview channel: the payload is a rendering, not a diagnostic - no UI fixture can lock it",
@@ -977,7 +977,6 @@ const UNLOCKED_DIAGNOSTICS: [(&str, &str); 62] = [
     ("#blanket", "blanket gate: forwarding/`Self`/unknown-item/invalid-depth messages"),
     ("by-value method(s)", "blanket gate: a by-value forward across a shared wrapper"),
     ("#delegate", "delegate gate: rename and parameter-pattern messages"),
-    ("expected an identifier, comma", "directive name-list gate: a malformed scope element"),
     (
         "`impl` is missing a template or code block",
         "attachment gate: `impl` with neither `{}` nor `impl{}`",
@@ -1160,7 +1159,7 @@ fn every_source_diagnostic_is_locked_or_listed() {
     // marker from `batch-impl: ` to `batch-impl`, which uncovered four such literals), and never for
     // a message added today.
     assert!(
-        UNLOCKED_DIAGNOSTICS.len() <= 62,
+        UNLOCKED_DIAGNOSTICS.len() <= 61,
         "UNLOCKED_DIAGNOSTICS grew to {} entries — lock the new message with a UI fixture instead",
         UNLOCKED_DIAGNOSTICS.len()
     );
