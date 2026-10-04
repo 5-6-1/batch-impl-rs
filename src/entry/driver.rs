@@ -130,6 +130,20 @@ pub(crate) fn parse_batch_trait_entry(
     if !errors.is_empty() {
         return errors.into_iter().collect();
     }
+    // The same policy as the parse refusal above, one stage later. A leaf that fails during
+    // codegen returns its diagnostic *instead of* its impl, so appending per leaf would emit a
+    // half-built module: whatever was generated before the failure sits next to the error, and
+    // `docs/reference.md` promises the opposite ("an error replaces the impl"). `collect_errors`
+    // descends into every child position, so this also catches an error nested inside a target
+    // type - which would otherwise be rendered into the `for` position as unparsable Rust, with
+    // the crate's own message buried inside the item and only rustc's parse error left visible.
+    let mut leaf_errors = vec![];
+    for t in &tys {
+        collect_errors(t, &mut leaf_errors);
+    }
+    if !leaf_errors.is_empty() {
+        return leaf_errors.into_iter().collect();
+    }
     let mut impls = start_trait.map_or(quote![], |t| quote![#t]);
     for t in tys {
         impls.extend(generate_impl(

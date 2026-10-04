@@ -12,6 +12,10 @@ fn ui() {
 
     t.compile_fail("tests/ui/missing_colon.rs");
 
+    // the diagnostic promise: an error replaces the impl, so a leaf that fails during codegen
+    // must not leave the impls generated before it in the expansion
+    t.compile_fail("tests/ui/half_built_impl.rs");
+
     t.compile_fail("tests/ui/trait_path_no_ident.rs");
     t.compile_fail("tests/ui/path_prefix_mismatch.rs");
 

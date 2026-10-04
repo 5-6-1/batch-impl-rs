@@ -920,6 +920,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
 | `implentry_at_num_banned` | impl 入口 spec 无 fresh 时写 `@0` | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `half_built_impl` | 一个叶在 codegen 阶段失败、另一个成功 | batch-impl: `@3` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `implentry_direct_not_type` | 该写类型的位置写了指令 | batch-impl: this form implements one type at a time — to batch targets, put `#[batch_impl(...)]` on a trait definition, or use `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] trait Tr { … }`) | DSL |
 | `implentry_hash_banned` | impl 入口上用 `#fill` | batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly) | DSL |
 | `top_level_block_not_last` | `{! m!{…}}` 不是最后一个块 | batch-impl: a `{! ...}` top-level block must be the last block | DSL |

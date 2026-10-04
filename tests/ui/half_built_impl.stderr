@@ -1,0 +1,7 @@
+error: batch-impl: `@3` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name)
+  --> tests/ui/half_built_impl.rs:12:1
+   |
+12 | #[batch_impl([u8 where{@3: Clone}, u16])]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
