@@ -1485,8 +1485,29 @@ fn collect_stderr(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// Floors for the testing-matrix guard (112 fixtures, 50 modules, 300 feature
-/// tests, 10 goldens today).
+/// `#[test]` attributes in one file, counting only lines whose trimmed text **starts** with the
+/// attribute: a doc comment that mentions `#[test]` is prose, not a test, and the substring count
+/// that ignored this difference reported 25 guards where the tree has 21.
+fn count_tests_in(path: &Path) -> usize {
+    fs::read_to_string(path)
+        .map_or(0, |text| text.lines().filter(|l| l.trim_start().starts_with("#[test]")).count())
+}
+
+/// `#[test]` occurrences under a directory, recursively.
+fn count_tests_below(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .map(|path| if path.is_dir() { count_tests_below(&path) } else { count_tests_in(&path) })
+        .sum()
+}
+
+/// Floors for the testing-matrix guard: that guard asserts the live counts it reads from the
+/// tree (`src/`'s `#[test]`s, the doc guards, the fixtures, the modules, the feature tests, the
+/// goldens), so these floors only have to catch shrinkage - each sits below the count so that
+/// adding tests never reddens them. The numbers a reader wants are in the matrix, not here.
 const MIN_MATRIX_FIXTURES: usize = 100;
 const MIN_MATRIX_MODULES: usize = 40;
 const MIN_MATRIX_FEATURE_TESTS: usize = 250;
@@ -1546,6 +1567,14 @@ fn architecture_testing_matrix_matches_the_tree() {
         .map(|e| fs::read_to_string(e.path()).unwrap().matches("#[test]").count())
         .sum::<usize>();
 
+    // Two counts the matrix states that nothing read: its `cargo test --lib` total and its
+    // documentation-guard total. Both had drifted (235 → 241, 14 → 20) while this guard stayed
+    // green, because it only checked the six facts it knew how to derive. Round-8 probe C's G6
+    // measured the same shape one file over, where the ceiling guard reads three of six rows.
+    let lib_tests = count_tests_below(&root.join("src"));
+    let doc_guards = count_tests_in(&root.join("tests/doc_consistency.rs"))
+        + count_tests_below(&root.join("tests/doc_consistency"));
+
     // The example's header is the second source of truth for its impl count.
     // (`impls from` rather than `impl`: the letter sequence `impl` sits inside
     // the word "simplify", which cost this guard its first iteration.)
@@ -1582,9 +1611,21 @@ fn architecture_testing_matrix_matches_the_tree() {
          {MIN_MATRIX_FIXTURES}/{MIN_MATRIX_MODULES}/{MIN_MATRIX_FEATURE_TESTS}/{MIN_MATRIX_GOLDENS}"
     );
 
-    for (path, module_needle, example_needle, example_marker) in [
-        ("docs/architecture.md", "per-feature test modules", "simplify.rs` (", "impls from"),
-        ("docs/zh-CN/architecture.md", "按功能域拆分的测试模块", "simplify.rs`（", "个 impl"),
+    for (path, module_needle, example_needle, example_marker, guards_needle) in [
+        (
+            "docs/architecture.md",
+            "per-feature test modules",
+            "simplify.rs` (",
+            "impls from",
+            "documentation guards",
+        ),
+        (
+            "docs/zh-CN/architecture.md",
+            "按功能域拆分的测试模块",
+            "simplify.rs`（",
+            "个 impl",
+            "项文档守卫",
+        ),
     ] {
         let doc = fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("{path}: {e}"));
         let facts = [
@@ -1598,6 +1639,12 @@ fn architecture_testing_matrix_matches_the_tree() {
             ("feature modules", matrix_count(&doc, module_needle, module_needle), modules),
             ("feature tests", matrix_count(&doc, "`#[test]`", "`#[test]`"), feature_tests),
             ("example impls", matrix_count(&doc, example_needle, example_marker), example_impls),
+            (
+                "unit tests",
+                matrix_count(&doc, "`cargo test --lib`", "`cargo test --lib`"),
+                lib_tests,
+            ),
+            ("documentation guards", matrix_count(&doc, guards_needle, guards_needle), doc_guards),
         ];
         for (what, stated, actual) in facts {
             assert_eq!(
