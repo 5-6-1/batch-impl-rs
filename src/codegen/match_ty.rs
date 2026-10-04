@@ -1,7 +1,7 @@
 //! The recursive shape-matching kernel: match_ty compares a shape template
 //! (syn::Type) against a leaf type position-by-position, binding differing
-//! idents as slots and resolving variadic segments. Split out of shape.rs
-//! to keep every source file under the 350-line cap.
+//! idents as slots and resolving variadic segments. Split out of `shape.rs`
+//! so that file stayed reviewable.
 
 use crate::codegen::shape::{MatchContext, ShapeError, VarSeg};
 use crate::codegen::shape_args::{match_fn_ptr, match_qself, match_segments};

@@ -1,5 +1,5 @@
-//! Impl assembly and spec helpers for the impl entry (kept under the
-//! 350-line cap by living in their own file): `assemble_impl` renders one
+//! Impl assembly and spec helpers for the impl entry (split into their own
+//! file): `assemble_impl` renders one
 //! generated impl from the extracted parts; the small helpers parse the
 //! matrix source and split the shape-form spec.
 

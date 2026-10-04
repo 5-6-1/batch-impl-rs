@@ -1,5 +1,5 @@
-//! Repeat-block expansion tests (kept under the 350-line cap by living in
-//! their own file): the `@(...)..` blocks drive rounds from the
+//! Repeat-block expansion tests (split into their own file): the
+//! `@(...)..` blocks drive rounds from the
 //! variadic-segment lengths, with `@ident` element splicing (the `$(...)*`
 //! semantics — the bound leaf subtree lands in the round's output) and
 //! `@N` cursor substitution.
