@@ -723,14 +723,16 @@ fn reference_quotes_every_diagnostic_verbatim() {
                 walk(&path, out);
             } else if path.extension().is_some_and(|e| e == "stderr") {
                 let text = fs::read_to_string(&path).unwrap_or_default();
-                let first = text.lines().next().unwrap_or_default();
-                let msg = first
-                    .strip_prefix("error[")
-                    .and_then(|rest| rest.split_once("]: ").map(|(_, m)| m.to_string()))
-                    .or_else(|| first.strip_prefix("error: ").map(str::to_string))
-                    .unwrap_or_else(|| first.to_string());
                 let stem = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-                out.push((stem, msg));
+                // **Every** crate-minted line, not just the first: a fixture may print several
+                // messages (one per position), and §10's promise is that it lists them all. Probe
+                // B's D5 measured 26 such lines that appear in neither mirror - one of them, "…
+                // in type block parsing", reachable from `#[batch_impl(*×128 u8)]`.
+                for line in text.lines() {
+                    if let Some(msg) = crate_message(line) {
+                        out.push((stem.clone(), msg));
+                    }
+                }
             }
         }
     }
@@ -762,6 +764,18 @@ fn reference_quotes_every_diagnostic_verbatim() {
             missing.join("\n  ")
         );
     }
+}
+
+/// The text of one crate-minted diagnostic line, with rustc's `error: ` / `error[EXXXX]: ` /
+/// `warning: ` prefix stripped; `None` for every other line (rustc's own errors are not the crate's
+/// to catalogue). Only `batch-impl:`-prefixed text counts as crate-minted.
+fn crate_message(line: &str) -> Option<String> {
+    let stripped = line
+        .strip_prefix("error[")
+        .and_then(|rest| rest.split_once("]: ").map(|(_, m)| m))
+        .or_else(|| line.strip_prefix("error: "))
+        .or_else(|| line.strip_prefix("warning: "))?;
+    stripped.starts_with("batch-impl:").then(|| stripped.to_string())
 }
 
 /// The repo-relative file paths a doc body mentions, in two spellings: `src/…`

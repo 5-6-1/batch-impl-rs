@@ -754,12 +754,12 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
-| `array_and_punct` | `[u8; 3; 4]` / `[u8;]` | batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`) | DSL |
-| `leading_comma` | `,A` | batch-impl: spec list cannot start with `,` | DSL |
+| `array_and_punct` | `[u8; 3; 4]` / `[u8;]` | batch-impl: array length `[T; N]` missing or malformed (write `[u8; 3]`) ; batch-impl: missing operand before `.` (e.g. `T.U`) | DSL |
+| `leading_comma` | `,A` | batch-impl: spec list cannot start with `,` ; batch-impl: missing operand between consecutive commas `,,` (e.g. `A,,B`) | DSL |
 | `dangling_operator` | `A.` | batch-impl: missing operand after `.` (e.g. `T.U`) | DSL |
 | `leading_operator` | `.A`，以及前导 `-`（`-usize`、`Vec<u8>, -u16`） | batch-impl: `-` is no longer a type operator (write `A B` or `A.B`; the `-` exclusion only works in directive argument lists like `#fill(@all, -foo)`) | DSL |
 | `num_as_left_operand` | `0.T` | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
-| `literal_and_range` | `1.5` / `1..x` | batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types | DSL |
+| `literal_and_range` | `1.5` / `1..x` | batch-impl: a bare literal in a type position must be an integer (usize); float/string/char literals are not types ; batch-impl: a range (`..`/`..=`) in a type position needs integer endpoints (e.g. `0..=3`) | DSL |
 | `decl_generator_splat` | `<*[].3> Vec<u8>` | batch-impl: a fresh generator cannot be declared here — the `<>` block declares the impl's own parameters, so its freshs would be declared and never used; write the generator on the type instead (e.g. `T.*[].2`) | DSL |
 | `semi_in_spec` | 类型后多写 `;` | batch-impl: unexpected `;` after the type | DSL |
 | `plus_at_type_start` | `+A` | batch-impl: `+` is not valid at the start of a type (it belongs in a bound, e.g. `T: Clone + Send`) | DSL |
@@ -771,7 +771,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `star_bare_self` | `*self`（孤立的 `self` 载体） | batch-impl: `self` is the whole right operand (`self.T` applies `T` to it), not a type on its own | DSL |
 | `star_bare_where` | `*where { … }`（没有类型的谓词） | batch-impl: a `where{…}` block is not a type — attach it to the type it constrains (`X where { … }`) | DSL |
 | `pack_zero_targets` | `*Vec *[]`（没有任何目标的 spec） | batch-impl: this spec expands to zero impls — no target survived: an empty list, an empty pack or a directive that selected nothing all do it (`[]`, `*[]`, `*[].0`, `Vec<[]>`); write the targets out or drop the spec | DSL |
-| `pack_single_slot` | 单类型槽收到零个或多个类型；`<*[Vec<u8>,]>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: this type needs too much materialization work — it has too many slots or an oversized list; split the spec or write the type out | DSL |
+| `pack_single_slot` | 单类型槽收到零个或多个类型；`<*[Vec<u8>,]>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: this type needs too much materialization work — it has too many slots or an oversized list; split the spec or write the type out ; batch-impl: this type position requires exactly one type; the pack expands to 0 types | DSL |
 | `pack_flat_overlap` | `(*Map *[].1..=2 *[].1..=3,)` 的扁平类型族重叠 | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
 | `pack_unused_axis` | `(*Map *[].2 *[].0,)` 保留未受约束的第一轴参数 | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
 | `pack_bare_fresh` | `*[].2` 逐成员发出目标，但保留完整声明 | conflicting implementations of trait `BareFresh`；并报告未受约束的参数 | rustc E0119 / E0207 |
@@ -780,7 +780,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | batch-impl: `#` needs a directive name (`#name{…}`); to attach an attribute write `#[…]` | DSL |
 | `stray_hash_no_name` | 该写指令名的位置出现裸 `#`（`#`、`#{0}`） | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
 | `literal_too_large` | 放不进 `usize` 的整数字面量 | batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit | DSL |
-| `bare_number_target` | 该写目标的位置写了裸数字或区间（`1`、`0..3`） | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target | DSL |
+| `bare_number_target` | 该写目标的位置写了裸数字或区间（`1`、`0..3`） | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target ; batch-impl: a bare range is not a type — `N..M` counts `@` references inside a target, it does not name one | DSL |
 | `array_length_pack` | 数组长度位置写了 pack 或列表（`[u8; *[u8, u16]]`） | batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]` | DSL |
 | `at_open_range_empty_host` | 作用域内没有 fresh 泛型时的 fresh 区间（`Vec<@0..>`） | batch-impl: this target has an empty argument list (`Vec<>`) — a fresh range expands to nothing when the impl has no fresh generics for it; write the arguments out or drop the range | DSL |
 | `empty_angle_on_other_ident` | 带 switch 模板时，空 `<>` 落在非被注解 trait 的 ident 上（`Vec<> impl{Tr<>}`） | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
@@ -795,7 +795,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `path_prefix_mismatch` | `# path::Other: Trait` | batch-impl: path prefix `#...Other` has a trailing ident that differs from the trait name `MyTrait`; the two must be identical | DSL |
 | `group_angle_bare` | `(...)` 里的 `<...>` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |
 | `bare_impl_trait_target` | 目标位置的 `impl Trait` | batch-impl: a bare `impl` in the spec is a shape template — an `impl <trait-object>` target type is not supported; write the trait object directly (e.g. `dyn Fn() -> u8`) or use an `impl{...}` template | DSL |
-| `error_aggregation` | 一个属性里多个坏 spec | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) | DSL |
+| `error_aggregation` | 一个属性里多个坏 spec | batch-impl: number `0` cannot be a left operand; use it on the right (e.g. T.0) ; batch-impl: number `1` cannot be a left operand; use it on the right (e.g. T.1) | DSL |
 | `trait_path_no_ident` | `batch_trait! { 1: ... }` | batch-impl: batch_trait! expects an ident as the trait name | macro |
 | `only_semicolon` | `batch_trait! { ; }` | batch-impl: batch_trait! expects a trait name | macro |
 | `missing_colon` | `batch_trait! { Tr ... }` | batch-impl: batch_trait! expects ':' to separate the trait name and impl-specs | macro |
@@ -838,7 +838,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `at_open_range_bare` | 顶层的 `A@..` | batch-impl: range constant `@..` must name an end point (e.g. `@..u128`, `@..=f64`) | DSL |
 | `at_binding_splat` | `Tr<Item = *[A, B]>`；绑定值每个分支只能有一个类型 | batch-impl: this type position requires exactly one type; the pack expands to 2 types | DSL |
 | `at_segment_carrier_in_body` | body 里的 `@{...}` 载体 | batch-impl: `@{...}` must hold a position reference (e.g. `@{0}`, `@{1_0..}`, `@{0..=3}`); segment elements are referenced through repeat blocks (`@A`) or an explicit template name (`impl{(A0, @A..)}`), never as `@{...}` | DSL |
-| `error_aggregation_codegen` | 多个悬空 `@N` 引用 | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `error_aggregation_codegen` | 多个悬空 `@N` 引用 | batch-impl: `@5` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) ; batch-impl: `@3` is out of range — this impl has 2 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `empty_range` | spec 里的空数字区间 | batch-impl: range `3..2` is empty (start not below end); no impls will be generated | DSL |
 | `expand_limit` | `(...).2000` | batch-impl: `tuple .2000` expands to 2000 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
 | `bound_gen_over_limit` | bound 生成器乘积 29791 | batch-impl: `materialization` expands to 29791 impls (limit 1024); likely exponential/range/Cartesian typo | DSL |
@@ -862,10 +862,10 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
 | `fill_bad_comma` | `#fill(m,,n)` / `#fill(,m)` 及对应的 delegate/blanket 作用域 | batch-impl: in directive arguments, a comma is in an illegal position (no leading/consecutive commas) | DSL |
-| `directive_scope_unknown` | 不存在的选择/排除名，差集删掉它也报错；畸形 delegate 改名 | batch-impl: item `typo` not found in trait `RemovedUnknown` | DSL |
+| `directive_scope_unknown` | 不存在的选择/排除名，差集删掉它也报错；畸形 delegate 改名 | batch-impl: item `typo` not found in trait `RemovedUnknown` ; batch-impl: #delegate rename `X = Y` needs a single identifier on the right (e.g. `#delegate(size = len)`) ; batch-impl: in directive arguments, expected an identifier, comma, `[...]` list, or `-` exclusion, got `7` ; batch-impl: item `typo` not found in trait `NestedUnknownExclusion` ; batch-impl: item `typo` not found in trait `RemovedUnknownRename` ; batch-impl: item `typo` not found in trait `UnknownBeforeRename` ; batch-impl: item `typo` not found in trait `UnknownBlanketExclusion` ; batch-impl: item `typo` not found in trait `UnknownDelegateExclusion` ; batch-impl: item `typo` not found in trait `UnknownEmptyExclusion` ; batch-impl: item `typo` not found in trait `UnknownExclusion` | DSL |
 | `minus_bad_target` | `#fill(-1)` | batch-impl: in directive arguments, after `-` expected an identifier or `[...]` list (e.g. `-foo`, `-[a,b]`) | DSL |
 | `directive_bad_follow` | `#m` 后面既无参数也无 body | batch-impl: `#m` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
-| `directive_missing_tail` | `#fill`, `#fill(@all)`, `#wrap`, `#wrap(a)[b]` | batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}` | DSL |
+| `directive_missing_tail` | `#fill`, `#fill(@all)`, `#wrap`, `#wrap(a)[b]` | batch-impl: `#fill` must be followed by `(args)` / `[args]` or a code block `{body}` ; batch-impl: `#fill` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) ; batch-impl: `#wrap` must be followed by `(args)` / `[args]` or a code block `{body}` ; batch-impl: `#wrap` must be followed by `(args)` or `[args]` + `{body}` (or directly `{body}`) | DSL |
 | `bare_prefix_no_type` | `&` or `unsafe` alone as the target | batch-impl: a bare type prefix needs a type — write `&T`, `&mut T` or `unsafe fn(…)` rather than the prefix alone | DSL |
 | `bare_attr_carrier` | an attribute with no type after it | batch-impl: an attribute is not a type — attach it to the type it annotates (`#[…] T`) | DSL |
 | `bare_bang_target` | `!` as the whole target | batch-impl: `!` cannot be a target: it is the never type, not a type you can implement for — write the real target | DSL |
@@ -886,7 +886,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `blanket_ptr` | `#blanket(*const T)` | batch-impl: #blanket does not support `*const`/`*mut` wrappers (deref is unsafe, cannot delegate); write #delegate by hand | DSL |
 | `blanket_self_return` | blanket 方法返回裸 `Self` | batch-impl: #blanket method `NewT::new` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead | DSL |
 | `blanket_self_in_group` | 组里的 `Self` | batch-impl: #blanket method `GroupSelf::f` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead | DSL |
-| `blanket_self_constraints` | 方法类型参数 bound 或 where 谓词中的裸 `Self` | batch-impl: #blanket method `InlineBound::read` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead | DSL |
+| `blanket_self_constraints` | 方法类型参数 bound 或 where 谓词中的裸 `Self` | batch-impl: #blanket method `InlineBound::read` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead ; batch-impl: #blanket method `SelfSubject::read` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead ; batch-impl: #blanket method `WhereBound::read` references bare `Self` in a parameter, return type, or generic constraint; delegation cannot equate the wrapper's `Self` with the inner type — write a `#name{...}` body for this wrapper instead | DSL |
 | `blanket_bad_depth` | `#blanket(...:abc)` | batch-impl: after #blanket `:abc` must come a number (e.g. `Box.Arc:2`) | DSL |
 | `blanket_bad_empty_depth` | `#blanket(...:)` | batch-impl: after #blanket `:` must come a number (e.g. `Box.Arc:2`) | DSL |
 | `blanket_bad_huge_depth` | `#blanket(...:999999)` | batch-impl: #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
