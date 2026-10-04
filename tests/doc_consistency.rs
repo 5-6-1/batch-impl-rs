@@ -875,7 +875,16 @@ const UNREACHABLE_DIAGNOSTICS: [(&str, &str); 6] = [
 /// fixture. A cold review found this class by hand (`-` in leading position,
 /// `#blanket :0`, two top-level blocks, …) — those now have fixtures and are
 /// gone from here; what remains is the rest of the same class.
-const UNLOCKED_DIAGNOSTICS: [(&str, &str); 59] = [
+const UNLOCKED_DIAGNOSTICS: [(&str, &str); 62] = [
+    (
+        "batch-impl preview:",
+        "preview channel: the payload is a rendering, not a diagnostic - no UI fixture can lock it",
+    ),
+    ("batch-impl preview (ItemImpl entry):", "preview channel: the ItemImpl payload, same reason"),
+    (
+        "batch-impl note:",
+        "the miswrite note rides a `#[doc]` attribute, so it never reaches the diagnostic channel",
+    ),
     (
         "cannot be a left operand",
         "left-operand gate (apply layer): a range/array/`@`/bound-list on the left",
@@ -1054,12 +1063,15 @@ fn collect_files(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// Every `batch-impl: ` message literal in a Rust source, with its file name.
+/// Every `batch-impl` message literal in a Rust source, with its file name - the marker alone, not
+/// `batch-impl: `: the crate also ships notes under its own prefix convention (`batch-impl note: …`)
+/// and the preview channel's `batch-impl preview: …`, and a new message written in either shape used
+/// to be no candidate at all, so nothing asked for a fixture (probe C's G4).
 fn source_diagnostics(text: &str) -> Vec<String> {
     let mut out = vec![];
     let bytes = text.as_bytes();
     let mut from = 0usize;
-    while let Some(pos) = text[from..].find("batch-impl: ") {
+    while let Some(pos) = text[from..].find("batch-impl") {
         let start = from + pos;
         // A marker written inside a comment is prose, not a diagnostic. This checker used to
         // read one as a message: the doc comment that described the marker made it report a
@@ -1129,10 +1141,12 @@ fn every_source_diagnostic_is_locked_or_listed() {
         "the scan found only {} diagnostic literals (floor {MIN_DIAGNOSTIC_LITERALS}) — the scan or the source set is broken",
         literals.len()
     );
-    // The debt list may only shrink: raising this number means adding a message
-    // that no fixture locks, which is exactly what the guard exists to prevent.
+    // The debt list may only shrink in *kind*: raising this number is only legitimate when the
+    // newly listed messages already shipped and merely became visible (probe C's G4 widened the
+    // marker from `batch-impl: ` to `batch-impl`, which uncovered four such literals), and never for
+    // a message added today.
     assert!(
-        UNLOCKED_DIAGNOSTICS.len() <= 59,
+        UNLOCKED_DIAGNOSTICS.len() <= 62,
         "UNLOCKED_DIAGNOSTICS grew to {} entries — lock the new message with a UI fixture instead",
         UNLOCKED_DIAGNOSTICS.len()
     );
