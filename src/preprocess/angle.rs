@@ -213,8 +213,9 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
                 new_g.set_span(g.span());
                 out.extend([TokenTree::Group(new_g)]);
             }
-            // Brace (passthrough code): keep as-is — cannot contain angle
-            // groups inside
+            // Any other Brace group is passthrough code: its interior is deliberately not
+            // scanned for angle groups, which is exactly why the two kinds that can carry
+            // them (where and impl templates) are rebuilt by the arms above.
             other => out.extend([other.clone()]),
         }
         i += 1;
