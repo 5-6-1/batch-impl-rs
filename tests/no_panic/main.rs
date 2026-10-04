@@ -39,6 +39,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use quote::ToTokens;
+
 use guard::{is_cfg_test, scan_file};
 
 mod guard;
@@ -148,13 +150,26 @@ fn production_code_has_no_panic_constructs() {
 fn the_crate_denies_the_panic_and_indexing_families() {
     let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
     let text = fs::read_to_string(&lib).expect("src/lib.rs is readable");
+    // Structure, not text. The contract is an inner attribute, so it is read from the parse tree
+    // instead of matched in the file's bytes: wrapping the attribute in `/* */` keeps the text and
+    // kills the attribute, and a text check cannot tell those apart. Probe C measured the
+    // consequence with a live `v[0]` in production code - clippy and this whole suite stayed green
+    // while the sites the attribute exists to cover went unguarded.
+    let parsed = syn::parse_file(&text).expect("src/lib.rs parses");
+    let strip_inner = |flat: &str| {
+        flat.strip_prefix("#![").and_then(|s| s.strip_suffix(']')).unwrap_or(flat).to_string()
+    };
+    let bodies: Vec<String> = parsed
+        .attrs
+        .iter()
+        .map(|a| strip_inner(&normalized(&a.meta.to_token_stream().to_string())))
+        .collect();
     assert!(
-        text.contains(CRATE_INDEXING_DENY),
-        "src/lib.rs lost its crate-level `{CRATE_INDEXING_DENY}`"
+        bodies.iter().any(|b| b.contains(&strip_inner(&normalized(CRATE_INDEXING_DENY)))),
+        "src/lib.rs lost its crate-level `{CRATE_INDEXING_DENY}` as a live inner attribute"
     );
-    let flat = normalized(&text);
     assert!(
-        flat.contains(CRATE_PANIC_DENY),
+        bodies.iter().any(|b| b.contains(&strip_inner(&normalized(CRATE_PANIC_DENY)))),
         "src/lib.rs lost the crate-level panic-family deny:\n  {CRATE_PANIC_DENY}"
     );
 }
