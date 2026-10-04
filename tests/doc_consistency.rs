@@ -934,6 +934,15 @@ fn source_diagnostics(text: &str) -> Vec<String> {
     let mut from = 0usize;
     while let Some(pos) = text[from..].find("batch-impl: ") {
         let start = from + pos;
+        // A marker written inside a comment is prose, not a diagnostic. This checker used to
+        // read one as a message: the doc comment that described the marker made it report a
+        // paragraph as an unlocked diagnostic, which is the same weakness as enumerating
+        // candidates by searching for the very text being checked, seen from the other side.
+        let line_start = text[..start].rfind('\n').map_or(0, |p| p + 1);
+        if text[line_start..start].contains("//") {
+            from = start + "batch-impl: ".len();
+            continue;
+        }
         let mut j = start;
         let mut escaped = false;
         let mut end = None;
