@@ -168,6 +168,11 @@ fn ui() {
     t.compile_fail("tests/ui/at_open_range_empty_host.rs");
     t.compile_fail("tests/ui/body_in_comma_less_group.rs");
     t.compile_fail("tests/ui/empty_angle_on_other_ident.rs");
+    // The same rule on the three **token** surfaces (where predicate, `impl{...}` template, body):
+    // they share `sync_at`, which used to delete the brackets instead of reporting them.
+    t.compile_fail("tests/ui/empty_angle_where_surface.rs");
+    t.compile_fail("tests/ui/empty_angle_template_surface.rs");
+    t.compile_fail("tests/ui/empty_angle_body_surface.rs");
     t.compile_fail("tests/ui/directive_missing_tail.rs");
     t.compile_fail("tests/ui/bare_prefix_no_type.rs");
     t.compile_fail("tests/ui/bare_attr_carrier.rs");

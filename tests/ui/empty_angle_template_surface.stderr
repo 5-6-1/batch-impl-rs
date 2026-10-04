@@ -1,0 +1,5 @@
+error: batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>`
+ --> tests/ui/empty_angle_template_surface.rs:8:22
+  |
+8 | #[batch_impl(u8 impl{GenW<>})]
+  |                      ^^^^

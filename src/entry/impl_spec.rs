@@ -111,19 +111,27 @@ pub(crate) fn assemble_impl(
             _ => vec![],
         })
         .unwrap_or_default();
+    // The ident the brackets are *allowed* to vanish on: only the annotated trait's own empty
+    // `Tr<>` is legal (it has no arguments to copy). An inherent impl has no trait at all, so
+    // `None` — and then every empty `<>` reports, which is the Ty-level rule.
+    let trait_ident = trait_path.and_then(|p| p.segments.last()).map(|seg| seg.ident.clone());
     let mut preds = vec![];
     for p in where_preds {
-        let p = sync_trait_application(p.clone(), &trait_args)?;
+        let p = sync_trait_application(p.clone(), &trait_args, trait_ident.as_ref())?;
         preds.push(apply_mapping(p, m));
     }
     if let Some(wc) = &item.generics.where_clause {
-        let p = sync_trait_application(wc.predicates.to_token_stream(), &trait_args)?;
+        let p = sync_trait_application(
+            wc.predicates.to_token_stream(),
+            &trait_args,
+            trait_ident.as_ref(),
+        )?;
         preds.push(apply_mapping(p, m));
     }
     // Bounds of stripped slot-named params (see the item-params loop above) —
     // synced like the other predicates (`X<>` fills with the trait args).
     for p in &param_bound_preds {
-        let p = sync_trait_application(p.clone(), &trait_args)?;
+        let p = sync_trait_application(p.clone(), &trait_args, trait_ident.as_ref())?;
         preds.push(apply_mapping(p, m));
     }
     let items = item

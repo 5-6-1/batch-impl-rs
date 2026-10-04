@@ -41,7 +41,7 @@ pub(crate) fn sync_impl_parts(
     for t in std::mem::take(&mut parts.impl_templates) {
         let is_switch =
             is_switch_template(&t.clone().into_iter().collect::<Vec<_>>(), &trait_ident);
-        let s = sync_trait_application(t, &trait_args)?;
+        let s = sync_trait_application(t, &trait_args, Some(&trait_ident))?;
         if is_switch {
             body_sync = true;
         } else {
@@ -50,7 +50,7 @@ pub(crate) fn sync_impl_parts(
     }
     let mut synced = Vec::with_capacity(parts.where_clauses.len());
     for w in &parts.where_clauses {
-        synced.push(sync_trait_application(w.clone(), &trait_args)?);
+        synced.push(sync_trait_application(w.clone(), &trait_args, Some(&trait_ident))?);
     }
     parts.where_clauses = synced;
     // Empty brackets in the **type structure** take the spec's args too — the
@@ -74,7 +74,7 @@ pub(crate) fn sync_impl_parts(
         return Err(e);
     }
     if body_sync && let Some(b) = &mut parts.body {
-        *b = sync_trait_application(b.clone(), &trait_args)?;
+        *b = sync_trait_application(b.clone(), &trait_args, Some(&trait_ident))?;
     }
     Ok(matched)
 }
@@ -92,13 +92,16 @@ pub(crate) fn trait_last_ident(trait_name: &TokenStream) -> Option<Ident> {
 }
 
 /// Fills every `X<>` in `tokens` with `X<args>` (called only while a switch
-/// template is present). `args` are the spec trait's arguments — empty when
-/// the trait application has none, the brackets are then dropped.
+/// template is present). `args` are the spec trait's arguments. The brackets are
+/// dropped only on the annotated trait itself (`Tr<>` → `Tr`, legal: the trait
+/// application carries no arguments to copy); on any **other** ident with nothing
+/// to fill from this reports the same error the Ty-level branch reports, instead
+/// of deleting the brackets and leaving rustc to complain about a bare ident.
 pub(crate) fn sync_trait_application(
-    tokens: TokenStream, args: &[TokenStream],
+    tokens: TokenStream, args: &[TokenStream], trait_ident: Option<&Ident>,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
-    sync_at(&v, args, 0).map(|o| o.into_iter().collect())
+    sync_at(&v, args, trait_ident, 0).map(|o| o.into_iter().collect())
 }
 
 /// Whether `tokens[i]` is an empty angle bracket pair (the pairing output of
@@ -112,7 +115,7 @@ fn empty_angle_at(tokens: &[TokenTree], i: usize) -> bool {
 }
 
 fn sync_at(
-    tokens: &[TokenTree], args: &[TokenStream], depth: usize,
+    tokens: &[TokenTree], args: &[TokenStream], trait_ident: Option<&Ident>, depth: usize,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > crate::util::MAX_NEST_DEPTH {
         return Err(crate::util::depth_err(tokens, ""));
@@ -133,8 +136,16 @@ fn sync_at(
             _ => None,
         };
         if let Some((id, adv)) = ident_angle {
-            // Fill the brackets with the spec's trait args; a trait
-            // application with no args drops the brackets (`X<>` → `X`).
+            // Fill the brackets with the spec's trait args. On the annotated trait the empty form
+            // is legal and drops the brackets (`Tr<>` → `Tr`); on any other ident there is nothing
+            // to fill from, which `sync_bound_ty` reports on the Ty surfaces — this token path used
+            // to delete the brackets instead, so the mistake reached rustc as a bare ident (probe
+            // D's F2). Same wording as `sync_bound_ty`, so both paths say one thing.
+            if args.is_empty() && trait_ident != Some(&id) {
+                return Err(
+                    quote::quote_spanned!(id.span() => ::core::compile_error!("batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>`");),
+                );
+            }
             let mut ts = quote!(#id);
             if !args.is_empty() {
                 ts.extend(quote!(<#(#args),*>));
@@ -148,7 +159,7 @@ fn sync_at(
                 return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let synced = sync_at(&inner, args, depth + 1)?;
+            let synced = sync_at(&inner, args, trait_ident, depth + 1)?;
             let mut ng = Group::new(g.delimiter(), synced.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));
@@ -275,6 +286,10 @@ mod tests {
     use super::*;
     use quote::ToTokens;
 
+    fn ident(name: &str) -> Ident {
+        Ident::new(name, proc_macro2::Span::call_site())
+    }
+
     fn args(list: &[&str]) -> Vec<TokenStream> {
         list.iter().map(|a| a.parse::<TokenStream>().unwrap()).collect()
     }
@@ -306,22 +321,36 @@ mod tests {
         // after angle_collect, `Semiring<>` is Ident + an empty None group;
         // the flat `Semiring < >` spelling (as here) is handled the same way
         let ts = "@0.. : Semiring < >".parse::<TokenStream>().unwrap();
-        let out = sync_trait_application(ts, &args(&["Additive", "Multiplicative"])).unwrap();
+        let out =
+            sync_trait_application(ts, &args(&["Additive", "Multiplicative"]), Some(&ident("Tr")))
+                .unwrap();
         assert_eq!(out.to_string(), "@ 0 .. : Semiring < Additive , Multiplicative >");
     }
 
     #[test]
     fn bare_trait_without_args_drops_brackets() {
         let ts = "@0.. : Sized < >".parse::<TokenStream>().unwrap();
-        let out = sync_trait_application(ts, &[]).unwrap();
+        let out = sync_trait_application(ts, &[], Some(&ident("Sized"))).unwrap();
         assert_eq!(out.to_string(), "@ 0 .. : Sized");
+    }
+
+    /// The other half of the same rule: with no arguments to fill from, an empty `<>` on an ident
+    /// that is **not** the annotated trait is the mistake `sync_bound_ty` reports on the Ty surfaces.
+    /// This token path used to delete the brackets instead, so `where{Vec<>: Clone}` reached rustc as
+    /// a bare `Vec` (probe D's F2 / probe E's E-A).
+    #[test]
+    fn other_ident_without_args_reports() {
+        let ts = "@0.. : Other < >".parse::<TokenStream>().unwrap();
+        let err = sync_trait_application(ts, &[], Some(&ident("Tr"))).unwrap_err().to_string();
+        assert!(err.contains("empty `<>`"), "got: {err}");
+        assert!(err.contains("not the annotated trait"), "got: {err}");
     }
 
     #[test]
     fn other_ident_fills() {
         // any `X<>` — not just the spec's own trait — gets the spec's args
         let ts = "@0.. : Other < >".parse::<TokenStream>().unwrap();
-        let out = sync_trait_application(ts, &args(&["Additive"])).unwrap();
+        let out = sync_trait_application(ts, &args(&["Additive"]), Some(&ident("Tr"))).unwrap();
         assert_eq!(out.to_string(), "@ 0 .. : Other < Additive >");
     }
 
@@ -329,7 +358,9 @@ mod tests {
     fn flat_template_shape() {
         // impl{...} templates are not angle-paired: flat `Ident < >`
         let ts = "impl { Semiring < > }".parse::<TokenStream>().unwrap();
-        let out = sync_trait_application(ts, &args(&["Additive", "Multiplicative"])).unwrap();
+        let out =
+            sync_trait_application(ts, &args(&["Additive", "Multiplicative"]), Some(&ident("Tr")))
+                .unwrap();
         assert_eq!(out.to_string(), "impl { Semiring < Additive , Multiplicative > }");
     }
 
@@ -380,7 +411,7 @@ mod tests {
     fn other_trait_untouched() {
         // a non-empty angle group is not an `X<>` — untouched
         let ts = "@0.. : Module < (), () >".parse::<TokenStream>().unwrap();
-        let out = sync_trait_application(ts, &args(&["Additive"])).unwrap();
+        let out = sync_trait_application(ts, &args(&["Additive"]), Some(&ident("Tr"))).unwrap();
         assert_eq!(out.to_string(), "@ 0 .. : Module < () , () >");
     }
 
