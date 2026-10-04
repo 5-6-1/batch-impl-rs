@@ -7,6 +7,9 @@ from semantics import Engine, ModelError, Node, atom, carry, choices, fresh_name
 from syntax import Parser, evaluate, outputs
 
 
+MIN_NOT_EXPRESSIBLE = 24
+
+
 def not_expressible_cases(path=None):
     """The constructs the model cannot express, read from the list beside this file.
 
@@ -16,7 +19,9 @@ def not_expressible_cases(path=None):
 
     The list is a boundary, not a wish: `test_rejections` asserts every entry is still refused
     with the kind recorded, so teaching the model one of these constructs fails the test until
-    the line is deleted. The list can therefore only shrink, and it shrinks deliberately.
+    the line is deleted. The list can therefore only shrink, and it shrinks deliberately - which
+    is why the count has a floor: probe C's G8 emptied the file and every test stayed green, so
+    "only shrink" was a claim that nothing asserted.
     """
     if path is None:
         path = os.path.join(os.path.dirname(__file__), "not_expressible.txt")
@@ -32,6 +37,12 @@ def not_expressible_cases(path=None):
             kind = kind.split(" ", 1)[0].rstrip("(")
             if construct and kind:
                 cases[construct] = kind
+    if len(cases) < MIN_NOT_EXPRESSIBLE:
+        raise AssertionError(
+            "not_expressible.txt yielded {0} entries (floor {1}): the list is the boundary the "
+            "rejection tests depend on, so losing entries - to an emptied file or a formatting "
+            "change - has to fail here".format(len(cases), MIN_NOT_EXPRESSIBLE)
+        )
     return cases
 
 
