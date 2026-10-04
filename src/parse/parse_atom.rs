@@ -53,9 +53,22 @@ pub(crate) fn parse_group(group: &proc_macro2::Group, ctx: Ctx<'_>) -> Ty {
             // comma-less group is transparent even when it contains a pack:
             // `(*[A, B])` is a pack, while `(*[A, B],)` consumes it into a tuple.
             if contents.is_empty() || contains_punct(&contents, ',') {
-                TyTuple(parse_list(&contents, Op::Comma, ctx.plain()))
-                    .to_ty()
-                    .with_span(group.span())
+                let elements = parse_list(&contents, Op::Comma, ctx.plain());
+                // A body on an element would be emitted *inside the element's type*, which
+                // is not Rust and reaches rustc with nothing pointing at the attribute -
+                // the same failure the bracket guard above describes. The tuple power
+                // (`(A, B).N { … }`) and the whole-spec body are different positions and
+                // stay legal.
+                if let Some(bad) = elements.iter().find(|e| matches!(e.kind, TyKind::WithCode(..)))
+                {
+                    return err_ty_at(
+                        "batch-impl: a tuple element takes no `{body}` — it would be emitted \
+                         as part of the element; write the spec as a list (`[A { … }, B]`) or \
+                         give the whole spec one body",
+                        bad.span,
+                    );
+                }
+                TyTuple(elements).to_ty().with_span(group.span())
             } else if matches!(contents.as_slice(), [TokenTree::Group(g)]
                 if g.delimiter() == delimiter![<>])
             {

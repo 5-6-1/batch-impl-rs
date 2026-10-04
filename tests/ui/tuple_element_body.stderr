@@ -1,0 +1,7 @@
+error: batch-impl: a tuple element takes no `{body}` — it would be emitted as part of the element; write the spec as a list (`[A { … }, B]`) or give the whole spec one body
+ --> tests/ui/tuple_element_body.rs:9:1
+  |
+9 | #[batch_impl((u8 { fn tag(&self) -> u8 { 1 } }, u16))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

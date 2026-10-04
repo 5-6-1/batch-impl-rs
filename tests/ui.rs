@@ -168,6 +168,7 @@ fn ui() {
     t.compile_fail("tests/ui/bound_on_repeated_parameter.rs");
     t.compile_fail("tests/ui/array_length_builtin_type.rs");
     t.compile_fail("tests/ui/decl_block_as_target.rs");
+    t.compile_fail("tests/ui/tuple_element_body.rs");
     t.compile_fail("tests/ui/spec_dropped_silently.rs");
     // `*` needs a type operand — a literal used to be packed as one member and
     // rendered `impl … for 1 {}`
