@@ -68,6 +68,28 @@ fn the_alphabet_can_spell_the_shapes_that_once_escaped_it() {
         ALPHABET.iter().any(|t| matches!(t, Tok::Ident("extern") | Tok::Ident("dyn"))),
         "the alphabet has no extern/dyn keyword"
     );
+    // The idents, pinned as a set. `52` plus the three shape classes leaves a hole probe C's G7
+    // walked through: substituting one keyword for another (`for` -> `from`) kept the size, kept the
+    // distinctness and kept every shape assertion, so a typo in the vocabulary stayed invisible. A
+    // set comparison is the only check that notices a swap rather than a removal.
+    let mut idents: Vec<String> = ALPHABET
+        .iter()
+        .filter_map(|t| match t {
+            Tok::Ident(name) => Some(name.to_string()),
+            _ => None,
+        })
+        .collect();
+    idents.sort();
+    let expected = [
+        "Box", "Cow", "Self", "T", "Vec", "all", "blanket", "call", "const", "delegate", "dyn",
+        "extern", "f64", "fill", "fn", "for", "i32", "impl", "isize", "mut", "name", "r#type",
+        "r#value", "self", "trait", "u8", "unsafe", "usize", "where",
+    ];
+    assert_eq!(
+        idents, expected,
+        "the alphabet's idents changed: a keyword was swapped, added or removed — that is a \
+         deliberate decision, so update this list in the same commit"
+    );
 
     let mut runner = TestRunner::new(Config { cases: 4000, ..Config::default() });
     // `run` takes an `Fn`, so what a drawing saw is recorded through a `Cell` rather than a
