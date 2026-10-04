@@ -581,6 +581,47 @@ fn reference_names_every_ui_fixture() {
     }
 }
 
+/// A Trigger cell that states a count must state the count its fixture has. This is the third
+/// column of the catalog: naming is locked by `reference_names_every_ui_fixture` and wording by
+/// `reference_quotes_every_diagnostic_verbatim`, but a trigger was free to describe a fixture
+/// that had changed underneath it — `deep_nesting` claimed "129 nested groups" for a fixture
+/// that has written 200 brackets since v0.6.1, and `const_value_deep_nesting` claimed 129 for
+/// 130. Round-7 probe B found both by counting the fixtures; this test counts them.
+#[test]
+fn reference_counts_the_trigger_it_states() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // (fixture stem, brackets in the fixture, the count the catalog row must state).
+    for (stem, brackets, stated) in [
+        ("deep_nesting", 201, 200),
+        ("nested_bracket_too_deep", 132, 131),
+        ("const_value_deep_nesting", 130, 130),
+    ] {
+        let fixture = fs::read_to_string(root.join(format!("tests/ui/{stem}.rs")))
+            .unwrap_or_else(|e| panic!("{stem}: {e}"));
+        let actual = fixture.matches('[').count();
+        assert_eq!(
+            actual, brackets,
+            "{stem}: the fixture now has {actual} `[`; this test records {brackets}"
+        );
+        for doc in ["docs/reference.md", "docs/zh-CN/reference.md"] {
+            let text = fs::read_to_string(root.join(doc)).unwrap_or_else(|e| panic!("{doc}: {e}"));
+            let catalog = text
+                .split_once("## 10.")
+                .and_then(|(_, rest)| rest.split_once("## 11."))
+                .map(|(catalog, _)| catalog)
+                .unwrap_or_else(|| panic!("{doc}: no `## 10.` … `## 11.` catalog section"));
+            let row = catalog
+                .lines()
+                .find(|l| l.contains(&format!("`{stem}`")))
+                .unwrap_or_else(|| panic!("{doc}: no catalog row for `{stem}`"));
+            assert!(
+                row.contains(&stated.to_string()),
+                "{doc}: `{stem}`'s trigger does not state {stated}:\n{row}"
+            );
+        }
+    }
+}
+
 /// The catalog must quote the **exact** wording. For every
 /// `tests/ui/**/*.stderr`, its first line with the `error: ` /
 /// `error[EXXXX]: ` prefix stripped has to appear verbatim in §10 of both
