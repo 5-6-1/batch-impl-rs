@@ -103,7 +103,7 @@ pub(crate) fn expand_impl_entry(
     // included — they ride on `item`, the `#[batch_impl(…)]` itself is consumed
     // by rustc). Separators are not content, so `#[batch_impl(;)]` counts as
     // empty too.
-    if split_at_depth0(&attr_vec, ';').iter().all(|spec| spec.is_empty()) {
+    if crate::entry::spec_list_is_empty(&attr_vec) {
         return Ok(quote!(#item));
     }
 

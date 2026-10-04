@@ -69,6 +69,15 @@ fn run_pipeline(
     Ok(render_angles(impls))
 }
 
+/// Whether a spec list carries nothing but separators, so the entry re-emits the item unchanged:
+/// `#[batch_impl]`, `#[batch_impl()]` and `#[batch_impl(;)]` are the same instruction, and
+/// `docs/reference.md` documents all three as the identity. One predicate for both entries and for
+/// `batch_preview!` - the preview used to bypass it, reporting a bare `#[batch_impl]` as a missing
+/// attribute and `#[batch_impl(;)]` as an empty spec, which is probe D's F1.
+pub(crate) fn spec_list_is_empty(attr: &[TokenTree]) -> bool {
+    crate::parse::split_at_depth0(attr, ';').iter().all(|spec| spec.is_empty())
+}
+
 /// Shared implementation of the two attribute macros (errors via `compile_error!` streams)
 /// Parameters use proc_macro2 types: unit tests (fuzz) can call directly without a proc-macro
 /// runtime; the attribute macro entry points (lib.rs) convert at expansion time.
@@ -81,7 +90,7 @@ pub(crate) fn expand_attr_macro(
     // "re-emit the item unchanged". This bypasses the pipeline on purpose: the zero-impl gate
     // would otherwise report an empty expansion and turn the documented identity into an error.
     let attr_vec: Vec<TokenTree> = attr.clone().into_iter().collect();
-    if crate::parse::split_at_depth0(&attr_vec, ';').iter().all(|spec| spec.is_empty()) {
+    if spec_list_is_empty(&attr_vec) {
         return Ok(if include_trait { quote!(#trait_item) } else { quote!() });
     }
     let p = prepare_attr_expansion(attr, trait_item, include_trait)?;

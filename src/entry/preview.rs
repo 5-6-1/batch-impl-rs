@@ -77,6 +77,18 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
                 trait_item.ident.span(),
             )
         })?;
+    // The documented identity: a spec list with nothing but separators re-emits the item
+    // unchanged, so the preview shows exactly that instead of running the pipeline and reporting
+    // the zero-impl gate. `#[batch_impl]`, `#[batch_impl()]` and `#[batch_impl(;)]` all land here
+    // (probe D's F1: the first two used to be misreported, the third as an empty spec).
+    if crate::entry::spec_list_is_empty(&attr_tokens.clone().into_iter().collect::<Vec<_>>()) {
+        let shown = if include_trait { quote!(#trait_item) } else { quote!() };
+        let msg = format!(
+            "batch-impl preview: the item is re-emitted unchanged\n\n{}",
+            render_angles(shown)
+        );
+        return Ok(compile_error_str(&msg, Span::call_site()));
+    }
     let p = prepare_attr_expansion(attr_tokens, trait_item, include_trait)?;
     let mut cursor = Cursor::new(&p.expanded);
     let (leaves, errors) = collect_spec_leaves(&mut cursor, Op::Comma, Some(&p.trait_last_ident));
@@ -161,8 +173,11 @@ fn find_impl_attr(attrs: &[syn::Attribute]) -> Option<(TokenStream, bool)> {
         }
         match &attr.meta {
             syn::Meta::List(ml) => (ml.tokens.clone(), is_impl).into(),
-            // A bare `#[batch_impl]` carries no DSL — the caller reports
-            // the missing attribute form.
+            // A bare `#[batch_impl]` carries no DSL at all. That is the documented identity - the
+            // item is re-emitted unchanged - so it is the same empty spec list `#[batch_impl()]`
+            // parses to, not a missing attribute: probe D's F1 had the preview report "expects a
+            // `#[batch_impl(...)]` attribute" while the attribute sat right there.
+            syn::Meta::Path(_) => (TokenStream::new(), is_impl).into(),
             _ => None,
         }
     })
