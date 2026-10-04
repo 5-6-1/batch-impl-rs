@@ -145,16 +145,64 @@ pub(crate) fn parse_batch_trait_entry(
         return leaf_errors.into_iter().collect();
     }
     let mut impls = start_trait.map_or(quote![], |t| quote![#t]);
+    // A diagnostic can also be minted *while* a leaf is rendered, which the walk above cannot
+    // see: probe D's `[u8] * *` renders `[u8; * ::core::compile_error!(…);,]` — the crate's own
+    // message inside an item rustc cannot parse, so the reader only gets "expected expression,
+    // found `,`". Such a leaf is collected as a diagnostic instead of an impl, which is the same
+    // policy as the two refusals above.
+    let mut rendered_errors = vec![];
     for t in tys {
-        impls.extend(generate_impl(
-            t,
-            trait_full_path,
-            is_unsafe_trait,
-            trait_bounds,
-            trait_param_names,
-        ));
+        let generated =
+            generate_impl(t, trait_full_path, is_unsafe_trait, trait_bounds, trait_param_names);
+        let mut found = vec![];
+        extract_error_carriers(&generated, &mut found);
+        if found.is_empty() {
+            impls.extend(generated);
+        } else {
+            rendered_errors.extend(found);
+        }
+    }
+    if !rendered_errors.is_empty() {
+        return rendered_errors.into_iter().collect();
     }
     impls
+}
+
+/// Collect the `::core::compile_error!("…")` invocations of an already-rendered stream, so a
+/// diagnostic that a renderer wrote *into* a type can be reported on its own.
+fn extract_error_carriers(tokens: &TokenStream, out: &mut Vec<TokenStream>) {
+    use proc_macro2::{Punct, Spacing, TokenTree};
+    let items: Vec<TokenTree> = tokens.clone().into_iter().collect();
+    let mut i = 0;
+    while let Some(first) = items.get(i) {
+        // The carrier is `compile_error` `!` `( … )`; taking the ident plus the two following
+        // tokens keeps the invocation valid on its own, and the trailing `;` keeps it valid as an
+        // *item* - without it rustc adds "macros that expand to items must be delimited with
+        // braces or followed by a semicolon" to the very message this extraction is meant to
+        // surface cleanly.
+        // `.get(i + n)` rather than indexing: the crate denies `clippy::indexing_slicing`
+        // at the root (`src/lib.rs`), and a walker is exactly where that lint earns its keep.
+        if matches!(first, TokenTree::Ident(id) if id == "compile_error")
+            && let (Some(TokenTree::Punct(bang)), Some(group)) =
+                (items.get(i + 1), items.get(i + 2))
+            && bang.as_char() == '!'
+        {
+            let mut carrier = TokenStream::new();
+            carrier.extend([
+                first.clone(),
+                TokenTree::Punct(bang.clone()),
+                group.clone(),
+                TokenTree::Punct(Punct::new(';', Spacing::Alone)),
+            ]);
+            out.push(carrier);
+            i += 3;
+            continue;
+        }
+        if let TokenTree::Group(g) = first {
+            extract_error_carriers(&g.stream(), out);
+        }
+        i += 1;
+    }
 }
 
 /// Parses the cursor into leaf `Ty`s (specs → worklist expansion → materialization)
