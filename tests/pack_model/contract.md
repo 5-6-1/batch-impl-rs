@@ -2,7 +2,7 @@
 
 English | [简体中文](contract.zh-CN.md)
 
-Status: integrated into the unreleased 0.10.0 development version; this directory
+Status: integrated into the 0.10.0 development version; this directory
 remains an independent semantic model. Start with the
 [tutorial](tutorial.md). This document defines rules precisely and helps find
 counterexamples; it is not prerequisite reading for beginners.

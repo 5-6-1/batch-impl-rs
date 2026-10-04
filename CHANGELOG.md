@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.10.0 — 2026-10-04
 
 - **Breaking: `*` opens only a candidate list.** `*[A, B]` is two members and
   `*[A,]` is one; a tuple, the unit type, a slice and an array are *types*, so
@@ -36,8 +36,7 @@
   Retain row identity through reference, `dyn` and `for` prefixes, and preserve
   generated bounds and collision-free names in the ordinary impl entry.
 
-> Target: **0.10.0**, the next version after the published 0.9.7. Development is
-> continuing; no release date is set.
+> Released **2026-10-04** as 0.10.0, the next version after the published 0.9.7.
 
 - The initial Pack stage added an internal application kernel and an
   executable specification while retaining the public splat syntax. The

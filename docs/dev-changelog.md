@@ -5,7 +5,7 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.10.0 — 2026-10-04
 
 - Pack public integration (2026-09-26): replace `TySplat` and its two origin-
   dependent apply paths with `TyPack`; parse `*` over one arbitrary block,
@@ -30,8 +30,7 @@
   Structured function types retain unsafe/ABI qualifiers and propagate return-
   parsing errors before later application can obscure their original spans.
 
-> Target: **0.10.0**, the next version after the published 0.9.7. Development is
-> continuing; no release date is set.
+> Released **2026-10-04** as 0.10.0, the next version after the published 0.9.7.
 
 - Pack public acceptance (2026-09-26): Windows stable passes 233 unit tests,
   382 feature tests, six no-panic guards, 14 documentation guards, 119 doctests,

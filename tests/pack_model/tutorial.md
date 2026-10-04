@@ -3,7 +3,7 @@
 English | [简体中文](tutorial.zh-CN.md)
 
 This tutorial follows the independent v2 model in this directory. Its Pack semantics
-are integrated into **batch-impl 0.10.0 in development (unreleased)**. The blocks show
+are integrated into **batch-impl 0.10.0**. The blocks show
 type expressions and their generated Rust types, not complete macro programs;
 method bodies still belong to batch-impl's existing mechanisms.
 

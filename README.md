@@ -2,7 +2,7 @@
 
 Repository sources (GitHub `main`): English | [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)
 
-**v0.10.0 — in development (unreleased).** Breaking changes and migration from 0.9.7 are in the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
+**v0.10.0.** Breaking changes and migration from 0.9.7 are in the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
 
 Repository-source links open public `main`, which may not contain local changes.
 Run `cargo doc --no-deps --open` locally for this checkout's English documentation;
@@ -21,7 +21,7 @@ If you already have an ordinary Rust `impl`, you can [reuse that implementation]
 
 ## Quick start
 
-Requires **Rust 1.95 or newer**. This page describes the **unreleased 0.10.0 source tree**. To try the published 0.9.7 instead, use its [versioned documentation](https://docs.rs/batch-impl/0.9.7/batch_impl/).
+Requires **Rust 1.95 or newer**. This page describes the **0.10.0 source tree**. To try the published 0.9.7 instead, use its [versioned documentation](https://docs.rs/batch-impl/0.9.7/batch_impl/).
 
 To try this checkout, create a small application next to it:
 
@@ -38,7 +38,7 @@ Run `cargo new demo` from `work/`. In `demo/Cargo.toml`, replace the existing em
 batch-impl = { path = "../batch-impl" }
 ```
 
-Use the checkout containing the changes you want to test. Local uncommitted changes are available through this path dependency; a Git dependency cannot retrieve them. There is no published `batch-impl = "0.10.0"` release yet.
+Use the checkout containing the changes you want to test. Local uncommitted changes are available through this path dependency; a Git dependency cannot retrieve them. The published `batch-impl = "0.10.0"` release is on crates.io; the checkout is for changes that are not published yet.
 
 Copy this complete program into `demo/src/main.rs`:
 
