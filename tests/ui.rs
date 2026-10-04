@@ -175,6 +175,8 @@ fn ui() {
     t.compile_fail("tests/ui/empty_angle_body_surface.rs");
     // `batch_trait!` has no trait definition, so a `#` directive is rejected with that reason.
     t.compile_fail("tests/ui/batch_trait_directive_unsupported.rs");
+    // A spec-level diagnostic points at its own segment, not at the macro's opening line.
+    t.compile_fail("tests/ui/batch_trait_span_points_at_the_segment.rs");
     t.compile_fail("tests/ui/directive_missing_tail.rs");
     t.compile_fail("tests/ui/bare_prefix_no_type.rs");
     t.compile_fail("tests/ui/bare_attr_carrier.rs");

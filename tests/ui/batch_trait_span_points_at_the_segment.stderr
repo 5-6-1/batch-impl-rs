@@ -1,0 +1,5 @@
+error: batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target
+  --> tests/ui/batch_trait_span_points_at_the_segment.rs:17:5
+   |
+17 |     Tr: 7;
+   |     ^^

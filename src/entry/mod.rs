@@ -345,22 +345,58 @@ pub(crate) fn expand_batch_trait(
         cursor.bump();
         // Segment boundary = first depth-0 `;` (not consumed; skipped by the loop head)
         let spec = cursor.take_segment(&[';']).to_vec();
+        // The span of this segment's own tokens: rustc blames the **invocation** for an error inside a
+        // generated item, so a `batch_trait!` holding 20 specs reported every such error on the
+        // macro's first line (alga2's report 3: "the real culprit is at line 138").
+        let segment_span =
+            trait_path.first().map_or_else(proc_macro2::Span::call_site, |t| t.span());
         // Segment-level `@trait` replacement: batch_trait!'s `@trait` is kept as-is during
         // the constant stage (each segment has a different trait name), expanded here to
         // this segment's full trait path — the `@type_t=<T>@trait<T>` cross-segment reuse
         // scenario (`A: @type_t ...` / `B: @type_t ...`).
         let spec = replace_segment_trait(spec, &trait_full_path)?;
-        result.extend(run_pipeline(
-            &spec,
-            Op::Comma,
-            &trait_full_path,
-            trait_last_ident,
-            is_unsafe,
-            None,
-            // batch_trait! has no trait definition, so generic bounds cannot be inherited
-            &Default::default(),
-            &[],
-        )?);
+        result.extend(respan_call_site(
+            run_pipeline(
+                &spec,
+                Op::Comma,
+                &trait_full_path,
+                trait_last_ident,
+                is_unsafe,
+                None,
+                // batch_trait! has no trait definition, so generic bounds cannot be inherited
+                &Default::default(),
+                &[],
+            )?,
+            segment_span,
+        ));
     }
     Ok(result.into())
+}
+
+/// Give every token that still points at the macro **call site** the span of the segment it came from.
+///
+/// rustc attributes an error inside a *generated* item to the macro invocation, so a long
+/// `batch_trait!` reported every spec-level error on the macro's opening line. Only call-site tokens
+/// are re-spanned: a token that already carries a span from the user's own input keeps it, so the
+/// precision the diagnostics already had is untouched (`A<u8>` on a non-generic `A` points at that
+/// segment by itself; an `E0046` on a generated impl does not).
+fn respan_call_site(tokens: TokenStream, span: proc_macro2::Span) -> TokenStream {
+    fn is_call_site(candidate: proc_macro2::Span) -> bool {
+        // `proc_macro2::Span` has no `PartialEq` (the trait method `eq` resolves to `Iterator::eq` and
+        // does not compile), so the two spans are compared through their `Debug` form: a synthetic
+        // call-site span carries no file/line, a span from the user's source does.
+        format!("{candidate:?}") == format!("{:?}", proc_macro2::Span::call_site())
+    }
+    tokens
+        .into_iter()
+        .map(|tt| {
+            if is_call_site(tt.span()) {
+                let mut out = tt;
+                out.set_span(span);
+                out
+            } else {
+                tt
+            }
+        })
+        .collect()
 }
