@@ -1734,7 +1734,7 @@ Four spellings, all measured:
 | `()N` | **N fresh parameters** (a generator) — the carrier decides how they are spliced | `Pair3<*[].2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
 | `*[].N` | the same generator **spliced**, so a carrier can append its parameters | `T.*[].2` → `<P0,P1>T<P0,P1>` |
 | `(A, B,)N` | the **N-fold Cartesian product** of the elements (tuples of length N) | `(u8, u16,)2` → 4 impls |
-| `().1..=M` | one impl **per tuple arity** 1..=M, each with its own fresh parameters (the "ranges" of README's table) | `().1..=3` → `impl<P0> … for (P0,)`, `impl<P0,P1> … for (P0, P1,)`, `impl<P0,P1,P2> … for (P0, P1, P2,)`; going past the family is **not** diagnosed by the macro — the reader gets a bare `E0599` on the tuple, whose help suggests a field method of the same name (measured) |
+| `().1..=M` | one impl **per tuple arity** 1..=M, each with its own fresh parameters (the "ranges" of README's table) | `().1..=3` → `impl<P0> … for (P0,)`, `impl<P0,P1> … for (P0, P1,)`, `impl<P0,P1,P2> … for (P0, P1, P2,)`; going past the family is **not** diagnosed by the macro — the reader gets a bare `E0599` on the tuple, whose children point at the trait item instead (`note: \`Arities\` defines an item \`n\`, perhaps you need to implement it`) rather than at anything in the macro (measured) |
 
 The power is the **`.N` suffix** (`(u8, u16).2` = four tuple impls); the juxtaposed form `()N` / `(u8, u16)2` is accepted as well, while the old `^` spelling is rejected with its own retirement message (§12). The suffix binds to its block, so `Box.*[].2` applies the generator to `Box` rather than to something else.
 

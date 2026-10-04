@@ -1521,7 +1521,7 @@ impl Elem for A { fn elem_bytes(&self) -> usize { std::mem::size_of::<B>() } }
 | `()N` | **N 个 fresh 参数**（生成器）——由载体决定怎么拼 | `Pair3<*[].2>` → `impl<P0, P1> … for Pair3<P0, P1>` |
 | `*[].N` | 同一个生成器**被拼入**，于是载体可以追加它的参数 | `T.*[].2` → `<P0,P1>T<P0,P1>` |
 | `(A, B,)N` | 元素的 **N 重笛卡尔积**（长度 N 的元组） | `(u8, u16,)2` → 4 个 impl |
-| `().1..=M` / `(A,)L..U` | **每个元数**一个 impl，各自带自己的 fresh 参数（README 表里的 "ranges"） | `().1..=3` → `impl<P0> … for (P0,)`、`impl<P0,P1> … for (P0, P1,)`、`impl<P0,P1,P2> … for (P0, P1, P2,)`；超出该族**不会**由宏报出 —— 读者只会在元组上拿到裸 `E0599`，其 help 还建议同名字段方法（实测） |
+| `().1..=M` / `(A,)L..U` | **每个元数**一个 impl，各自带自己的 fresh 参数（README 表里的 "ranges"） | `().1..=3` → `impl<P0> … for (P0,)`、`impl<P0,P1> … for (P0, P1,)`、`impl<P0,P1,P2> … for (P0, P1, P2,)`；超出该族**不会**由宏报出 —— 读者只会在元组上拿到裸 `E0599`，它的子项指向 trait 里那个 item（`note: \`Arities\` defines an item \`n\`, perhaps you need to implement it`），而不是宏这边的任何东西（实测） |
 
 幂是 **`.N` 后缀**（`(u8, u16).2` = 四个元组 impl）；并置形式 `()N` / `(u8, u16)2` 同样接受，而旧的 `^` 拼写会被拒绝并给出退休消息（§12）。后缀绑定到它所在的那个块，所以 `Box.*[].2` 是把生成器应用到 `Box`，而不是别的什么。
 
