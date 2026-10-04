@@ -382,7 +382,7 @@ records the evaluation stages and counterexamples.
 | Class | Notation | Expands into | Detail |
 | --- | --- | --- | --- |
 | Name families | `@u*` `@i*` `@f*` `@num` `@scalar` | a **list** of types | the closed, language-defined sets (tutorial §6.1) |
-| Range families | `@u8..u16` `@u8..=u16` `@i8..=i128` `@f32..=f64` | a **list** — `..` excludes the upper endpoint, `..=` includes it | an omitted lower endpoint starts at the family minimum; an omitted upper endpoint (`@u16..`) includes the family maximum; `usize`/`isize` are not in any range family |
+| Range families | `@u8..u16` `@u8..=u16` `@i8..=i128` `@f32..=f64` | a **list** — `..` excludes the upper endpoint, `..=` includes it. A bounded endpoint that lands exactly on the family's maximum is therefore **excluded**: `@u8..u64` drops `u64` (write `@u8..=u64`) | an omitted lower endpoint starts at the family minimum; an omitted upper endpoint (`@u16..`) includes the family maximum; `usize`/`isize` are not in any range family |
 | Trait | `@trait` | the trait path (in `batch_trait!`, the segment's own path) | the current entry's trait context (§5.3) |
 | Input impl type | `@Self` | the current attribute invocation's input impl self type | impl entry only; ordinary Rust `Self` keeps its own meaning (§9.2) |
 | Trait-member families | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | a `[a,b,c]` **group** that then goes through directive-argument parsing | required/default and receiver filtering are part of the constant |
@@ -664,6 +664,7 @@ The mapping is applied once to the prototype's **`where` predicates** and **body
 |---|---|---|
 | `A@..` | in the template | a **variadic segment**: it matches the remaining positions of the shape family and drives the body |
 | `@(…@0,)..` | in the body | a **repeat block**: one round per covered element, with `@ident` splicing that round's subtree (the `$(…)*` semantics) |
+| `@(…)+..` | in the body | the **inter-round separator**: the literal tokens between `)` and `..` are written **between** rounds (any tokens work — `+` is just the usual choice). Nothing is emitted for a single round, so rounds that build a tuple one element at a time need the separator **inside** the block (`@(…, )..`), which is what makes arity 1 a real 1-tuple |
 | `impl{@0..}` | a template | the **fresh-binding switch**: binds one fresh per round for cursor-only blocks and enables `@{N}` references |
 | `impl{@{}}` | a template | the **body-slot switch**: enables `@{N}` in a body where a repeat block would otherwise read `@` as a block start |
 
