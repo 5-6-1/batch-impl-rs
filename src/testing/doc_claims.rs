@@ -26,13 +26,18 @@ use crate::entry::{expand_attr_macro, expand_impl_entry};
 
 /// The floor for exactly-checked claims: a scanner that stopped recognising examples, or
 /// a claim association that drifted, would otherwise leave the test passing on nothing -
-/// which is exactly what it did before this floor existed. The measured count is 48, with
-/// 34 more checked fragment by fragment and 19 reported as illustrative or multi-stage.
+/// which is exactly what it did before this floor existed. The live split is printed by
+/// this test on every run rather than restated here (see the header).
 const MIN_CHECKED_CLAIMS: usize = 45;
 
-/// Files carrying `// →` claims on the English side (measured, see the header).
+/// Every English document that may carry a `// →` claim - not the files that happen to
+/// carry one today. `reference.md` and `README.md` are scanned although they currently
+/// hold no claim at all: a claim written there tomorrow is checked the day it is written,
+/// instead of after a probe notices that the example and the macro disagree.
 const DOCS: &[&str] = &[
     "docs/tutorial.md",
+    "docs/reference.md",
+    "README.md",
     "src/doc/batch_impl_only.md",
     "src/doc/directive_blanket.md",
     "src/doc/directive_consts.md",
