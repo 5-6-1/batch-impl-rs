@@ -116,6 +116,20 @@ pub(crate) fn parse_space_chain(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty>
                 TokenTree::Punct(p) if p.as_char() == '-' => {
                     return Some(err_ty_at(crate::util::RETIRED_DASH, p.span()));
                 }
+                // Everything else that cannot open a block, in one arm and with no list of
+                // spellings: `starts_block` is the parser's own answer to "can this token
+                // begin an operand" - the very predicate the loop below uses - so this
+                // cannot drift from what parsing actually accepts, and a token nobody has
+                // thought of yet is covered the day it can reach here.
+                _ if !starts_block(cursor) => {
+                    return Some(err_ty_at(
+                        &format!(
+                            "batch-impl: `{t}` cannot start a type — the spec would be dropped \
+                             without an impl"
+                        ),
+                        t.span(),
+                    ));
+                }
                 _ => {}
             }
         }
