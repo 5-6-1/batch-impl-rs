@@ -362,24 +362,42 @@ fn documented_expansions_match() {
                 }
                 continue;
             }
-            // Fragments are checked one by one: the docs compress output with ` / `
-            // alternatives and pack two impls into a single line, so the whole string is
-            // rarely a substring even when every piece of it is present.
-            let fragments: Vec<&str> = claimed
+            // ` / ` separates alternative expansions the docs put on one line, so each is
+            // matched on its own; `, ` separates pieces of one expansion, so those must occur
+            // in order. The order is the whole point: a claim whose pieces are reordered, or
+            // whose middle piece was dropped, used to pass this check, and a piece that is not
+            // contiguous with its neighbour is still accepted - the docs summarise with `...`.
+            // A note glued to the last piece (`Rc<u16>(4 entries)`) is not part of the
+            // expansion.
+            let alternatives: Vec<Vec<&str>> = claimed
                 .split(" / ")
-                .flat_map(|alt| alt.split(", "))
-                .map(|f| f.trim().trim_end_matches([',', ';']).trim())
-                .filter(|f| !f.is_empty())
-                // A note glued to the last fragment (`Rc<u16>(4 entries)`) is not part of
-                // the expansion.
-                .map(|f| f.split_once("(").map(|(head, _)| head.trim_end()).unwrap_or(f))
-                .filter(|f| !f.is_empty())
+                .map(|alt| {
+                    alt.split(", ")
+                        .map(|f| f.trim().trim_end_matches([',', ';']).trim())
+                        .map(|f| f.split_once("(").map(|(head, _)| head.trim_end()).unwrap_or(f))
+                        .filter(|f| !f.is_empty())
+                        .collect()
+                })
                 .collect();
-            if fragments.iter().all(|f| block.contains(&normalise(f))) {
-                if fragments.len() > 1 {
-                    partial += 1;
-                } else {
+            let matches = |frags: &[&str]| {
+                let mut at = 0;
+                frags.iter().all(|f| {
+                    let needle = normalise(f);
+                    match block[at..].find(&needle) {
+                        Some(p) => {
+                            at += p + needle.len();
+                            true
+                        }
+                        None => false,
+                    }
+                })
+            };
+            if alternatives.iter().all(|a| matches(a)) {
+                // Every alternative is a single piece: that is the whole-line case.
+                if alternatives.iter().all(|a| a.len() == 1) {
                     checked += 1;
+                } else {
+                    partial += 1;
                 }
                 continue;
             }
