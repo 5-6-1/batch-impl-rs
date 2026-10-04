@@ -71,11 +71,20 @@ fn ceiling_row<'a>(text: &'a str, needle: &str) -> &'a str {
 #[test]
 fn the_ceiling_table_states_the_constants() {
     use crate::ast::op::MAX_EXPAND;
+    use crate::codegen::MAX_REPEAT_TOKENS;
+    use crate::preprocess::MAX_BLANKET_DEPTH;
     use crate::util::MAX_NEST_DEPTH;
 
     let mirrors = [
         ("docs/reference.md", "Impls per spec", "Nesting depth", "Materialization work"),
         ("docs/zh-CN/reference.md", "单 spec 的 impl 数", "嵌套深度", "物化工作量"),
+    ];
+    // The §12 table is longer than the three rows this guard used to read: probe C's G6 edited the
+    // `Repeat-block output` and `#blanket` deref-depth cells to wrong numbers on both mirrors and
+    // nothing objected. Every row whose number a constant owns belongs here.
+    let long_rows = [
+        ("docs/reference.md", "Repeat-block output", "`#blanket` deref depth"),
+        ("docs/zh-CN/reference.md", "重复块输出", "`#blanket` deref 深度"),
     ];
     for (path, impls_row, depth_row, work_row) in mirrors {
         let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -101,6 +110,24 @@ fn the_ceiling_table_states_the_constants() {
         assert!(
             work.contains(&product.to_string()),
             "{path}: the work ceiling is not stated as MAX_EXPAND x MAX_NEST_DEPTH ({product}):\n{work}"
+        );
+    }
+
+    for (path, repeat_row, deref_row) in long_rows {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+
+        let repeat = ceiling_row(&text, repeat_row);
+        assert!(
+            repeat.contains(&MAX_REPEAT_TOKENS.to_string()),
+            "{path}: the repeat-block row does not state MAX_REPEAT_TOKENS \
+             ({MAX_REPEAT_TOKENS}):\n{repeat}"
+        );
+
+        let deref = ceiling_row(&text, deref_row);
+        assert!(
+            deref.contains(&MAX_BLANKET_DEPTH.to_string()),
+            "{path}: the deref-depth row does not state MAX_BLANKET_DEPTH \
+             ({MAX_BLANKET_DEPTH}):\n{deref}"
         );
     }
 }
