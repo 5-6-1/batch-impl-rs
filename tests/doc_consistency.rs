@@ -1043,8 +1043,9 @@ fn every_source_diagnostic_is_locked_or_listed() {
 
 /// The catalog is a **multiset**, not a set: a fixture named twice inside one
 /// mirror (a duplicated row) or present in one mirror and missing from the other
-/// is a defect the `contains`-style check cannot see. `docs/zh-CN/reference.md`
-/// carried the `fn_return_reapply` row twice when this was written.
+/// is a defect the `contains`-style check cannot see. Counting occurrences is the
+/// whole reason the check is shaped this way, and it needs no history to justify:
+/// the duplicate it exists for is reproducible by pasting one row twice.
 const MIN_CATALOG_ROWS: usize = 100;
 
 /// The fixture stems of a catalog's row labels, in file order.
