@@ -239,6 +239,34 @@ mod tests {
         assert!(ty.is_some(), "parse failed for: {s}");
     }
 
+    /// No spelling may disappear: every punctuation that reaches the type parser has to come
+    /// back as something - a type, or a diagnostic carrier - and never as `None` with its
+    /// tokens walked over. That `None` is how a spec used to vanish with no impl and no word
+    /// (probe D measured six spellings, and they were then fixed one at a time). Driving the
+    /// whole ASCII punctuation set instead of a list means the next spelling nobody has
+    /// thought of is covered the day it exists.
+    #[test]
+    fn no_punctuation_is_dropped_without_a_diagnostic() {
+        for c in ' '..='~' {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                continue;
+            }
+            let s = format!("{c}u8");
+            let Ok(ts) = s.parse::<proc_macro2::TokenStream>() else {
+                continue; // cannot even tokenize on its own: not a spelling.
+            };
+            let Ok(v) = crate::preprocess::angle_collect(&ts.into_iter().collect::<Vec<_>>())
+            else {
+                continue; // the angle pass refused it, which is its own diagnostic path.
+            };
+            let mut c = crate::util::Cursor::new(&v);
+            assert!(
+                super::parse_item(&mut c, crate::ast::Op::Comma, Ctx::default()).is_some(),
+                "`{s}` was dropped: tokens consumed, nothing reported"
+            );
+        }
+    }
+
     /// Parses `s` and renders it back (angle groups restored), panicking with the
     /// rendered text when the parse produced a diagnostic — an error `Ty` renders
     /// as `compile_error!(…)`, which is how the qualified-type gap used to show up.
