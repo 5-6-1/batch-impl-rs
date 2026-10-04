@@ -440,7 +440,7 @@ delegate body 表达式中的 `receiver.#call` 是单独的局部标记，不是
 | `[a, b]` | 名字的字面列表；接受 `[a, b,]` 与 `[]` | 不存在的成员名报错 |
 | `-name` / `-[a, b]` | 从集合里排除；接受空结果 | `-` 后面什么都没有 → "after `-` expected an identifier or `[...]` list"（`minus_bad_target`）；不存在的排除名报错 |
 | `,` | 分隔元素；接受一个尾逗号 | 拒绝前导或连续逗号（`fill_bad_comma`） |
-| （什么都没有） | 不选任何成员 | 接受，包括 `#fill()`、`#delegate()`、`#blanket()` |
+| （什么都没有） | 不选任何成员 | 接受，包括 `#fill()`、`#delegate()` 与 `#blanket(){Box}`（裸 `#blanket()` 会被拒——它需要包装列表或 body） |
 
 名字在选择、排除之前检查：`typo, -typo` 不能隐藏不存在的成员。空字面列表、结果为空的 `@all` 家族、合法地排空所有成员的差集含义相同。`#fill`、`#delegate` 不生成成员；`#blanket` 仍生成包装 impl。未实现的必需 trait 成员由 Rust 检查。delegate 改名的左侧必须是 trait 方法名；右侧是目标对象的方法名，交给 Rust 检查。
 
