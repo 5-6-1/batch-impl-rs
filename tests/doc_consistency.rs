@@ -1637,7 +1637,8 @@ fn count_files_below(dir: &Path, ext: &str) -> usize {
 /// invisible to all of them (round 510 measured all six pairs equal before writing this).
 #[test]
 fn every_mirror_pair_keeps_the_same_structure() {
-    const PAIRS: [(&str, &str); 6] = [
+    const PAIRS: [(&str, &str); 7] = [
+        ("CHANGELOG.md", "docs/zh-CN/CHANGELOG.md"),
         ("docs/architecture.md", "docs/zh-CN/architecture.md"),
         ("docs/dev-changelog.md", "docs/zh-CN/dev-changelog.md"),
         ("docs/development-guide.md", "docs/zh-CN/development-guide.md"),
@@ -1651,6 +1652,19 @@ fn every_mirror_pair_keeps_the_same_structure() {
     let heading = |l: &str| ["# ", "## ", "### ", "#### "].iter().any(|p| l.starts_with(p));
     let fence = |l: &str| l.starts_with("```");
     let row = |l: &str| l.starts_with('|');
+    // A **version** heading is language-neutral: `## 0.10.0 — 2026-10-04` and `## 0.10.0（2026-10-04）`
+    // are the same section in two mirrors. Counting them catches a section that was versioned on one
+    // side only — the zh changelog still called the released 0.10.0 section "Unreleased" while the
+    // English one had been dated, and heading **levels** alone could not see it. Only equality between
+    // the mirrors is asserted, so an over-eager match (a `### 10.3 …` heading counts too) is harmless:
+    // it matches on both sides or on neither.
+    let version_heading = |l: &str| {
+        ["# ", "## ", "### ", "#### "].iter().any(|p| l.starts_with(p)) && {
+            let digits = l.chars().filter(|c| c.is_ascii_digit()).count();
+            let dots = l.chars().filter(|c| *c == '.').count();
+            digits >= 3 && dots >= 2
+        }
+    };
     type Metric = fn(&str) -> bool;
     fn count(text: &str, what: Metric) -> usize {
         text.lines().filter(|l| what(l)).count()
@@ -1659,8 +1673,12 @@ fn every_mirror_pair_keeps_the_same_structure() {
     for (en, zh) in PAIRS {
         let a = fs::read_to_string(root.join(en)).unwrap_or_else(|e| panic!("{en}: {e}"));
         let b = fs::read_to_string(root.join(zh)).unwrap_or_else(|e| panic!("{zh}: {e}"));
-        let metrics: [(&str, Metric); 3] =
-            [("headings", heading), ("fences", fence), ("table rows", row)];
+        let metrics: [(&str, Metric); 4] = [
+            ("headings", heading),
+            ("fences", fence),
+            ("table rows", row),
+            ("version headings", version_heading),
+        ];
         for (name, metric) in metrics {
             let (x, y) = (count(&a, metric), count(&b, metric));
             assert_eq!(x, y, "{en} has {x} {name} but {zh} has {y} — one side lost structure");
