@@ -1571,6 +1571,23 @@ fn collect_stderr(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
+/// Files with the given extension under a directory, recursively.
+fn count_files_below(dir: &Path, ext: &str) -> usize {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .map(|path| {
+            if path.is_dir() {
+                count_files_below(&path, ext)
+            } else {
+                usize::from(path.extension().is_some_and(|e| e == ext))
+            }
+        })
+        .sum()
+}
+
 /// `#[test]` attributes in one file, counting only lines whose trimmed text **starts** with the
 /// attribute: a doc comment that mentions `#[test]` is prose, not a test, and the substring count
 /// that ignored this difference reported 25 guards where the tree has 21.
@@ -1635,6 +1652,19 @@ fn architecture_testing_matrix_matches_the_tree() {
     let ui = fs::read_to_string(root.join("tests/ui.rs")).unwrap();
     let fixtures = ui.matches("t.compile_fail(").count();
     let passing = ui.matches("t.pass(").count();
+
+    // Every fixture on disk must be registered. A file with its `.stderr` and its catalog rows but
+    // no `t.compile_fail(...)` line is never compiled, so it locks nothing and no count notices:
+    // probe C's G3 added one and both `doc_consistency` and `ui` stayed green (deletion, by
+    // contrast, moves the matrix counts). This is the other direction of the same fact.
+    let on_disk = count_files_below(&root.join("tests/ui"), "rs");
+    assert_eq!(
+        on_disk,
+        fixtures + passing,
+        "tests/ui holds {on_disk} fixtures but `tests/ui.rs` registers {} \
+         ({fixtures} compile_fail + {passing} pass) — an unregistered fixture is never compiled",
+        fixtures + passing
+    );
 
     let goldens = fs::read_dir(root.join("tests/golden"))
         .unwrap()
