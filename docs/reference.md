@@ -71,7 +71,7 @@ So a target that begins with `::` needs that seam written explicitly:
 | `@trait<u8> . ::std::string::String` | `impl Tr<u8> for ::std::string::String` | ✓ `.` is an element boundary (measured: compiled and asserted at runtime) |
 | `@trait<u8> ::std::string::String` | `impl Tr for Tr<u8>::std::string::String` | ✗ glued into one path — the trait lands in type position (E0782) |
 | `Tr<u16> . Vec<u8>` | `impl Tr<u16> for Vec<u8>` | with a trait head, `.` and the space are **equivalent** |
-| `Tr<u8> (::some_mod::SomeType)` | `impl Tr for Tr<u8, ::some_mod::SomeType>` | a group is **not** a boundary — a group appends an argument |
+| `Tr<u8> (::some_mod::SomeType)` | `impl Tr<u8> for ::some_mod::SomeType` | with a **trait head** the group **is the target** — the trait's arguments are already written, so the spec is complete (measured; row 73's equivalence again). A **non-trait** head appends instead: `Other3<u8> (Vec2<u8>)` → `impl Tr for Other3<u8, Vec2<u8>>` |
 | `::std::vec::Vec<u8>` | `impl Tr for ::std::vec::Vec<u8>` | a one-element spec ⇒ the whole thing is the target, the trait is the annotated one |
 
 In edition 2024 `::name` names an **external crate**; write `crate::...` for this crate's root.
@@ -1135,7 +1135,7 @@ Each of these is a question the surface invites, answered with the rule that pro
 
 **Why does `Head . ::path` work when `Head ::path` does not?** `.` and the space are element boundaries; `::` is a continuation. With a trait head they are equivalent until the target starts with `::`.
 
-**Why does `(::T)` after a head append an argument instead of becoming the target?** A group is a *value* (a tuple or a parenthesized type), not a boundary; the space applies it.
+**Why does `(::T)` after a head append an argument instead of becoming the target?** That holds for a **non-trait** head only: a group is a *value* (a tuple or a parenthesized type), not a boundary, and the space applies it. When the head **is** the annotated trait the opposite happens — its arguments are already written, so the group becomes the target (the boundary table's fourth row, measured).
 
 **Why is a splat refused in a `where` predicate?** The clause stays token-level all the way to the output, so the final predicate check reports it. Every other parameter-position list expands (§4).
 

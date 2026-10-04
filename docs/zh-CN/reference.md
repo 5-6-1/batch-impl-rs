@@ -69,7 +69,7 @@ impl FromImpl for Slot {}
 | `@trait<u8> . ::std::string::String` | `impl Tr<u8> for ::std::string::String` | ✓ `.` 是元素边界（实测：真编译 + 运行期断言通过） |
 | `@trait<u8> ::std::string::String` | `impl Tr for Tr<u8>::std::string::String` | ✗ 粘连成一条路径——trait 落进类型位置（E0782） |
 | `Tr<u16> . Vec<u8>` | `impl Tr<u16> for Vec<u8>` | 有 trait 头时 `.` 与空格**等价** |
-| `Tr<u8> (::some_mod::SomeType)` | `impl Tr for Tr<u8, ::some_mod::SomeType>` | 组**不是**边界——组是实参追加 |
+| `Tr<u8> (::some_mod::SomeType)` | `impl Tr<u8> for ::some_mod::SomeType` | 有 **trait 头**时，组**就是目标**——trait 的实参已经写完，spec 已完整（实测；即上一行那条等价的又一例）。**非** trait 头才是追加：`Other3<u8> (Vec2<u8>)` → `impl Tr for Other3<u8, Vec2<u8>>` |
 | `::std::vec::Vec<u8>` | `impl Tr for ::std::vec::Vec<u8>` | spec 只有一个元素 ⇒ 整串是目标，trait 取被标注者 |
 
 edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::...`。
@@ -1089,7 +1089,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 
 **为什么 `Head . ::path` 行，而 `Head ::path` 不行？** `.` 与空格是元素边界，`::` 是续接。有 trait 头时两者等价，直到目标以 `::` 开头。
 
-**为什么头后面的 `(::T)` 是追加实参，而不是成为目标？** 组是一个**值**（元组或带括号的类型），不是边界；空格把它应用上去。
+**为什么头后面的 `(::T)` 是追加实参，而不是成为目标？** 这条只对**非 trait 头**成立：组是一个**值**（元组或带括号的类型），不是边界，空格把它应用上去。头就是被注解的 trait 时相反——实参已写完，组成为目标（上一节表格第 4 行，实测）。
 
 **为什么 `where` 谓词里拒绝 splat？** 该子句到输出全程 token 级，所以由谓词终检报出。其余每个参数位置列表都会展开（§4）。
 
