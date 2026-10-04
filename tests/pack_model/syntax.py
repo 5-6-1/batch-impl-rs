@@ -149,15 +149,24 @@ class Parser:
         if self.peek() == "<":
             self.take()
             args, _ = self.sequence(">")
-                        # An argument list needs at least one type; a pack among the arguments
+            # An argument list needs at least one type; a pack among the arguments
             # that expands to none is reported here. A pack inside a tuple or a
             # list goes through tup()/choices() and keeps vanishing (probe rows
-            # mid2/mid3 agree with the macro), so this guard never reaches them.
-            # An empty candidate list vanishes exactly like an empty pack does, and the
-            # macro reports both (`Vec<[]>` and `Vec<*[]>`); the model used to report only
-            # the pack, so `Vec<[]>` came back empty while its sibling errored. `choices`
-            # is a different kind from `tuple`, so an empty tuple is untouched.
-            if any(a.kind in ("pack", "choices") and not a.children for a in args):
+            # mid2/mid3 agree with the macro), so this walks through packs and
+            # candidate lists only and never into a tuple or a list. An empty
+            # candidate list vanishes exactly like an empty pack does, and the macro
+            # reports both (`Vec<[]>` and `Vec<*[]>`); the model used to report only
+            # the pack, so `Vec<[]>` came back empty while its sibling errored. It
+            # also used to look only at the argument itself, which missed the one
+            # step of nesting a differential probe measured: `Vec<*[*[],]>`,
+            # `Vec<[*[],]>`, `Vec<[*[], A]>` and `(*Vec *[*[],],)` all report on the
+            # macro side, and the model rendered a bare `Vec` that does not compile.
+            def empty_pack(node):
+                if node.kind in ("pack", "choices"):
+                    return not node.children or any(empty_pack(c) for c in node.children)
+                return False
+
+            if any(empty_pack(a) for a in args):
                 raise ModelError(
                     "empty-pack-argument",
                     "this argument list requires at least one type, but the pack "
