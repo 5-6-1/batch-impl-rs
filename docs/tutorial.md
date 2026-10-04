@@ -1747,7 +1747,7 @@ trait Arities {}
 
 ### 9.2 Cartesian products
 
-`[A, B] [C, D]` full combinations; a splat power — `(*[A, B]).2` or the juxtaposed `*[A, B]2` — produces a Cartesian combo list:
+`[A, B] [C, D]` full combinations; a splat power — `(*[A, B]).2` or the juxtaposed `*[A, B]2` — produces a Cartesian combo list, which **a host must consume**: `(*[u8, u16],).2` is that one tuple `(u8, u16, u8, u16,)`, while a bare `(*[u8, u16]).2` makes every combination a target of its own, so the repeated ones collide (`E0119`):
 
 ```rust
 # use batch_impl::batch_impl;
