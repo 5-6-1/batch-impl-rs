@@ -201,6 +201,13 @@ batch_impl::batch_preview! {
 
 完整迁移记录见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。`main` 上的源码和文档描述正在开发的内容；维护已发布版本时，应阅读对应版本的文档。
 
+**如何自查你的迁移。** 两个测量就能覆盖几乎全部问题，而且都很便宜：
+
+- **数 impl**：`cargo expand --lib | grep -c 'impl.* for '`，或针对单个 trait 数（`cargo expand --lib | grep -c 'impl.*EuclideanDomain'`），与旧版本对比。有意的边界变更表现为**少一个 impl** 而不是报错——最常见的原因是范围（`@u8..u64` 现在**不含** `u64`，`@u8..=u64` 才含），而失败通常在很远的地方以 `the trait bound … is not satisfied` 的形式出现。
+- **读展开**：把 spec 包进 `batch_preview!`，它会以 `compile_error!` 文本打印**生成了多少个 impl** 以及每个目标类型，因此"这条 spec 生成的 impl 比我想要的少"在下游崩之前就能看见。
+
+两项检查都不需要先发版：直接在你要迁移的那棵树上跑即可。
+
 ## 下一步
 
 - [教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)：从一个有用的实现开始，再按任务选择阅读路线。

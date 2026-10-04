@@ -202,6 +202,13 @@ This development cycle targets **0.10.0**, rather than the previously planned 0.
 
 The [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) records the full migration. The source and docs on `main` describe ongoing development; use a release's versioned documentation when maintaining that release.
 
+**How to check your migration.** Two measurements catch nearly everything, and both are cheap:
+
+- **Count the impls.** `cargo expand --lib | grep -c 'impl.* for '`, or grep for one trait (`cargo expand --lib | grep -c 'impl.*EuclideanDomain'`), and compare with the old release. A deliberate boundary change shows up as a **missing impl**, not as an error — ranges are the usual cause (`@u8..u64` excludes `u64` now; `@u8..=u64` includes it), and the failure usually surfaces far away as `the trait bound … is not satisfied`.
+- **Read the expansion.** Wrap a spec in `batch_preview!`: it prints the number of impls it generated and every target type as `compile_error!` text, so "this spec produced fewer impls than I meant" is visible before anything downstream breaks.
+
+Neither check needs a release of its own: both run against the tree you are migrating.
+
 ## Next steps
 
 - [Tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md): start with one useful implementation, then follow the task-based reading route.
