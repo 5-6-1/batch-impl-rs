@@ -97,9 +97,9 @@ fn tree_files(doc: &str, section: &str) -> Vec<String> {
 }
 
 /// Floors that make a broken walk or a broken parse fail loudly instead of
-/// passing on an empty set. They sit under the real counts (78 sources, 78 tree
-/// entries per doc, ~86 checked references today) so that a *partial* run cannot
-/// pass while leaving room for a doc to legitimately drop a few references.
+/// passing on an empty set. They sit under the counts the guards read from the
+/// tree, so that a *partial* run cannot pass while leaving room for a doc to
+/// legitimately drop a few references.
 const MIN_SOURCES: usize = 70;
 const MIN_TREE_ENTRIES: usize = 70;
 const MIN_CHECKED_REFERENCES: usize = 60;
@@ -330,7 +330,8 @@ fn section_blocks(doc: &str) -> Vec<(String, usize, usize)> {
     out
 }
 
-/// Floor under the section walk (34 sections carry blocks today).
+/// Floor under the section walk: it catches shrinkage, not growth — the count
+/// itself is read from the tree.
 const MIN_BLOCK_SECTIONS: usize = 30;
 
 /// The two tutorials must carry the **same examples**: every section has the
@@ -411,7 +412,8 @@ const REF_SOURCES: [(&str, bool); 10] = [
 ];
 
 /// Floor for the cross-document scan: a broken window or a moved `§` must not
-/// turn the guard into a no-op (the tree has ~30 such citations today).
+/// turn the guard into a no-op — the tree's own count is the authority; this
+/// floor only catches shrinkage.
 const MIN_CROSS_REFS: usize = 15;
 
 /// The nearest char boundary at or below `i` (`§` neighbours can be multi-byte).
@@ -521,7 +523,8 @@ fn language_mirrors_share_their_section_numbers() {
     }
 }
 
-/// Floors for the fixture inventory (112 `compile_fail` + 3 `pass` today).
+/// Floors for the fixture inventory: the exact counts are asserted by the
+/// testing-matrix guard, these only catch shrinkage.
 const MIN_UI_FIXTURES: usize = 100;
 
 /// Every `tests/ui` fixture must be named by the reference's diagnostics catalog
