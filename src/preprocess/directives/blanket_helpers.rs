@@ -39,8 +39,27 @@ pub(crate) fn receiver_borrow(receiver: &syn::Receiver) -> TokenStream {
     }
 }
 
-/// Whether a method's return type references **bare `Self`** (making blanket
-/// delegation unsound: the forwarded call returns the inner type, not the
+/// Whether the generated forward for this receiver moves the inner value out of the wrapper.
+/// `syn` reports `self`, `self: Self`, `self: &Self` and `self: &mut Self` all as `Value` or
+/// `Typed`, so a `Typed` receiver has to be read one level deeper: only a **non-reference** type is
+/// by-value. This is the **single** predicate behind two consumers - the `#[doc]` note that
+/// `#blanket` emits and the `@all_ref_methods` / `@all_value_methods` selector. Probe D's F1
+/// measured them apart: the selector matched `Typed(..)` blind, so a `self: &Self` method was
+/// *dropped* by `@all_ref_methods` (E0046) and *selected* by `@all_value_methods` while the body
+/// forwarded by reference and the note stayed silent.
+pub(crate) fn forward_moves_the_value(kind: &syn::ReceiverKind) -> bool {
+    match kind {
+        syn::ReceiverKind::Value => true,
+        syn::ReceiverKind::Typed(_, ty) => !matches!(**ty, syn::Type::Reference(_)),
+        syn::ReceiverKind::Reference(..) => false,
+        // `ReceiverKind` is `#[non_exhaustive]`, so a receiver form a future `syn` adds lands here.
+        // Not by-value is the safe reading: the note only ever *advises* a hand-written body, and
+        // claiming it for a shared receiver is the mistake probe A's F8 measured.
+        _ => false,
+    }
+}
+
+/// Whether a method's return type references **bare `Self`** (making blanket/// delegation unsound: the forwarded call returns the inner type, not the
 /// wrapper's `Self`). `Self::Assoc` (an associated-type projection) is
 /// **allowed**: it resolves through the projected item
 /// (`type Output = <T as Trait>::Output;` — the wrapper's `Self::Output` is

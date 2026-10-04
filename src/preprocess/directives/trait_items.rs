@@ -8,6 +8,8 @@ use syn::ItemTrait;
 use crate::preprocess::directives::name_list::{AllMarkerSpec, ReceiverFilter};
 use crate::util::{compile_err_at, compile_error_str};
 
+use super::blanket_helpers::forward_moves_the_value;
+
 /// Resolves an `all`-family marker. `default=None` includes everything;
 /// `Some(true)` only default impls; `Some(false)` only no-default (required);
 /// `receiver` filters fn items by receiver kind (`None` = all). The directive
@@ -111,13 +113,12 @@ pub(crate) fn get_trait_item_names(
                     _ => None,
                 };
                 match rk {
-                    ReceiverFilter::Ref => {
-                        matches!(rk_syn, Some(syn::ReceiverKind::Reference(..)))
-                    }
-                    ReceiverFilter::Value => matches!(
-                        rk_syn,
-                        Some(syn::ReceiverKind::Value | syn::ReceiverKind::Typed(..))
-                    ),
+                    // Both filters ask the **same** predicate the note asks. Writing the rule twice
+                    // is how probe D's F1 happened: `Typed(..)` was matched blind here, so
+                    // `self: &Self` was not a ref method and *was* a value method, while the note and
+                    // the generated body said the opposite.
+                    ReceiverFilter::Ref => rk_syn.is_some_and(|k| !forward_moves_the_value(k)),
+                    ReceiverFilter::Value => rk_syn.is_some_and(forward_moves_the_value),
                     ReceiverFilter::Static => rk_syn.is_none(),
                 }
             }
@@ -203,5 +204,45 @@ pub(crate) fn build_from_item_sig(
             "invalid item form; this error cannot occur",
             proc_macro2::Span::call_site(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod receiver_filter_tests {
+    use super::*;
+
+    /// The selector and the `#[doc]` note ask the **same** predicate. Probe D's F1 measured them
+    /// apart: the selector matched `Typed(..)` blind, so `@all_ref_methods` *dropped* a
+    /// `self: &Self` method (E0046, with nothing naming the cause) while `@all_value_methods`
+    /// *selected* it and the body then forwarded by reference with no by-value note.
+    #[test]
+    fn selectors_agree_with_the_note_on_shared_typed_receivers() {
+        let trait_def: syn::ItemTrait = syn::parse_quote! {
+            trait T {
+                fn by_value(self);
+                fn owned(self: Self);
+                fn shared(self: &Self);
+                fn shared_mut(self: &mut Self);
+                fn plain(&self);
+            }
+        };
+        let names = |filter: ReceiverFilter| {
+            get_trait_item_names(&trait_def, true, false, false, None, Some(filter))
+                .into_iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(ReceiverFilter::Value), vec!["by_value", "owned"]);
+        assert_eq!(names(ReceiverFilter::Ref), vec!["shared", "shared_mut", "plain"]);
+        // The note's predicate reads the same four spellings the same way (`plain` is a `Reference`).
+        let verdicts = trait_def
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::TraitItem::Fn(f) => f.sig.receiver().map(|r| forward_moves_the_value(&r.kind)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(verdicts, vec![true, true, false, false, false]);
     }
 }
