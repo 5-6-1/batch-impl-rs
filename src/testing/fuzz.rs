@@ -28,11 +28,32 @@ enum Tok {
 /// The alphabet must be able to spell the shapes the recorded failures needed, and this drives
 /// the real generator rather than a copy of its list. The drawing is seeded and runs four
 /// thousand cases rather than the default 256 on purpose: a sampled assertion at that size
-/// flaked eight times in three thousand runs while these tokens were missing, so this one is
-/// deterministic - it fails the day a token is removed, and never before.
+/// flaked eight times in three thousand runs while these tokens were missing.
+///
+/// The drawn-token checks below can only spot-check members, so they are paired with checks on
+/// [`ALPHABET`] itself: the table the generator draws from is asserted to be free of duplicate
+/// entries and to contain each shape. A token deleted from the table fails here even if the
+/// sample never happened to need it.
 #[test]
 fn the_alphabet_can_spell_the_shapes_that_once_escaped_it() {
     use proptest::test_runner::{Config, TestRunner};
+
+    let mut seen = std::collections::BTreeSet::new();
+    for t in ALPHABET {
+        assert!(seen.insert(format!("{t:?}")), "duplicate alphabet entry: {t:?}");
+    }
+    assert!(
+        ALPHABET.iter().any(|t| matches!(t, Tok::Punct('-', Spacing::Joint))),
+        "the alphabet has no Joint `-`: `->` cannot be generated at all"
+    );
+    assert!(
+        ALPHABET.iter().any(|t| matches!(t, Tok::Literal(l) if l.starts_with('"'))),
+        "the alphabet has no string literal"
+    );
+    assert!(
+        ALPHABET.iter().any(|t| matches!(t, Tok::Ident("extern") | Tok::Ident("dyn"))),
+        "the alphabet has no extern/dyn keyword"
+    );
 
     let mut runner = TestRunner::new(Config { cases: 4000, ..Config::default() });
     // `run` takes an `Fn`, so what a drawing saw is recorded through a `Cell` rather than a
@@ -57,85 +78,90 @@ fn the_alphabet_can_spell_the_shapes_that_once_escaped_it() {
     assert!(keyword.get(), "no extern/dyn keyword in 4000 drawings");
 }
 
+/// The generator's leaf vocabulary. It is a named table rather than an inline strategy because
+/// the assertion below has to be able to talk about *exactly this set*: a `prop_oneof!` list
+/// cannot be enumerated, so an assertion written against one could only ever spot-check a few
+/// members, and deleting a token went unnoticed. Generator and assertion now share this table.
+const ALPHABET: &[Tok] = &[
+    // DSL / Rust keywords and common type names
+    Tok::Ident("usize"),
+    Tok::Ident("isize"),
+    Tok::Ident("r#type"),
+    Tok::Ident("r#value"),
+    Tok::Ident("Vec"),
+    Tok::Ident("Box"),
+    Tok::Ident("T"),
+    Tok::Ident("where"),
+    Tok::Ident("fn"),
+    Tok::Ident("self"),
+    Tok::Ident("unsafe"),
+    // Directive words: drive the `#` directive and open-extension paths
+    // in the full-pipeline fuzz (the no-panic promise covers them too).
+    Tok::Ident("blanket"),
+    Tok::Ident("fill"),
+    Tok::Ident("delegate"),
+    Tok::Ident("call"),
+    Tok::Ident("name"),
+    Tok::Ident("all"),
+    // The `impl` keyword: makes `impl{...}` templates reachable, so the
+    // variadic-segment marking pass (`mark_varseg` → `mark_template`,
+    // whose postcondition reports a residue instead of panicking) is
+    // actually exercised by the random corpus — without this ident the
+    // pass was never entered and the residue guard had no fuzz coverage.
+    Tok::Ident("impl"),
+    // Constant-system words: built-in families / range endpoints / the
+    // `@trait` marker / blanket's `@Cow` — the `@` punct below can now
+    // reach the constant expansion, range, and lifetime paths.
+    Tok::Ident("u8"),
+    Tok::Ident("i32"),
+    Tok::Ident("f64"),
+    Tok::Ident("Cow"),
+    Tok::Ident("trait"),
+    Tok::Ident("Self"),
+    // Numeric literals (small-integer DSL exponents)
+    Tok::Literal("0"),
+    Tok::Literal("1"),
+    Tok::Literal("3"),
+    // DSL operators and punctuation
+    Tok::Punct('<', Spacing::Alone),
+    Tok::Punct('>', Spacing::Alone),
+    Tok::Punct('.', Spacing::Alone),
+    Tok::Punct('-', Spacing::Alone),
+    Tok::Punct(',', Spacing::Alone),
+    Tok::Punct(';', Spacing::Alone),
+    Tok::Punct(':', Spacing::Alone),
+    // A Joint `:` can combine with the next `:` into `::`
+    Tok::Punct(':', Spacing::Joint),
+    Tok::Punct('&', Spacing::Alone),
+    Tok::Punct('*', Spacing::Alone),
+    Tok::Punct('#', Spacing::Alone),
+    Tok::Punct('!', Spacing::Alone),
+    Tok::Punct('=', Spacing::Alone),
+    // `@` constants, `..`/`..=` ranges (Joint `.` heads a range), `'`
+    // lifetimes, and bound/bound-start punctuation — the paths the old
+    // vocabulary could never reach.
+    Tok::Punct('@', Spacing::Alone),
+    Tok::Punct('.', Spacing::Joint),
+    Tok::Punct('+', Spacing::Alone),
+    Tok::Punct('?', Spacing::Alone),
+    Tok::Punct('\'', Spacing::Alone),
+    // Shapes the vocabulary could not spell at all, so whole paths went unexercised:
+    // `->` needs a **Joint** `-` (there was only an Alone one), and the recorded fuzz
+    // failure for `Op::Arrow` was therefore misread as a parser gap rather than the
+    // alphabet's. A string literal and the `extern` / `dyn` / `for` / `const` / `mut`
+    // keywords close the same class (probe C, measured by absence).
+    Tok::Punct('-', Spacing::Joint),
+    Tok::Literal("\"C\""),
+    Tok::Ident("extern"),
+    Tok::Ident("dyn"),
+    Tok::Ident("for"),
+    Tok::Ident("const"),
+    Tok::Ident("mut"),
+];
+
 /// Depth-limited token list generator (covers DSL keywords, operators, bracket nesting)
 fn tokens(depth: usize) -> impl Strategy<Value = Vec<Tok>> {
-    let leaf = prop_oneof![
-        // DSL / Rust keywords and common type names
-        Just(Tok::Ident("usize")),
-        Just(Tok::Ident("isize")),
-        Just(Tok::Ident("r#type")),
-        Just(Tok::Ident("r#value")),
-        Just(Tok::Ident("Vec")),
-        Just(Tok::Ident("Box")),
-        Just(Tok::Ident("T")),
-        Just(Tok::Ident("where")),
-        Just(Tok::Ident("fn")),
-        Just(Tok::Ident("self")),
-        Just(Tok::Ident("unsafe")),
-        // Directive words: drive the `#` directive and open-extension paths
-        // in the full-pipeline fuzz (the no-panic promise covers them too).
-        Just(Tok::Ident("blanket")),
-        Just(Tok::Ident("fill")),
-        Just(Tok::Ident("delegate")),
-        Just(Tok::Ident("call")),
-        Just(Tok::Ident("name")),
-        Just(Tok::Ident("all")),
-        // The `impl` keyword: makes `impl{...}` templates reachable, so the
-        // variadic-segment marking pass (`mark_varseg` → `mark_template`,
-        // whose postcondition reports a residue instead of panicking) is
-        // actually exercised by the random corpus — without this ident the
-        // pass was never entered and the residue guard had no fuzz coverage.
-        Just(Tok::Ident("impl")),
-        // Constant-system words: built-in families / range endpoints / the
-        // `@trait` marker / blanket's `@Cow` — the `@` punct below can now
-        // reach the constant expansion, range, and lifetime paths.
-        Just(Tok::Ident("u8")),
-        Just(Tok::Ident("i32")),
-        Just(Tok::Ident("f64")),
-        Just(Tok::Ident("Cow")),
-        Just(Tok::Ident("trait")),
-        Just(Tok::Ident("Self")),
-        // Numeric literals (small-integer DSL exponents)
-        Just(Tok::Literal("0")),
-        Just(Tok::Literal("1")),
-        Just(Tok::Literal("3")),
-        // DSL operators and punctuation
-        Just(Tok::Punct('<', Spacing::Alone)),
-        Just(Tok::Punct('>', Spacing::Alone)),
-        Just(Tok::Punct('.', Spacing::Alone)),
-        Just(Tok::Punct('-', Spacing::Alone)),
-        Just(Tok::Punct(',', Spacing::Alone)),
-        Just(Tok::Punct(';', Spacing::Alone)),
-        Just(Tok::Punct(':', Spacing::Alone)),
-        // A Joint `:` can combine with the next `:` into `::`
-        Just(Tok::Punct(':', Spacing::Joint)),
-        Just(Tok::Punct('&', Spacing::Alone)),
-        Just(Tok::Punct('*', Spacing::Alone)),
-        Just(Tok::Punct('#', Spacing::Alone)),
-        Just(Tok::Punct('!', Spacing::Alone)),
-        Just(Tok::Punct('=', Spacing::Alone)),
-        // `@` constants, `..`/`..=` ranges (Joint `.` heads a range), `'`
-        // lifetimes, and bound/bound-start punctuation — the paths the old
-        // vocabulary could never reach.
-        Just(Tok::Punct('@', Spacing::Alone)),
-        Just(Tok::Punct('.', Spacing::Alone)),
-        Just(Tok::Punct('.', Spacing::Joint)),
-        Just(Tok::Punct('+', Spacing::Alone)),
-        Just(Tok::Punct('?', Spacing::Alone)),
-        Just(Tok::Punct('\'', Spacing::Alone)),
-        // Shapes the vocabulary could not spell at all, so whole paths went unexercised:
-        // `->` needs a **Joint** `-` (there was only an Alone one), and the recorded fuzz
-        // failure for `Op::Arrow` was therefore misread as a parser gap rather than the
-        // alphabet's. A string literal and the `extern` / `dyn` / `for` / `const` / `mut`
-        // keywords close the same class (probe C, measured by absence).
-        Just(Tok::Punct('-', Spacing::Joint)),
-        Just(Tok::Literal("\"C\"")),
-        Just(Tok::Ident("extern")),
-        Just(Tok::Ident("dyn")),
-        Just(Tok::Ident("for")),
-        Just(Tok::Ident("const")),
-        Just(Tok::Ident("mut")),
-    ];
+    let leaf = prop::sample::select(ALPHABET.to_vec());
     if depth == 0 {
         prop::collection::vec(leaf, 0..6).boxed()
     } else {
