@@ -457,9 +457,9 @@ trait Describe { fn describe(&self) -> String; }
 # use batch_impl::batch_impl;
 #[batch_impl((u8, [u16, u32, u64]))]
 trait T {}
-// → impl T for (u8, u16) {}
-// → impl T for (u8, u32) {}
-// → impl T for (u8, u64) {}
+// → impl T for (u8, u16,) {}
+// → impl T for (u8, u32,) {}
+// → impl T for (u8, u64,) {}
 
 #[batch_impl(Vec<[u8, u16, u32]>)]
 trait V {}
@@ -742,7 +742,7 @@ struct A2; struct B2;
 
 #[batch_impl(Wrap<()2>)]               // generator：<P0,P1> Wrap<(P0,P1)>
 trait GenTup {}
-// → impl<P0,P1> GenTup for Wrap<(P0, P1)>（元组保持单个实参）
+// → impl<P0,P1> GenTup for Wrap<(P0, P1,)>（元组保持单个实参）
 
 #[batch_impl(Pair3<*[].2>)]             // generator splat：<P0,P1> Pair3<P0,P1>
 trait GenSpl {}
@@ -917,15 +917,15 @@ fresh 的显示名按文档序编号为 `P0, P1, ...`（与 impl 已用 ident �
 # use batch_impl::batch_impl;
 #[batch_impl(()2 where @0..=1: Clone)]   // 范围糖：@0..=1 = @0, @1
 trait RangeSugar {}
-// → impl<P0,P1> RangeSugar for (P0,P1) where P0: Clone, P1: Clone
+// → impl<P0,P1> RangeSugar for (P0,P1,) where P0: Clone, P1: Clone
 
 #[batch_impl(()3 where @0..: Copy)]       // from 0 to the last fresh
 trait AllFresh {}
-// → impl<P0,P1,P2> AllFresh for (P0,P1,P2) where P0: Copy, P1: Copy, P2: Copy
+// → impl<P0,P1,P2> AllFresh for (P0,P1,P2,) where P0: Copy, P1: Copy, P2: Copy
 
 #[batch_impl(()3 where @1..: Copy)]       // 开放范围：从下标 1 起
 trait OpenRange {}
-// → impl<P0,P1,P2> OpenRange for (P0,P1,P2) where P1: Copy, P2: Copy
+// → impl<P0,P1,P2> OpenRange for (P0,P1,P2,) where P1: Copy, P2: Copy
 // （arity 1 的 impl 不产生任何谓词——那里 `@1..` 为空）
 ```
 
@@ -1002,7 +1002,7 @@ trait Module<Add, Mul> {
     type Scalar;
     fn scale(&self, s: Self::Scalar) -> Self;
 }
-// arity 2 → impl<P0,P1> Module<(), ()> for (P0,P1)
+// arity 2 → impl<P0,P1> Module<(), ()> for (P0,P1,)
 //   where P0: Module<(), (), Scalar: Copy>, P1: Module<(), (), Scalar: Copy>,
 //         P1: Module<(), (), Scalar = P0::Scalar>
 ```
@@ -1058,7 +1058,7 @@ impl"的形式：`<R, T: Fn()0..4 R> Tr<T> (@0..)` 对 arity 0..4（排他）
 trait MultiArity<T, R> { fn arity(&self) -> usize; }
 // → impl<R, T: Fn() -> R>          MultiArity<T, R> for ()
 // → impl<R, T: Fn(P0) -> R, P0>  MultiArity<T, R> for (P0,)
-// → impl<R, T: Fn(P0,P1)->R, P0,P1> MultiArity<T, R> for (P0,P1)
+// → impl<R, T: Fn(P0,P1)->R, P0,P1> MultiArity<T, R> for (P0,P1,)
 ```
 
 `Fn()N R`——空格 apply 返回类型——渲染为 `Fn(P0,..) -> R`（等价
@@ -1430,7 +1430,7 @@ impl Magma for u8 { fn combine(&self, rhs: &Self) -> Self { *self + *rhs } }
 )]
 trait TupleMagma { fn combine(&self, rhs: &Self) -> Self; }
 // → impl<P0> TupleMagma for (P0,) where P0: Magma { ... }
-// → impl<P0, P1> TupleMagma for (P0, P1) where P0: Magma, P1: Magma { ... }
+// → impl<P0, P1> TupleMagma for (P0, P1,) where P0: Magma, P1: Magma { ... }
 ```
 
 ### 8.5 impl entry（0.8.0，ItemImpl 入口）
