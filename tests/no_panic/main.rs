@@ -63,13 +63,18 @@ const CRATE_PANIC_DENY: &str = concat!(
     "clippy::unreachable,clippy::todo,clippy::unimplemented,))]"
 );
 
-/// Floors that make a broken walk fail loudly. They sit close to the real
-/// counts (78 `.rs` files under `src/`, 78 − 6 test-only = 72 production files)
-/// so that a *partial* walk — a broken recursion, a skip set that grew — cannot
-/// pass silently; adding or removing whole directory levels must update them
-/// deliberately.
-const MIN_SOURCE_FILES: usize = 70;
-const MIN_PRODUCTION_FILES: usize = 65;
+/// Floors that make a broken walk fail loudly. They sit one below the real counts
+/// (94 `.rs` files under `src/`, 94 − 14 test-only = 80 production files) so that a
+/// *partial* walk — a broken recursion, a skip set that grew — cannot pass silently;
+/// adding or removing whole directory levels must update them deliberately.
+///
+/// They used to be 70/65 against counts of 78/72, and the skip set then grew from 6
+/// to 14 files without either floor firing: the sentence above claimed a growing skip
+/// set could not pass, and it could. The counts are now measured rather than
+/// remembered and the slack is one file, so a single extra name in the skip set trips
+/// this - probe C's mutation, replayed as this change's acceptance.
+const MIN_SOURCE_FILES: usize = 93;
+const MIN_PRODUCTION_FILES: usize = 79;
 
 #[test]
 fn production_code_has_no_panic_constructs() {
