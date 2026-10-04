@@ -1,0 +1,43 @@
+# Constructs the Python model in tests/pack_model cannot express, one per line, with the way
+# the model refuses them. Seeded from the round-6 differential probe's "NOT TESTABLE" section,
+# which listed the same shapes with the model's own rejection as the evidence for each.
+#
+# Why this file exists: the model and the macro agree wherever the model can speak - two
+# rounds of differential testing found zero cases where both accept and disagree - but the
+# boundary between "the model speaks" and "the model is silent" had no guard at all, so the
+# largest part of the DSL (the directive system, the impl-entry templates, the bodies) sat
+# outside the differential forever. The round's two worst defects were both found there.
+#
+# The test that will read this file feeds each line to the model's parser and asserts it is
+# still refused, so a line can only ever leave this file by someone deliberately teaching the
+# model the construct and deleting the line. The list is monotone by construction, not by
+# discipline.
+#
+# Format: one entry per line as  construct  then a literal tab  then the kind. A line without a
+# tab is a comment, and that rule is deliberate: keying comments on a leading `#` silently ate
+# the four directive constructs below, which are exactly the part of the DSL this file exists
+# to make visible.
+where{ Clone }	unsupported-syntax
+where	unsupported-syntax
+impl{ Vec<u8> }	unsupported-syntax (no template surface in the model)
+{ fn a() -> u8 { 1 } }	unsupported-syntax (bodies are not part of the model at all)
+#name	unsupported-syntax
+#fill(@all)	unsupported-syntax
+#delegate(@all_methods)	unsupported-syntax
+#blanket(@all_methods)	unsupported-syntax
+@0	unsupported-syntax
+@u8..=u16	unsupported-syntax
+@trait	unsupported-syntax
+@Self	unsupported-syntax
+@Cow	unsupported-syntax
+@name=value;	unsupported-syntax
+<T: Clone>	unsupported-syntax
+<*[A,B]>	unexpected-token
+Vec<u8, Item = u16>	unsupported-syntax (bounds and bindings in a concrete type's argument list)
+Vec<'a u8>	unsupported-syntax (lifetimes)
+Vec<unsafe fn()>	unsupported-syntax
+Vec<dyn Trait>	unsupported-syntax
+Vec<extern "C" fn()>	unsupported-syntax
+Vec<!>	unsupported-syntax
+Vec<#[attr] u8>	unsupported-syntax
+usize, isize	trailing-token (several specs in one attribute; only concatenating per-spec results is testable)

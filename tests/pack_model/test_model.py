@@ -1,9 +1,38 @@
 """Regression tests and independent family-shape/declaration checks."""
 from itertools import product
+import os
 import unittest
 from examples import CASES, readable
 from semantics import Engine, ModelError, Node, atom, carry, choices, fresh_names, pack, render, star, tup, unused
 from syntax import Parser, evaluate, outputs
+
+
+def not_expressible_cases(path=None):
+    """The constructs the model cannot express, read from the list beside this file.
+
+    Entry format is `<construct><TAB><kind>`; a line without a tab is a comment - keying
+    comments on a leading `#` would swallow the directive constructs, which are exactly the
+    part of the DSL this list exists to make visible.
+
+    The list is a boundary, not a wish: `test_rejections` asserts every entry is still refused
+    with the kind recorded, so teaching the model one of these constructs fails the test until
+    the line is deleted. The list can therefore only shrink, and it shrinks deliberately.
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(__file__), "not_expressible.txt")
+    cases = {}
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.rstrip("\n")
+            if "\t" not in line:
+                continue
+            construct, _, kind = line.partition("\t")
+            construct, kind = construct.strip(), kind.strip()
+            # A trailing parenthetical explains the refusal; the recorded kind is its first word.
+            kind = kind.split(" ", 1)[0].rstrip("(")
+            if construct and kind:
+                cases[construct] = kind
+    return cases
 
 
 class ModelTests(unittest.TestCase):
@@ -135,6 +164,10 @@ class ModelTests(unittest.TestCase):
                   "self": "bare-self",
                  "fn()->": "missing-operand", "A::": "missing-operand"}
         cases.update({"dyn Send": "unsupported-syntax", "unsafe fn()": "unsupported-syntax"})
+        # The measured boundary between the two implementations: every construct the macro
+        # already refuses and the model must refuse too (round-7 probe E's list, verified
+        # against `evaluate` before it was written down).
+        cases.update(not_expressible_cases())
         for source, code in cases.items():
             with self.subTest(source=source), self.assertRaises(ModelError) as error:
                 evaluate(source)
