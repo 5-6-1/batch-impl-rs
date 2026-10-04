@@ -201,6 +201,16 @@ class Parser:
                         "`self` is the whole right operand (`self.T` applies `T` to it), "
                         "not a type on its own",
                     )
+            # A bare number is an arity or a `.N` power suffix, never a target. Unlike `self`, a
+            # literal **is** a type in argument positions - `F<1>`, `(1,)`, `A.0`, `(1,).2` all agree
+            # with the macro (probe E's E-B measured that boundary) - so this is a top-level check,
+            # not a walk. The macro's wording is quoted verbatim (`bare_number_target`).
+            if row.items and render(row.items[0]).strip().isdigit():
+                raise ModelError(
+                    "bare-number",
+                    "a bare number is not a type — a number is an arity or a `.N` power suffix "
+                    "(`(A, B).2`), never a target",
+                )
         return rows
 
 

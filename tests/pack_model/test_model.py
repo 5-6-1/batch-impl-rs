@@ -68,6 +68,19 @@ class ModelTests(unittest.TestCase):
                     outputs(spec)
                 self.assertEqual(caught.exception.code, "bare-self")
 
+    def test_bare_number_never_survives_as_a_target(self):
+        # Probe E's E-B: the macro refuses `1` and `*1` as targets ("a bare number is not a type"),
+        # while the model rendered `1`. The boundary is sharp and measured: a literal **is** a type in
+        # argument positions, and both sides agree there - only the bare target diverges.
+        for spec in ("1", "*1"):
+            with self.subTest(spec=spec):
+                with self.assertRaises(ModelError) as caught:
+                    outputs(spec)
+                self.assertEqual(caught.exception.code, "bare-number")
+        for spec in ("(1,)", "[1]", "F<1>", "A<1,2>", "A.0", "(1,).2"):
+            with self.subTest(spec=spec):
+                outputs(spec)  # a literal in an argument position stays legal
+
     def test_teaching_examples(self):
         for name, (source, expected) in CASES.items():
             with self.subTest(name=name):
