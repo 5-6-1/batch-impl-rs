@@ -1619,6 +1619,44 @@ fn count_files_below(dir: &Path, ext: &str) -> usize {
         .sum()
 }
 
+/// The EN/ZH doc pairs keep the same **structure**: equal counts of headings, fences and table rows.
+/// The other guards compare §10/§12 *content*, so a section dropped from one side of a mirror is
+/// invisible to all of them (round 510 measured all six pairs equal before writing this).
+#[test]
+fn every_mirror_pair_keeps_the_same_structure() {
+    const PAIRS: [(&str, &str); 6] = [
+        ("docs/architecture.md", "docs/zh-CN/architecture.md"),
+        ("docs/dev-changelog.md", "docs/zh-CN/dev-changelog.md"),
+        ("docs/development-guide.md", "docs/zh-CN/development-guide.md"),
+        ("docs/reference.md", "docs/zh-CN/reference.md"),
+        ("docs/tutorial.md", "docs/zh-CN/tutorial.md"),
+        ("README.md", "docs/zh-CN/README.md"),
+    ];
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // `^#{1,4} ` (the space matters: `# use …` inside a fence counts, which is fine - it counts
+    // equally on both sides and the metric only has to be *symmetric*), `^``` `, `^|`.
+    let heading = |l: &str| ["# ", "## ", "### ", "#### "].iter().any(|p| l.starts_with(p));
+    let fence = |l: &str| l.starts_with("```");
+    let row = |l: &str| l.starts_with('|');
+    type Metric = fn(&str) -> bool;
+    fn count(text: &str, what: Metric) -> usize {
+        text.lines().filter(|l| what(l)).count()
+    }
+    let mut headings = 0usize;
+    for (en, zh) in PAIRS {
+        let a = fs::read_to_string(root.join(en)).unwrap_or_else(|e| panic!("{en}: {e}"));
+        let b = fs::read_to_string(root.join(zh)).unwrap_or_else(|e| panic!("{zh}: {e}"));
+        let metrics: [(&str, Metric); 3] =
+            [("headings", heading), ("fences", fence), ("table rows", row)];
+        for (name, metric) in metrics {
+            let (x, y) = (count(&a, metric), count(&b, metric));
+            assert_eq!(x, y, "{en} has {x} {name} but {zh} has {y} — one side lost structure");
+        }
+        headings += count(&a, heading);
+    }
+    assert!(headings >= 409, "the pair walk found only {headings} headings — the walk is broken");
+}
+
 /// `#[test]` attributes in one file, counting only lines whose trimmed text **starts** with the
 /// attribute: a doc comment that mentions `#[test]` is prose, not a test, and the substring count
 /// that ignored this difference reported 25 guards where the tree has 21.
