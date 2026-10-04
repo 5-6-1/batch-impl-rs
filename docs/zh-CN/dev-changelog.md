@@ -2,6 +2,16 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## Unreleased
+
+> 目标：**0.10.1**，已发布 0.10.0 之后的补丁版。两处行为修复恢复 0.9.6 的表现；0.10.0 有意的破坏性变更**一处也不回退**。
+
+- **裸 `where` 之后的尾逗号会结束区域，但此前会留在流里**（alga2 报告第 1 条；相对 0.9.6 的回归）。`scan_body_boundary` 把深度 0 的 `,` 当作 spec 列表分隔符并留在流中——这对 `Trait: a, b` 是必需的——但当它后面是 `{body}` 或 `impl{...}` 附着物时，它其实是**谓词表**的尾逗号（Rust 允许），于是附着物变成独立的 spec：报 "a bare `{...}` block without an attached type generates no impl"，或（带模板时）变成一个无目标 spec，rustc 报 ``expected type, found `{` `` 且**指向整条属性**。现在当逗号后一个 token 不可能开启 spec 时（`{`、`;`、流末、`impl{...}` 模板——复用区域边界同一个权威 `is_impl_template`），逗号并入区域。改前/改后在十种拼写上实测（裸/花括号 where × varseg 逗号 × 附着物）；花括号拼写从未回归，`where P, Q` 仍然工作。
+- **`batch_trait!` 的每一段带上自己的 span**（alga2 报告第 3 条）。`respan_call_site` 只把仍指向宏调用处的 token 重标为该段首 token 的 span：此前生成 impl 的 `E0046` 被归到宏的起始行，现在点名**那一段自己的行**；来自用户源码的 token 保持原 span（非泛型 `A` 上的 `A<u8>` 本来就能指向自己的段）。由 `tests/ui/batch_trait_span_points_at_the_segment.rs` 锁定，其快照钉住出错段的行号（`17:5`）——守卫 `every_ui_snapshot_keeps_a_single_source_of_error` 还迫使该 fixture 的 trait 改成标记 trait，使 crate 自己的诊断成为快照的唯一来源。`proc_macro2::Span` 没有 `PartialEq`（`.eq` 会解析到 `Iterator::eq`），所以比较走 `Debug` 形式，并在注释里写明这是启发式。
+- **补上重复块分隔符的文档**（`docs/reference.md` §8.4 与中文镜像）：写在块**内**的分隔符（`@(…, )..`）每轮都发；写在块**后**的（`@(…)+..`）只在轮与轮之间发、单轮时什么都不发——这正是 `codegen/repeat_tests.rs::inter_round_separator_single_round` 早已锁住、却没有任何手册描述的行为。
+- **补上类型族端点陷阱的文档**（§5.4 与中文镜像）：有界端点落在族最大值上会被排除（`@u8..u64` 丢掉 `u64`，`@u8..=u64` 才保留）。这一条**不可能**做成诊断：stable 的 proc macro 不能发 warning，而报错又会拒掉合法代码——所以修复落在手册、README 的迁移自查流程，以及会打印 impl 数的 `batch_preview!` 上。
+- **README 新增"如何自查你的迁移"**（英中）：`cargo expand --lib | grep -c 'impl.* for '` 数覆盖 + 读 `batch_preview!`，并给出报告里的实测例子。
+
 ## 0.10.0 — 2026-10-04
 
 - Pack 公开接入（2026-09-26）：以 `TyPack` 替换 `TySplat` 及其依来源分派的

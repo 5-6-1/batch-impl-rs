@@ -2,7 +2,7 @@
 
 仓库源码（GitHub `main`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) | 简体中文
 
-**v0.10.0。** 破坏性变更与从 0.9.7 迁移的说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**v0.10.1 — 开发中（未发布）。** 破坏性变更与从 0.9.7 迁移的说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
 仓库源码链接打开公开的 `main`，可能尚未包含本地修改。在本地运行
 `cargo doc --no-deps --open` 可阅读当前工作树的英文文档；其顶部导航留在
@@ -20,7 +20,7 @@
 
 ## 快速开始
 
-需要 **Rust 1.95 或更新版本**。本页描述 **0.10.0 源码树**。如果想使用已发布的 0.9.7，请阅读它的[版本文档](https://docs.rs/batch-impl/0.9.7/batch_impl/)。
+需要 **Rust 1.95 或更新版本**。本页描述 **0.10.1 源码树**。如果想使用已发布的 0.9.7，请阅读它的[版本文档](https://docs.rs/batch-impl/0.9.7/batch_impl/)。
 
 试用当前源码时，在源码目录旁创建一个小程序：
 

@@ -5,6 +5,32 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+> Target: **0.10.1**, a patch after the released 0.10.0. The two behaviour fixes below restore what
+> 0.9.6 did; nothing in 0.10.0's deliberate breaking changes is reverted.
+
+- **A trailing comma after a bare `where` clause no longer detaches the spec** (regression against
+  0.9.6). `where P, {body}` reported "a bare `{...}` block without an attached type generates no impl",
+  and `where P, impl{(A@..,)} #n{0}` split the spec into a target-less template, which rustc reported as
+  ``expected type, found `{` `` pointed at the whole attribute — the message named the template while the
+  culprit was the comma. The comma now belongs to the predicate list whenever nothing that could start a
+  spec follows it: `{`, `;`, the end of the input, or an `impl{...}` attachment. `where P, Q` and
+  `Trait: a, b` keep their meaning, and the braced `where{...}` spelling was never affected.
+- **A spec diagnostic points at its own segment in `batch_trait!`.** rustc attributes an error inside a
+  *generated* item to the macro invocation, so a long `batch_trait!` with twenty specs reported every
+  such error on the macro's first line. Generated tokens that still carried the call-site span now carry
+  the span of the segment they came from; tokens that already pointed into the user's source keep their
+  own spans, so the precision the diagnostics had is unchanged.
+- **Documented two traps that had none.** Repeat blocks: the separator written inside the block
+  (`@(…, )..`) is emitted every round, while the one after the block (`@(…)+..`) is written *between*
+  rounds and emits nothing for a single round — the second form is why an arity-1 tuple comes out as
+  `(x)` rather than `(x,)` (§8.4). Range families: a bounded endpoint that lands exactly on the family
+  maximum is excluded, so `@u8..u64` drops `u64` (`@u8..=u64` keeps it) (§5.4).
+- The README's migration section gained **"how to check your migration"**: count the generated impls with
+  `cargo expand`, and read `batch_preview!`'s impl list and count. A deliberate boundary change shows up
+  as a missing impl, not as an error, which is why counting is the check that catches it.
+
 ## 0.10.0 — 2026-10-04
 
 - **Breaking: `*` opens only a candidate list.** `*[A, B]` is two members and

@@ -5,6 +5,41 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+> Target: **0.10.1**, a patch after the released 0.10.0. Two behaviour fixes restore what 0.9.6 did;
+> nothing in 0.10.0's deliberate breaking changes is reverted.
+
+- **A trailing comma after a bare `where` ends the region but stays in the stream** (alga2's report 1;
+  regression against 0.9.6). `scan_body_boundary` treats a depth-0 `,` as a spec-list separator and
+  leaves it in the stream, which is required for `Trait: a, b` — but before a `{body}` or an `impl{...}`
+  attachment that comma is the **predicate list's** trailing comma (Rust allows it), so the attachment
+  became a spec of its own: "a bare `{...}` block without an attached type generates no impl", or, with
+  a template, a target-less spec that rustc reported as ``expected type, found `{` `` pointed at the
+  whole attribute. The comma is now absorbed into the region when the next token cannot start a spec:
+  `{`, `;`, end of input, or an `impl{...}` template (`is_impl_template`, the same authority the region
+  boundary uses). Measured before/after on ten spellings (bare/braced where × varseg comma × body
+  attachment); the braced spelling never regressed, and `where P, Q` still works.
+- **`batch_trait!` segments carry their own span** (alga2's report 3). `respan_call_site` re-spans only
+  the tokens that still point at the macro call site to the segment's first token, so a generated `impl`
+  whose `E0046` used to be blamed on the macro's opening line now names **that segment's** line;
+  user-sourced tokens keep their spans (an `A<u8>` on a non-generic `A` already pointed at its own
+  segment). Locked by `tests/ui/batch_trait_span_points_at_the_segment.rs`, whose snapshot pins the line
+  number of the failing segment (`17:5`) — the guard `every_ui_snapshot_keeps_a_single_source_of_error`
+  forced the fixture's trait to be a marker so the crate's diagnostic is the snapshot's only source.
+  `proc_macro2::Span` has no `PartialEq` (`.eq` resolves to `Iterator::eq`), so the comparison goes
+  through the `Debug` form, documented as the heuristic it is.
+- **Documented the repeat-block separators** (`docs/reference.md` §8.4 + zh mirror): the separator
+  written **inside** the block (`@(…, )..`) is emitted every round; the one **after** it (`@(…)+..`) is
+  written between rounds and emits nothing for a single round — the behaviour
+  `codegen/repeat_tests.rs::inter_round_separator_single_round` already locked but no manual described.
+- **Documented the range-family endpoint trap** (§5.4 + zh): a bounded endpoint on the family maximum is
+  excluded (`@u8..u64` drops `u64`; `@u8..=u64` keeps it). No diagnostic is possible for it: a stable
+  proc macro cannot emit a warning, and erroring would reject valid code — so the fix is the manual, the
+  README's migration procedure, and `batch_preview!`, which prints the impl count.
+- **README: "How to check your migration"** (EN + zh) — `cargo expand --lib | grep -c 'impl.* for '`
+  counting plus `batch_preview!` reading, with the measured example from the report.
+
 ## 0.10.0 — 2026-10-04
 
 - Pack public integration (2026-09-26): replace `TySplat` and its two origin-
