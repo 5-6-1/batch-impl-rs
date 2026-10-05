@@ -1,4 +1,4 @@
-error: batch-impl: `impl{...}` template cannot destructure the target type (function pointer qualifiers differ (unsafe, ABI, lifetimes, variadic or attributes))
+error: batch-impl: `impl{...}` template cannot destructure the target type (function pointer qualifiers differ (unsafe, ABI, lifetimes, variadic or attributes)) — template `fn(u8)`, the impl's self type `fn(u8)`, matrix leaf `unsafe fn(u16)`
  --> tests/ui/impl_shape_fn_qualifiers.rs:6:1
   |
 6 | #[batch_impl(fn(u8): unsafe fn(u16))]

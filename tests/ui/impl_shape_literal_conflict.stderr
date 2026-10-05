@@ -1,4 +1,4 @@
-error: batch-impl: binding slot `u8` is bound to different subtrees across merged `impl{...}` templates (`u8` vs `u16`)
+error: batch-impl: binding slot `u8` is bound to different subtrees across merged `impl{...}` templates (`u8` vs `u16`) — template `(u8, u8)`, the impl's self type `(u8, u8)`, matrix leaf `(u8, u16,)`
  --> tests/ui/impl_shape_literal_conflict.rs:6:1
   |
 6 | #[batch_impl((u8, u8): (u8, u16))]

@@ -372,8 +372,19 @@ fn expand_leaf(
             .filter(|(name, _)| crate::ast::ParamKind::of_name(name).is_const())
             .map(|(name, _)| crate::ast::ParamKind::bare_name(name).to_string()),
     );
-    let (mut m, mut template_segs) = match_shape(template, &leaf_ty, &declared_consts)
-        .map_err(|e| compile_error_str(&e.message(), leaf_span))?;
+    let (mut m, mut template_segs) =
+        match_shape(template, &leaf_ty, &declared_consts).map_err(|e| {
+            compile_error_str(
+                &format!(
+                    "{} — template `{}`, the impl's self type `{}`, matrix leaf `{}`",
+                    e.message(),
+                    template.to_token_stream(),
+                    item.self_ty.to_token_stream(),
+                    leaf_ty.to_token_stream(),
+                ),
+                leaf_span,
+            )
+        })?;
     // The leaf's own templates (`impl{...}`) match the same leaf and merge:
     // their slots must agree (inconsistent bindings error), their segments
     // (the `T@..` driving the body's `fresh!`) join. The same merge the
@@ -387,8 +398,18 @@ fn expand_leaf(
         let lt_ty: syn::Type = syn::parse2(lt_tokens).map_err(|e| {
             compile_error_str("batch-impl: the `impl{...}` template is not a valid type", e.span())
         })?;
-        let (m2, segs2) = match_shape(&lt_ty, &leaf_ty, &declared_consts)
-            .map_err(|e| compile_error_str(&e.message(), lt_span))?;
+        let (m2, segs2) = match_shape(&lt_ty, &leaf_ty, &declared_consts).map_err(|e| {
+            compile_error_str(
+                &format!(
+                    "{} — `impl{{...}}` template `{}`, the impl's self type `{}`, matrix leaf `{}`",
+                    e.message(),
+                    lt_ty.to_token_stream(),
+                    item.self_ty.to_token_stream(),
+                    leaf_ty.to_token_stream(),
+                ),
+                lt_span,
+            )
+        })?;
         m.merge(m2).map_err(|e| compile_error_str(&e.message(), lt_span))?;
         template_segs.extend(segs2);
     }

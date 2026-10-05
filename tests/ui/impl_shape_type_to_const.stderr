@@ -1,4 +1,4 @@
-error: batch-impl: `impl{...}` template cannot destructure the target type (a type argument cannot bind declared const argument `N`)
+error: batch-impl: `impl{...}` template cannot destructure the target type (a type argument cannot bind declared const argument `N`) — template `TypeBox < T >`, the impl's self type `TypeBox < T >`, matrix leaf `ConstBox < N >`
  --> tests/ui/impl_shape_type_to_const.rs:8:1
   |
 8 | #[batch_impl(TypeBox<T>: <const N: usize> ConstBox<N>)]

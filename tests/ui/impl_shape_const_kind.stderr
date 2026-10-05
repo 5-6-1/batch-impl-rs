@@ -1,4 +1,4 @@
-error: batch-impl: `impl{...}` template cannot destructure the target type (declared const parameter `N` needs a const argument (target `u8`))
+error: batch-impl: `impl{...}` template cannot destructure the target type (declared const parameter `N` needs a const argument (target `u8`)) — template `Wrap < N >`, the impl's self type `Wrap < N >`, matrix leaf `Wrap < u8 >`
  --> tests/ui/impl_shape_const_kind.rs:7:1
   |
 7 | #[batch_impl(Wrap<N>: Wrap<u8>)]
