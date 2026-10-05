@@ -183,6 +183,9 @@ fn ui() {
     // The reported spelling exactly: the trait's own name where a template belongs (`T: A, B` on
     // `impl T for A`), loud until 0.9.5 and silent from 0.9.6 on.
     t.compile_fail("tests/ui/impl_entry_template_names_the_trait.rs");
+    // A leaf the spec ignores: the template binds nothing the impl writes, and the produced for-type is
+    // not the leaf either (silent before this diagnostic).
+    t.compile_fail("tests/ui/impl_entry_leaf_ignored.rs");
     t.compile_fail("tests/ui/directive_missing_tail.rs");
     t.compile_fail("tests/ui/bare_prefix_no_type.rs");
     t.compile_fail("tests/ui/bare_attr_carrier.rs");

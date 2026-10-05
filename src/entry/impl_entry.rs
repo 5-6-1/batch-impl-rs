@@ -394,6 +394,38 @@ fn expand_leaf(
     }
     // for-Type: slot names rewritten to the bound leaf subtrees.
     let for_ty = apply_type_mapping(item.self_ty.to_token_stream(), &m);
+    // The impl this spec produces has to **be the impl for this leaf**, unless the leaf's value was
+    // substituted into the impl. A leaf is used in two ways: its subtree is bound to a placeholder the
+    // impl writes (`A : u8, u16` on `impl Tr for Pair<A, B>` → `Pair<u8, B>`), or the produced for-type
+    // simply **is** the leaf because the template already spells it (`Wrap<N> : Wrap<N>` on
+    // `impl Tr for Wrap<N>`, `@Self: Box<@u8..u16>`). When neither holds the leaf was ignored — and the
+    // macro used to do that **silently** (measured: `Vec<u8> : Vec<u8>` on `impl Make for u8` produced an
+    // impl for `u8`; `A : u8, u16` on the same impl produced `u8` twice, and `u16` never appeared).
+    // Reported from an independent analysis pass; the idempotent spellings stay legal by decision.
+    let item_text = item.to_token_stream().to_string();
+    let substitutes_something = m.slots().iter().any(|(name, _)| {
+        item_text
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|word| word == name.as_str())
+    });
+    if !substitutes_something && for_ty.to_string() != leaf_ty.to_token_stream().to_string() {
+        return Err(compile_error_str(
+            &format!(
+                "batch-impl: this spec ignores its matrix leaf — template `{}`, the impl's self type `{}`, \
+                 matrix leaf `{}`, and the for-type it produced `{}`. The text before `:` is a **template**: \
+                 its placeholders are the substitution targets, so at least one of them has to appear where \
+                 the impl writes the type to replace (its for-type, a trait argument, a where predicate or \
+                 the body) — a concrete type can only be matched by the same concrete type. Write a \
+                 placeholder for the part the matrix should replace (e.g. `W: u8; W: u16` for `impl Tr for \
+                 W`), and keep the leaves in the template's shape",
+                template.to_token_stream(),
+                item.self_ty.to_token_stream(),
+                leaf_ty.to_token_stream(),
+                for_ty,
+            ),
+            leaf_span,
+        ));
+    }
     // where predicates: the template region's (peel_where) plus this leaf's
     // `where{...}` attachments — each resolves independently against the
     // leaf's fresh names.

@@ -1,0 +1,7 @@
+error: batch-impl: this spec ignores its matrix leaf — template `Vec < u8 >`, the impl's self type `u8`, matrix leaf `Vec < u8 >`, and the for-type it produced `u8`. The text before `:` is a **template**: its placeholders are the substitution targets, so at least one of them has to appear where the impl writes the type to replace (its for-type, a trait argument, a where predicate or the body) — a concrete type can only be matched by the same concrete type. Write a placeholder for the part the matrix should replace (e.g. `W: u8; W: u16` for `impl Tr for W`), and keep the leaves in the template's shape
+  --> tests/ui/impl_entry_leaf_ignored.rs:16:1
+   |
+16 | #[batch_impl(Vec<u8> : Vec<u8>)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

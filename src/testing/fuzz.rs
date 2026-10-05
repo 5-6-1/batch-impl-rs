@@ -306,6 +306,30 @@ fn blanket_single_group_wrapper_no_panic() {
     let _ = expand_attr_macro(attr, trait_def, true);
 }
 
+/// The shape kernel's bindings, which the impl entry's leaf check reads: a template whose ident differs
+/// from the leaf's binds its own name (`A => u8`), a template identical to the leaf binds nothing, and a
+/// placeholder the impl writes binds too (`W => u8`). Pinned because the leaf-ignored diagnostic turns on
+/// that distinction — with an empty mapping the only way a leaf can be used is by *being* the produced
+/// for-type, which is exactly how the legal idempotent spellings (`Wrap<N> : Wrap<N>`, `A : A`) pass.
+#[test]
+fn shape_kernel_bindings_behind_the_leaf_check() {
+    let cases: [(&str, &str, &[&str]); 4] = [
+        ("A", "u8", &["A => u8"]),
+        ("A", "u16", &["A => u16"]),
+        ("Vec<u8>", "Vec<u8>", &[]),
+        ("W", "u8", &["W => u8"]),
+    ];
+    for (tpl, leaf, want) in cases {
+        let template: syn::Type = syn::parse_str(tpl).unwrap();
+        let leaf_ty: syn::Type = syn::parse_str(leaf).unwrap();
+        let (m, _) =
+            crate::codegen::match_shape(&template, &leaf_ty, &std::collections::HashSet::new())
+                .expect("the shape matches");
+        let got = m.slots().iter().map(|(n, v)| format!("{n} => {v}")).collect::<Vec<_>>();
+        assert_eq!(got, want, "{tpl} vs {leaf}");
+    }
+}
+
 /// Regression (alga2, round 10): a **varseg template written with a trailing comma**
 /// (`impl{(A@..,)}`) used together with a `where` clause produced a malformed type — the body landed
 /// where a type belongs and rustc reported ``expected type, found `{` `` with nothing pointing at the
