@@ -714,6 +714,8 @@ For an introduction to choosing an entry, see the [tutorial's §11 comparison](h
 
 `;` separates several specs (`A : u8; A : u16`); an empty spec list is the identity (§9.1).
 
+**The matrix is the attribute entry's matrix, and a list may be written either way.** After the shape colon the right-hand side is parsed exactly like the attribute entry's matrix: a **comma-separated list is one matrix**, so `W : u8, u16` and `W : [u8, u16]` are the same two leaves and both generate two impls — measured, side by side, byte-identical output. The brackets are a convenience for grouping (`[Box, Rc] [usize, isize]` is a two-dimensional matrix), never a requirement. `;` is what separates specs on this entry.
+
 Use `@Self` when the input block's self type is the desired template:
 
 ```rust
