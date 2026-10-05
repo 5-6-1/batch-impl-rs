@@ -702,6 +702,8 @@ impl Maximum for Box<u8> {
 
 显式模板仍适合描述块内的多个位置，例如自身类型的实参与 trait 实参；它不必与输入自身类型同形。
 
+`:` 前面是**模板**，永远不是 trait 名：impl 入口的 trait 来自它所注解的那个块，所以**一条 impl 入口只覆盖一个 trait**。要在一次调用里批量多个 trait，需要 `batch_trait!`（每个 `;` 段各自命名 trait）或给每个 trait 定义各写一个 `#[batch_impl]`。矩阵是**列表**，而列表既可以写 `[Box, Rc]` 也可以写 `Box, Rc`——中括号只是便利写法，不是硬性要求（`#[batch_impl(@Self: [Box, Rc])]` ≡ `#[batch_impl(@Self: Box, Rc)]`，两者均已实测）。若裸 ident 模板什么都没描述——例如在 `impl T for A` 上写 `#[batch_impl(T: A, B)]`，也就是把 **trait 名**写在模板的位置上——会给出诊断（`impl_entry_template_describes_nothing`），而不是静默地什么都不做。
+
 ### 9.3 impl 入口允许什么、保留什么
 
 - `@trait`（块自己的 trait 路径）与 `@Self`（输入自身类型）沿已有常量阶段展开。inherent impl 支持 `@Self`，但没有 `@trait`。**自定义常量定义与 `#` 指令在这个入口被拒**（`implentry_hash_banned`、`const_attr_unsupported`）。

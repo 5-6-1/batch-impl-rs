@@ -734,6 +734,8 @@ impl Maximum for Box<u8> {
 
 An explicit template remains useful when it describes several positions in the block, such as a self-type argument and a trait argument. It need not have the same shape as the input self type.
 
+The text before `:` is a **template**, never a trait name: the impl entry takes its trait from the block it annotates, so one impl entry covers **one** trait. Batching several traits in one invocation needs `batch_trait!` (each `;` segment names its own trait) or one `#[batch_impl]` on each trait definition. A matrix is a list, and a list may be written `[Box, Rc]` or `Box, Rc` — the brackets are a convenience, not a requirement (`#[batch_impl(@Self: [Box, Rc])]` ≡ `#[batch_impl(@Self: Box, Rc)]`, both measured). A bare-ident template that names nothing the shape can rewrite — `#[batch_impl(T: A, B)]` on `impl T for A`, i.e. writing the trait where a template belongs — is a diagnostic (`impl_entry_template_describes_nothing`), not a silent no-op.
+
 ### 9.3 The impl entry: what it allows and preserves
 
 - `@trait` (the block's own trait path) and `@Self` (the input self type) expand through the existing constant pass. Inherent impls support `@Self` but have no `@trait`. **Custom constant definitions and `#` directives are rejected** on this entry (`implentry_hash_banned`, `const_attr_unsupported`).
