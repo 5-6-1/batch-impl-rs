@@ -32,6 +32,7 @@ exclude = [
     "docs/zh-CN/",
     "docs/dev-changelog.md",
     "docs/star-thinking.md",
+    "docs/typegen-proposal.md",
     "tests/",
 ]
 
