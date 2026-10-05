@@ -177,6 +177,9 @@ fn ui() {
     t.compile_fail("tests/ui/batch_trait_directive_unsupported.rs");
     // A spec-level diagnostic points at its own segment, not at the macro's opening line.
     t.compile_fail("tests/ui/batch_trait_span_points_at_the_segment.rs");
+    // A bare-ident shape template that names nothing the shape can rewrite (the `Trait: targets`
+    // mistake on the impl entry, which used to be silent).
+    t.compile_fail("tests/ui/impl_entry_template_describes_nothing.rs");
     t.compile_fail("tests/ui/directive_missing_tail.rs");
     t.compile_fail("tests/ui/bare_prefix_no_type.rs");
     t.compile_fail("tests/ui/bare_attr_carrier.rs");

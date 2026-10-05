@@ -1,0 +1,7 @@
+error: batch-impl: the shape template `NotTheSelfType` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, `#[batch_impl(A, B)] impl Tr for A` for the direct form, or use `batch_trait!` / a trait entry when several traits are involved
+  --> tests/ui/impl_entry_template_describes_nothing.rs:15:1
+   |
+15 | #[batch_impl(NotTheSelfType: A, B)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

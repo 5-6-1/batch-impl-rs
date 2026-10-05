@@ -479,7 +479,7 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | `tests/`    | `no_panic/main.rs` | no-panic 守卫：用 `syn` 走遍 `src/**/*.rs`，断言 `#[cfg(test)]` 之外无 panic 构造——包括**宏 token 流内部**铸出的（`quote!(x.unwrap())`）与**限定形式** `Option::unwrap(o)`——且任何属性位置、嵌在 `#[cfg_attr(…)]` 里或**宏体内**的 deny 家族 `#[allow]` / `#[expect]` 都被报出（一刀切静默同样在内：`clippy::all` / `clippy::restriction` / `warnings`）；`#[cfg(test)]` 闸门只跳过裸谓词，因此 `#[cfg(not(test))]` 的代码照样被扫描；crate 级 deny 行本身也被断言（`lib.rs` clippy deny 之外的第二条腿）；**检测器本身有自测**（`no_panic/selftest.rs`：每个臂都喂了合成违规 + 邻近反例，因此 `syn` 升级或收窄的 `matches!` 会让该文件失败而不是静默报 0 违规），唯一记录在案的洞是**宏体内手写的索引**逃过两条腿（`quote!(v[0])`——clippy 看不见宏体，而这里的 `[…]` 组无法与数组类型区分） |
 | `tests/`    | `doc_consistency.rs` + `doc_consistency/reader_entry.rs` | **18** 项文档守卫：源码/模块树、文件路径、双语章节与示例、诊断和计数保持一致；README 入门程序必须能作为带 `main` 的独立 Rust 文件解析。源码导航检查独立 Markdown 锚点及仓库路径/片段，验收另查生成的 rustdoc 链接。历史 changelog 与 architecture 版本前言豁免当前文件引用检查 |
 | `tests/`    | `features/`     | **63** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **387** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**159** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**160** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
 | `tests/` | `pack_model/` | 独立 Pack 提案模型：Python 标准库，17 组测试、有限结构检查、双语教程核对与生成 Rust 的消费验证。执行 `python tests/pack_model/run.py`，独立 CI job 使用同一命令；不等于正式解析器或物化器的验证。 |
 
 运行：

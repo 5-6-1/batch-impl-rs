@@ -199,6 +199,47 @@ fn expand_shape_form(
         surfaces.push(ng);
     }
     let used = used_ident_set(&surfaces);
+    // A **bare-ident** template is a slot, and a slot matches any ident — so `T: A, B` on
+    // `impl T for A` matched structurally, rewrote nothing, and emitted the input impl unchanged once
+    // per leaf, **silently** (alga2's report: "impl entry T: A,B; U: C,D"). The slot has to name
+    // something the shape can rewrite — the for-type, a trait argument, a where predicate or the body —
+    // so the template ident must occur in the impl *besides* the trait path's own name. Measured
+    // against the tree's own chain tests, whose templates live in the trait's arguments
+    // (`#[batch_impl(A : [u8, u16])] impl Chain<A> for Pair`), so a stricter "must be the self type"
+    // rule was wrong.
+    if let syn::Type::Path(template_path) = &template
+        && template_path.qself.is_none()
+        && template_path.path.segments.len() == 1
+        && let Some(t) = template_path.path.segments.last()
+        && t.arguments.is_none()
+    {
+        let name = t.ident.to_string();
+        let item_text = item.to_token_stream().to_string();
+        let occurrences = item_text
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|word| *word == name)
+            .count();
+        let as_trait_name = usize::from(
+            item.trait_
+                .as_ref()
+                .and_then(|(path, _)| path.segments.last())
+                .is_some_and(|s| s.ident == name.as_str()),
+        );
+        if occurrences <= as_trait_name {
+            return Err(compile_error_str(
+                &format!(
+                    "batch-impl: the shape template `{}` before `:` describes nothing in this impl — on \
+                     the impl entry the text before `:` is a **template** that must match the for-type, a \
+                     trait argument, a where predicate or the body, and the trait comes from the input \
+                     impl. Write `@Self: …` to batch the for-type, `#[batch_impl(A, B)] impl Tr for A` \
+                     for the direct form, or use `batch_trait!` / a trait entry when several traits are \
+                     involved",
+                    name
+                ),
+                t.ident.span(),
+            ));
+        }
+    }
     if matrix.is_empty() {
         // Empty matrix source → N = 1, the shape itself (no slot mapping;
         // the for-Type is emitted verbatim).
