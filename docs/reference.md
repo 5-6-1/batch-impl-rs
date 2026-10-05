@@ -716,6 +716,15 @@ For an introduction to choosing an entry, see the [tutorial's §11 comparison](h
 
 **The matrix is the attribute entry's matrix, and a list may be written either way.** After the shape colon the right-hand side is parsed exactly like the attribute entry's matrix: a **comma-separated list is one matrix**, so `W : u8, u16` and `W : [u8, u16]` are the same two leaves and both generate two impls — measured, side by side, byte-identical output. The brackets are a convenience for grouping (`[Box, Rc] [usize, isize]` is a two-dimensional matrix), never a requirement. `;` is what separates specs on this entry.
 
+**What the template has to describe.** The matrix supplies the values for the template's *placeholders*, so a spec reaches the impl only when a placeholder appears where the impl writes the type to replace — its for-type, a trait argument, a where predicate or the body. A placeholder is a **substitution target, not a generic parameter**: it need not be declared anywhere, and a concrete type on the left of `:` can only be matched by the same concrete type.
+
+| the impl's self type | `:` left | `:` right | what happens |
+|---|---|---|---|
+| a placeholder the impl writes (`impl<W> Make for W`) | `W` | `u8, u16` | two impls, `W` substituted — the everyday spelling |
+| a concrete type (`impl Make for u8`) | `A` | `u8, u16` | `A` occurs nowhere → **diagnosed** (`impl_entry_template_names_the_trait`) |
+| a concrete type (`impl Make for u8`) | `Vec<u8>` | `Vec<u8>` | binds nothing *and* is not the leaf → **diagnosed** (`impl_entry_leaf_ignored`) |
+| anything, as long as it matches | `Wrap<N>` | `Wrap<N>` | legal: the produced for-type **is** the leaf (the idempotent spelling) |
+
 Use `@Self` when the input block's self type is the desired template:
 
 ```rust
