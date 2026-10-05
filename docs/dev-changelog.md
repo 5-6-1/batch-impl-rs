@@ -5,6 +5,31 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.10.2 — 2026-10-05
+
+> Released **2026-10-05** as 0.10.2: two diagnostics, three documentation facts and one derivation note.
+
+- **`entry/impl_entry.rs`: a leaf the spec ignores** — fired after the mapping merge when **no bound slot name
+  occurs in the impl** *and* the produced for-type is **not** the leaf. The rule's data was measured first
+  (`match_shape` on `A`/`u8`, `A`/`u16`, `Vec<u8>`/`Vec<u8>`, `W`/`u8`), and the legal idempotent spellings pass by
+  construction because their for-type **is** the leaf. The message names four shapes: template, the impl's self
+  type, matrix leaf, produced for-type. Locked by `tests/ui/impl_entry_leaf_ignored.rs`.
+- **`entry/impl_entry.rs`: shape-mismatch wrapping** now appends `— template …, the impl's self type …, matrix
+  leaf …` to the kernel's message at both wrapping sites (the spec's template and a leaf's `impl{...}` template);
+  four UI snapshots re-blessed and the §10 rows extended through a std-only patch tool.
+- **`testing/fuzz.rs`: `shape_kernel_bindings_behind_the_leaf_check`** pins the kernel's bindings
+  (`A`/`u8` ⇒ `A => u8`; `Vec<u8>`/`Vec<u8>` ⇒ none; `W`/`u8` ⇒ `W => u8`) — the data the leaf check reads, kept as
+  a test after it was used as a probe.
+- **`docs/star-thinking.md`** (new, **excluded from the published package** on request): the derivation model for
+  the pack operator — the dispatch order quoted with `file:line` references, the three-question procedure (row →
+  what the row must become → where results land), the left-operand decision table, a diagnostic back-reading table,
+  two measured derivations and one prediction, and six **open questions** stated with the measurements that make
+  them questions.
+- **Current tip, measured while preparing 0.10.2**: Windows stable passes **246** unit tests, **387** feature
+  tests, **7** no-panic guards, **18** documentation guards, fmt, all-target check/clippy, warning-free rustdoc and
+  three examples; `tests/ui` holds **162** `compile_fail` fixtures plus 4 `pass`. The doctest count, the Rust-1.95
+  row and the Linux row have not been re-measured since the 0.10.0 run.
+
 ## 0.10.1 — 2026-10-05
 
 > Released **2026-10-05** as 0.10.1, a patch after 0.10.0: two behaviour fixes restore what 0.9.6 did,

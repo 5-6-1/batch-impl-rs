@@ -5,6 +5,26 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## 0.10.2 — 2026-10-05
+
+> Released **2026-10-05** as 0.10.2, a patch on 0.10.1: two diagnostics the impl entry could not give before, and
+> the manual now states the rules those diagnostics enforce.
+
+- **A spec that ignores its matrix leaf is diagnosed.** `#[batch_impl(Vec<u8> : Vec<u8>)]` on `impl Make for u8`
+  used to emit an impl for `u8` — the leaf silently dropped — and `#[batch_impl(A : u8, u16)]` on the same impl
+  emitted `u8` twice while `u16` never appeared. Both now report `impl_entry_leaf_ignored`, naming the template,
+  the impl's self type, the matrix leaf and the for-type that came out. The idempotent spellings (`A : A`,
+  `Wrap<N> : Wrap<N>`, `@Self: Box<@u8..u16>`) stay legal by decision, as does a matrix that names the input type
+  in order to keep its impl.
+- **A bare-ident template that describes nothing is diagnosed** — `#[batch_impl(T: A, B)]` on `impl T for A`, where
+  `T` is only the trait's name. Through 0.9.5 this was a loud error; from 0.9.6 on it was silent, and no release
+  note mentioned the loss.
+- **Shape-mismatch errors name the three shapes involved** — template, the impl's self type, matrix leaf — instead
+  of only describing the internal mismatch ("the template is a path but the target is not").
+- **§9.2 states what a template must describe**: placeholders are **substitution targets, not generic parameters**;
+  a concrete self type can only be matched by the same concrete type; and the matrix may be written `W : u8, u16` or
+  `W : [u8, u16]` — the brackets are a grouping convenience, never a requirement (`;` separates specs here).
+
 ## 0.10.1 — 2026-10-05
 
 > Released **2026-10-05** as 0.10.1, a patch after 0.10.0: two behaviour fixes restore what 0.9.6 did,

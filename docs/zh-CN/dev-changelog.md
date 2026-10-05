@@ -2,6 +2,16 @@
 
 > 内部实现细节、重构、测试、CI；用户可见功能见 `CHANGELOG.md`。
 
+## 0.10.2 — 2026-10-05
+
+> 已于 **2026-10-05** 发布为 0.10.2：两条诊断、三处文档事实、一份推导笔记。
+
+- **`entry/impl_entry.rs`：叶子被忽略** —— 在映射合并之后触发，条件是**没有任何被绑定的槽名出现在 impl 里**，且产出的 for 类型**不是**该叶子。规则**先测数据后写**（`match_shape` 对 `A`/`u8`、`A`/`u16`、`Vec<u8>`/`Vec<u8>`、`W`/`u8`），而合法的恒等写法因"for 类型就是叶子"天然通过。消息点名四种形状：模板、输入 impl 的 self 类型、矩阵叶子、实际产出的 for 类型。由 `tests/ui/impl_entry_leaf_ignored.rs` 锁定。
+- **`entry/impl_entry.rs`：形状不匹配的包装** —— 两个包装点（spec 的模板、叶子的 `impl{...}` 模板）都在内核消息后追加 `— template …, the impl's self type …, matrix leaf …`；四份 UI 快照重新 bless，双语 §10 行由 std-only 工具批量补全。
+- **`testing/fuzz.rs`：`shape_kernel_bindings_behind_the_leaf_check`** —— 把内核的绑定钉住（`A`/`u8` ⇒ `A => u8`；`Vec<u8>`/`Vec<u8>` ⇒ 无；`W`/`u8` ⇒ `W => u8`）：它先是探针，用完之后**留作测试**。
+- **`docs/star-thinking.md`**（新增，按用户要求**排除出发布包**）：`*` 的推导模型 —— 带 `file:line` 的分派序引用、三问推导法（行 → 行该变成什么 → 结果落点）、左操作数决策表、诊断反读表、两条已实测推导与一条预测，以及**六个开放问题**（每个都附上使其成为问题的实测证据）。
+- **当前实测（准备 0.10.2 时）**：Windows stable 通过 **246** 个单测、**387** 个 features 测试、**7** 项 no-panic 守卫、**18** 项文档守卫、fmt、全目标 check/clippy、无警告 rustdoc 与三个示例；`tests/ui` 有 **162** 个 `compile_fail` fixture 加 4 个 `pass`。doctest 计数、Rust 1.95 行与 Linux 行自 0.10.0 那次运行以来未复测。
+
 ## 0.10.1 — 2026-10-05
 
 > 已于 **2026-10-05** 发布为 0.10.1，即 0.10.0 之后的补丁版：两处行为修复恢复 0.9.6 的表现，0.10.0 有意的破坏性变更**一处也不回退**。
