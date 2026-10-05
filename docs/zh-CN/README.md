@@ -2,7 +2,7 @@
 
 仓库源码（GitHub `main`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) | 简体中文
 
-**v0.10.1 — 开发中（未发布）。** 破坏性变更与从 0.9.7 迁移的说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**v0.10.1。** 破坏性变更与从 0.9.7 迁移的说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
 仓库源码链接打开公开的 `main`，可能尚未包含本地修改。在本地运行
 `cargo doc --no-deps --open` 可阅读当前工作树的英文文档；其顶部导航留在

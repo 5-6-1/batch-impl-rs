@@ -5,10 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.10.1 — 2026-10-05
 
-> Target: **0.10.1**, a patch after the released 0.10.0. Two behaviour fixes restore what 0.9.6 did;
-> nothing in 0.10.0's deliberate breaking changes is reverted.
+> Released **2026-10-05** as 0.10.1, a patch after 0.10.0: two behaviour fixes restore what 0.9.6 did,
+> and nothing in 0.10.0's deliberate breaking changes is reverted.
 
 - **A trailing comma after a bare `where` ends the region but stays in the stream** (alga2's report 1;
   regression against 0.9.6). `scan_body_boundary` treats a depth-0 `,` as a spec-list separator and
@@ -39,6 +39,12 @@
   README's migration procedure, and `batch_preview!`, which prints the impl count.
 - **README: "How to check your migration"** (EN + zh) — `cargo expand --lib | grep -c 'impl.* for '`
   counting plus `batch_preview!` reading, with the measured example from the report.
+- **Current tip, measured while preparing 0.10.1** (the "Current tip" line in the 0.10.0 section above is
+  that release's measurement and stays as history): Windows stable passes **245** unit tests, **387**
+  feature tests, **7** no-panic guards, **18** documentation guards, fmt, all-target check/clippy,
+  warning-free rustdoc and three examples; `tests/ui` holds **159** `compile_fail` fixtures plus 4
+  `pass`. The doctest count, the Rust-1.95 row and the Linux row have not been re-measured since the
+  0.10.0 run.
 
 ## 0.10.0 — 2026-10-04
 

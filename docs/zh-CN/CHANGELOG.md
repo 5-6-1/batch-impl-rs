@@ -2,9 +2,9 @@
 
 > 用户可见的功能与行为变化；内部实现细节见 `docs/dev-changelog.md`。
 
-## Unreleased
+## 0.10.1 — 2026-10-05
 
-> 目标：**0.10.1**，已发布 0.10.0 之后的补丁版。下面两处行为修复恢复 0.9.6 的表现；0.10.0 有意的破坏性变更**一处也不回退**。
+> 已于 **2026-10-05** 发布为 0.10.1，即 0.10.0 之后的补丁版：两处行为修复恢复 0.9.6 的表现，0.10.0 有意的破坏性变更**一处也不回退**。
 
 - **裸 `where` 之后的尾逗号不再把附着物变成独立 spec**（相对 0.9.6 的回归）。`where P, {body}` 此前报 "a bare `{...}` block without an attached type generates no impl"；`where P, impl{(A@..,)} #n{0}` 则被切成一个无目标模板，rustc 报 ``expected type, found `{` `` 并指向整条属性——消息点名模板，真凶却是那枚逗号。现在只要逗号后一个 token 不可能开启 spec（`{`、`;`、流末，或 `impl{...}` 附着物），该逗号就归谓词表。`where P, Q` 与 `Trait: a, b` 语义不变，花括号 `where{...}` 拼写从未受影响。
 - **`batch_trait!` 的 spec 诊断指向它自己那一段**。rustc 会把生成 item 里的错误归到宏调用处，于是二十条 spec 的长 `batch_trait!` 把每个这类错误都报在宏的第一行。仍带 call-site span 的生成 token 现在带上它所在段的 span；已经指向用户源码的 token 保持原 span，诊断精度不变。

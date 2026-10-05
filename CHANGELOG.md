@@ -5,10 +5,10 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
-## Unreleased
+## 0.10.1 — 2026-10-05
 
-> Target: **0.10.1**, a patch after the released 0.10.0. The two behaviour fixes below restore what
-> 0.9.6 did; nothing in 0.10.0's deliberate breaking changes is reverted.
+> Released **2026-10-05** as 0.10.1, a patch after 0.10.0: two behaviour fixes restore what 0.9.6 did,
+> and nothing in 0.10.0's deliberate breaking changes is reverted.
 
 - **A trailing comma after a bare `where` clause no longer detaches the spec** (regression against
   0.9.6). `where P, {body}` reported "a bare `{...}` block without an attached type generates no impl",

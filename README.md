@@ -2,7 +2,7 @@
 
 Repository sources (GitHub `main`): English | [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)
 
-**v0.10.1 — in development (unreleased).** Breaking changes and migration from 0.9.7 are in the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
+**v0.10.1.** Breaking changes and migration from 0.9.7 are in the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
 
 Repository-source links open public `main`, which may not contain local changes.
 Run `cargo doc --no-deps --open` locally for this checkout's English documentation;
