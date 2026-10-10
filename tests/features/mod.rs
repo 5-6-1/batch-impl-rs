@@ -68,6 +68,7 @@ pub(crate) mod impl_entry_nested;
 pub(crate) mod impl_entry_self;
 pub(crate) mod impl_entry_trait_where;
 pub(crate) mod impl_generic_bounds;
+pub(crate) mod impl_hoisted_bounds;
 pub(crate) mod projection_composition;
 pub(crate) mod regression_arrays_prefix;
 pub(crate) mod regression_basics;

@@ -684,8 +684,9 @@ fn main() {
 
 `where{...}` 谓词和 `impl{...}` 形状模板保持标准 Rust 类型语法域，
 仅保留原有的 `@` 替换；body 和指令参数仍由各自语法解释，不引入包运算。
-限定路径的 `::Assoc<...>` 续接部分与 `<T as Trait>` 中 `as` 后的 trait 路径
-保持普通 Rust 路径，不在内部拼入包。
+限定路径的 `::Assoc<...>` 段名固定，但段的泛型实参使用类型 DSL，支持候选
+分发与包拼入（§5.6）。`<T as Trait>` 中 `as` 后的 trait 路径仍是普通
+Rust 域，不在其中解释包运算。
 见[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md) §2 与 §4。
 
 ## 5. 泛型 `<>`：从声明到可编程实参

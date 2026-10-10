@@ -191,6 +191,7 @@ fn ui() {
     t.compile_fail("tests/ui/impl_entry_missing_source.rs");
     t.compile_fail("tests/ui/impl_entry_bare_type.rs");
     t.compile_fail("tests/ui/impl_entry_nested_attachment.rs");
+    t.compile_fail("tests/ui/impl_entry_hoisted_bounds.rs");
     t.compile_fail("tests/ui/directive_missing_tail.rs");
     t.compile_fail("tests/ui/bare_prefix_no_type.rs");
     t.compile_fail("tests/ui/bare_attr_carrier.rs");

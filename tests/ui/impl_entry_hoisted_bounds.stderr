@@ -1,0 +1,88 @@
+error[E0277]: the trait bound `NoBound: Bound` is not satisfied
+  --> tests/ui/impl_entry_hoisted_bounds.rs:23:19
+   |
+23 |     need_nested::<Holder<NoBound>>();
+   |                   ^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Bound` is not implemented for `NoBound`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:4:1
+   |
+ 4 | struct NoBound;
+   | ^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/ui/impl_entry_hoisted_bounds.rs:5:1
+   |
+ 5 | trait Bound {}
+   | ^^^^^^^^^^^
+note: required for `Holder<NoBound>` to implement `Nested`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:10:1
+   |
+10 | #[batch_impl(X: Holder<(<T: Bound> T)>)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 | impl<T> Nested for X {}
+   |         ^^^^^^
+note: required by a bound in `need_nested`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:18:19
+   |
+18 | fn need_nested<T: Nested>() {}
+   |                   ^^^^^^ required by this bound in `need_nested`
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `NoBound: Bound` is not satisfied
+  --> tests/ui/impl_entry_hoisted_bounds.rs:24:18
+   |
+24 |     need_outer::<Holder<NoBound>>();
+   |                  ^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Bound` is not implemented for `NoBound`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:4:1
+   |
+ 4 | struct NoBound;
+   | ^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/ui/impl_entry_hoisted_bounds.rs:5:1
+   |
+ 5 | trait Bound {}
+   | ^^^^^^^^^^^
+note: required for `Holder<NoBound>` to implement `Outer`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:13:1
+   |
+13 | #[batch_impl(X: <T: Bound> Holder<T>)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 | impl<T> Outer for X {}
+   |         ^^^^^
+note: required by a bound in `need_outer`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:19:18
+   |
+19 | fn need_outer<T: Outer>() {}
+   |                  ^^^^^ required by this bound in `need_outer`
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `NoBound: Bound` is not satisfied
+  --> tests/ui/impl_entry_hoisted_bounds.rs:25:24
+   |
+25 |     need_handwritten::<Holder<NoBound>>();
+   |                        ^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Bound` is not implemented for `NoBound`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:4:1
+   |
+ 4 | struct NoBound;
+   | ^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/ui/impl_entry_hoisted_bounds.rs:5:1
+   |
+ 5 | trait Bound {}
+   | ^^^^^^^^^^^
+note: required for `Holder<NoBound>` to implement `Handwritten`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:16:16
+   |
+16 | impl<T: Bound> Handwritten for Holder<T> {}
+   |         -----  ^^^^^^^^^^^     ^^^^^^^^^
+   |         |
+   |         unsatisfied trait bound introduced here
+note: required by a bound in `need_handwritten`
+  --> tests/ui/impl_entry_hoisted_bounds.rs:20:24
+   |
+20 | fn need_handwritten<T: Handwritten>() {}
+   |                        ^^^^^^^^^^^ required by this bound in `need_handwritten`

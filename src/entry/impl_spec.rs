@@ -90,12 +90,23 @@ pub(crate) fn assemble_impl(
             + item_params.len(),
     );
     if let Some(ng) = new_gen {
+        // Explicit fresh-reference declarations resolve to these same names;
+        // retain their bounds without declaring the generated parameter twice.
+        item_param_names.extend(fresh.names.iter().map(|(_, _, name)| name.to_string()));
         let (decl, dropped) = reconcile_new_gen(ng, &item_param_names, &slot_names);
         all_params.extend(decl);
         param_bound_preds.extend(dropped);
     }
     all_params.extend(fresh.names.iter().map(|(_, _, name)| name.clone()));
     all_params.extend(item_params);
+    // Hoisted declarations and the original impl may introduce lifetimes at
+    // different stages. Rust requires all of them before type/const params.
+    all_params.sort_by_key(|param| {
+        !matches!(
+            syn::parse2::<syn::GenericParam>(param.clone()),
+            Ok(syn::GenericParam::Lifetime(_))
+        )
+    });
     // `X<>` sync: every `X<>` in the where predicates fills with the impl's
     // trait args (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
     // `Marker<Additive, Multiplicative>`). The body is not synced: it is
@@ -179,7 +190,7 @@ pub(crate) fn assemble_impl(
 /// is already declared — or that the mapping replaced — is **not** declared a
 /// second time (rustc would report `E0403`), and the dropped declaration's bounds
 /// move into a where predicate so nothing is silently lost
-/// (`#[batch_impl(<T: Clone> Box<T>)] impl<T> Box<T>` keeps `T: Clone` as
+/// (`#[batch_impl(Target: <T: Clone> Box<T>)] impl<T> Tr for Target` keeps `T: Clone` as
 /// `where T: Clone`).
 ///
 /// Returns the declarations to keep and the predicates for the dropped ones. An
@@ -195,6 +206,7 @@ fn reconcile_new_gen(
     };
     let mut kept = vec![];
     let mut dropped = vec![];
+    let mut declared = item_param_names.clone();
     for p in generics.params {
         let name = crate::ast::name_of_generic_param(&p);
         // A name matches a slot exactly: the slot set holds bare type/const
@@ -202,7 +214,7 @@ fn reconcile_new_gen(
         // lifetime ident is not a slot position (`apply_mapping` leaves it
         // alone), so treating `'a` as the slot `a` would drop a declaration that
         // is still used (E0261).
-        let already = item_param_names.contains(&name) || slot_names.contains(name.as_str());
+        let already = slot_names.contains(name.as_str()) || !declared.insert(name);
         if already {
             match &p {
                 syn::GenericParam::Type(tp) if !tp.bounds.is_empty() => {

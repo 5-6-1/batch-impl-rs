@@ -741,8 +741,10 @@ Raw pointers `*const T` and `*mut T` keep their Rust meaning. A bare
 `where{...}` predicates and `impl{...}` shape templates remain standard
 Rust type domains with their existing `@` substitutions. Bodies and
 directive arguments retain their own syntax. They do not acquire pack operators.
-Qualified-path continuations (`::Assoc<...>`) and trait paths following `as` in
-`<T as Trait>` remain ordinary Rust paths, without pack splicing inside them.
+Qualified-path segment names (`::Assoc<...>`) are fixed, but their generic
+arguments use the type DSL, including choice distribution and pack splicing
+(§5.6). The trait path after `as` in `<T as Trait>` remains a Rust domain and
+does not interpret pack operations.
 See the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md),
 §2 and §4.
 

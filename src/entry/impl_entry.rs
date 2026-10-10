@@ -46,7 +46,9 @@ use crate::ast::reset_fresh_counter;
 use crate::codegen::{
     apply_type_mapping, expand_range_refs, hoist_type_params, match_shape, used_ident_set,
 };
-use crate::entry::impl_fresh::{fresh_context, resolve_fresh_predicates};
+use crate::entry::impl_fresh::{
+    fresh_context, merge_hoisted_declarations, resolve_hoisted_predicates,
+};
 use crate::entry::impl_spec::{
     assemble_impl, find_shape_colon, parse_matrix_leaves, peel_where, split_new_gen,
 };
@@ -280,8 +282,9 @@ fn expand_leaf(
     // multi-template merge) and its where predicates.
     // Materialization can carry a declaration outside an attachment. Hoist
     // first so the attachment scan sees the same chain for every arity.
-    let mut fresh_decls = vec![];
-    let leaf = hoist_type_params(leaf, &mut fresh_decls);
+    validate_leaf_attachments(&leaf)?;
+    let mut hoisted_decls = vec![];
+    let leaf = hoist_type_params(leaf, &mut hoisted_decls);
     let mut leaf_templates: Vec<TokenStream> = vec![];
     let mut leaf_preds: Vec<TokenTree> = vec![];
     let mut leaf = Some(leaf);
@@ -318,7 +321,6 @@ fn expand_leaf(
             Span::call_site(),
         ));
     };
-    reject_nested_templates(&leaf)?;
     // Generators in a leaf (`A<()0..=12>`) mint fresh declarations: hoist
     // them out of the leaf (they join the impl generics), name them
     // (`P0, P1, ...`) and resolve the carriers to display names before the
@@ -329,7 +331,7 @@ fn expand_leaf(
     let leaf_pred_ts = leaf_preds.iter().cloned().collect::<TokenStream>();
     let mut surfaces = vec![&leaf_ts, &leaf_pred_ts];
     surfaces.extend(&leaf_templates);
-    let fresh_ctx = fresh_context(&fresh_decls, used, &surfaces);
+    let fresh_ctx = fresh_context(&hoisted_decls, used, &surfaces);
     // Const expressions can still carry paired angles (for example an array
     // length's `size_of::<T>()`). Restore them before syn normalizes the type.
     let leaf_tokens = render_angles(expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?);
@@ -361,7 +363,7 @@ fn expand_leaf(
         );
     }
     declared_consts.extend(
-        fresh_decls
+        hoisted_decls
             .iter()
             .filter(|(name, _)| crate::ast::ParamKind::of_name(name).is_const())
             .map(|(name, _)| crate::ast::ParamKind::bare_name(name).to_string()),
@@ -430,7 +432,7 @@ fn expand_leaf(
                  matrix leaf `{}`, and the for-type it produced `{}`. The text before `:` is a **template**: \
                  its placeholders are the substitution targets, so at least one of them has to appear where \
                  the impl writes the type to replace (its for-type, a trait argument, a where predicate or \
-                 the body) — a concrete type can only be matched by the same concrete type. Write a \
+                 the body). Write a \
                  placeholder for the part the matrix should replace (e.g. `W: u8; W: u16` for `impl Tr for \
                  W`), and keep the leaves in the template's shape",
                 template.to_token_stream(),
@@ -448,17 +450,33 @@ fn expand_leaf(
     if !leaf_preds.is_empty() {
         chunks.extend(chunks_to_streams(&leaf_preds, ','));
     }
-    let where_resolved = resolve_fresh_predicates(&fresh_decls, &chunks, &fresh_ctx)?;
+    let where_resolved = resolve_hoisted_predicates(&hoisted_decls, &chunks, &fresh_ctx)?;
+    let new_gen = merge_hoisted_declarations(new_gen, &hoisted_decls, &fresh_ctx)?;
     assemble_impl(
         item,
         trait_path,
-        new_gen,
+        new_gen.as_ref(),
         &fresh_ctx,
         &where_resolved,
         &m,
         &template_segs,
         for_ty,
     )
+}
+
+/// Validate before hoisting can move or deduplicate declarations. Only the
+/// outer attachment chain is consumed; declaration children are nested types.
+fn validate_leaf_attachments(ty: &crate::ast::Ty) -> Result<(), TokenStream> {
+    let inner = match &ty.kind {
+        TyKind::WithImpl(wi) => wi.0.as_deref(),
+        TyKind::WithWhere(ww) => ww.0.as_deref(),
+        TyKind::WithType(wt) => {
+            reject_nested_templates(&wt.0.clone().to_ty())?;
+            Some(wt.1.as_ref())
+        }
+        _ => return reject_nested_templates(ty),
+    };
+    if let Some(inner) = inner { validate_leaf_attachments(inner) } else { Ok(()) }
 }
 
 /// Only attachments on the final leaf have a matching target on this entry.
@@ -526,10 +544,30 @@ mod tests {
             "Target: (u8 impl{fn},)",
             "Target: &Wrap<u8 impl{A}>",
             "Target: Wrap<u8 impl{A}> impl{Outer}",
+            "Target: Wrap<<T: Bound<u8 impl{A}>> T>",
+            "Target: Wrap<<T: Bound<u8 impl{fn}>> T> impl{Outer}",
+            "Target: Wrap<<T: Bound<Item = u8 impl{A}>> T>",
         ] {
             let error = expand(attr, syn::parse_quote!(impl Mark for Target {})).unwrap_err();
             assert!(error.contains("nested `impl{...}` attachment"), "{attr}: {error}");
         }
+    }
+
+    #[test]
+    fn hoisted_named_bounds_are_not_discarded() {
+        let output = expand(
+            "Target: Wrap<<T: NoImplBound> T>",
+            syn::parse_quote!(
+                impl<T> Probe for Target {}
+            ),
+        )
+        .expect("the nested declaration is valid");
+        let item: ItemImpl = syn::parse2(output).expect("generated impl");
+        assert_eq!(item.generics.params.len(), 1);
+        assert_eq!(
+            item.generics.where_clause.to_token_stream().to_string(),
+            "where T : NoImplBound"
+        );
     }
 
     /// Qualified types reach the generated impl. The spec's for-type is user

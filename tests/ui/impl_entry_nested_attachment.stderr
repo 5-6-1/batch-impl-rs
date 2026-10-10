@@ -13,3 +13,27 @@ error: batch-impl: a nested `impl{...}` attachment is not supported on the impl 
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a nested `impl{...}` attachment is not supported on the impl entry; attach the template to the final source leaf instead, for example `Wrap<u8> impl{Wrap<A>}`
+  --> tests/ui/impl_entry_nested_attachment.rs:14:1
+   |
+14 | #[batch_impl(Target: Wrap<<T: Bound<u8 impl{A}>> T>)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a nested `impl{...}` attachment is not supported on the impl entry; attach the template to the final source leaf instead, for example `Wrap<u8> impl{Wrap<A>}`
+  --> tests/ui/impl_entry_nested_attachment.rs:17:1
+   |
+17 | #[batch_impl(Target: Wrap<<T: Bound<u8 impl{fn}>> T> impl{Outer})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a nested `impl{...}` attachment is not supported on the impl entry; attach the template to the final source leaf instead, for example `Wrap<u8> impl{Wrap<A>}`
+  --> tests/ui/impl_entry_nested_attachment.rs:20:1
+   |
+20 | #[batch_impl(Target: (*Vec *[<Bound<u8 impl{A}>>,].1,))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
