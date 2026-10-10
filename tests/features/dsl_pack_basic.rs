@@ -86,14 +86,51 @@ fn nested_application_builds_each_inner_wrapper_before_the_outer_one() {
 #[batch_impl((*[].0,))]
 trait EmptyTuple {}
 
+#[batch_impl((*[],))]
+trait LiteralEmptySlot {}
+
+#[batch_impl((*[],).2)]
+trait CopiedEmptySlot {}
+
+#[batch_impl(() *[])]
+trait AppendedEmptySlot {}
+
+#[batch_impl((*Pair *[*[],],).0)]
+trait DiscardedArgument {}
+
+#[batch_impl((Pair<*[]>,).0)]
+trait DiscardedDirectArgument {}
+
+#[batch_impl((*[(),] *[*[],],))]
+trait NestedEmptySlot {}
+
+#[batch_impl(Vec<*[*[], u8]>)]
+trait DirectNonemptyArgument {}
+
+#[batch_impl(Vec *[*[], u8])]
+trait AppliedNonemptyArgument {}
+
 #[test]
 fn an_empty_axis_leaves_a_unit_tuple() {
-    fn empty<T: EmptyTuple>() {}
-    // `(*[].0,)` is one target: the empty axis leaves a unit tuple. An empty pack
-    // anywhere it would have to *be* something is diagnosed instead — a spec with
-    // no targets (ui `pack_zero_targets`) and an argument that expands to none
-    // (ui `pack_empty_argument`).
+    fn empty<T>()
+    where
+        T: EmptyTuple
+            + LiteralEmptySlot
+            + CopiedEmptySlot
+            + AppendedEmptySlot
+            + DiscardedArgument
+            + DiscardedDirectArgument,
+    {
+    }
+    fn nested<T: NestedEmptySlot>() {}
+    fn argument<T: DirectNonemptyArgument + AppliedNonemptyArgument>() {}
+    // Empty tuple slots disappear. Each surviving generic argument must supply
+    // a type, but empty pack members within a nonempty argument can disappear.
+    // Discarded templates are never materialized, so `.0` can remove the entire
+    // would-be empty argument before the host checks it.
     empty::<()>();
+    nested::<((),)>();
+    argument::<Vec<u8>>();
 }
 
 #[batch_impl((*(*u8),))]

@@ -117,13 +117,21 @@ survived". (Round-7 probe E measured the macro rejecting the former shape and th
 accepting it; the macro is the consistent reading, since an empty pack yields no argument
 for the host to take.)
 
-**Aligned (round-8 probe E's D2).** The model now refuses that shape too: `Engine.apply` raises
-`single-slot` when an argument slot would receive an empty pack, so `*F *[*[],]` and the five other
-inputs of the family (`*F *[*[], A]`, `*F *[A, *[]]`, `(*Vec *[*[],],)`, `(*F *[*[],], (A,))`,
-`(*Vec *[*[],] (A,))`) are errors on both sides. Three things had to move together, which is why
-two earlier attempts failed: the audit's value generator now prunes shapes the rule makes
-inexpressible (140 values became 127), the audit's engine calls tolerate a refusal as a counted
-outcome, and `test_model.py` asserts the refusal instead of pinning `["F"]`.
+Cardinality is checked by `Engine.slots` on each surviving generic argument, after its
+branches and nested packs have been collected. Parsing and application only build the
+structure. Thus `F<*[*[], A]>` and `F *[*[], A]` both produce `F<A>`: the source
+argument has one type after collection. `F<[*[], A]>` is rejected because one of that
+argument's candidate branches has no type. Tuple fields and unnamed function parameters
+allow zero slots: `(*[],)`, `() *[]` and `fn(*[])` produce `()`, `()` and `fn()`.
+The check cannot run early: `(*F *[*[],],).0` discards the would-be argument host and
+produces `()` without materializing it.
+
+The finite audit includes all 140 structural values in its stated three-node corpus,
+including tuples containing empty packs. For each application or mapping property,
+both sides are independently materialized and must either agree or both report the
+specific empty-generic-argument refusal. Other model errors fail the audit, including
+resource limits; an unexpected refusal in application itself also fails. Refusals are
+reported separately from successful materializations.
 
 **Deliberate silence, recorded here because this is the file to read (round-8 probe E's D3).** A
 spec that expands to zero targets — `[]`, `*[]`, `*[].0`, `*F *[]`, and (measured by round-9 probe E's

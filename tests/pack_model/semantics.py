@@ -185,15 +185,8 @@ class Engine:
         if left == atom("self"):
             return right
         if left.kind in ("atom", "tuple"):
-            # An argument slot needs at least one member to splice: appending an empty pack used to
-            # add nothing and render the host bare (`*F *[*[],]` as `F`), while the macro reports it.
-            # Probe E's D2 measured the family at six inputs, three of them rendering shapes the
-            # macro never produces (`(Vec,)`, `(F,(A,))`, `Vec<(A,)>`).
-            if right.kind == "pack" and not right.children:
-                raise ModelError(
-                    "single-slot",
-                    "an argument slot needs at least one member to splice",
-                )
+            # Application retains the slot. Its host checks cardinality only when
+            # materialized; a later zero power can still discard the entire host.
             self.bounded(len(left.children) + 1)
             return Node(left.kind, left.name, (*left.children, right))
         raise ModelError("invalid-head", f"{left.kind} is not a constructor in this model")
@@ -229,6 +222,21 @@ class Engine:
             return self.combine(self.slots(x) for x in value.children)
         if value.kind in ("ref", "raw", "slice", "array"):
             rows = self.one(value.children[0])
+        elif value.kind == "atom":
+            arguments = []
+            for child in value.children:
+                variants = self.slots(child)
+                # Each source generic argument must contribute at least one slot
+                # in every surviving branch. Empty nested packs can disappear
+                # beside other members; an empty choice has no surviving branch.
+                if any(not row.items for row in variants):
+                    raise ModelError(
+                        "empty-pack-argument",
+                        "this argument list requires at least one type, but the pack "
+                        "expands to none",
+                    )
+                arguments.append(variants)
+            rows = self.combine(arguments)
         elif value.kind == "fn":
             params = self.combine(self.slots(x) for x in value.children[:-1])
             returns = self.one(value.children[-1])

@@ -26,7 +26,7 @@ def spell(value):
     if value.kind == "tuple":
         return "(" + ",".join(children) + ("," if children else "") + ")"
     if value.kind == "choices":
-        assert children, "[] is not an empty candidate list"
+        assert children, "the structural corpus contains only nonempty candidate lists"
         return "[" + ",".join(children) + ",]"
     if value.kind == "atom":
         return value.name + ("<" + ",".join(children) + ">" if children else "")
@@ -43,19 +43,6 @@ def spell(value):
     raise AssertionError(value.kind)
 
 
-def legal(value):
-    """Whether this value is expressible at all: an argument slot needs a member to splice.
-
-    Probe E's D2 aligned the model with the macro on that rule, so a shape like `(*[],)` - a tuple
-    whose member is an empty pack - is no longer something the model can build, and this audit
-    builds its corpus out of values.
-    """
-    if value.kind in ("atom", "tuple"):
-        if any(child.kind == "pack" and not child.children for child in value.children):
-            return False
-    return all(legal(child) for child in value.children)
-
-
 def bounded_values():
     by_size = {1: {atom("A"), atom("B"), atom("self"), pack(), tup()}}
     wrappers = (pack, tup, choices)
@@ -69,10 +56,7 @@ def bounded_values():
                 values.update(wrapper(left, right) for wrapper in wrappers)
         by_size[size] = values
     everything = set().union(*by_size.values())
-    return sorted(
-        (value for value in everything if legal(value)),
-        key=lambda value: (len(spell(value)), spell(value)),
-    )
+    return sorted(everything, key=lambda value: (len(spell(value)), spell(value)))
 
 
 def walk(value):
@@ -94,7 +78,7 @@ def complete(rows, declarations=()):
 
 
 def materialized_tuple(value):
-    return tuple(Engine().finish(tup(value)))
+    return materialized(tup(value))
 
 
 def parse(source):
@@ -113,24 +97,33 @@ def parameters(value):
 
 
 counts = Counter()
+outcomes = Counter()
 
 
-def applied(call, *args):
-    """One engine call, with a refusal read as an outcome rather than a failure.
+def materialized(value):
+    """Record only the known empty generic-argument refusal as an outcome.
 
-    The model refuses an empty argument slot and the macro does too (probe E's D2 measured the
-    family at six inputs), so an audit that walks shape pairs still meets refusals that the corpus
-    itself cannot express - `pack()` appears among the constructors and inputs on purpose. They are
-    counted here and reported as `None`, which callers skip; the tolerance lives in one place.
+    Apply and MapTask preserve structure; only final materialization knows how
+    many types an argument contributes. Budget failures and other diagnostics
+    are unexpected. Equivalence properties must materialize both sides even
+    when one side refuses its arguments.
     """
     try:
-        return call(*args)
-    except ModelError:
-        counts["empty_argument_refused"] += 1
+        return Engine().finish(value)
+    except ModelError as error:
+        if (error.code != "empty-pack-argument" or str(error) !=
+                "empty-pack-argument: this argument list requires at least one type, "
+                "but the pack expands to none"):
+            raise
+        outcomes["empty_argument_refused"] += 1
         return None
 
 values = bounded_values()
-assert len(values) == 127
+assert len(values) == 140
+# Empty packs occupy structural tuple slots until final materialization.
+assert tup(pack()) in values
+assert Parser("(*[],)").parse() == tup(pack())
+assert Engine().finish(tup(pack())) == [Row((tup(),))]
 
 for value in values:
     assert star(star(value)) == star(value), value
@@ -145,24 +138,26 @@ for value in values:
 
 for left, right in product(values, repeat=2):
     engine = Engine()
-    result = applied(engine.apply, left, right)
-    if result is None:
-        continue
-    rows = engine.finish(result)
-    complete(rows)
-    assert engine.group == 0
+    result = engine.apply(left, right)
+
+    # Declaration carriers must preserve refusal as well as successful output.
+    # Never skip a carried failure just because the unwrapped call succeeded.
+    carried_engine = Engine()
+    carried = carried_engine.apply(carry(("LeftP",), left), carry(("RightP",), right))
+    assert engine.group == carried_engine.group == 0
     counts["finite_type_apply_no_allocation"] += 1
+    rows = materialized(result)
+    carried_rows = materialized(carried)
+    assert (rows is None) == (carried_rows is None), (left, right, rows, carried_rows)
+    counts["declaration_acceptance_equivalence"] += 1
+    if rows is None:
+        continue
+    complete(rows)
 
     # Deliberately unused declarations must survive. Inferring parameters
     # from names present in the final types would fail this property.
-    carried_engine = Engine()
-    carried = applied(carried_engine.apply, carry(("LeftP",), left), carry(("RightP",), right))
-    if carried is None:
-        continue
-    carried_rows = carried_engine.finish(carried)
     assert carried_rows == [Row(row.items, ("LeftP", "RightP")) for row in rows]
     complete(carried_rows, ("LeftP", "RightP"))
-    assert carried_engine.group == 0
     counts["explicit_declaration_provenance"] += 1
 
 constructors = (atom("F"), atom("G"), pack(atom("F")), pack(),
@@ -170,25 +165,25 @@ constructors = (atom("F"), atom("G"), pack(atom("F")), pack(),
 inputs = (atom("A"), pack(), pack(atom("A")), pack(atom("A"), atom("B")),
           pack(pack(atom("A"), atom("B"))), tup(atom("A"), atom("B")))
 for first, second, row in product(constructors, constructors, inputs):
-    result = applied(Engine().map_task, pack(choices(first, second)), row)
-    if result is None:
+    result = Engine().map_task(pack(choices(first, second)), row)
+    expected = choices(*(Engine().map_task(pack(selected), row) for selected in (first, second)))
+    actual_rows = materialized_tuple(result)
+    expected_rows = materialized_tuple(expected)
+    assert actual_rows == expected_rows, (first, second, row, actual_rows, expected_rows)
+    counts["left_choice_acceptance_equivalence"] += 1
+    if actual_rows is None:
         continue
-    expected = tuple(
-        output for selected in (first, second)
-        for output in materialized_tuple(Engine().map_task(pack(selected), row))
-    )
-    assert materialized_tuple(result) == expected, (first, second, row)
     counts["left_choice_keeps_current_map_task"] += 1
 
 for left, first, second in product(constructors, inputs, inputs):
-    result = applied(Engine().map_task, pack(left), choices(first, second))
-    if result is None:
+    result = Engine().map_task(pack(left), choices(first, second))
+    expected = choices(*(Engine().map_task(pack(left), selected) for selected in (first, second)))
+    actual_rows = materialized_tuple(result)
+    expected_rows = materialized_tuple(expected)
+    assert actual_rows == expected_rows, (left, first, second, actual_rows, expected_rows)
+    counts["right_choice_acceptance_equivalence"] += 1
+    if actual_rows is None:
         continue
-    expected = tuple(
-        output for selected in (first, second)
-        for output in materialized_tuple(Engine().map_task(pack(left), selected))
-    )
-    assert materialized_tuple(result) == expected, (left, first, second)
     counts["exposed_right_choice_is_shared"] += 1
 
 for dimensions in (2, 3):
@@ -196,15 +191,9 @@ for dimensions in (2, 3):
         engine = Engine()
         axes = [engine.generate(pack(), count) for count in lengths]
         result = pack(atom("Map"))
-        refused = False
         for axis in axes:
-            stepped = applied(engine.apply, result, axis)
-            if stepped is None:
-                refused = True
-                break
-            result = stepped
-        if refused:
-            continue
+            # Every axis combination here is supported, including empty axes.
+            result = engine.apply(result, axis)
         actual = engine.finish(tup(result))
         declared = parameters(result)
         complete(actual, declared)
@@ -230,6 +219,8 @@ examples = {
     "(*[[*F,*G],] *[*[A, B],],)": ["(F<A,B>,)", "(G<A,B>,)"],
     "(*Vec [*[A,],*[B, C]],)": ["(Vec<A>,)", "(Vec<B>,Vec<C>)"],
     "(*F *[],)": ["()"],
+    "(*[],)": ["()"],
+    "(*[],).2": ["()"],
     "(*[A, B],).2": ["(A,B,A,B)"],
     "(*[*[A, B],].2,)": ["(A,A)", "(A,B)", "(B,A)", "(B,B)"],
     "(self ([A,B],)).2": ["(A,A)", "(A,B)", "(B,A)", "(B,B)"],
@@ -243,8 +234,7 @@ for source, expected in examples.items():
     complete(rows)
     counts["targeted_structure_and_lexer_regressions"] += 1
 
-for source in ("&*[A, B]", "*const *[A, B]", "[*[A, B]]", "[*[A, B];2]", "fn()->*[A, B]",
-               "(*F *[*[],],)"):
+for source in ("&*[A, B]", "*const *[A, B]", "[*[A, B]]", "[*[A, B];2]", "fn()->*[A, B]"):
     try:
         rendered(source)
     except ModelError as error:
@@ -253,11 +243,15 @@ for source in ("&*[A, B]", "*const *[A, B]", "[*[A, B]]", "[*[A, B];2]", "fn()->
         raise AssertionError(("expected single-slot error", source))
     counts["single_slot_rejects_many"] += 1
 
+value, _ = parse("(*F *[*[],],)")
+assert materialized(value) is None
+counts["empty_generic_argument_rejected_at_materialization"] += 1
+
 for source in ("*Vec ? A", "A+B", "T:Trait", "@Self", "A=>B"):
     try:
         Parser(source).parse()
-    except ModelError:
-        pass
+    except ModelError as error:
+        assert error.code == "unsupported-syntax", (source, error.code)
     else:
         raise AssertionError(("unexpected unsupported syntax acceptance", source))
     counts["unsupported_syntax_rejected"] += 1
@@ -289,7 +283,7 @@ report = {
     "scope": "Finite structural Pack proposal audit; not a proof of full DSL or Rust correctness",
     "model_hashes": {name: sha256((MODEL_ROOT / name).read_bytes()).hexdigest()
                      for name in ("semantics.py", "syntax.py")},
-    "structural_values": len(values), "checks": dict(counts),
+    "structural_values": len(values), "checks": dict(counts), "outcomes": dict(outcomes),
     "checks_total": sum(counts.values()), "new_failures": [],
 }
 output_path("exhaustive_results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

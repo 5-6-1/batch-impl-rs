@@ -173,12 +173,11 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(outputs("*F *[A, B]"), ["F<A>", "F<B>"])
         self.assertEqual(outputs("*F *[*[A, B],]"), ["F<A,B>"])
         self.assertEqual(outputs("*F *[]"), [])
-        # The empty argument slot: this line used to pin `["F"]`, the divergence probe E's D2 widened
-        # to six inputs. The macro reports it ("an argument slot needs at least one member to
-        # splice"), and so does the model now, so the pair agrees instead of diverging.
+        # A surviving generic argument cannot materialize to no types. The empty
+        # row is kept during mapping and rejected when the argument host collects it.
         with self.assertRaises(ModelError) as caught:
             outputs("*F *[*[],]")
-        self.assertEqual(caught.exception.code, "single-slot")
+        self.assertEqual(caught.exception.code, "empty-pack-argument")
 
     def test_direct_hosts_are_not_reapplied(self):
         self.assertEqual(outputs("F<G<T>>"), ["F<G<T>>"])
@@ -191,6 +190,32 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(outputs("F<*[A,]>"), ["F<A>"])
         self.assertEqual(outputs("*F *[*[A, B], *[C, D]]"), ["F<A,B>", "F<C,D>"])
         self.assertEqual(outputs("F *[(A,B), (C,D)]"), ["F<(A,B),(C,D)>"])
+
+    def test_empty_members_are_checked_by_the_receiving_host(self):
+        accepted = {
+            "(*[],)": ["()"],
+            "(*[],).2": ["()"],
+            "() *[]": ["()"],
+            "(A,) *[]": ["(A,)"],
+            "(*[(),] *[*[],],)": ["((),)"],
+            "F *[*[],A]": ["F<A>"],
+            "F<*[*[],A]>": ["F<A>"],
+            "F<(*[],)>": ["F<()>"],
+            "fn(*[*[],])": ["fn()"],
+            "(*F *[*[],],).0": ["()"],
+            "(F<*[]>,).0": ["()"],
+        }
+        for source, expected in accepted.items():
+            with self.subTest(source=source):
+                self.assertEqual(outputs(source), expected)
+        for source in ("F *[]", "F<*[]>", "F *[*[],]", "F<*[*[],]>",
+                       "F<[*[],A]>", "F<*[],A>"):
+            with self.subTest(source=source), self.assertRaises(ModelError) as error:
+                outputs(source)
+            self.assertEqual(error.exception.code, "empty-pack-argument")
+        # Zero branches produce no target, rather than one branch with no arguments.
+        # Entry-level zero-target diagnostics belong to the production macro.
+        self.assertEqual(outputs("F<[]>"), [])
 
     def test_single_slot_and_callable_hosts(self):
         self.assertEqual(outputs("&*[A,]"), ["&A"])
@@ -210,13 +235,9 @@ class ModelTests(unittest.TestCase):
                  "A)": "trailing-token", "*[].2..2": "empty-range", "*[].3..=2": "empty-range",
                  "*[].1000000000": "expansion-limit", "(A,B).30": "expansion-limit",
                  "*[].0..=1000000000": "expansion-limit", "*" * 300 + "A": "depth-limit",
-                  # a differential probe found the model dropping this one silently: an
-                  # empty pack contributes no type to an argument list, which the macro
-                  # reports as a zero-impl spec.
+                  # Each source argument is checked separately. Types in adjacent
+                  # arguments do not repair an argument that materializes to none.
                   "Vec<u8, *[], u16>": "empty-pack-argument",
-                  # the same probe found the sibling spelling: an empty *candidate list*
-                  # vanishes the same way, so `Vec<[]>` must not come back empty either.
-                  "Vec<[]>": "empty-pack-argument",
                   "self": "bare-self",
                  "fn()->": "missing-operand", "A::": "missing-operand"}
         cases.update({"dyn Send": "unsupported-syntax", "unsafe fn()": "unsupported-syntax"})
