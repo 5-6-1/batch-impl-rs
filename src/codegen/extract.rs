@@ -86,6 +86,9 @@ pub(crate) fn extract_impl_parts(ty: Ty) -> ImplParts {
             let (impl_generics, associated_types) = (parts.impl_generics, parts.associated_types);
             parts.impl_generics =
                 tp.params.into_iter().map(|(n, b)| (n.to_token_stream(), b.map(|b| *b))).collect();
+            parts
+                .impl_generics
+                .extend(tp.fresh_groups.into_iter().map(|g| (fresh_group_tokens(g), None)));
             parts.associated_types = tp
                 .bindings
                 .into_iter()
@@ -240,6 +243,11 @@ pub(crate) fn hoist_type_params(ty: Ty, out: &mut Vec<(TokenStream, Option<Ty>)>
         // names) collapse onto one shared generic regardless of token
         // spelling; user-written params pass through verbatim.
         TyKind::WithType(wt) => {
+            for group in wt.0.fresh_groups {
+                if !out.iter().any(|(name, _)| decl_fresh_group(name) == Some(group)) {
+                    out.push((fresh_group_tokens(group), None));
+                }
+            }
             for (name, bound) in wt.0.params {
                 // A declaration carrier: a grouped single-position fresh ref
                 // (`@{g_i}`). Extract it in one step — the check and the

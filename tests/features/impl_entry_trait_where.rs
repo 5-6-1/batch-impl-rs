@@ -8,7 +8,7 @@ use batch_impl::batch_impl;
 // ------------------------------------------------------------
 // 4. `@trait` in a new-generic-decl bound → the impl's trait path
 // ------------------------------------------------------------
-#[batch_impl(<T: @trait> Box<T>)]
+#[batch_impl(@Self: <T: @trait> Box<T>)]
 impl Mk4 for Box<T> {
     fn tag(&self) -> u32 {
         4
@@ -33,7 +33,7 @@ fn impl_entry_at_trait_bound() {
 // ------------------------------------------------------------
 // 5. `@trait` in a bare where predicate (trait path substitution)
 // ------------------------------------------------------------
-#[batch_impl(<T> Box<T> where T: @trait)]
+#[batch_impl(@Self: <T> Box<T> where T: @trait)]
 impl Mk5 for Box<T> {
     fn tag(&self) -> u32 {
         5
@@ -58,7 +58,7 @@ fn impl_entry_at_trait_where() {
 // ------------------------------------------------------------
 // 6. The impl's own generics / where clause are preserved
 // ------------------------------------------------------------
-#[batch_impl(Box<T> where T: Clone)]
+#[batch_impl(@Self: Box<T> where T: Clone)]
 impl<T: Clone> Mk6 for Box<T> {
     fn n(&self) -> usize {
         6

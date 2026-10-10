@@ -1,6 +1,6 @@
 # batch-impl Reference
 
-**v0.10.0 — in development (unreleased).** This manual describes the current working tree: rule systems, their crossings and boundary cases, with diagnostics in §10. Pending changes are recorded in [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
+**Unreleased — changes after 0.10.2.** This manual describes the current working tree, including the unpublished breaking impl-entry requirement for explicit `template: source` in every nonempty spec (§9.2). Diagnostics are in §10; pending changes are recorded in [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
 
 Repository sources (GitHub `main`): English | [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)
 
@@ -293,9 +293,15 @@ Emptiness is meaningful only where it is the point; the two cases that are not
 are diagnosed rather than rendered — a spec that expands to zero targets
 (`*Vec *[]`, `*[].0`) and an argument that expands to none (`Vec<*[]>`).
 
-The `::Assoc<...>` continuation of a qualified path and the trait path after
-`as` in `<T as Trait>::Assoc` remain ordinary Rust paths; packs are not spliced
-inside those parts. They differ from the parsed type head that can receive a pack.
+The name of a `::Assoc<...>` segment is fixed; its generic arguments use the
+ordinary type DSL. Choices distribute, packs splice into variadic slots, and
+declarations and fresh parameters are hoisted with the result. Explicit `<>`
+participates in synchronization; a bare segment stays bare. Choices in the
+type head and segment arguments form a Cartesian product without applying
+types to segment names. The trait path after `as` in `<T as Trait>::Assoc`
+remains a Rust domain. Ordinary const braces, macro inputs, attributes and
+standard Rust where/shape templates do not gain pack operations. Tutorial
+§5.6 gives a runnable example.
 
 ### 4.5 Generators, identities and limits
 
@@ -308,8 +314,9 @@ ordinary power rules. The generated tuple in each branch is returned as
 a pack.
 
 `*[].N` generates `N` independent parameters; `.0` allocates none.
-Copying a generated parameter preserves identity. Distinct generator
-executions allocate distinct groups. Thus `(*[],).2` becomes unit with
+Copying a generated parameter preserves identity. Independent generator
+sources have distinct groups; arity alternatives of one range source retain
+that source's group. Thus `(*[],).2` becomes unit with
 no declarations, whereas `*[*[],].2` generates two parameters.
 
 Declarations are not erased because a host has no members:
@@ -432,6 +439,7 @@ records the evaluation stages and counterexamples.
 - **Numbering and display names**: fresh generics are `P0`, `P1`, … in **document order**, and `@N` is exactly that index (`@0` → `P0`). User-written parameters are addressed by their own names — `@N` exists because fresh names are not written by the user.
 - **Generation order** (measured): a Cartesian product emits its impls with the **left operand varying fastest** (`[u8, u16].[u32, u64]` → `u8<u32>`, `u16<u32>`, `u8<u64>`, `u16<u64>`), and a `.N` power emits with the **first position fastest** (`(u8, u16).2` → `u8<u8>`, `u8<u16>`, `u16<u8>`, `u16<u16>`). nothing else promises an order, so read it only as what a preview will show you.
 - **`@g_i` is the primitive**: group `g`, slot `i`, stable across array distribution; `@N` is the flattened form. Measured: `().2 where{@0_1: Clone}` → `where P1: Clone`.
+- **Range-source groups are stable**: one range generator shares a group number across all its length branches; two range generators have separate groups rather than numbering each branch. A range's zero-arity branch retains a known empty group: `@g_0..` is empty, but a single `@g_0` is out of range. Unknown groups still error. Fixed `().0` allocates no group. Copying generated values preserves their parameter identities.
 - **`@N..M`** excludes M, **`@N..=M`** includes M, and **`@N..`** is open to the last fresh. This is the same endpoint rule used by numeric arity ranges and named type-family ranges. In a where predicate a run becomes **one predicate per covered fresh**: measured `().2 where{@1..: Clone}` → `where P1: Clone`.
 - **An exclusive range excludes its end in every position**: measured `().3 where{@0..2: Clone}` → `where P0: Clone, P1: Clone` on a three-fresh impl.
 - **An open range past the end contributes nothing**: measured `().2 where{@5..: Clone}` → no predicate, no error. An arity-dependent spec must not fail on its shorter case.
@@ -737,18 +745,20 @@ For an introduction to choosing an entry, see the [tutorial's §11 comparison](h
 - **`batch_trait!`** takes sections, custom `@name=value;` definitions and **no** `#` directives — it never sees a trait definition.
 - **An empty spec list** on the attribute entry (`#[batch_impl]`, `#[batch_impl()]`, `#[batch_impl(;)]`) re-emits the item unchanged: the attribute derives impls, and nothing to derive means the original. (The impl entry behaves the same way, §9.4.)
 
-### 9.2 The impl entry: the two spec forms
+### 9.2 The impl entry: explicit shape specs
 
 | Form | Spelling | Meaning |
 |---|---|---|
-| shape form | `A<B> : [Box, Rc] [usize, isize]` | `template : matrix` — every matrix leaf is matched against the template before `:`; the resulting slots rewrite the block, whose for-type need not have the template's shape |
-| direct form | `<T> Box<T>` | a generic declaration plus the for-type, for the one-spec case |
+| multiple targets | `A<B> : [Box, Rc] [usize, isize]` | `template : matrix` — every matrix leaf is matched against the template before `:`; the resulting slots rewrite the block, whose for-type need not have the template's shape |
+| one target with a generic declaration | `@Self : <T> Box<T>` | use the input self type as the template; declarations belong to the source after the colon, and a single target uses the same matching rules |
 
-`;` separates several specs (`A : u8; A : u16`); an empty spec list is the identity (§9.1).
+`;` separates several specs (`A : u8; A : u16`). Every nonempty spec must supply a template, a colon and a source: bare `Box<T>` does not imply `@Self:`, and `@Self:` does not implicitly reuse the input type. Write `@Self: @Self` to explicitly retain one target. An **empty attribute** is the identity (§9.1), but `@Self: []` is a zero-target source and remains an error.
+
+**Choose the replacement positions when migrating the old direct form.** That form replaced only the for-type; an explicit template's mapping also rewrites trait arguments, where predicates and the body. To preserve fixed types in those positions, use a separate prototype placeholder, for example `Target: Vec<u8> where { u8: Copy }` with `impl Tr for Target`. Adding `@Self:` mechanically to every old input is not equivalent.
 
 **The matrix is the attribute entry's matrix, and a list may be written either way.** After the shape colon the right-hand side is parsed exactly like the attribute entry's matrix: a **comma-separated list is one matrix**, so `W : u8, u16` and `W : [u8, u16]` are the same two leaves and both generate two impls — measured, side by side, byte-identical output. The brackets are a convenience for grouping (`[Box, Rc] [usize, isize]` is a two-dimensional matrix), never a requirement. `;` is what separates specs on this entry.
 
-**What the template has to describe.** The matrix supplies the values for the template's *placeholders*, so a spec reaches the impl only when a placeholder appears where the impl writes the type to replace — its for-type, a trait argument, a where predicate or the body. A placeholder is a **substitution target, not a generic parameter**: it need not be declared anywhere, and a concrete type on the left of `:` can only be matched by the same concrete type.
+**What the template has to describe.** The matrix supplies the values for the template's *placeholders*, so a spec reaches the impl only when a placeholder appears where the impl writes the type to replace — its for-type, a trait argument, a where predicate or the body. A placeholder is a **substitution target, not a generic parameter**: it need not be declared anywhere. Matching follows syntax rather than Rust name resolution; identifiers such as `u8` and `Box` can also be replaced.
 
 | the impl's self type | `:` left | `:` right | what happens |
 |---|---|---|---|
@@ -773,7 +783,7 @@ impl Maximum for Box<u8> {
 # assert_eq!(*<Rc<u16> as Maximum>::maximum(), u16::MAX);
 ```
 
-`@Self` copies this attribute invocation's input self type during constant expansion, wherever that pass already reaches: the template, matrix, generic arguments and where predicates. A direct-form `Vec<@Self>` on an input impl for `u8` therefore means `Vec<u8>`. The copied tokens still participate in subsequent shape mapping; they are not frozen. Ordinary Rust `Self` keeps its Rust meaning, and bodies, macro calls and later attributes retain their existing passthrough boundaries. Each stacked attribute reads its own input (§9.4). Trait attributes and `batch_trait!` have no input impl type and reject the constant; `@Self` cannot be redefined as a custom constant.
+`@Self` copies this attribute invocation's input self type during constant expansion, wherever that pass already reaches: the template, matrix, generic arguments and where predicates. On an input impl for `u8`, `@Self: Vec<@Self>` first becomes `u8: Vec<u8>`. Its template then maps `u8` in the prototype to `Vec<u8>`; the resolved matrix leaf is not mapped again. Tokens copied into a where predicate still participate in subsequent shape mapping; they are not frozen. Ordinary Rust `Self` keeps its Rust meaning, and bodies, macro calls and later attributes retain their existing passthrough boundaries. Each stacked attribute reads its own input (§9.4). Trait attributes and `batch_trait!` have no input impl type and reject the constant; `@Self` cannot be redefined as a custom constant.
 
 An explicit template remains useful when it describes several positions in the block, such as a self-type argument and a trait argument. It need not have the same shape as the input self type.
 
@@ -783,6 +793,7 @@ The text before `:` is a **template**, never a trait name: the impl entry takes 
 
 - `@trait` (the block's own trait path) and `@Self` (the input self type) expand through the existing constant pass. Inherent impls support `@Self` but have no `@trait`. **Custom constant definitions and `#` directives are rejected** on this entry (`implentry_hash_banned`, `const_attr_unsupported`).
 - A generator in the spec hoists fresh parameters onto the impl, and `@N..` where-selectors resolve against them (`@N` with no generator has nothing to refer to and is reported out of range).
+- An `impl{...}` attachment in the source must sit outside the final target leaf: `Wrap<u8> impl{Wrap<A>}` is supported, while `Wrap<u8 impl{A}>` nested inside a type argument is rejected.
 - The block's own generics, `where` clause and `unsafe` are preserved; its `where` region ends at a depth-0 `;` or the end of the input.
 
 Declared const parameters can be specialized directly. The bound parameter's
@@ -875,7 +886,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `stray_hash_no_name` | a stray `#` where a directive name belongs (`#`, `#{0}`) | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
 | `literal_too_large` | an integer literal that does not fit `usize` | batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit | DSL |
 | `bare_number_target` | a bare number or range where a target belongs (`1`, `0..3`) | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target ; batch-impl: a bare range is not a type — `N..M` counts `@` references inside a target, it does not name one | DSL |
-| `array_length_pack` | a pack or a list in an array length (`[u8; *[u8, u16]]`) | batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]` | DSL |
+| `array_length_pack` | type names used as values in a const array length | expected value, found builtin type `u8` | Rust |
 | `at_open_range_empty_host` | a fresh range with no fresh generics in scope (`Vec<@0..>`) | batch-impl: this target has an empty argument list (`Vec<>`) — a fresh range expands to nothing when the impl has no fresh generics for it; write the arguments out or drop the range | DSL |
 | `empty_angle_on_other_ident` | an empty `<>` on an ident that is not the annotated trait, with a switch template present (`Vec<> impl{Tr<>}`) | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
 | `empty_angle_where_surface` | the same mistake met on the **where-predicate** token path (`where{Vec<>: Clone}`), where no switch template is needed | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
@@ -883,12 +894,12 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `empty_angle_body_surface` | the same mistake on the **body** path, reached through a switch template (`#tag3{X<>} impl{Tr<>}`) | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
 | `batch_trait_directive_unsupported` | a `#` directive inside `batch_trait!`, which has no trait definition to read signatures from (`#fill([m])`) | batch-impl: `#fill` is supported only by `#[batch_impl]` / `#[batch_impl_only]` (directives need the trait definition as the signature source of truth; `batch_trait!` is a function-like macro without one) | DSL |
 | `batch_trait_span_points_at_the_segment` | a failing spec deep inside a long `batch_trait!` (`Tr: 7;` after two valid segments) — the message is reported **at that segment's line**, not at the macro's opening line | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target | DSL |
-| `impl_entry_template_describes_nothing` | a bare-ident shape template on the impl entry that names nothing the shape can rewrite (`#[batch_impl(NotTheSelfType: A, B)]` — writing the **trait** before `:` instead of a template or `@Self`) | batch-impl: the shape template `NotTheSelfType` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, `#[batch_impl(A, B)] impl Tr for A` for the direct form, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
-| `impl_entry_template_names_the_trait` | the reported spelling exactly — `#[batch_impl(T: A, B)]` on `impl T for A`, i.e. the trait's own name where a template belongs (loud through 0.9.5, silent from 0.9.6) | batch-impl: the shape template `T` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, `#[batch_impl(A, B)] impl Tr for A` for the direct form, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
+| `impl_entry_template_describes_nothing` | a bare-ident shape template on the impl entry that names nothing the shape can rewrite (`#[batch_impl(NotTheSelfType: A, B)]` — writing the **trait** before `:` instead of a template or `@Self`) | batch-impl: the shape template `NotTheSelfType` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
+| `impl_entry_template_names_the_trait` | the reported spelling exactly — `#[batch_impl(T: A, B)]` on `impl T for A`, i.e. the trait's own name where a template belongs (loud through 0.9.5, silent from 0.9.6) | batch-impl: the shape template `T` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
 | `impl_entry_leaf_ignored` | a spec that ignores its matrix leaf — the template binds nothing the impl writes and the produced for-type is not the leaf either (`#[batch_impl(Vec<u8> : Vec<u8>)]` on `impl Make for u8`, which silently produced an impl for `u8` alone). The idempotent spellings (`Wrap<N> : Wrap<N>`, `A : A`) stay legal by decision | batch-impl: this spec ignores its matrix leaf — template `Vec < u8 >`, the impl's self type `u8`, matrix leaf `Vec < u8 >`, and the for-type it produced `u8`. The text before `:` is a **template**: its placeholders are the substitution targets, so at least one of them has to appear where the impl writes the type to replace (its for-type, a trait argument, a where predicate or the body) — a concrete type can only be matched by the same concrete type. Write a placeholder for the part the matrix should replace (e.g. `W: u8; W: u16` for `impl Tr for W`), and keep the leaves in the template's shape | DSL |
 | `body_in_comma_less_group` | a per-element body in a comma-less group (`[u8 { … }]`, `[Cell<T> { … }]`) | batch-impl: a per-element `{body}` needs a list — a comma-less `[T]` is the slice type; write `[A { … }, B]`, or give the whole group one body (`[A] { … }`) | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
-| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
+| `qualified_tail_dsl_token` | a fresh reference in projection arguments has no generator | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name); batch-impl: `@1_0` does not match a generated generic — this impl has no group 1 position 0 (groups and positions number from 0); use `@N` for the N-th fresh generic in document order | DSL |
 | `global_path_no_ident` | a trailing `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
 | `path_prefix_mismatch` | `# path::Other: Trait` | batch-impl: path prefix `#...Other` has a trailing ident that differs from the trait name `MyTrait`; the two must be identical | DSL |
 | `group_angle_bare` | `<...>` inside `(...)` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |
@@ -1029,7 +1040,10 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `implentry_at_num_banned` | `@0` on an impl-entry spec with no fresh | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `half_built_impl` | one leaf fails during codegen, another succeeds | batch-impl: `@3` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `nested_error_target` | a nested DSL error extracted before an array length becomes Rust tokens | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
-| `implentry_direct_not_type` | a directive where a type belongs | batch-impl: this form implements one type at a time — to batch targets, put `#[batch_impl(...)]` on a trait definition, or use `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] trait Tr { … }`) | DSL |
+| `implentry_direct_not_type` | an impl spec has only `<T>`, without a template and source | batch-impl: the impl entry requires `template: source` in every nonempty spec; a bare type is not an implicit `@Self:` mapping. Write `@Self: source` to match the input self type, or name the placeholders to replace | DSL |
+| `impl_entry_missing_source` | `Template:` has no source | batch-impl: a shape spec requires a source after `:`; use an empty attribute to preserve the input impl, or supply the types to match | DSL |
+| `impl_entry_bare_type` | a bare target has no explicit template | batch-impl: the impl entry requires `template: source` in every nonempty spec; a bare type is not an implicit `@Self:` mapping. Write `@Self: source` to match the input self type, or name the placeholders to replace | DSL |
+| `impl_entry_nested_attachment` | a nested `impl{...}` attachment cannot be consumed on this entry | batch-impl: a nested `impl{...}` attachment is not supported on the impl entry; attach the template to the final source leaf instead, for example `Wrap<u8> impl{Wrap<A>}` | DSL |
 | `implentry_hash_banned` | `#fill` on the impl entry | batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly) | DSL |
 | `top_level_block_not_last` | `{! m!{…}}` before other blocks | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
 | `top_level_manual_not_last` | the manual top-level form, not last | batch-impl: a `{! ...}` top-level block must be the last block | DSL |

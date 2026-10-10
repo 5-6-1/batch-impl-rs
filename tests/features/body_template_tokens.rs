@@ -75,8 +75,8 @@ fn fixed_shape_slots_remain_lexical_inside_macros() {
 
 struct Wrapper<T>(T);
 
-#[batch_impl(Wrapper<().2>)]
-impl Wrapper<()> {
+#[batch_impl(Wrapper<T>: Wrapper<().2>)]
+impl Wrapper<T> {
     fn bytes() -> usize {
         fresh!(sum!(@(::core::mem::size_of::<@A>()),..))
     }

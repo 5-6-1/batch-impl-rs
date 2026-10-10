@@ -1,6 +1,6 @@
 # batch-impl 教程
 
-**v0.10.0 — 开发中（未发布）。** 本教程描述开发中的当前工作树。待发布改动与迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**Unreleased — 0.10.2 之后的改动。** 本教程描述当前工作树，包含尚未发布的 impl 入口破坏性变更：每个非空 spec 必须显式写出 `模板: 来源`。待发布改动与迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
 **仓库源码（GitHub main）**：简体中文 · [English](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md) · [参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)
 
@@ -810,7 +810,35 @@ trait Q2 {}
 trait Q3<T> {}
 ```
 
-`::` 尾巴是**普通 Rust 路径文本**：它绝不重新解析，因此尾巴里的 DSL 记号（`Holder<T>::Assoc<@0>`）会得到定向错误，而不是漏进生成的 impl。
+`::` 后的段名仍是固定的 Rust 标识符，但段的泛型实参与普通类型实参共用
+DSL：列表按候选分发，包拼入实参，内部还能写 apply、生成器和嵌套投影。
+头部与尾实参里的候选组成笛卡尔积：
+
+```rust
+use batch_impl::batch_impl;
+trait Family { type Out<T>; type Pair<A, B>; }
+impl Family for u8 { type Out<T> = (u8, T); type Pair<A, B> = (u8, A, B); }
+impl Family for u16 { type Out<T> = (u16, T); type Pair<A, B> = (u16, A, B); }
+
+#[batch_impl(<[u8, u16] as Family>::Out<[u32, u64]>)]
+trait Matrix {}
+#[batch_impl(<u8 as Family>::Pair<*[u16, u32]>)]
+trait Packed {}
+
+fn main() {
+    fn matrix<T: Matrix>() {}
+    matrix::<(u8, u32)>(); matrix::<(u8, u64)>();
+    matrix::<(u16, u32)>(); matrix::<(u16, u64)>();
+    fn packed<T: Packed>() {}
+    packed::<(u8, u16, u32)>();
+}
+```
+
+显式 `::Out<>` 使用既有的泛型同步规则，裸 `::Fixed` 不会被补上实参。
+`as` 右侧的 trait 路径仍是普通 Rust 域；`::@0` 不能把段名变成动态选择。
+普通 const 大括号、宏输入和属性继续保留各自边界。投影不替 Rust 证明泛型
+参数已受约束：只在 GAT 投影中出现的 fresh 参数，仍可能需要放入 trait 实参
+等约束位置，否则 Rust 可报 E0207。
 
 ### 5.7 bound 位置、全局路径与 fn 具名参数
 
@@ -1078,18 +1106,32 @@ target 元组的尾逗号**可选**：`(@0..)` ≡ `(@0..,)`——无逗号的�
 有范围占位符，会按元组重开，arity 1 份仍然渲染真正的 1 元组 `(P0,)`
 （绝不会是分组 `(P0)`）。
 
-**多个 bound 生成器**在同一 spec 中按 arity 笛卡尔积分发，用**扁平**
-`@N..` 跨全部生成器寻址 fresh —— `<R, T: Fn()1..3 R> … (@0..)` 是实测可用的
-拼写；同一元组里两个扁平范围也不会重叠，因为第二个元组元素把第二个范围
-放在了实参位。
+**多个 bound 生成器**在同一 spec 中按 arity 笛卡尔积分发。**扁平**
+`@N..` 对当前 impl 的全部 fresh 寻址；要分别取各个来源，用**组内范围**。
+每个范围生成器只占一个组号，不因分支长度变化重新编号。这里 `F` 的来源
+始终是组 0，`G` 的来源始终是组 1：
 
-**组内范围**（第一个 bound 的 fresh 用 `@0_0..`，第二个用 `@1_0..`）只在
-**单个组内**寻址，而组只在 bound 的 arity **固定**时才存在：实测在
-`Fn()1..3` 这类区间形状的 bound 上，**每一个**分组引用（`@0_0`、`@0_0..`、
-以及 `where{@0_..: …}`）在**每一个叶子**都失败——不只是 arity 0 那一份——
-而固定的 `Fn()2` 形状可用（`@0_0, @0_1` 与 `@0_0..`）。组内范围还要求该组
-在那个叶子里确实有 fresh：`Fn()0..N` bound 的 arity 0 份没有，引用在那里
-报错——与 `@g_i` 同规则。
+```rust
+use batch_impl::batch_impl;
+#[batch_impl(
+    <F: Fn()1..3, G: Fn()1..3> CallPair<F, G> ((@0_0..), (@1_0..))
+    #tag { 17 }
+)]
+trait CallPair<F, G> { fn tag() -> usize; }
+
+fn main() {
+    assert_eq!(<((u8,), (u16,)) as CallPair<fn(u8), fn(u16)>>::tag(), 17);
+    assert_eq!(<((u8,), (u16, u32)) as CallPair<fn(u8), fn(u16, u32)>>::tag(), 17);
+    assert_eq!(<((u8, u64), (u16,)) as CallPair<fn(u8, u64), fn(u16)>>::tag(), 17);
+    assert_eq!(<((u8, u64), (u16, u32)) as CallPair<fn(u8, u64), fn(u16, u32)>>::tag(), 17);
+}
+```
+
+范围含零元分支时，该分支仍知道来源组存在：`Fn()0..2` 的零元分支上，
+`@0_0..` 为空，`(@0_0..)` 成为 `()`，where 中对应范围不贡献谓词。
+单位置 `@0_0` 仍越界；不存在的组（如这里只写一个生成器却引用 `@1_0..`）
+也仍报错。固定零元生成器 `().0` 不分配组，和范围的零元分支不同。
+复制已经生成的类型保留参数身份，不产生新的来源组。
 
 ## 7. 指令系统 `#`
 
@@ -1474,7 +1516,7 @@ impl Make for Box<u8> { fn make() -> Self { Box::new(u8::default()) } }
 堆叠属性各自读取本层输入；后续形状映射将复制的类型视为用户手写的同一段
 token（参考手册 §9.2）。
 
-本入口接受 `模板 : 矩阵`（`A<B> : [Box,Rc] [usize,isize]`）或直接形态（`<T> Box<T>`），用 `;` 分隔多个 spec，允许 `@trait` 出现在泛型声明 bound 与 `where` 谓词里（自定义 `@` 常量与 `#` 指令在这里被拒），并保留块自己的泛型、`where` 子句与 `unsafe`。**空** spec 列表是无操作：属性只从该块**派生** impl，没有可派生内容时原块原样回来。规则在 `docs/zh-CN/reference.md` §9.2–§9.3。
+本入口的每个非空 spec 都写成 `模板 : 矩阵`（如 `A<B> : [Box,Rc] [usize,isize]`）；单个目标也要明确写来源，泛型声明放在冒号后，例如 `@Self: <T> Box<T>`。用 `;` 分隔多个 spec，允许 `@trait` 出现在泛型声明 bound 与 `where` 谓词里（自定义 `@` 常量与 `#` 指令在这里被拒），并保留块自己的泛型、`where` 子句与 `unsafe`。**空属性**是无操作，原块原样回来；缺少冒号、冒号后缺少来源或来源为 `[]` 都会报错。旧的裸类型形态不再接受，也不等同于给它补上 `@Self:`：显式模板会映射整个原型，需要固定的类型应与占位符分开。规则在 `docs/zh-CN/reference.md` §9.2–§9.3。
 
 **属性堆叠是同一次派生的多个 stage。** 块上方的第二个（第三个……）`#[batch_impl]`
 不是又一份 spec 列表：rustc 先展开最外层，本入口把其余属性重新发射到它派生的 impl 上，

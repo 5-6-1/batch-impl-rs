@@ -1,16 +1,11 @@
-//! An array length takes a const expression, not a DSL position: a pack or a
-//! bracket list there used to render `[u8; * [u8, u16]]` and reach rustc as E0423,
-//! with nothing pointing at the attribute.
+//! Array lengths are Rust expressions: these type names cannot be used as values.
+//! The same leading `*` and `[]` tokens can start legal Rust const expressions.
 use batch_impl::batch_impl;
 
 #[batch_impl([u8; *[u8, u16]])]
-trait PackLength {
-    fn pack_length(&self) -> u8;
-}
+trait PackLength {}
 
 #[batch_impl([u8; [u8, u16]])]
-trait ListLength {
-    fn list_length(&self) -> u8;
-}
+trait ListLength {}
 
 fn main() {}

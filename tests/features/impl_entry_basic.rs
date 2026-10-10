@@ -1,5 +1,5 @@
 //! The impl entry (0.8.0) basic tests: single-level matrix, the
-//! direct form, `;`-separated multi-spec, and `unsafe impl` preservation.
+//! single-leaf sources, `;`-separated multi-spec, and `unsafe impl` preservation.
 //! (split from the former single-file `tests/impl_entry_impl.rs`)
 
 use batch_impl::batch_impl;
@@ -30,9 +30,9 @@ fn impl_entry_basic_matrix() {
 }
 
 // ------------------------------------------------------------
-// 2. Direct form: `new-generic-decl? for-type` (no matrix, N = 1)
+// 2. A single-leaf source with a new generic declaration (N = 1)
 // ------------------------------------------------------------
-#[batch_impl(<T> Box<T>)]
+#[batch_impl(@Self: <T> Box<T>)]
 impl Mk2 for Box<T> {
     fn tag(&self) -> u32 {
         2
@@ -44,7 +44,7 @@ trait Mk2 {
 }
 
 #[test]
-fn impl_entry_direct_form() {
+fn impl_entry_single_leaf_with_generic_declaration() {
     assert_eq!(<Box<i32> as Mk2>::tag(&Box::new(5)), 2);
     assert_eq!(<Box<u16> as Mk2>::tag(&Box::new(5)), 2);
 }
@@ -251,9 +251,8 @@ fn impl_entry_generator_with_where_selectors() {
     assert_eq!(GenA::<(u8, u16, u8)>((0, 1, 2)).arity(), 4);
 }
 
-// 13b. Direct form with a generator: `GenA<().3>` → hoisted freshs, no
-//      matrix.
-#[batch_impl(GenA<().3> where @0..: SomeTrait)]
+// 13b. A single generator leaf: `GenA<().3>` binds B and hoists freshs.
+#[batch_impl(GenA<B>: GenA<().3> where @0..: SomeTrait)]
 impl GenA<B> {
     fn tag(&self) -> u32 {
         1
@@ -261,7 +260,7 @@ impl GenA<B> {
 }
 
 #[test]
-fn impl_entry_direct_form_generator() {
+fn impl_entry_single_generator_leaf() {
     let a = GenA::<(u8, u16, u8)>((0, 1, 2));
     assert_eq!(a.tag(), 1);
 }

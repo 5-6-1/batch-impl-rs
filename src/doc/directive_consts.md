@@ -218,6 +218,14 @@ trait PairGen<A, B, C, D, E> { fn m(&self); }
 `@L_N..=M` (including M) all
 work; an unknown group errors like `@g_i`.
 
+A range generator such as `Fn()0..2` keeps one source group across all its
+arity branches. Two range generators have separate stable groups, so
+`((@0_0..), (@1_0..))` preserves their separate parameter tuples. A range's
+zero-arity branch retains a known empty group: an open `@g_0..` contributes
+nothing, while a single `@g_0` still reports an out-of-range position.
+Unknown groups remain errors. Fixed `().0` allocates no group, and copying
+an already-generated value preserves its existing parameter identities.
+
 **Value positions**: the type after `:` may carry `@N` inside angle groups —
 e.g. an associated-type binding referencing another fresh's associated type
 (the alga2 tuple `Module` scalar-equality constraint):
@@ -271,8 +279,10 @@ segment's own trait).
 On an impl entry, this constant copies the self type received by the current
 attribute invocation. `@Self: [Box, Rc] [u8, u16]` on an input impl for
 `Box<u8>` uses `Box<u8>` as its shape template. The constant works everywhere
-the existing constant pass reaches, including a direct-form `Vec<@Self>` and
-where predicates. Its value still participates in subsequent shape mapping;
+the existing constant pass reaches, including the source of
+`@Self: Vec<@Self>` and where predicates. Every nonempty impl-entry spec needs
+an explicit `template: source`; a bare `Vec<@Self>` is not accepted. Its value
+in the template and where predicates participates in subsequent shape mapping;
 ordinary Rust `Self` is unchanged. Each stacked attribute reads its own input.
 
 Both trait and inherent impls have a self type. A trait attribute or

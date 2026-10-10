@@ -76,8 +76,15 @@ pub(crate) fn parse_angle_bracket_contents(
     let ctx = ctx.plain();
     let mut params = vec![];
     let mut bindings = vec![];
+    let mut fresh_groups = vec![];
     for chunk in split_at_depth0(tokens, ',') {
         if chunk.is_empty() {
+            continue;
+        }
+        if position == ArgsPosition::Declaration
+            && let Some(group) = decl_fresh_group(&chunk.iter().cloned().collect())
+        {
+            fresh_groups.push(group);
             continue;
         }
         // Packs remain structural in arguments and declaration names. Their
@@ -170,7 +177,7 @@ pub(crate) fn parse_angle_bracket_contents(
             params.push((Box::new(name), None));
         }
     }
-    TyTypeParam { params, bindings }
+    TyTypeParam { params, bindings, fresh_groups }
 }
 
 /// A declaration name can itself be a pack. Only the fixed `const N` spelling

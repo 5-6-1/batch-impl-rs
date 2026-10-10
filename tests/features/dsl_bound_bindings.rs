@@ -35,8 +35,8 @@ trait HrtbIterBound<T> {}
 trait IterCloneBound<T> {}
 
 // The impl entry shares the same type parser, so its declaration carries the
-// binding too (the direct form's for-type is a DSL type).
-#[batch_impl(<T: Iterator<Item = u8>> Box<T>)]
+// binding too (the source uses the type DSL).
+#[batch_impl(@Self: <T: Iterator<Item = u8>> Box<T>)]
 impl BoundedEntry for Box<T> {
     fn tag(&self) -> &'static str {
         "entry"

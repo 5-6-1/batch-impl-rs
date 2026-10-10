@@ -1,4 +1,4 @@
-//! Shared fresh-name and constraint handling for both hand-written impl forms.
+//! Fresh-name and constraint handling for explicit hand-written impl specs.
 
 use std::collections::HashSet;
 

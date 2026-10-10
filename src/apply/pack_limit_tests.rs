@@ -147,6 +147,7 @@ fn merged_declarations_and_new_pack_shells_obey_the_result_limit() {
             TyTypeParam {
                 params: vec![(atom("T").into(), None); MAX_EXPAND / 2],
                 bindings: vec![],
+                fresh_groups: vec![],
             },
             inner.into(),
         )
@@ -169,6 +170,7 @@ fn generation_at_the_exact_mass_limit_counts_merged_carriers_once() {
             TyTypeParam {
                 params: vec![(atom("T").into(), None), (atom("U").into(), None)],
                 bindings: vec![],
+                fresh_groups: vec![],
             },
             pack(slots).into(),
         )

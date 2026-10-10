@@ -53,6 +53,7 @@ fn standalone_parameter_and_trait_nodes_visit_bounds_and_bindings() {
     let tp = TyTypeParam {
         params: vec![(TyNum(1).into(), Some(TyNum(2).into()))],
         bindings: vec![(TyNum(3).into(), TyNum(4).into())],
+        fresh_groups: vec![],
     };
     for ty in [tp.clone().to_ty(), TyTrait(quote!(Trait), tp).to_ty()] {
         let mut seen = vec![];

@@ -27,7 +27,7 @@ pub(crate) fn render_param(name: &impl ToTokens, bound: Option<&Ty>) -> TokenStr
 }
 
 pub(crate) fn params_to_tokens_no_base(tp: &TyTypeParam) -> TokenStream {
-    let mut all = vec![];
+    let mut all = tp.fresh_groups.iter().copied().map(fresh_group_tokens).collect::<Vec<_>>();
     for (name, bound) in &tp.params {
         all.push(render_param(name, bound.as_deref()));
     }
@@ -140,9 +140,8 @@ impl ToTokens for Ty {
             }
             TyKind::Fn(f) => render_fn(f),
             TyKind::TypeParam(tp) => params_to_tokens_no_base(tp),
-            // `Head::seg::seg` — the head renders itself (`<ty as trait_>` for a
-            // projection), then each tail segment verbatim (`Assoc`, `Item<u8>`).
-            // The tail is stored flat, so this is a byte-exact re-emission.
+            // Render fixed segment names with their collected argument slots.
+            // A written empty `<>` survives until the synchronization pass.
             TyKind::Qualified(q) => {
                 let mut ts = match &q.0 {
                     QualifiedHead::Type(t) => t.to_token_stream(),
@@ -152,8 +151,15 @@ impl ToTokens for Ty {
                     }
                 };
                 for seg in &q.1 {
-                    ts.extend(quote!(::));
-                    ts.extend(seg.clone());
+                    let ident = &seg.ident;
+                    let rendered = match &seg.args {
+                        None => quote!(#ident),
+                        Some(args) if args.params.is_empty() && args.bindings.is_empty() => {
+                            quote!(#ident <>)
+                        }
+                        Some(args) => params_to_tokens(&quote!(#ident), args),
+                    };
+                    ts.extend(quote!(:: #rendered));
                 }
                 ts
             }

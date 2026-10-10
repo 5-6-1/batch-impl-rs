@@ -10,7 +10,10 @@ impl Materializer {
     pub(super) fn params(
         &mut self, params: TyTypeParam, declarations: bool, depth: usize, span: Span,
     ) -> Result<Vec<Branch<TyTypeParam>>> {
-        let mut rows = vec![Branch::bare(TyTypeParam { params: vec![], bindings: vec![] }, 0)];
+        let mut rows = vec![Branch::bare(
+            TyTypeParam { params: vec![], bindings: vec![], fresh_groups: params.fresh_groups },
+            0,
+        )];
         for (name, bound) in params.params {
             let names = self.slots(*name, depth + 1)?;
             // An argument list cannot lose its argument: a pack that expands to no
@@ -67,7 +70,7 @@ impl Materializer {
                     .map(|name| (name.into(), bound.clone().map(Into::into)))
                     .collect();
                 fragments.push(Branch {
-                    value: TyTypeParam { params, bindings: vec![] },
+                    value: TyTypeParam { params, bindings: vec![], fresh_groups: vec![] },
                     decl: row.decl,
                     mass,
                 });
@@ -84,6 +87,7 @@ impl Materializer {
             let fragments = self.product(names, values, span, |name, value| TyTypeParam {
                 params: vec![],
                 bindings: vec![(name.into(), value.into())],
+                fresh_groups: vec![],
             })?;
             rows = self.product(rows, fragments, span, |mut a, b| {
                 a.extend(b);

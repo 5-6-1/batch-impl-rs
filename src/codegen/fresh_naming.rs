@@ -13,8 +13,8 @@ use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::quote;
 use std::collections::HashSet;
 
-use crate::ast::Ty;
 use crate::ast::fresh_protocol::decl_fresh_pos;
+use crate::ast::{Ty, decl_fresh_group};
 use crate::util::compile_error_str;
 
 /// The per-impl macro-meta context: fresh declarations sorted by
@@ -23,9 +23,14 @@ use crate::util::compile_error_str;
 /// to the name the rendered impl will declare.
 pub(crate) struct FreshCtx {
     pub(crate) names: Vec<(usize, usize, TokenStream)>,
+    groups: HashSet<usize>,
 }
 
 impl FreshCtx {
+    pub(crate) fn has_group(&self, group: usize) -> bool {
+        self.groups.contains(&group)
+    }
+
     /// Collects the fresh declarations of one impl from its generic name
     /// streams (declaration carriers; user-written params yield nothing),
     /// numbers them in document order and assigns display names. `used` is
@@ -37,6 +42,11 @@ impl FreshCtx {
         let mut fresh = decl_names.iter().filter_map(decl_fresh_pos).collect::<Vec<_>>();
         fresh.sort_unstable();
         fresh.dedup();
+        let groups = fresh
+            .iter()
+            .map(|&(g, _)| g)
+            .chain(decl_names.iter().filter_map(decl_fresh_group))
+            .collect();
         let names = fresh
             .into_iter()
             .enumerate()
@@ -45,7 +55,7 @@ impl FreshCtx {
                 (gi.0, gi.1, quote!(#id))
             })
             .collect();
-        Self { names }
+        Self { names, groups }
     }
 
     /// The entries of one generator group (sorted by position within the
@@ -54,16 +64,19 @@ impl FreshCtx {
     pub(crate) fn group(
         &self, group: usize, span: Span,
     ) -> Result<&[(usize, usize, TokenStream)], TokenStream> {
-        let start = self.names.iter().position(|&(g, _, _)| g == group).ok_or_else(|| {
-            compile_error_str(
+        if !self.groups.contains(&group) {
+            return Err(compile_error_str(
                 &format!(
                     "batch-impl: `@{}_..` group {} does not exist — this impl has \
                          no generator group {}",
                     group, group, group,
                 ),
                 span,
-            )
-        })?;
+            ));
+        }
+        let Some(start) = self.names.iter().position(|&(g, _, _)| g == group) else {
+            return Ok(&[]);
+        };
         let end = crate::util::slice_from(&self.names, start)
             .iter()
             .position(|&(g, _, _)| g != group)
@@ -139,7 +152,10 @@ pub(crate) fn used_ident_set(surfaces: &[&TokenStream]) -> HashSet<String> {
 /// Renames every declaration carrier in the impl-generic list to its display
 /// name — the last place a raw carrier exists on the impl path. Entries that
 /// are not declaration carriers (user params, `const` params) pass through.
-pub(crate) fn rename_fresh_decls(impl_generics: &mut [(TokenStream, Option<Ty>)], ctx: &FreshCtx) {
+pub(crate) fn rename_fresh_decls(
+    impl_generics: &mut Vec<(TokenStream, Option<Ty>)>, ctx: &FreshCtx,
+) {
+    impl_generics.retain(|(name, _)| decl_fresh_group(name).is_none());
     for (name, _) in impl_generics.iter_mut() {
         if let Some(key) = decl_fresh_pos(name)
             && let Some(entry) = ctx.names.iter().find(|(g, i, _)| (*g, *i) == key)

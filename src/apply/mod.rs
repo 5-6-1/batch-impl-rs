@@ -7,7 +7,11 @@ mod pack_limit_tests;
 mod pack_limits;
 #[cfg(test)]
 mod pack_tests;
+mod range;
+#[cfg(test)]
+mod range_tests;
 pub(crate) mod star;
+mod tuple_pow;
 
 // The [`Star`] trait is the prefix operator `*X` — `X.star()` — the sibling of
 // [`Apply`]: `Apply` combines two type expressions, `Star` opens one into a Pack.
@@ -28,7 +32,6 @@ pub(crate) use star::Star;
 
 use quote::{quote, quote_spanned};
 
-use crate::apply::apply_tuple::map_range;
 use crate::ast::*;
 use proc_macro2::Span;
 
@@ -175,14 +178,10 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             // by the merge, otherwise hoisting would collect it twice (E0403).
             TyKind::WithType(wt) => match self.clone().into() {
                 TyKind::WithType(left_wt) => {
-                    let mut params = left_wt.0.params;
-                    params.extend(wt.0.params);
-                    let mut bindings = left_wt.0.bindings;
-                    bindings.extend(wt.0.bindings);
+                    let mut params = left_wt.0;
+                    params.extend(wt.0);
                     let inner = (*left_wt.1).apply(*wt.1);
-                    TyWithType(TyTypeParam { params, bindings }, inner.into())
-                        .to_ty()
-                        .with_span(span)
+                    TyWithType(params, inner.into()).to_ty().with_span(span)
                 }
                 _ => {
                     let inner = Ty { span, kind: self.into() }.apply(*wt.1);
@@ -199,25 +198,11 @@ pub(crate) trait Apply: Clone + Into<TyKind> {
             TyKind::TypeParam(tp) if tp.is_declaration() => {
                 TyWithType(tp, Ty { span, kind: self.into() }.into()).to_ty().with_span(span)
             }
-            TyKind::Range(TyRange { start, end, inclusive }) => {
-                let mapped = map_range(start, end, inclusive, span, |n| {
-                    Ty { span, kind: self.clone().into() }.apply(TyNum(n).to_ty().with_span(span))
-                });
-                // Accumulated-growth guard, same as the Array arm above: a
-                // range multiplies the left operand's mass (`ns × leaves`),
-                // so a composed chain (`([T,T].0..3).0..3...`) would grow
-                // ×range-len per level with no cap ever firing — the one
-                // multiplication point the list-chain check cannot see.
-                if let Ty { kind: TyKind::Array(arr), .. } = &mapped
-                    && let Some(e) = check_expand_mass(
-                        "range chain expansion",
-                        arr.0.iter().map(count_leaves).sum(),
-                    )
-                {
-                    return e;
-                }
-                mapped
-            }
+            TyKind::Range(TyRange { start, end, inclusive }) => range::apply(
+                Ty { span, kind: self.into() },
+                TyRange { start, end, inclusive },
+                span,
+            ),
             other => self.apply_help(Ty { span: o.span, kind: other }, span),
         }
     }

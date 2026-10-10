@@ -1,15 +1,23 @@
-error: batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]`
- --> tests/ui/array_length_pack.rs:6:1
+error[E0423]: expected value, found builtin type `u8`
+ --> tests/ui/array_length_pack.rs:5:21
   |
-6 | #[batch_impl([u8; *[u8, u16]])]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+5 | #[batch_impl([u8; *[u8, u16]])]
+  |                     ^^ not a value
 
-error: batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]`
-  --> tests/ui/array_length_pack.rs:11:1
-   |
-11 | #[batch_impl([u8; [u8, u16]])]
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+error[E0423]: expected value, found builtin type `u16`
+ --> tests/ui/array_length_pack.rs:5:25
+  |
+5 | #[batch_impl([u8; *[u8, u16]])]
+  |                         ^^^ not a value
+
+error[E0423]: expected value, found builtin type `u8`
+ --> tests/ui/array_length_pack.rs:8:20
+  |
+8 | #[batch_impl([u8; [u8, u16]])]
+  |                    ^^ not a value
+
+error[E0423]: expected value, found builtin type `u16`
+ --> tests/ui/array_length_pack.rs:8:24
+  |
+8 | #[batch_impl([u8; [u8, u16]])]
+  |                        ^^^ not a value

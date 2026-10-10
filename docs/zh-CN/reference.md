@@ -1,6 +1,6 @@
 # batch-impl 参考手册
 
-**v0.10.0 — 开发中（未发布）。** 本手册描述当前工作树中的规则系统、交叉与边界，§10 列出诊断。待发布改动见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**Unreleased — 0.10.2 之后的改动。** 本手册描述当前工作树，包含尚未发布的 impl 入口破坏性变更：每个非空 spec 必须显式写出 `模板: 来源`（§9.2）。§10 列出诊断；待发布改动见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
 仓库源码（GitHub `main`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) | 简体中文
 
@@ -278,9 +278,12 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 空只在它本身就是意图时才成立；另两种情形给出诊断而不是渲染结果——
 展开为零目标的 spec（`*Vec *[]`、`*[].0`）与展开为空的实参（`Vec<*[]>`）。
 
-限定路径的 `::Assoc<...>` 续接部分，以及 `<T as Trait>::Assoc` 中
-`as` 后的 trait 路径，仍按普通 Rust 路径保留，不在这些部分拼入包。
-这与已解析的类型头部接收包是不同的位置。
+限定路径的 `::Assoc<...>` 段名固定，段的泛型实参使用普通类型 DSL：
+候选分发、包按多槽规则拼入，声明与 fresh 随结果提升；显式 `<>` 参与同步，
+无实参的裸段保持不变。类型头部的候选与各段实参组合成笛卡尔积，不把路径
+段名当作 apply 操作数。`<T as Trait>::Assoc` 中 `as` 后的 trait 路径仍是
+普通 Rust 域；普通 const 大括号、宏输入、属性与标准 Rust where/形状模板
+不会因此获得包运算。教程 §5.6 给出可运行例子。
 
 ### 4.5 生成器、身份与限制
 
@@ -291,7 +294,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 再使用普通幂规则；每个分支生成的元组重新成为包。
 
 `*[].N` 生成 `N` 个独立参数，`.0` 不分配参数。
-复制已生成参数保留身份；执行不同生成器创建不同参数组。
+复制已生成参数保留身份；不同生成器来源使用不同参数组，同一范围来源的各长度分支保留该来源的组号。
 因此 `(*[],).2` 是无声明的单元元组，
 `*[*[],].2` 却会生成两个参数。
 
@@ -401,6 +404,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 - **编号与显示名**：fresh 泛型按**文档序**是 `P0`、`P1`……，`@N` 就是这个下标（`@0` → `P0`）。用户自己写的参数用它们自己的名字——`@N` 之所以存在，正是因为 fresh 名不是用户写的。
 - **生成顺序**（实测）：笛卡尔积按**左操作数最快**产出 impl（`[u8, u16].[u32, u64]` → `u8<u32>`、`u16<u32>`、`u8<u64>`、`u16<u64>`）；`.N` 幂按**第一位最快**产出（`(u8, u16).2` → `u8<u8>`、`u8<u16>`、`u16<u8>`、`u16<u16>`）。除此之外没有任何顺序承诺，因此只把它当作 preview 会显示什么来读。
 - **`@g_i` 是本原**：组 `g`、槽 `i`，跨数组分发保持稳定；`@N` 是摊平形式。实测：`().2 where{@0_1: Clone}` → `where P1: Clone`。
+- **范围来源的组号稳定**：一个范围生成器在各长度分支上共用一个组号；两个范围生成器使用各自的组，不按分支数重新编号。范围的零元分支保留已知空组，`@g_0..` 为空，但 `@g_0` 单位置越界；不存在的组仍报错。固定 `().0` 不分配组。复制生成结果保留原参数身份。
 - **`@N..M`** 不含 M，**`@N..=M`** 包含 M，**`@N..`** 开到最后一个 fresh；数字元数范围与命名类型族范围使用同一端点规则。在 where 谓词里，一串覆盖会变成**每个 fresh 一条谓词**：实测 `().2 where{@1..: Clone}` → `where P1: Clone`。
 - **排他区间在每个位置都不含末尾**：实测 `().3 where{@0..2: Clone}` → 三 fresh 的 impl 上得到 `where P0: Clone, P1: Clone`。
 - **越过末尾的开区间什么都不贡献**：实测 `().2 where{@5..: Clone}` → 没有谓词、也不报错。依赖元数的 spec 不该因为短的那个情形就失败。
@@ -698,18 +702,20 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 - **`batch_trait!`** 支持分段、自定义 `@name=值;` 定义，**不支持** `#` 指令——它看不到 trait 定义。
 - **属性入口上的空 spec 列表**（`#[batch_impl]`、`#[batch_impl()]`、`#[batch_impl(;)]`）原样重发该 item：属性是派生 impls，没有可派生的就意味着原样。（impl 入口同理，见 §9.4。）
 
-### 9.2 impl 入口的两种 spec 形态
+### 9.2 impl 入口：显式形状 spec
 
 | 形态 | 拼写 | 含义 |
 |---|---|---|
-| 形状形态 | `A<B> : [Box, Rc] [usize, isize]` | `模板 : 矩阵`——矩阵每个叶子与 `:` 前的模板匹配；所得槽位改写整个块，块的 for-type 不必与模板同形 |
-| 直接形态 | `<T> Box<T>` | 泛型声明 + for-type，供单 spec 场景 |
+| 多个目标 | `A<B> : [Box, Rc] [usize, isize]` | `模板 : 矩阵`——矩阵每个叶子与 `:` 前的模板匹配；所得槽位改写整个块，块的 for-type 不必与模板同形 |
+| 单个目标与泛型声明 | `@Self : <T> Box<T>` | 用输入自身类型作模板；声明属于冒号右侧的来源，单个目标也使用相同的匹配规则 |
 
-`;` 分隔多个 spec（`A : u8; A : u16`）；空 spec 列表是恒等（§9.1）。
+`;` 分隔多个 spec（`A : u8; A : u16`）。每个非空 spec 都必须写出模板、冒号和来源；裸 `Box<T>` 不会隐式补上 `@Self:`，`@Self:` 也不会隐式补回输入类型。要显式保留一个目标，可写 `@Self: @Self`。**空属性**是恒等（§9.1），但 `@Self: []` 是零目标来源，仍会报错。
+
+**迁移旧直接形态时要选定替换位置。** 旧形态只更换 for-type；显式模板所得映射也会改写 trait 实参、where 与 body。若这些位置必须保留固定类型，给原型使用独立占位符，例如 `Target: Vec<u8> where { u8: Copy }` 搭配 `impl Tr for Target`。不能把每个旧输入都机械改成 `@Self: ...`。
 
 **矩阵就是属性入口的那套矩阵，而列表有两种等价写法。** 形状冒号右侧按**属性入口的矩阵**解析：**逗号列表就是一个矩阵**，所以 `W : u8, u16` 与 `W : [u8, u16]` 是同样的两个叶子、都生成两个 impl —— 已并排实测，产物逐字节相同。中括号只是**分组**的便利写法（`[Box, Rc] [usize, isize]` 是二维矩阵），从来不是硬性要求；这个入口上分隔 spec 的是 `;`。
 
-**模板必须描述到什么。** 矩阵为模板的**占位符**提供取值，因此一条 spec 只有在其占位符出现在"impl 要替换的位置"时才能改到东西 —— 即 for 类型、trait 实参、where 谓词或 body。占位符是**替换目标，不是泛型参数**：它不必在任何地方声明，而 `:` 左侧写成具体类型时，只有同一个具体类型能被匹配。
+**模板必须描述到什么。** 矩阵为模板的**占位符**提供取值，因此一条 spec 只有在其占位符出现在"impl 要替换的位置"时才能改到东西 —— 即 for 类型、trait 实参、where 谓词或 body。占位符是**替换目标，不是泛型参数**：它不必在任何地方声明。匹配依据语法结构，不做 Rust 名称解析；`u8`、`Box` 这样的标识符也能参与替换。
 
 | 输入 impl 的 self 类型 | `:` 左 | `:` 右 | 结果 |
 |---|---|---|---|
@@ -734,7 +740,7 @@ impl Maximum for Box<u8> {
 # assert_eq!(*<Rc<u16> as Maximum>::maximum(), u16::MAX);
 ```
 
-`@Self` 在常量展开阶段复制本次属性调用收到的自身类型，适用于该阶段原本可达的位置：模板、矩阵、泛型实参和 where 谓词。因此输入 impl 为 `u8` 时，直接形态 `Vec<@Self>` 就是 `Vec<u8>`。复制的 token 仍参与后续形状映射，不会被冻结。普通 Rust `Self` 保持 Rust 原义，body、宏调用与后续属性保留已有透传边界。堆叠属性各自读取本层输入（§9.4）。trait 属性与 `batch_trait!` 没有输入 impl 类型，会拒绝该常量；也不能自定义同名的 `@Self` 常量。
+`@Self` 在常量展开阶段复制本次属性调用收到的自身类型，适用于该阶段原本可达的位置：模板、矩阵、泛型实参和 where 谓词。因此输入 impl 为 `u8` 时，`@Self: Vec<@Self>` 先成为 `u8: Vec<u8>`。模板据此把原型中的 `u8` 映射为 `Vec<u8>`；已求值的矩阵叶子不再被映射一次。where 中复制的 token 仍参与后续形状映射，不会被冻结。普通 Rust `Self` 保持 Rust 原义，body、宏调用与后续属性保留已有透传边界。堆叠属性各自读取本层输入（§9.4）。trait 属性与 `batch_trait!` 没有输入 impl 类型，会拒绝该常量；也不能自定义同名的 `@Self` 常量。
 
 显式模板仍适合描述块内的多个位置，例如自身类型的实参与 trait 实参；它不必与输入自身类型同形。
 
@@ -744,6 +750,7 @@ impl Maximum for Box<u8> {
 
 - `@trait`（块自己的 trait 路径）与 `@Self`（输入自身类型）沿已有常量阶段展开。inherent impl 支持 `@Self`，但没有 `@trait`。**自定义常量定义与 `#` 指令在这个入口被拒**（`implentry_hash_banned`、`const_attr_unsupported`）。
 - spec 里的生成器会把 fresh 参数提升到 impl 上，`@N..` where 选择器据此解析（没有生成器时 `@N` 无从指代，报越界）。
+- 来源的 `impl{...}` 附件只能放在最终目标叶子的外层：`Wrap<u8> impl{Wrap<A>}` 可用，嵌在类型参数里的 `Wrap<u8 impl{A}>` 会被拒绝。
 - 块自己的泛型、`where` 子句与 `unsafe` 都保留；它的 `where` 区域在 depth-0 `;` 或输入结束处终止。
 
 已声明的 const 参数可以直接特化。被绑定的参数在替换其引用时一并移除
@@ -822,7 +829,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `stray_hash_no_name` | 该写指令名的位置出现裸 `#`（`#`、`#{0}`） | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
 | `literal_too_large` | 放不进 `usize` 的整数字面量 | batch-impl: this integer is too large for `usize` — a number in a type position is an arity or a `.N` length and must fit | DSL |
 | `bare_number_target` | 该写目标的位置写了裸数字或区间（`1`、`0..3`） | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target ; batch-impl: a bare range is not a type — `N..M` counts `@` references inside a target, it does not name one | DSL |
-| `array_length_pack` | 数组长度位置写了 pack 或列表（`[u8; *[u8, u16]]`） | batch-impl: an array length takes a const expression, not a pack or a list — write `[u8; 3]` or `[u8; N]` | DSL |
+| `array_length_pack` | const 数组长度中的类型名不能作为值使用 | expected value, found builtin type `u8` | Rust |
 | `at_open_range_empty_host` | 作用域内没有 fresh 泛型时的 fresh 区间（`Vec<@0..>`） | batch-impl: this target has an empty argument list (`Vec<>`) — a fresh range expands to nothing when the impl has no fresh generics for it; write the arguments out or drop the range | DSL |
 | `empty_angle_on_other_ident` | 带 switch 模板时，空 `<>` 落在非被注解 trait 的 ident 上（`Vec<> impl{Tr<>}`） | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
 | `empty_angle_where_surface` | 同一个错误出现在 **where 谓词** token 路径上（`where{Vec<>: Clone}`）——那里不需要 switch 模板 | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
@@ -830,12 +837,12 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `empty_angle_body_surface` | 同一个错误出现在 **body** 路径上，经 switch 模板到达（`#tag3{X<>} impl{Tr<>}`） | batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>` | DSL |
 | `batch_trait_directive_unsupported` | `batch_trait!` 里出现 `#` 指令——它没有 trait 定义可读签名（`#fill([m])`） | batch-impl: `#fill` is supported only by `#[batch_impl]` / `#[batch_impl_only]` (directives need the trait definition as the signature source of truth; `batch_trait!` is a function-like macro without one) | DSL |
 | `batch_trait_span_points_at_the_segment` | 长 `batch_trait!` 深处的一条坏 spec（两个合法段之后的 `Tr: 7;`）——消息报在**那一段自己的行**上，而不是宏的起始行 | batch-impl: a bare number is not a type — a number is an arity or a `.N` power suffix (`(A, B).2`), never a target | DSL |
-| `impl_entry_template_describes_nothing` | impl 入口上一个**什么都没描述**的裸 ident 形状模板（`#[batch_impl(NotTheSelfType: A, B)]`——把 **trait 名**写在 `:` 前面，而不是模板或 `@Self`）| batch-impl: the shape template `NotTheSelfType` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, `#[batch_impl(A, B)] impl Tr for A` for the direct form, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
-| `impl_entry_template_names_the_trait` | 报告里的**原拼写**——`#[batch_impl(T: A, B)]` 写在 `impl T for A` 上，即把 trait 自己的名字放在模板位置（0.9.5 及以前响亮报错，0.9.6 起静默）| batch-impl: the shape template `T` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, `#[batch_impl(A, B)] impl Tr for A` for the direct form, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
+| `impl_entry_template_describes_nothing` | impl 入口上一个**什么都没描述**的裸 ident 形状模板（`#[batch_impl(NotTheSelfType: A, B)]`——把 **trait 名**写在 `:` 前面，而不是模板或 `@Self`）| batch-impl: the shape template `NotTheSelfType` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
+| `impl_entry_template_names_the_trait` | 报告里的**原拼写**——`#[batch_impl(T: A, B)]` 写在 `impl T for A` 上，即把 trait 自己的名字放在模板位置（0.9.5 及以前响亮报错，0.9.6 起静默）| batch-impl: the shape template `T` before `:` describes nothing in this impl — on the impl entry the text before `:` is a **template** that must match the for-type, a trait argument, a where predicate or the body, and the trait comes from the input impl. Write `@Self: …` to batch the for-type, or use `batch_trait!` / a trait entry when several traits are involved | DSL |
 | `impl_entry_leaf_ignored` | 一条**忽略自己叶子**的 spec——模板没有绑定任何 impl 里写到的名字，且产出的 for 类型也不是该叶子（`#[batch_impl(Vec<u8> : Vec<u8>)]` 写在 `impl Make for u8` 上，此前**静默**只产出 `u8` 的 impl）。按裁决，恒等写法（`Wrap<N> : Wrap<N>`、`A : A`）保持合法 | batch-impl: this spec ignores its matrix leaf — template `Vec < u8 >`, the impl's self type `u8`, matrix leaf `Vec < u8 >`, and the for-type it produced `u8`. The text before `:` is a **template**: its placeholders are the substitution targets, so at least one of them has to appear where the impl writes the type to replace (its for-type, a trait argument, a where predicate or the body) — a concrete type can only be matched by the same concrete type. Write a placeholder for the part the matrix should replace (e.g. `W: u8; W: u16` for `impl Tr for W`), and keep the leaves in the template's shape | DSL |
 | `body_in_comma_less_group` | 无逗号组里的逐元素 body（`[u8 { … }]`、`[Cell<T> { … }]`） | batch-impl: a per-element `{body}` needs a list — a comma-less `[T]` is the slice type; write `[A { … }, B]`, or give the whole group one body (`[A] { … }`) | DSL |
 | `lifetime_as_operand` | `'a T` | batch-impl: a lifetime cannot be an apply operand (`'a` belongs in bounds like `T: 'a`, declarations like `<'a>` or references like `&'a T`) | DSL |
-| `qualified_tail_dsl_token` | `Foo<T>::Assoc<@0>` | batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` / a `*` pack prefix) are not allowed there | DSL |
+| `qualified_tail_dsl_token` | 投影尾实参中的 fresh 引用没有对应生成器 | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name); batch-impl: `@1_0` does not match a generated generic — this impl has no group 1 position 0 (groups and positions number from 0); use `@N` for the N-th fresh generic in document order | DSL |
 | `global_path_no_ident` | 结尾的 `::` | batch-impl: `::` must be followed by a path segment identifier (e.g. `::std::vec::Vec`) | DSL |
 | `path_prefix_mismatch` | `# path::Other: Trait` | batch-impl: path prefix `#...Other` has a trailing ident that differs from the trait name `MyTrait`; the two must be identical | DSL |
 | `group_angle_bare` | `(...)` 里的 `<...>` | batch-impl: a generic declaration `<...>` inside `(...)` needs the trailing-comma tuple form `(<T: Bound>,).N` | DSL |
@@ -976,7 +983,10 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `implentry_at_num_banned` | impl 入口 spec 无 fresh 时写 `@0` | batch-impl: `@0` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `half_built_impl` | 一个叶在 codegen 阶段失败、另一个成功 | batch-impl: `@3` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
 | `nested_error_target` | 数组长度内部的 DSL 错误在转为 Rust token 前被提取 | batch-impl: `*` needs a type block (write `*T` or `*[A, B]`); raw pointers use `*const T` or `*mut T` | DSL |
-| `implentry_direct_not_type` | 该写类型的位置写了指令 | batch-impl: this form implements one type at a time — to batch targets, put `#[batch_impl(...)]` on a trait definition, or use `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] trait Tr { … }`) | DSL |
+| `implentry_direct_not_type` | impl spec 只有 `<T>`，没有模板与 source | batch-impl: the impl entry requires `template: source` in every nonempty spec; a bare type is not an implicit `@Self:` mapping. Write `@Self: source` to match the input self type, or name the placeholders to replace | DSL |
+| `impl_entry_missing_source` | `Template:` 缺少 source | batch-impl: a shape spec requires a source after `:`; use an empty attribute to preserve the input impl, or supply the types to match | DSL |
+| `impl_entry_bare_type` | 裸目标没有显式模板 | batch-impl: the impl entry requires `template: source` in every nonempty spec; a bare type is not an implicit `@Self:` mapping. Write `@Self: source` to match the input self type, or name the placeholders to replace | DSL |
+| `impl_entry_nested_attachment` | 嵌套 `impl{...}` 附件无法在该入口消费 | batch-impl: a nested `impl{...}` attachment is not supported on the impl entry; attach the template to the final source leaf instead, for example `Wrap<u8> impl{Wrap<A>}` | DSL |
 | `implentry_hash_banned` | impl 入口上用 `#fill` | batch-impl: `#` directives are not supported on the ItemImpl entry (write the impl body directly) | DSL |
 | `top_level_block_not_last` | `{! m!{…}}` 不是最后一个块 | batch-impl: a `{! ...}` top-level block must be the last block | DSL |
 | `top_level_manual_not_last` | 手工顶层形式不在最后 | batch-impl: a `{! ...}` top-level block must be the last block | DSL |

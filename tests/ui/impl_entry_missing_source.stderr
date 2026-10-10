@@ -1,0 +1,23 @@
+error: batch-impl: a shape spec requires a source after `:`; use an empty attribute to preserve the input impl, or supply the types to match
+ --> tests/ui/impl_entry_missing_source.rs:5:1
+  |
+5 | #[batch_impl(Vec<u8>:)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a shape spec requires a source after `:`; use an empty attribute to preserve the input impl, or supply the types to match
+ --> tests/ui/impl_entry_missing_source.rs:8:1
+  |
+8 | #[batch_impl(@Self: <T>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a shape spec requires a source after `:`; use an empty attribute to preserve the input impl, or supply the types to match
+  --> tests/ui/impl_entry_missing_source.rs:11:1
+   |
+11 | #[batch_impl(Unused where{u8: Copy}:)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,5 +1,5 @@
-//! The impl entry (0.8.0) boundary-case tests: empty matrix source,
-//! direct form without new-generic-decl, three-plus `;`-separated specs,
+//! The impl entry (0.8.0) boundary-case tests: explicit identity sources,
+//! a single source without new-generic-decl, three-plus `;`-separated specs,
 //! matrix chains with modifiers, and the zero-slot template.
 //! (new test module; split-style organization per the features/ layout)
 
@@ -7,10 +7,10 @@ use batch_impl::batch_impl;
 use std::rc::Rc;
 
 // ------------------------------------------------------------
-// 1. Empty matrix source (nothing after `:`): N = 1, the shape itself —
-//    a template without slots (the for-Type is emitted verbatim)
+// 1. An explicit identity source: N = 1, the shape itself —
+//    a template without replacements (the for-Type is emitted verbatim)
 // ------------------------------------------------------------
-#[batch_impl(Vec<u8> : )]
+#[batch_impl(Vec<u8> : Vec<u8>)]
 impl BndMk1 for Vec<u8> {
     fn n1(&self) -> usize {
         self.len()
@@ -22,15 +22,15 @@ trait BndMk1 {
 }
 
 #[test]
-fn impl_entry_empty_matrix_source() {
+fn impl_entry_explicit_identity_source() {
     let b = Box::new(vec![1u8, 2, 3]);
     assert_eq!(b.n1(), 3);
 }
 
 // ------------------------------------------------------------
-// 2. Direct form without a new-generic-decl: `Vec<u8>` alone (N = 1)
+// 2. The input type as the template, without a new generic declaration (N = 1)
 // ------------------------------------------------------------
-#[batch_impl(Vec<u8>)]
+#[batch_impl(@Self: Vec<u8>)]
 impl BndMk2 for Vec<u8> {
     fn n2(&self) -> usize {
         self.len()
@@ -42,7 +42,7 @@ trait BndMk2 {
 }
 
 #[test]
-fn impl_entry_direct_no_generics() {
+fn impl_entry_single_source_without_new_generics() {
     let v = vec![1u8, 2];
     assert_eq!(v.n2(), 2);
 }

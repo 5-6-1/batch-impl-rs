@@ -138,7 +138,11 @@ impl Ty {
                             .map(|params| {
                                 TyGeneric(
                                     g.0.clone(),
-                                    TyTypeParam { params, bindings: g.1.bindings.clone() },
+                                    TyTypeParam {
+                                        params,
+                                        bindings: g.1.bindings.clone(),
+                                        fresh_groups: g.1.fresh_groups.clone(),
+                                    },
                                 )
                                 .to_ty()
                                 .with_span(span)

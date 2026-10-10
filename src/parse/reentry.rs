@@ -7,7 +7,7 @@
 
 use proc_macro2::TokenTree;
 
-use crate::ast::{decl_fresh_pos, reserve_fresh_group};
+use crate::ast::{decl_fresh_group, decl_fresh_pos, reserve_fresh_group};
 use crate::parse::{split_at_depth0, split_projection};
 use crate::util::{Op, bracket_is_passthrough, is_single_colon, read_op};
 
@@ -48,14 +48,9 @@ fn walk(tokens: &[TokenTree], depth: usize) {
                         }
                         walk(&inner, depth + 1);
                     }
-                    // A qualified tail's own generic args are ordinary Rust.
-                    // The type head above remains a structured DSL position.
-                    if tail {
-                        i = skip_tail(tokens, i + 1);
-                        path_args = false;
-                        binder = false;
-                        continue;
-                    }
+                    // A following path segment's arguments are structured too.
+                    // Its ident sets path_args, so only nested declaration
+                    // blocks reserve identities, never ordinary arguments.
                 } else {
                     walk(&inner, depth + 1);
                 }
@@ -112,6 +107,10 @@ fn walk(tokens: &[TokenTree], depth: usize) {
 
 fn reserve_names(tokens: &[TokenTree]) {
     for chunk in split_at_depth0(tokens, ',') {
+        if let Some(group) = decl_fresh_group(&chunk.iter().cloned().collect()) {
+            reserve_fresh_group(group);
+            continue;
+        }
         let end = chunk.iter().enumerate().find_map(|(i, token)| {
             matches!(token, TokenTree::Punct(p) if p.as_char() == ':' && is_single_colon(chunk, i))
                 .then_some(i)
@@ -125,19 +124,6 @@ fn reserve_names(tokens: &[TokenTree]) {
             reserve_fresh_group(group);
         }
     }
-}
-
-fn skip_tail(tokens: &[TokenTree], mut i: usize) -> usize {
-    while matches!(read_op(tokens, i), Some((Op::ColonColon, _))) {
-        if !matches!(tokens.get(i + 2), Some(TokenTree::Ident(_))) {
-            break;
-        }
-        i += 3;
-        if matches!(tokens.get(i), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![<>]) {
-            i += 1;
-        }
-    }
-    i
 }
 
 #[cfg(test)]
@@ -161,8 +147,11 @@ mod tests {
         reset_fresh_counter();
         reserve("<@0_0, @0..> Vec<@{0_0}> where { @{0_0}: Clone } { let _: m!(<@{0_0}>); }");
         reserve("Tr<@{0_0}> X #[allow(m!(<@{0_0}>))] m!(<@{0_0}>)");
-        reserve("<T as Tr>::Assoc<(<@{0_0}> T)> Foo<u8>::Assoc<(<@{0_0}> T)>");
+        reserve("<T as Tr>::Assoc<@{0_0}> Foo<u8>::Assoc<@{0_0}>");
         assert_eq!(take_group(), 0);
+        reset_fresh_counter();
+        reserve("<T as Tr>::Assoc<(<@{0_0}> T)> Foo<u8>::Assoc<(<@{0_0}> T)>");
+        assert_eq!(take_group(), 1);
         reset_fresh_counter();
         reserve("Vec<(<@{0_0}> @{0_0}), u8> fn() -> (<@{1_0}> @{1_0})");
         assert_eq!(take_group(), 2);

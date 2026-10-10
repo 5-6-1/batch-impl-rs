@@ -27,10 +27,9 @@ trait GlobalIntoIter {
     fn tag(&self) -> &'static str;
 }
 
-// The impl entry shares the target parser: the direct form's for-type is a DSL
-// type, so the same spelling works there.
-#[batch_impl(::core::option::Option<u8>)]
-impl GlobalEntry for Option<u8> {
+// The impl entry shares the source parser, including global paths.
+#[batch_impl(Target: ::core::option::Option<u8>)]
+impl GlobalEntry for Target {
     fn tag(&self) -> &'static str {
         "option"
     }

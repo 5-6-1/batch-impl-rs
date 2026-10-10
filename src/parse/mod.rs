@@ -364,16 +364,13 @@ mod tests {
         }
     }
 
-    /// A `::`-tail is plain Rust path text, so DSL tokens inside it are reported
-    /// rather than leaked (`Assoc<@0>` would reach rustc as "expected type, found
-    /// `@`"), and a bare `::@0` becomes an apply operand — which a qualified type
-    /// rejects with its own diagnostic. A tail that simply **ends** at the `::`
-    /// gets the missing-segment wording instead of the DSL-token one (second
-    /// review, N4 — the old message described the token case only).
+    /// Segment names remain Rust identifiers; their argument slots parse DSL.
+    /// A tail ending at `::` keeps the targeted missing-segment diagnostic.
     #[test]
-    fn qualified_tail_rejects_dsl_tokens() {
+    fn qualified_tail_keeps_names_fixed_and_parses_arguments() {
         let rendered = round_trip("Foo<T>::Assoc<@0>");
-        assert!(rendered.contains("plain Rust path"), "got: {rendered}");
+        assert_eq!(rendered.replace(' ', ""), "Foo<T>::Assoc<@{0}>");
+        assert_eq!(round_trip("Foo<T>::Assoc<>").replace(' ', ""), "Foo<T>::Assoc<>");
         let rendered = round_trip("<T as Tr>::@0");
         assert!(rendered.contains("`::`-tail segment must be an identifier"), "got: {rendered}");
         let rendered = round_trip("Foo<T>::");

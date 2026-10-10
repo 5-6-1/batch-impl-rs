@@ -21,7 +21,7 @@ fn map_type_param(tp: TyTypeParam, f: &mut impl FnMut(Ty) -> Ty) -> TyTypeParam 
         tp.params.into_iter().map(|(n, b)| (f(*n).into(), b.map(|b| f(*b).into()))).collect();
     let bindings =
         tp.bindings.into_iter().map(|(n, v)| (Box::new(f(*n)), Box::new(f(*v)))).collect();
-    TyTypeParam { params, bindings }
+    TyTypeParam { params, bindings, fresh_groups: tp.fresh_groups }
 }
 
 /// Merge two optional fresh declarations (`TyTypeParam::extend` semantics).
@@ -132,8 +132,8 @@ impl Ty {
                     .to_ty()
                     .with_span(span)
             }
-            // A qualified type: the head is a child, the `::`-tail is verbatim
-            // tokens (no `Ty` inside it by construction).
+            // Segment names stay fixed; their generic arguments participate
+            // in the same traversal as the qualified head's type.
             TyKind::Qualified(q) => {
                 let head = match q.0 {
                     QualifiedHead::Type(t) => QualifiedHead::Type(f(*t).into()),
@@ -141,7 +141,14 @@ impl Ty {
                         QualifiedHead::Projection(f(*ty).into(), trait_)
                     }
                 };
-                TyQualified(head, q.1).to_ty().with_span(span)
+                let tail =
+                    q.1.into_iter()
+                        .map(|mut segment| {
+                            segment.args = segment.args.map(|args| map_type_param(args, f));
+                            segment
+                        })
+                        .collect();
+                TyQualified(head, tail).to_ty().with_span(span)
             }
             TyKind::WithCode(wc) => {
                 TyWithCode(wc.0.map(|e| f(*e).into()), wc.1).to_ty().with_span(span)

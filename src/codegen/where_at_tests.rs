@@ -127,6 +127,7 @@ fn const_param_where_predicate_no_error() {
                 (Box::new(TyPrimitive(quote!(N)).to_ty()), None),
             ],
             bindings: vec![],
+            fresh_groups: vec![],
         },
     );
     let wrapped = TyWithTrait(trait_ty, target.into());
@@ -140,6 +141,7 @@ fn const_param_where_predicate_no_error() {
                 ),
             ],
             bindings: vec![],
+            fresh_groups: vec![],
         },
         wrapped.into(),
     )

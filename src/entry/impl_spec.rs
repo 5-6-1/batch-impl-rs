@@ -36,17 +36,17 @@ use crate::util::{Cursor, compile_error_str, is_punct_at, is_single_colon, slice
 ///   drop the item's silently — a `#[cfg]` there meant the generated impls
 ///   existed unconditionally.
 ///
-/// `m` is the slot mapping (empty for the direct form / empty matrix).
+/// `m` is the slot mapping produced by the explicit shape spec.
 // clippy's 7-argument threshold is not useful here: each parameter is one
 // distinct input of the entry's mapping (the item, its trait path, the attr
-// declaration, the hoisted fresh names, the where predicates, the shape mapping,
+// declaration, the fresh context, the where predicates, the shape mapping,
 // the template segments, the mapped for-type), and grouping them into a struct
 // would only move the list.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble_impl(
     item: &ItemImpl, trait_path: Option<&syn::Path>, new_gen: Option<&TokenStream>,
-    fresh_names: &[TokenStream], where_preds: &[TokenStream], m: &Mapping,
-    template_segs: &[VarSeg], for_ty: TokenStream,
+    fresh: &FreshCtx, where_preds: &[TokenStream], m: &Mapping, template_segs: &[VarSeg],
+    for_ty: TokenStream,
 ) -> Result<TokenStream, TokenStream> {
     let slot_names: std::collections::HashSet<&str> =
         m.slots().iter().map(|(n, _)| n.as_str()).collect();
@@ -86,7 +86,7 @@ pub(crate) fn assemble_impl(
     // `impl<T>` twice, `E0403`).
     let mut all_params = Vec::with_capacity(
         new_gen.map_or(0, |n| n.clone().into_iter().count())
-            + fresh_names.len()
+            + fresh.names.len()
             + item_params.len(),
     );
     if let Some(ng) = new_gen {
@@ -94,7 +94,7 @@ pub(crate) fn assemble_impl(
         all_params.extend(decl);
         param_bound_preds.extend(dropped);
     }
-    all_params.extend(fresh_names.iter().cloned());
+    all_params.extend(fresh.names.iter().map(|(_, _, name)| name.clone()));
     all_params.extend(item_params);
     // `X<>` sync: every `X<>` in the where predicates fills with the impl's
     // trait args (`impl Tr<Additive, Multiplicative> for ...` → `Marker<>` =
@@ -138,7 +138,7 @@ pub(crate) fn assemble_impl(
         .items
         .iter()
         .map(|it| apply_mapping(it.to_token_stream(), m))
-        .map(|it| expand_fresh_marks(it, fresh_names, template_segs, m))
+        .map(|it| expand_fresh_marks(it, fresh, template_segs, m))
         .collect::<Result<Vec<_>, _>>()?;
     // **The one renderer.** Both front-ends hand `render_impl` an `ImplParts`;
     // this entry's inputs stay token-level, so it fills the parts it has: the
@@ -269,7 +269,7 @@ fn trait_path_with_mapped_args(path: &syn::Path, m: &Mapping) -> TokenStream {
 /// legal Rust): the call is fully expanded here and never reaches the
 /// output — the user never defines a `fresh` macro.
 fn expand_fresh_marks(
-    tokens: TokenStream, fresh_names: &[TokenStream], template_segs: &[VarSeg], m: &Mapping,
+    tokens: TokenStream, fresh: &FreshCtx, template_segs: &[VarSeg], m: &Mapping,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
     let mut out = vec![];
@@ -286,13 +286,13 @@ fn expand_fresh_marks(
                 continue;
             };
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            out.extend(expand_fresh_inner(&inner, fresh_names, template_segs, m)?);
+            out.extend(expand_fresh_inner(&inner, fresh, template_segs, m)?);
             i += 3;
             continue;
         }
         // Recurse into every other group (attributes, tuple literals, ...).
         if let TokenTree::Group(g) = cur {
-            let inner = expand_fresh_marks(g.stream(), fresh_names, template_segs, m)?;
+            let inner = expand_fresh_marks(g.stream(), fresh, template_segs, m)?;
             let mut ng = Group::new(g.delimiter(), inner);
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));
@@ -311,7 +311,7 @@ fn expand_fresh_marks(
 /// declares an implicit segment bound to the fresh list. `@{N}` resolves to
 /// the N-th fresh. Reuses the attribute entry's repeat machinery verbatim.
 fn expand_fresh_inner(
-    inner: &[TokenTree], fresh_names: &[TokenStream], template_segs: &[VarSeg], m: &Mapping,
+    inner: &[TokenTree], fresh: &FreshCtx, template_segs: &[VarSeg], m: &Mapping,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut segs = template_segs.to_vec();
     let mut map = Mapping::default();
@@ -325,15 +325,14 @@ fn expand_fresh_inner(
             }
         }
     }
-    collect_fresh_segment(inner, fresh_names, &mut segs, &mut map)?;
-    let fresh = FreshCtx {
-        names: fresh_names.iter().enumerate().map(|(i, n)| (0, i, n.clone())).collect(),
-    };
+    // Keep the source groups, including known-empty range branches. Rebuilding
+    // a context from display names would merge all groups and lose empty ones.
+    collect_fresh_segment(inner, fresh, &mut segs, &mut map)?;
     let cx = RepeatCtx {
         domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &map,
-        fresh: &fresh,
+        fresh,
         binding: None,
         budget: Cell::new(MAX_REPEAT_TOKENS),
     };
@@ -341,7 +340,7 @@ fn expand_fresh_inner(
     // resolve in `substitute`); top-level carriers pass through and resolve
     // here.
     let expanded = expand_repeat_blocks(inner.iter().cloned().collect(), &cx)?;
-    crate::codegen::expand_body_refs(expanded, &fresh, crate::util::TokenDomain::BodySubstitution)
+    crate::codegen::expand_body_refs(expanded, fresh, crate::util::TokenDomain::BodySubstitution)
         .map(|o| o.into_iter().collect())
 }
 
@@ -351,7 +350,7 @@ fn expand_fresh_inner(
 /// freshs to bind is an error. `@{...}` carriers and `@N` cursors are not
 /// segments.
 fn collect_fresh_segment(
-    tokens: &[TokenTree], fresh_names: &[TokenStream], segs: &mut Vec<VarSeg>, map: &mut Mapping,
+    tokens: &[TokenTree], fresh: &FreshCtx, segs: &mut Vec<VarSeg>, map: &mut Mapping,
 ) -> Result<(), TokenStream> {
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
@@ -361,7 +360,7 @@ fn collect_fresh_segment(
         {
             let prefix = id.to_string();
             if !segs.iter().any(|s| s.prefix == prefix) {
-                if fresh_names.is_empty() {
+                if fresh.names.is_empty() {
                     return Err(compile_error_str(
                         &format!(
                             "batch-impl: `fresh!` references `@{}` but this impl has no \
@@ -371,20 +370,15 @@ fn collect_fresh_segment(
                         id.span(),
                     ));
                 }
-                segs.push(VarSeg { prefix: prefix.clone(), start: 0, len: fresh_names.len() });
-                for (k, n) in fresh_names.iter().enumerate() {
+                segs.push(VarSeg { prefix: prefix.clone(), start: 0, len: fresh.names.len() });
+                for (k, (_, _, n)) in fresh.names.iter().enumerate() {
                     map.bind_seg(&prefix, k, n.clone())
                         .map_err(|e| compile_error_str(&e.message(), id.span()))?;
                 }
             }
         }
         if let TokenTree::Group(g) = cur {
-            collect_fresh_segment(
-                &g.stream().into_iter().collect::<Vec<_>>(),
-                fresh_names,
-                segs,
-                map,
-            )?;
+            collect_fresh_segment(&g.stream().into_iter().collect::<Vec<_>>(), fresh, segs, map)?;
         }
         i += 1;
     }

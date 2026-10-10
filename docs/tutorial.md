@@ -1,6 +1,6 @@
 # batch-impl Tutorial
 
-**v0.10.0 — in development (unreleased).** This tutorial describes the development working tree. See [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) for pending changes and migration notes.
+**Unreleased — changes after 0.10.2.** This tutorial describes the working tree, including the unpublished breaking impl-entry requirement for explicit `template: source` in every nonempty spec. See [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) for pending changes and migration notes.
 
 **Repository sources (GitHub main)**: English · [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) · [Reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md)
 
@@ -876,9 +876,38 @@ trait Q2 {}
 trait Q3<T> {}
 ```
 
-The `::`-tail is **plain Rust path text**: it is never re-parsed, so a DSL token
-inside it (`Holder<T>::Assoc<@0>`) is rejected with a targeted error instead of
-leaking into the generated impl.
+Names after `::` remain fixed Rust identifiers, but each segment's generic
+arguments share the ordinary type DSL: lists distribute choices, packs splice
+arguments, and arguments can contain application, generators and nested
+projections. Choices in the head and tail arguments form a Cartesian product:
+
+```rust
+use batch_impl::batch_impl;
+trait Family { type Out<T>; type Pair<A, B>; }
+impl Family for u8 { type Out<T> = (u8, T); type Pair<A, B> = (u8, A, B); }
+impl Family for u16 { type Out<T> = (u16, T); type Pair<A, B> = (u16, A, B); }
+
+#[batch_impl(<[u8, u16] as Family>::Out<[u32, u64]>)]
+trait Matrix {}
+#[batch_impl(<u8 as Family>::Pair<*[u16, u32]>)]
+trait Packed {}
+
+fn main() {
+    fn matrix<T: Matrix>() {}
+    matrix::<(u8, u32)>(); matrix::<(u8, u64)>();
+    matrix::<(u16, u32)>(); matrix::<(u16, u64)>();
+    fn packed<T: Packed>() {}
+    packed::<(u8, u16, u32)>();
+}
+```
+
+Explicit `::Out<>` uses the existing generic synchronization rule; a bare
+`::Fixed` gains no arguments. The trait path after `as` remains a Rust domain,
+and `::@0` cannot dynamically select a segment name. Ordinary const braces,
+macro inputs and attributes retain their boundaries. A projection does not
+prove to Rust that a generic parameter is constrained: a fresh parameter used
+only inside a GAT projection may still need to occur in trait arguments or
+another constraining position, or Rust can report E0207.
 
 ### 5.7 Bound positions, global paths and named fn parameters
 
@@ -1177,19 +1206,34 @@ comma-less paren holding a range placeholder re-opens as a tuple, so the
 arity-1 impl still renders a real 1-tuple `(P0,)` (never a group `(P0)`).
 
 **Several bound generators** in one spec distribute as the Cartesian product
-of their arities, and the **flat** `@N..` form addresses their fresh across all
-of them — `<R, T: Fn()1..3 R> … (@0..)` is the measured spelling, and two flat
-ranges in one tuple do not overlap because the second tuple element puts the
-second range in argument position.
+of their arities. The **flat** `@N..` form addresses all fresh parameters in
+the current impl; use **grouped ranges** to address each source separately.
+Each range generator occupies one group number, unchanged across its branch
+lengths. Here the source for `F` is always group 0 and `G` is always group 1:
 
-**Grouped ranges** (`@0_0..` for the first bound's fresh, `@1_0..` for the
-second's) address fresh *within* one group, and a group exists only while the
-bound's arity is **fixed**: measured, every grouped reference (`@0_0`,
-`@0_0..`, and `where{@0_..: …}`) fails on a `Fn()1..3` bound in **every** leaf —
-not only the arity-0 one — while the fixed `Fn()2` form works (`@0_0, @0_1`
-and `@0_0..`). A grouped range also requires its group to have fresh for that
-leaf: a `Fn()0..N` bound's arity-0 impl has none, so the reference errors
-there, the same rule as `@g_i`.
+```rust
+use batch_impl::batch_impl;
+#[batch_impl(
+    <F: Fn()1..3, G: Fn()1..3> CallPair<F, G> ((@0_0..), (@1_0..))
+    #tag { 17 }
+)]
+trait CallPair<F, G> { fn tag() -> usize; }
+
+fn main() {
+    assert_eq!(<((u8,), (u16,)) as CallPair<fn(u8), fn(u16)>>::tag(), 17);
+    assert_eq!(<((u8,), (u16, u32)) as CallPair<fn(u8), fn(u16, u32)>>::tag(), 17);
+    assert_eq!(<((u8, u64), (u16,)) as CallPair<fn(u8, u64), fn(u16)>>::tag(), 17);
+    assert_eq!(<((u8, u64), (u16, u32)) as CallPair<fn(u8, u64), fn(u16, u32)>>::tag(), 17);
+}
+```
+
+A range's zero-arity branch still knows its source group exists. In that
+branch of `Fn()0..2`, `@0_0..` is empty, `(@0_0..)` becomes `()`, and the
+corresponding where range contributes no predicates. A single `@0_0` is still
+out of range, and an unknown group still errors (for example `@1_0..` when
+only this one generator exists). A fixed zero-arity generator `().0` allocates
+no group, unlike a range's zero-arity branch. Copying an already-generated
+type preserves its parameter identities rather than creating another source.
 
 ## 7. The Directive System `#`
 
@@ -1680,7 +1724,7 @@ input type; ordinary Rust `Self` keeps its Rust meaning. Each stacked
 attribute reads its own input type, and later shape mapping treats a copied
 type just like the same tokens written by hand (reference §9.2).
 
-The entry takes `template : matrix` (`A<B> : [Box,Rc] [usize,isize]`) or the direct form (`<T> Box<T>`), `;`-separates several specs, allows `@trait` in generic-declaration bounds and `where` predicates (custom `@` constants and `#` directives are rejected here), and preserves the block's own generics, `where` clause and `unsafe`. An **empty** spec list is a no-op: the attribute only *derives* impls, so with nothing to derive the block comes back unchanged. The rules are in `docs/reference.md` §9.2–§9.3.
+Every nonempty spec on this entry is `template : matrix` (such as `A<B> : [Box,Rc] [usize,isize]`). A single target also needs an explicit source; generic declarations follow the colon, as in `@Self: <T> Box<T>`. The entry `;`-separates specs, allows `@trait` in generic-declaration bounds and `where` predicates (custom `@` constants and `#` directives are rejected here), and preserves the block's own generics, `where` clause and `unsafe`. An **empty attribute** returns the block unchanged; a missing colon, a missing source after it, or a source of `[]` is an error. The old bare-type form is no longer accepted, and adding `@Self:` is not generally equivalent: an explicit template maps the whole prototype, so keep fixed types separate from placeholder names. The rules are in `docs/reference.md` §9.2–§9.3.
 
 **Stacked attributes are stages of one derivation.** A second (third, …)
 `#[batch_impl]` above the block is not another spec list: rustc expands the

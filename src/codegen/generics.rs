@@ -188,6 +188,9 @@ fn strip_bound_fresh(ty: &Ty) -> (Ty, Vec<(TokenStream, Option<Ty>)>) {
                     .collect::<Vec<_>>();
             let (inner, more) = strip_bound_fresh(&wt.1);
             let mut fresh = params;
+            fresh.extend(
+                wt.0.fresh_groups.iter().map(|&g| (crate::ast::fresh_group_tokens(g), None)),
+            );
             fresh.extend(more);
             (inner, fresh)
         }

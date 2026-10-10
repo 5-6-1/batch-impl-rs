@@ -1,0 +1,15 @@
+error: batch-impl: the impl entry requires `template: source` in every nonempty spec; a bare type is not an implicit `@Self:` mapping. Write `@Self: source` to match the input self type, or name the placeholders to replace
+ --> tests/ui/impl_entry_bare_type.rs:5:1
+  |
+5 | #[batch_impl(u16)]
+  | ^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: the impl entry requires `template: source` in every nonempty spec; a bare type is not an implicit `@Self:` mapping. Write `@Self: source` to match the input self type, or name the placeholders to replace
+ --> tests/ui/impl_entry_bare_type.rs:8:1
+  |
+8 | #[batch_impl(<T> Vec<T>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

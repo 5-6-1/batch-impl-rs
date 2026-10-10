@@ -59,16 +59,16 @@ error: batch-impl: first occurrence of this generated trait impl (#1)
    |                       ^^^
 
 error: batch-impl: duplicate generated trait impl #2: `impl < B > ImplEntry for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
-  --> tests/ui/duplicate_impl.rs:28:30
+  --> tests/ui/duplicate_impl.rs:28:46
    |
-28 | #[batch_impl(<A> Vec<A>; <B> Vec<B>)]
-   |                              ^^^
+28 | #[batch_impl(Target: <A> Vec<A>; Target: <B> Vec<B>)]
+   |                                              ^^^
 
 error: batch-impl: first occurrence of this generated trait impl (#1)
-  --> tests/ui/duplicate_impl.rs:28:18
+  --> tests/ui/duplicate_impl.rs:28:26
    |
-28 | #[batch_impl(<A> Vec<A>; <B> Vec<B>)]
-   |                  ^^^
+28 | #[batch_impl(Target: <A> Vec<A>; Target: <B> Vec<B>)]
+   |                          ^^^
 
 error: batch-impl: duplicate generated trait impl #2: `impl < B > AcrossSegments for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
   --> tests/ui/duplicate_impl.rs:35:25
@@ -95,13 +95,13 @@ error: batch-impl: first occurrence of this generated trait impl (#1)
    |                      ^^^
 
 error: batch-impl: duplicate generated trait impl #2: `impl PreviewImpl for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
-  --> tests/ui/duplicate_impl.rs:46:22
+  --> tests/ui/duplicate_impl.rs:47:26
    |
-46 |     #[batch_impl(u8; u8)]
-   |                      ^^
+47 |     impl PreviewImpl for u8 {}
+   |                          ^^
 
 error: batch-impl: first occurrence of this generated trait impl (#1)
-  --> tests/ui/duplicate_impl.rs:46:18
+  --> tests/ui/duplicate_impl.rs:47:26
    |
-46 |     #[batch_impl(u8; u8)]
-   |                  ^^
+47 |     impl PreviewImpl for u8 {}
+   |                          ^^

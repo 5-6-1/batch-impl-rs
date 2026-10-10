@@ -23,7 +23,7 @@ fn configuration_can_remove_one_of_two_equal_heads() {
 
 // Only the first generated impl has this attribute. It changes that impl's
 // target to u16; treating the two initial u8 heads as duplicates would be wrong.
-#[batch_impl(#[batch_impl(u16)] u8, u8)]
+#[batch_impl(#[batch_impl(@Self: u16)] u8, u8)]
 trait RewrittenByAttribute {}
 
 #[test]

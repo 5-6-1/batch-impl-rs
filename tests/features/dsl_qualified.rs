@@ -35,8 +35,8 @@ trait M1 {
     fn one(&self) -> u8;
 }
 
-#[batch_impl(Vec<<S as Tr>::Assoc>)]
-impl M1 for Vec<u8> {
+#[batch_impl(Target: Vec<<S as Tr>::Assoc>)]
+impl M1 for Target {
     fn one(&self) -> u8 {
         1
     }
@@ -65,8 +65,8 @@ trait M3 {
     fn three(&self) -> u8;
 }
 
-#[batch_impl(<<S as Tr>::Assoc as Tr>::Assoc)]
-impl M3 for u16 {
+#[batch_impl(Target: <<S as Tr>::Assoc as Tr>::Assoc)]
+impl M3 for Target {
     fn three(&self) -> u8 {
         3
     }
@@ -83,8 +83,8 @@ trait M4 {
     fn four(&self) -> u8;
 }
 
-#[batch_impl(std::vec::Vec::<u8>)]
-impl M4 for Vec<u8> {
+#[batch_impl(Target: std::vec::Vec::<u8>)]
+impl M4 for Target {
     fn four(&self) -> u8 {
         4
     }

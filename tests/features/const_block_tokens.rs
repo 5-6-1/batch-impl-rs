@@ -72,7 +72,7 @@ trait SourceSize {
 }
 
 // This unbraced length retains the existing @Self constant substitution.
-#[batch_impl([u8; ::core::mem::size_of::<@Self>()])]
+#[batch_impl(@Self: [u8; ::core::mem::size_of::<@Self>()])]
 impl SourceSize for u16 {
     fn size() -> usize {
         core::mem::size_of::<Self>()
@@ -107,7 +107,7 @@ macro_rules! six {
 
 trait ImplHash {}
 
-#[batch_impl(Arr<{ six!(#token) }>)]
+#[batch_impl(@Self: Arr<{ six!(#token) }>)]
 impl ImplHash for u8 {}
 
 #[test]
@@ -124,7 +124,7 @@ macro_rules! opaque_type {
 
 trait ImplMacroHashes {}
 
-#[batch_impl((opaque_type!(#token), opaque_type![#token], opaque_type! { #token }))]
+#[batch_impl(@Self: (opaque_type!(#token), opaque_type![#token], opaque_type! { #token }))]
 impl ImplMacroHashes for u8 {}
 
 #[test]

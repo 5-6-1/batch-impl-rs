@@ -19,6 +19,7 @@ fn generic(name: &str, args: Vec<Ty>) -> Ty {
         TyTypeParam {
             params: args.into_iter().map(|arg| (arg.into(), None)).collect(),
             bindings: vec![],
+            fresh_groups: vec![],
         },
     )
     .to_ty()
@@ -35,6 +36,45 @@ fn expect(value: Ty, expected: &[proc_macro2::TokenStream]) {
 }
 fn carrier(name: &str, body: Ty) -> Ty {
     TyWithType(TyTypeParam::single(&atom(name)), body.into()).to_ty()
+}
+
+#[test]
+fn qualified_tail_arguments_participate_in_collection_and_error_traversal() {
+    let projection = |argument| {
+        TyQualified(
+            QualifiedHead::Projection(choices(vec![atom("A"), atom("B")]).into(), quote!(Family)),
+            vec![TyPathSegment {
+                ident: syn::parse_quote!(Out),
+                args: Some(TyTypeParam::single(&argument)),
+            }],
+        )
+        .to_ty()
+    };
+    expect(
+        projection(choices(vec![atom("X"), atom("Y")])),
+        &[
+            quote!(<A as Family>::Out<X>),
+            quote!(<A as Family>::Out<Y>),
+            quote!(<B as Family>::Out<X>),
+            quote!(<B as Family>::Out<Y>),
+        ],
+    );
+    let invalid = projection(crate::apply::err_ty("projection argument sentinel"));
+    let mut errors = vec![];
+    invalid.collect_errors(&mut errors);
+    assert_eq!(errors.len(), 1);
+    assert!(
+        materialize_targets(invalid)
+            .unwrap_err()
+            .to_string()
+            .contains("projection argument sentinel")
+    );
+    assert!(
+        materialize_targets(projection(pack(vec![])))
+            .unwrap_err()
+            .to_string()
+            .contains("requires at least one type")
+    );
 }
 
 #[test]
@@ -129,6 +169,7 @@ fn declaration_names_and_bounds_have_distinct_slot_rules() {
     let params = TyTypeParam {
         params: vec![(pack(vec![atom("T"), atom("U")]).into(), Some(atom("Clone").into()))],
         bindings: vec![],
+        fresh_groups: vec![],
     };
     expect(
         TyWithType(params, tuple(vec![atom("T"), atom("U")]).into()).to_ty(),
@@ -143,6 +184,7 @@ fn declaration_names_and_bounds_have_distinct_slot_rules() {
     let params = TyTypeParam {
         params: vec![(atom("T").into(), Some(pack(vec![atom("Clone"), atom("Copy")]).into()))],
         bindings: vec![],
+        fresh_groups: vec![],
     };
     assert!(
         materialize_targets(TyWithType(params, atom("T").into()).to_ty())
@@ -157,8 +199,11 @@ fn bound_choices_hoist_only_the_selected_branchs_fresh_declarations() {
     reset_fresh_counter();
     let generated = tuple(vec![]).apply(TyNum(1).to_ty());
     let bounds = choices(vec![atom("Clone"), generic("Tr", vec![generated])]);
-    let params =
-        TyTypeParam { params: vec![(atom("T").into(), Some(bounds.into()))], bindings: vec![] };
+    let params = TyTypeParam {
+        params: vec![(atom("T").into(), Some(bounds.into()))],
+        bindings: vec![],
+        fresh_groups: vec![],
+    };
     let result = materialize_targets(TyWithType(params, atom("T").into()).to_ty()).unwrap();
     assert_eq!(result.len(), 2);
     let declarations = result
@@ -186,11 +231,15 @@ fn trait_arguments_and_associated_bindings_distribute_independently() {
     let args = TyTypeParam {
         params: vec![(pack(vec![atom("A"), atom("B")]).into(), None)],
         bindings: vec![(atom("Item").into(), choices(vec![atom("C"), atom("D")]).into())],
+        fresh_groups: vec![],
     };
     let ty = TyWithTrait(TyTrait(quote!(Tr), args), atom("T").into()).to_ty();
     expect(ty, &[quote!(Tr < A, B, Item = C > T), quote!(Tr < A, B, Item = D > T)]);
-    let args =
-        TyTypeParam { params: vec![], bindings: vec![(atom("Item").into(), pack(vec![]).into())] };
+    let args = TyTypeParam {
+        params: vec![],
+        bindings: vec![(atom("Item").into(), pack(vec![]).into())],
+        fresh_groups: vec![],
+    };
     assert!(
         materialize_targets(TyTrait(quote!(Tr), args).to_ty())
             .unwrap_err()
@@ -211,7 +260,11 @@ fn ordinary_wrappers_and_qualified_heads_preserve_their_structure() {
         &[quote!(for<'a> Tr<A, B>)],
     );
     expect(
-        TyQualified(QualifiedHead::Type(tr.into()), vec![quote!(Assoc)]).to_ty(),
+        TyQualified(
+            QualifiedHead::Type(tr.into()),
+            vec![TyPathSegment { ident: syn::parse_quote!(Assoc), args: None }],
+        )
+        .to_ty(),
         &[quote!(Tr < A, B > ::Assoc)],
     );
     expect(

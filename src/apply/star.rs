@@ -35,7 +35,7 @@ impl Star for Ty {
     fn star(self) -> Ty {
         match checked_input(self) {
             Ok(value) => checked_result(star_inner(value)),
-            Err(error) => error,
+            Err(error) => *error,
         }
     }
 }

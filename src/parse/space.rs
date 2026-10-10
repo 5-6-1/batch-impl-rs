@@ -132,6 +132,7 @@ pub(crate) fn parse_block(cursor: &mut Cursor, ctx: Ctx<'_>) -> Option<Ty> {
                 return Some(crate::parse::ident_blocks::qualified_tail(
                     cursor,
                     QualifiedHead::Projection(head_ty.into(), trait_),
+                    ctx,
                 ));
             }
             crate::parse::generic::parse_angle_bracket_contents(

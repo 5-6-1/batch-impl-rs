@@ -188,6 +188,9 @@ fn ui() {
     // A leaf the spec ignores: the template binds nothing the impl writes, and the produced for-type is
     // not the leaf either (silent before this diagnostic).
     t.compile_fail("tests/ui/impl_entry_leaf_ignored.rs");
+    t.compile_fail("tests/ui/impl_entry_missing_source.rs");
+    t.compile_fail("tests/ui/impl_entry_bare_type.rs");
+    t.compile_fail("tests/ui/impl_entry_nested_attachment.rs");
     t.compile_fail("tests/ui/directive_missing_tail.rs");
     t.compile_fail("tests/ui/bare_prefix_no_type.rs");
     t.compile_fail("tests/ui/bare_attr_carrier.rs");
@@ -292,8 +295,7 @@ fn ui() {
     // binds nothing: targeted error, not a silent re-open and not the
     // shape-template path's misleading "DSL operators" message
     t.compile_fail("tests/ui/impl_shape_repeat_invalid_switch.rs");
-    // a `::`-tail is plain Rust path text: a DSL token inside a segment is
-    // reported, not leaked as `Assoc<@0>` for rustc to choke on
+    // Projection arguments resolve and validate DSL references like other generics.
     t.compile_fail("tests/ui/qualified_tail_dsl_token.rs");
     // the same error from the *closed* branch (`@2..=1` is only rejected after
     // the range is built, not while normalizing `..M` to `..=M-1`)

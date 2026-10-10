@@ -1,4 +1,4 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
 
 use crate::ast::fresh_protocol::FreshRef;
@@ -52,12 +52,18 @@ pub(crate) type TyParams = Vec<(Box<Ty>, Option<Box<Ty>>)>;
 pub(crate) struct TyTypeParam {
     pub(crate) params: TyParams,
     pub(crate) bindings: Vec<(Box<Ty>, Box<Ty>)>,
+    /// Generator scopes present in this branch, even when their arity is zero.
+    pub(crate) fresh_groups: Vec<usize>,
 }
 
 impl TyTypeParam {
     /// Constructs a single unbound param (`U` in `T.U` becomes `<U>`)
     pub(crate) fn single(arg: &Ty) -> Self {
-        TyTypeParam { params: vec![(arg.clone().into(), None)], bindings: vec![] }
+        TyTypeParam {
+            params: vec![(arg.clone().into(), None)],
+            bindings: vec![],
+            fresh_groups: vec![],
+        }
     }
 
     /// Appends an unbound param (`B` in `T<A>.B` appends to `<A,B>`)
@@ -70,6 +76,11 @@ impl TyTypeParam {
     pub(crate) fn extend(&mut self, other: TyTypeParam) {
         self.params.extend(other.params);
         self.bindings.extend(other.bindings);
+        for group in other.fresh_groups {
+            if !self.fresh_groups.contains(&group) {
+                self.fresh_groups.push(group);
+            }
+        }
     }
 
     /// Whether this `<>` block is a **generic declaration** rather than a
@@ -91,12 +102,19 @@ impl TyTypeParam {
 /// qualified-self head). `angle_collect` pairs every `<...>` into a group, so a
 /// `::` after a group had nowhere to attach; this variant is that attachment.
 ///
-/// `tail` holds the `::`-separated segments **flat and verbatim** (`Assoc`,
-/// `Item<u8>`, `More`): they are plain Rust path continuations, never DSL text,
-/// so nothing re-parses them and nothing applies to them. Rendering is exact;
-/// shape matching matches the head structurally and the tail token-by-token.
+/// Tail segment names are fixed Rust identifiers; their optional generic
+/// arguments share the ordinary DSL argument structure. Neither the tail nor
+/// its names are application operands: materialization only collects slots.
 #[derive(Clone, Debug)]
-pub(crate) struct TyQualified(pub(crate) QualifiedHead, pub(crate) Vec<TokenStream>);
+pub(crate) struct TyQualified(pub(crate) QualifiedHead, pub(crate) Vec<TyPathSegment>);
+
+/// One fixed path segment. `None` is a bare name; `Some` with no arguments
+/// preserves a written `<>` for the same synchronization as ordinary generics.
+#[derive(Clone, Debug)]
+pub(crate) struct TyPathSegment {
+    pub(crate) ident: Ident,
+    pub(crate) args: Option<TyTypeParam>,
+}
 
 /// The head of a [`TyQualified`].
 #[derive(Clone, Debug)]

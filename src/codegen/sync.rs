@@ -233,6 +233,7 @@ fn sync_tree(ty: Ty, args: &[TokenStream], err: &mut Option<TokenStream>) -> Ty 
     let can_fill = match &ty.kind {
         TyKind::Generic(g) => is_empty_params(&g.1),
         TyKind::Trait(t) => is_empty_params(&t.1),
+        TyKind::Qualified(q) => q.1.iter().any(|s| s.args.as_ref().is_some_and(is_empty_params)),
         _ => false,
     };
     if !can_fill {
@@ -262,15 +263,21 @@ pub(crate) fn sync_bound_ty(ty: &Ty, args: &[TokenStream]) -> Result<Ty, TokenSt
             // `TyPrimitive` and the trait itself is a `TyTrait`. With no trait arguments to
             // fill from, the brackets used to be dropped here, leaving rustc to report
             // E0107 about a *bare* `Vec`, with nothing pointing at the `<>`.
-            if args.is_empty() {
-                return Err(
-                    quote::quote_spanned!(ty.span => ::core::compile_error!("batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>`");),
-                );
-            }
-            Ok(TyGeneric(g.0.clone(), filled_params(args)).to_ty().with_span(ty.span))
+            Ok(TyGeneric(g.0.clone(), filled_type_params(args, ty.span)?)
+                .to_ty()
+                .with_span(ty.span))
         }
         TyKind::Trait(t) if is_empty_params(&t.1) => {
             Ok(TyTrait(t.0.clone(), filled_params(args)).to_ty().with_span(ty.span))
+        }
+        TyKind::Qualified(q) => {
+            let mut qualified = q.clone();
+            for segment in &mut qualified.1 {
+                if segment.args.as_ref().is_some_and(is_empty_params) {
+                    segment.args = Some(filled_type_params(args, segment.ident.span())?);
+                }
+            }
+            Ok(qualified.to_ty().with_span(ty.span))
         }
         // A `+`-joined bound list (`A<> + B + C`): sync every element
         // (the structured list keeps each `X<>` as its own Ty).
@@ -285,12 +292,25 @@ pub(crate) fn sync_bound_ty(ty: &Ty, args: &[TokenStream]) -> Result<Ty, TokenSt
     }
 }
 
+/// An ordinary type name and a qualified segment use one empty-argument rule.
+fn filled_type_params(
+    args: &[TokenStream], span: proc_macro2::Span,
+) -> Result<TyTypeParam, TokenStream> {
+    if args.is_empty() {
+        return Err(
+            quote::quote_spanned!(span => ::core::compile_error!("batch-impl: an empty `<>` on an ident that is not the annotated trait has nothing to fill from — write the arguments out, or drop the `<>`");),
+        );
+    }
+    Ok(filled_params(args))
+}
+
 /// The spec's trait args as a filled `TyTypeParam` (each arg a bare
 /// `TyPrimitive`).
 fn filled_params(args: &[TokenStream]) -> TyTypeParam {
     TyTypeParam {
         params: args.iter().map(|a| (Box::new(TyPrimitive(a.clone()).to_ty()), None)).collect(),
         bindings: vec![],
+        fresh_groups: vec![],
     }
 }
 
@@ -443,7 +463,7 @@ mod tests {
     fn bound_ty_fills_args() {
         // `<T: BoundSync<>>` — an empty-param TyGeneric gets the spec's args
         let base = TyPrimitive(quote!(BoundSync)).to_ty();
-        let empty = TyTypeParam { params: vec![], bindings: vec![] };
+        let empty = TyTypeParam { params: vec![], bindings: vec![], fresh_groups: vec![] };
         let bound = TyGeneric(Box::new(base), empty).to_ty();
         let out = sync_bound_ty(&bound, &args(&["Additive", "Multiplicative"])).unwrap();
         assert_eq!(out.to_token_stream().to_string(), "BoundSync < Additive , Multiplicative >");
@@ -452,7 +472,7 @@ mod tests {
     #[test]
     fn bound_trait_ty_fills_args() {
         // the actual bound shape of `<T: BoundSync<>>`
-        let tp = TyTypeParam { params: vec![], bindings: vec![] };
+        let tp = TyTypeParam { params: vec![], bindings: vec![], fresh_groups: vec![] };
         let bound = TyTrait(quote!(BoundSync), tp).to_ty();
         let out = sync_bound_ty(&bound, &args(&["Additive", "Multiplicative"])).unwrap();
         assert_eq!(out.to_token_stream().to_string(), "BoundSync < Additive , Multiplicative >");
@@ -463,7 +483,7 @@ mod tests {
         // a non-empty bound (not an `X<>`) stays untouched
         let base = TyPrimitive(quote!(Module)).to_ty();
         let params = vec![(Box::new(TyPrimitive(quote!(A)).to_ty()), None)];
-        let tp = TyTypeParam { params, bindings: vec![] };
+        let tp = TyTypeParam { params, bindings: vec![], fresh_groups: vec![] };
         let bound = TyGeneric(Box::new(base), tp).to_ty();
         let out = sync_bound_ty(&bound, &args(&["Additive"])).unwrap();
         assert_eq!(out.to_token_stream().to_string(), "Module < A >");
@@ -472,7 +492,7 @@ mod tests {
     #[test]
     fn bound_other_name_fills() {
         // an empty `X<>` bound for a non-spec ident still gets the args
-        let tp = TyTypeParam { params: vec![], bindings: vec![] };
+        let tp = TyTypeParam { params: vec![], bindings: vec![], fresh_groups: vec![] };
         let bound = TyTrait(quote!(Module), tp).to_ty();
         let out = sync_bound_ty(&bound, &args(&["Additive", "Multiplicative"])).unwrap();
         assert_eq!(out.to_token_stream().to_string(), "Module < Additive , Multiplicative >");
@@ -482,7 +502,11 @@ mod tests {
     fn bound_plus_chain_fills_empty_angle() {
         // `A<> + B + C` — the structured bound list syncs each element, so
         // the empty `A<>` fills while the others stay untouched
-        let a = TyTrait(quote!(A), TyTypeParam { params: vec![], bindings: vec![] }).to_ty();
+        let a = TyTrait(
+            quote!(A),
+            TyTypeParam { params: vec![], bindings: vec![], fresh_groups: vec![] },
+        )
+        .to_ty();
         let b = TyPrimitive(quote!(B)).to_ty();
         let c = TyPrimitive(quote!(C)).to_ty();
         let bound = TyBoundList(vec![a, b, c]).to_ty();

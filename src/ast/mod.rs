@@ -2,6 +2,7 @@
 
 pub(crate) mod expand;
 mod fresh_counter;
+mod fresh_groups;
 pub(crate) mod fresh_protocol;
 mod materialize;
 mod materialize_hosts;
@@ -18,6 +19,7 @@ pub(crate) mod types_visit;
 mod visit_tests;
 
 pub(crate) use fresh_counter::*;
+pub(crate) use fresh_groups::*;
 pub(crate) use fresh_protocol::*;
 pub(crate) use materialize::materialize_targets;
 pub(crate) use op::*;

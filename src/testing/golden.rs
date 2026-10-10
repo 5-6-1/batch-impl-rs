@@ -70,8 +70,8 @@ const IMPL_SPECS: &[ImplSpec] = &[
     },
     ImplSpec {
         name: "impl_entry_qualified",
-        attr: "Vec<<u8 as Tr>::Assoc>",
-        impl_src: "impl Q for Vec<u8> {}",
+        attr: "Target: Vec<<u8 as Tr>::Assoc>",
+        impl_src: "impl Q for Target {}",
     },
 ];
 

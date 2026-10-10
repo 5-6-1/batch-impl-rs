@@ -150,7 +150,9 @@ fn impl_leaf_predicates_cannot_be_shadowed_by_lifted_fresh_parameters() {
 
 #[test]
 fn impl_generator_bounds_are_retained_and_participate_in_fresh_naming() {
-    for spec in [quote!(@Self: (*Vec *[<Bound<P0>>,].2,)), quote!((*Vec *[<Bound<P0>>,].2,))] {
+    for spec in
+        [quote!(@Self: (*Vec *[<Bound<P0>>,].2,)), quote!(Prototype: (*Vec *[<Bound<P0>>,].2,))]
+    {
         let out = expand_impl_entry(spec, syn::parse_quote!(impl Marker for Prototype {})).unwrap();
         let items = impls(out);
         assert_eq!(items.len(), 1);
@@ -166,7 +168,9 @@ fn impl_generator_bounds_are_retained_and_participate_in_fresh_naming() {
 
 #[test]
 fn impl_generator_bounds_resolve_references_against_the_same_fresh_context() {
-    for spec in [quote!(@Self: (*Vec *[<Bound<@0>>,].1,)), quote!((*Vec *[<Bound<@0>>,].1,))] {
+    for spec in
+        [quote!(@Self: (*Vec *[<Bound<@0>>,].1,)), quote!(Prototype: (*Vec *[<Bound<@0>>,].1,))]
+    {
         let out = expand_impl_entry(spec, syn::parse_quote!(impl Marker for Prototype {})).unwrap();
         let items = impls(out);
         let predicates = &items[0].generics.where_clause.as_ref().unwrap().predicates;

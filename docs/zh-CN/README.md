@@ -2,7 +2,7 @@
 
 仓库源码（GitHub `main`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) | 简体中文
 
-**v0.10.2。** 破坏性变更与从 0.9.7 迁移的说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**Unreleased — 0.10.2 之后的改动。** 当前工作树包含尚未发布的 impl 入口破坏性变更：每个非空 spec 必须显式写出 `模板: 来源`。迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
 
 仓库源码链接打开公开的 `main`，可能尚未包含本地修改。在本地运行
 `cargo doc --no-deps --open` 可阅读当前工作树的英文文档；其顶部导航留在
@@ -20,7 +20,7 @@
 
 ## 快速开始
 
-需要 **Rust 1.95 或更新版本**。本页描述 **0.10.2 源码树**。如果想使用已发布的 0.9.7，请阅读它的[版本文档](https://docs.rs/batch-impl/0.9.7/batch_impl/)。
+需要 **Rust 1.95 或更新版本**。本页描述 **0.10.2 之后尚未发布的工作树**。使用已发布的 0.10.2 时，请阅读它的[版本文档](https://docs.rs/batch-impl/0.10.2/batch_impl/)。
 
 试用当前源码时，在源码目录旁创建一个小程序：
 
@@ -37,7 +37,7 @@ work/
 batch-impl = { path = "../batch-impl" }
 ```
 
-请使用包含待试用改动的源码目录。路径依赖能直接使用本地未提交的改动，Git 依赖无法获取这些改动。目前没有已发布的 `batch-impl = "0.10.0"` 版本。
+请使用包含待试用改动的源码目录。路径依赖能直接使用本地未提交的改动，Git 依赖无法获取这些改动。已发布的 `batch-impl = "0.10.2"` 不包含这些待发布改动。
 
 将下面的完整程序复制到 `demo/src/main.rs`：
 

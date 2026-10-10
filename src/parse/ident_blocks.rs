@@ -13,7 +13,7 @@ use crate::parse::space::{parse_block, parse_return_expr, starts_block};
 use crate::parse::{Ctx, parse_item};
 use crate::util::Cursor;
 use proc_macro2::{Group, Ident, TokenStream, TokenTree};
-use quote::{ToTokens, quote};
+use quote::quote;
 
 /// The parameter-list style of a `fn(...)` / `Fn(...)` type. A `fn(...)`
 /// **pointer** type accepts named parameters (`fn(x: u8) -> u8` is valid
@@ -164,24 +164,29 @@ fn parse_fn_param(cursor: &mut Cursor, ctx: Ctx<'_>, style: ParamStyle) -> Optio
         cursor.advance(skip_comma + 3);
         return Some(TyPrimitive(quote!(...)).to_ty());
     }
-    // A `,` immediately before a **named** parameter is stepped over here — the
-    // name check below runs before the generic path, which is where the comma
-    // handling usually lives. Every other comma stays with `parse_item`, which
-    // owns the `,,` diagnostic.
-    let named_ahead = matches!(cursor.peek_at(1), Some(TokenTree::Ident(_)))
-        && matches!(cursor.op_at(2), Some((crate::util::Op::Colon, _)));
-    if cursor.is_punct(',') && named_ahead {
-        cursor.bump();
+    // Rust parameter attributes precede its optional name. Keep them opaque
+    // with the name while parsing only the type as DSL. Other commas stay
+    // with `parse_item`, which owns the consecutive-comma diagnostic.
+    let mut name_offset = skip_comma;
+    while matches!(cursor.peek_at(name_offset), Some(TokenTree::Punct(p)) if p.as_char() == '#')
+        && cursor.peek_group_at(name_offset + 1, delimiter![[]]).is_some()
+    {
+        name_offset += 2;
     }
     if let (Some(TokenTree::Ident(id)), Some((crate::util::Op::Colon, _))) =
-        (cursor.peek(), cursor.op_at(1))
+        (cursor.peek_at(name_offset), cursor.op_at(name_offset + 1))
     {
         let name = id.clone();
         let span = id.span();
+        let attrs: TokenStream = cursor
+            .slice_at(cursor.pos() + skip_comma, name_offset - skip_comma)
+            .iter()
+            .cloned()
+            .collect();
         // Both arms consume the name, its `:` and the parameter's tokens — the
         // loop above trusts `Some` to mean progress (a diagnostic that leaves
         // the cursor in place would spin until memory dies).
-        cursor.advance(2);
+        cursor.advance(name_offset + 2);
         let segment = cursor.take_segment(&[',']);
         if style == ParamStyle::Sugar {
             return Some(err_ty_at(
@@ -203,7 +208,7 @@ fn parse_fn_param(cursor: &mut Cursor, ctx: Ctx<'_>, style: ParamStyle) -> Optio
         // it is kept verbatim as a prefix and the type is parsed structurally —
         // DSL operands keep working inside a named parameter (`fn(x: Box<u8>)`).
         let ty = parse_item(&mut Cursor::new(segment), Op::Space, ctx).unwrap_or_else(empty);
-        return Some(TyPrefixed(quote!(#name :), ty.into()).to_ty());
+        return Some(TyPrefixed(quote!(#attrs #name :), ty.into()).to_ty());
     }
     parse_item(cursor, Op::Comma, ctx)
 }
@@ -468,9 +473,9 @@ fn plain_ident_path(cursor: &mut Cursor, mut tokens: Vec<TokenTree>, ctx: Ctx<'_
                 TyGeneric(TyPrimitive(base_tokens).to_ty().into(), params).to_ty(),
             ))
         };
-        return qualified_tail(cursor, head);
+        return qualified_tail(cursor, head, ctx);
     }
-    qualified_tail(cursor, QualifiedHead::Type(Box::new(bare_head(tokens, ctx))))
+    qualified_tail(cursor, QualifiedHead::Type(Box::new(bare_head(tokens, ctx))), ctx)
 }
 
 /// The bare head of a plain ident block: a single ident that names the annotated
@@ -483,7 +488,7 @@ fn bare_head(tokens: Vec<TokenTree>, ctx: Ctx<'_>) -> Ty {
     {
         return TyTrait(
             TokenStream::from(TokenTree::Ident(single.clone())),
-            TyTypeParam { params: vec![], bindings: vec![] },
+            TyTypeParam { params: vec![], bindings: vec![], fresh_groups: vec![] },
         )
         .to_ty();
     }
@@ -495,12 +500,10 @@ fn bare_head(tokens: Vec<TokenTree>, ctx: Ctx<'_>) -> Ty {
 /// when no `::` follows, which is the ordinary path case, so nothing that parses
 /// today changes.
 ///
-/// Every tail segment is stored **flat and verbatim** (`Assoc`, `Item<u8>`,
-/// `More`): a `::`-continuation is plain Rust path text, never DSL, so nothing
-/// re-parses it and nothing applies to it. The angle group the pairing pass made
-/// around a segment's own args is unfolded here, so a later `syn` parse (shape
-/// templates) sees valid Rust rather than a transparent group.
-pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead) -> Ty {
+/// Each segment has a fixed Rust name and optional structural arguments.
+/// Argument parsing is shared with ordinary generics; no application is
+/// replayed on the completed path or on a segment's identifier.
+pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead, ctx: Ctx<'_>) -> Ty {
     let mut tail = vec![];
     while matches!(cursor.peek_op(), Some((crate::util::Op::ColonColon, _))) {
         // The `::` is **consumed** in both error arms, so the chain cannot
@@ -530,25 +533,18 @@ pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead) -> Ty {
         };
         let seg = seg.clone();
         cursor.advance(3);
-        let mut seg_ts = TokenTree::Ident(seg).to_token_stream();
         // `::Assoc<u8>` — a tail segment's own args (GAT-style tail).
-        if let Some(g) = cursor.peek_group(delimiter![<>]) {
-            let inner = crate::preprocess::render_angles(g.stream());
+        let args = if let Some(g) = cursor.peek_group(delimiter![<>]) {
             cursor.bump();
-            seg_ts.extend(quote::quote!(< #inner >));
-        }
-        // A `::`-tail is plain Rust path text: it is stored verbatim and never
-        // re-parsed, so a DSL-only token there would leak into the output
-        // (`Assoc<@0>` → rustc's "expected type, found `@`"). Inspect type
-        // positions only: const expressions and macro inputs have their own grammar.
-        if let Some(span) = dsl_token_in(&seg_ts) {
-            return crate::apply::err_ty_at(
-                "batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` \
-                 / a `*` pack prefix) are not allowed there",
-                span,
-            );
-        }
-        tail.push(seg_ts);
+            Some(parse_angle_bracket_contents(
+                &g.stream().into_iter().collect::<Vec<_>>(),
+                ctx.plain(),
+                crate::parse::generic::ArgsPosition::PlainType,
+            ))
+        } else {
+            None
+        };
+        tail.push(TyPathSegment { ident: seg, args });
     }
     match (head, tail.is_empty()) {
         (QualifiedHead::Type(t), true) => *t,
@@ -556,30 +552,6 @@ pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead) -> Ty {
         // its own: keep the node so the render is faithful and rustc reports it.
         (head, _) => TyQualified(head, tail).to_ty(),
     }
-}
-
-/// The span of the first DSL-only token (`@` / `#` / a `*` pack prefix) in a
-/// type position of a `::`-tail segment — see [`qualified_tail`]. A `*` that
-/// names its pointee (`*const T` / `*mut T`) is ordinary Rust and is not flagged.
-fn dsl_token_in(tokens: &TokenStream) -> Option<proc_macro2::Span> {
-    crate::util::find_type_token(tokens, |trees, i| {
-        match trees.get(i)? {
-            TokenTree::Punct(p) if p.as_char() == '@' || p.as_char() == '#' => {
-                return Some(p.span());
-            }
-            TokenTree::Punct(p) if p.as_char() == '*' => {
-                let names_pointee = matches!(
-                    trees.get(i + 1),
-                    Some(TokenTree::Ident(ident)) if ident == "const" || ident == "mut"
-                );
-                if !names_pointee {
-                    return Some(p.span());
-                }
-            }
-            _ => {}
-        }
-        None
-    })
 }
 
 /// Splits the contents of a leading `<...>` angle group into a **qualified-self**

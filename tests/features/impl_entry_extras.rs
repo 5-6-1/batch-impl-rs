@@ -84,11 +84,11 @@ fn impl_entry_each_spec_derives_from_the_original_block() {
 // ------------------------------------------------------------
 // 4. The attr's own generic declaration and the block's are **reconciled**: a
 //    name the block already declares is not declared a second time (F4 of the
-//    review pass — the natural `#[batch_impl(<T> Box<T>)] impl<T> …` spelling
-//    used to hit `E0403: the name T is already used for a generic parameter`),
+//    review pass — repeating `<T>` in the spec and `impl<T>` used to hit
+//    `E0403: the name T is already used for a generic parameter`),
 //    and the dropped declaration's bounds survive as a where predicate.
 // ------------------------------------------------------------
-#[batch_impl(<T> Box<T>)]
+#[batch_impl(@Self: <T> Box<T>)]
 impl<T> DupMk for Box<T> {
     fn tag(&self) -> u8 {
         0
@@ -101,7 +101,7 @@ trait DupMk {
 
 struct DupHolder<T>(T);
 
-#[batch_impl(<T: Clone> DupHolder<T>)]
+#[batch_impl(@Self: <T: Clone> DupHolder<T>)]
 impl<T> DupClone for DupHolder<T> {
     fn tag(&self) -> u8 {
         0

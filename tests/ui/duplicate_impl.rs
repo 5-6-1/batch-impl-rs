@@ -25,8 +25,8 @@ trait Only {}
 
 trait ImplEntry {}
 
-#[batch_impl(<A> Vec<A>; <B> Vec<B>)]
-impl ImplEntry for () {}
+#[batch_impl(Target: <A> Vec<A>; Target: <B> Vec<B>)]
+impl ImplEntry for Target {}
 
 trait AcrossSegments {}
 
@@ -43,7 +43,7 @@ batch_preview! {
 trait PreviewImpl {}
 
 batch_preview! {
-    #[batch_impl(u8; u8)]
+    #[batch_impl(@Self: u8; @Self: u8)]
     impl PreviewImpl for u8 {}
 }
 

@@ -3,7 +3,7 @@
 // constant stage rather than rendering an empty path.
 use batch_impl::batch_impl;
 
-#[batch_impl(@trait)]
+#[batch_impl(@Self: @trait)]
 impl Vec<u8> {}
 
 fn main() {}

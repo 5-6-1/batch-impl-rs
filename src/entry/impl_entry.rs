@@ -18,8 +18,8 @@
 //! `Marker<Additive, Multiplicative>`), the same sync as the trait entries.
 //!
 //! Attr grammar (single-spec common case; `;` separates multiple specs):
-//! - shape form: `shape-template : new-generic-decl? matrix-source? (where ...)?`
-//! - direct form: `new-generic-decl? for-type (where ...)?`
+//! `shape-template : new-generic-decl? matrix-source (where ...)?`
+//! Every nonempty spec supplies both a template and a source.
 //!
 //! An **empty** spec list (`#[batch_impl]` / `#[batch_impl()]`, or a list of
 //! separators only) is a **no-op**: nothing is derived, so the original block is
@@ -44,8 +44,7 @@ use syn::ItemImpl;
 use crate::ast::TyKind;
 use crate::ast::reset_fresh_counter;
 use crate::codegen::{
-    FreshCtx, Mapping, apply_type_mapping, expand_range_refs, hoist_type_params, match_shape,
-    resolve_where_predicates, used_ident_set,
+    apply_type_mapping, expand_range_refs, hoist_type_params, match_shape, used_ident_set,
 };
 use crate::entry::impl_fresh::{fresh_context, resolve_fresh_predicates};
 use crate::entry::impl_spec::{
@@ -59,7 +58,7 @@ use crate::util::compile_error_str;
 
 /// Splits a token slice at depth-0 separators and renders each chunk back to
 /// a `TokenStream` (the where-predicate splitting pattern shared by the shape
-/// form, the leaf expansion and the direct form).
+/// form and the leaf expansion).
 fn chunks_to_streams(tokens: &[TokenTree], sep: char) -> Vec<TokenStream> {
     split_at_depth0(tokens, sep)
         .iter()
@@ -140,7 +139,7 @@ pub(crate) fn expand_impl_entry(
     crate::entry::duplicates::check(render_angles(out))
 }
 
-/// Expands one spec (shape form or direct form) into its impl(s).
+/// Expands one explicit `template: source` spec into its impl(s).
 fn expand_one_spec(
     spec: &[TokenTree], item: &ItemImpl, trait_path: Option<&syn::Path>,
 ) -> Result<TokenStream, TokenStream> {
@@ -151,11 +150,16 @@ fn expand_one_spec(
     let (spec, where_preds) = peel_where(spec);
     match find_shape_colon(&spec) {
         Some(colon) => expand_shape_form(&spec, colon, &where_preds, item, trait_path),
-        None => expand_direct_form(&spec, &where_preds, item, trait_path),
+        None => Err(compile_error_str(
+            "batch-impl: the impl entry requires `template: source` in every nonempty spec; \
+             a bare type is not an implicit `@Self:` mapping. Write `@Self: source` \
+             to match the input self type, or name the placeholders to replace",
+            spec.first().map_or_else(Span::call_site, TokenTree::span),
+        )),
     }
 }
 
-/// Shape form: `shape-template : new-generic-decl? matrix-source?` — the
+/// Shape form: `shape-template : new-generic-decl? matrix-source` — the
 /// template matches each matrix leaf; the mapping rewrites the impl's for-Type,
 /// trait arguments, where predicates and body. Type-position rewrites preserve
 /// fn parameter labels; body rewriting is lexical. The for-Type need not mirror
@@ -184,12 +188,19 @@ fn expand_shape_form(
         )
     })?;
     let (new_gen, matrix) = split_new_gen(crate::util::slice_from(spec, colon + 1));
+    if matrix.is_empty() {
+        return Err(compile_error_str(
+            "batch-impl: a shape spec requires a source after `:`; use an empty attribute \
+             to preserve the input impl, or supply the types to match",
+            spec.get(colon).map_or_else(Span::call_site, TokenTree::span),
+        ));
+    }
     // `used`: fresh display names must not collide with anything the impl
     // writes — the item (generics / body / where / associated types), the
     // template slots, the new generic decl and the spec's where predicates.
     // One source list, shared with the attribute entry's collision set
     // (`codegen::fresh_naming::used_ident_set`); the per-leaf extension (the matrix
-    // source is user text too) joins in `expand_leaf` / `expand_direct_form`.
+    // source is user text too) joins in `expand_leaf`.
     let item_ts = item.to_token_stream();
     let template_ts = template.to_token_stream();
     let ng_ts = new_gen.as_ref().map(|ng| ng.to_token_stream());
@@ -231,32 +242,13 @@ fn expand_shape_form(
                     "batch-impl: the shape template `{}` before `:` describes nothing in this impl — on \
                      the impl entry the text before `:` is a **template** that must match the for-type, a \
                      trait argument, a where predicate or the body, and the trait comes from the input \
-                     impl. Write `@Self: …` to batch the for-type, `#[batch_impl(A, B)] impl Tr for A` \
-                     for the direct form, or use `batch_trait!` / a trait entry when several traits are \
-                     involved",
+                     impl. Write `@Self: …` to batch the for-type, or use `batch_trait!` / a trait \
+                     entry when several traits are involved",
                     name
                 ),
                 t.ident.span(),
             ));
         }
-    }
-    if matrix.is_empty() {
-        // Empty matrix source → N = 1, the shape itself (no slot mapping;
-        // the for-Type is emitted verbatim).
-        let where_chunks = chunks_to_streams(where_preds, ',');
-        let fresh_ctx = FreshCtx::new(&[], &used);
-        let where_resolved = resolve_where_predicates(&where_chunks, &fresh_ctx)
-            .map_err(|es| es.into_iter().collect::<TokenStream>())?;
-        return assemble_impl(
-            item,
-            trait_path,
-            new_gen.as_ref(),
-            &[],
-            &where_resolved,
-            &Mapping::default(),
-            &[],
-            item.self_ty.to_token_stream(),
-        );
     }
     let leaves = parse_matrix_leaves(&matrix)?;
     let mut out = quote![];
@@ -326,6 +318,7 @@ fn expand_leaf(
             Span::call_site(),
         ));
     };
+    reject_nested_templates(&leaf)?;
     // Generators in a leaf (`A<()0..=12>`) mint fresh declarations: hoist
     // them out of the leaf (they join the impl generics), name them
     // (`P0, P1, ...`) and resolve the carriers to display names before the
@@ -337,8 +330,9 @@ fn expand_leaf(
     let mut surfaces = vec![&leaf_ts, &leaf_pred_ts];
     surfaces.extend(&leaf_templates);
     let fresh_ctx = fresh_context(&fresh_decls, used, &surfaces);
-    let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
-    let leaf_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
+    // Const expressions can still carry paired angles (for example an array
+    // length's `size_of::<T>()`). Restore them before syn normalizes the type.
+    let leaf_tokens = render_angles(expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?);
     let leaf_span =
         leaf_tokens.clone().into_iter().next().map(|t| t.span()).unwrap_or_else(Span::call_site);
     let leaf_ty = syn::parse2(leaf_tokens).map_err(|e| {
@@ -459,7 +453,7 @@ fn expand_leaf(
         item,
         trait_path,
         new_gen,
-        &fresh_names,
+        &fresh_ctx,
         &where_resolved,
         &m,
         &template_segs,
@@ -467,71 +461,76 @@ fn expand_leaf(
     )
 }
 
+/// Only attachments on the final leaf have a matching target on this entry.
+/// Keep the check structural: Rust bodies and const/macro tokens are opaque.
+fn reject_nested_templates(ty: &crate::ast::Ty) -> Result<(), TokenStream> {
+    if matches!(ty.kind, TyKind::WithImpl(_)) {
+        return Err(compile_error_str(
+            "batch-impl: a nested `impl{...}` attachment is not supported on the impl entry; \
+             attach the template to the final source leaf instead, for example \
+             `Wrap<u8> impl{Wrap<A>}`",
+            ty.span,
+        ));
+    }
+    let mut result = Ok(());
+    ty.clone().map_children(&mut |child| {
+        if result.is_ok() {
+            result = reject_nested_templates(&child);
+        }
+        child
+    });
+    result
+}
+
 /// The inner type of a `WithWhere` attachment (an `Option<Box<Ty>>`).
 fn wi_where_inner(inner: Option<Box<crate::ast::Ty>>) -> Option<crate::ast::Ty> {
     inner.map(|b| *b)
 }
 
-/// Direct form: `new-generic-decl? for-type` (no matrix, N = 1) — the
-/// for-type is full DSL (a generator may appear); hoist the freshs, name and
-/// resolve them to display names.
-fn expand_direct_form(
-    spec: &[TokenTree], where_preds: &[TokenTree], item: &ItemImpl, trait_path: Option<&syn::Path>,
-) -> Result<TokenStream, TokenStream> {
-    let (new_gen, for_tokens) = split_new_gen(spec);
-    let item_ts = item.to_token_stream();
-    let ng_ts = new_gen.as_ref().map(|ng| ng.to_token_stream());
-    let where_ts = where_preds.iter().cloned().collect::<TokenStream>();
-    let mut surfaces = vec![&item_ts, &where_ts];
-    if let Some(ng) = &ng_ts {
-        surfaces.push(ng);
-    }
-    let used = used_ident_set(&surfaces);
-    let where_chunks = chunks_to_streams(where_preds, ',');
-    let leaves = parse_matrix_leaves(&for_tokens.to_vec())?;
-    if leaves.len() != 1 {
-        return Err(compile_error_str(
-            "batch-impl: this form implements one type at a time — to batch \
-             targets, put `#[batch_impl(...)]` on a trait definition, or use \
-             `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] \
-             trait Tr { … }`)",
-            Span::call_site(),
-        ));
-    }
-    let mut fresh_decls = vec![];
-    // len == 1 verified above; the `if let` keeps the no-panic promise
-    // instead of an (unreachable) unwrap.
-    let Some(leaf) = leaves.into_iter().next() else {
-        return Err(compile_error_str(
-            "batch-impl: this form implements one type at a time — to batch \
-             targets, put `#[batch_impl(...)]` on a trait definition, or use \
-             `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] \
-             trait Tr { … }`)",
-            Span::call_site(),
-        ));
-    };
-    let leaf = hoist_type_params(leaf, &mut fresh_decls);
-    // The spec's for-type is user text too — its idents join the set.
-    let leaf_ts = leaf.to_token_stream();
-    let fresh_ctx = fresh_context(&fresh_decls, &used, &[&leaf_ts]);
-    let fresh_names = fresh_ctx.names.iter().map(|(_, _, n)| n.clone()).collect::<Vec<_>>();
-    let for_tokens = expand_range_refs(leaf.to_token_stream(), &fresh_ctx)?;
-    let where_resolved = resolve_fresh_predicates(&fresh_decls, &where_chunks, &fresh_ctx)?;
-    assemble_impl(
-        item,
-        trait_path,
-        new_gen.as_ref(),
-        &fresh_names,
-        &where_resolved,
-        &Mapping::default(),
-        &[],
-        for_tokens,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn expand(attr: &str, item: ItemImpl) -> Result<TokenStream, String> {
+        expand_impl_entry(attr.parse().expect("attribute tokens"), item).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn missing_source_does_not_bypass_shape_validation() {
+        for attr in ["Vec<u8>:", "@Self: <T>", "Unused where{u8: Copy}:"] {
+            let error = expand(attr, syn::parse_quote!(impl Empty for u16 {})).unwrap_err();
+            assert!(error.contains("requires a source after"), "{attr}: {error}");
+        }
+        let error =
+            expand("Vec<u8>: Vec<u8>", syn::parse_quote!(impl Empty for u16 {})).unwrap_err();
+        assert!(error.contains("ignores its matrix leaf"), "{error}");
+    }
+
+    #[test]
+    fn identity_empty_source_and_missing_source_remain_distinct() {
+        let item: ItemImpl = syn::parse_quote!(impl Empty for Vec<u8> {});
+        for attr in ["", ";", "@Self: @Self", "Vec<u8>: Vec<u8>"] {
+            let output = expand(attr, item.clone()).expect("valid identity");
+            assert!(syn::parse2::<ItemImpl>(output).is_ok(), "{attr}");
+        }
+        for attr in ["@Self: []", "@Self: *[]"] {
+            let error = expand(attr, item.clone()).unwrap_err();
+            assert!(error.contains("expands to zero impls"), "{attr}: {error}");
+        }
+    }
+
+    #[test]
+    fn nested_templates_are_rejected_before_rendering() {
+        for attr in [
+            "Target: Wrap<u8 impl{A}>",
+            "Target: (u8 impl{fn},)",
+            "Target: &Wrap<u8 impl{A}>",
+            "Target: Wrap<u8 impl{A}> impl{Outer}",
+        ] {
+            let error = expand(attr, syn::parse_quote!(impl Mark for Target {})).unwrap_err();
+            assert!(error.contains("nested `impl{...}` attachment"), "{attr}: {error}");
+        }
+    }
 
     /// Qualified types reach the generated impl. The spec's for-type is user
     /// text and `<T as Tr>::Assoc` is a projection, so three separate decisions
@@ -545,17 +544,18 @@ mod tests {
         fn flat(ts: TokenStream) -> String {
             ts.to_string().chars().filter(|c| !c.is_whitespace()).collect()
         }
-        let item: ItemImpl = syn::parse_quote!(impl M1 for Vec<u8> { fn one(&self) -> u8 { 1 } });
-        let out = expand_impl_entry("Vec<<S as Tr>::Assoc>".parse().expect("spec parses"), item)
-            .expect("the spec expands");
+        let item: ItemImpl = syn::parse_quote!(impl M1 for Target { fn one(&self) -> u8 { 1 } });
+        let out =
+            expand_impl_entry("Target: Vec<<S as Tr>::Assoc>".parse().expect("spec parses"), item)
+                .expect("the spec expands");
         assert_eq!(
             flat(out),
             flat(quote!(impl M1 for Vec<<S as Tr>::Assoc> { fn one(&self) -> u8 { 1 } })),
             "a projection as a generic argument"
         );
-        let item: ItemImpl = syn::parse_quote!(impl M3 for u16 { fn three(&self) -> u8 { 3 } });
+        let item: ItemImpl = syn::parse_quote!(impl M3 for Target { fn three(&self) -> u8 { 3 } });
         let out = expand_impl_entry(
-            "<<S as Tr>::Assoc as Tr>::Assoc".parse().expect("spec parses"),
+            "Target: <<S as Tr>::Assoc as Tr>::Assoc".parse().expect("spec parses"),
             item,
         )
         .expect("the spec expands");
@@ -602,7 +602,7 @@ mod tests {
     /// impl: the generic shadows the user's `P0`).
     #[test]
     fn spec_idents_join_the_fresh_collision_set() {
-        let attr: TokenStream = "Holder<P0, ()1>".parse().expect("the spec parses");
+        let attr: TokenStream = "X: Holder<P0, ()1>".parse().expect("the spec parses");
         let item: ItemImpl = syn::parse_quote!(
             impl Tr for X {
                 fn f(&self) -> u8 {
@@ -625,7 +625,7 @@ mod tests {
     /// its spec's attachments; this is the impl-entry half of that contract.
     #[test]
     fn item_attributes_reach_the_generated_impl() {
-        let attr: TokenStream = "Holder<u8>".parse().expect("the spec parses");
+        let attr: TokenStream = "X: Holder<u8>".parse().expect("the spec parses");
         let item: ItemImpl = syn::parse_quote!(
             #[allow(dead_code)]
             #[doc = "kept"]

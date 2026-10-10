@@ -60,7 +60,7 @@ trait InputSelf {
     fn input() -> &'static str;
 }
 
-#[batch_impl((*[Vec, Box] @Self,))]
+#[batch_impl(@Self: (*[Vec, Box] @Self,))]
 impl InputSelf for u8 {
     fn input() -> &'static str {
         core::any::type_name::<Self>()

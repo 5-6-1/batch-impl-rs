@@ -44,17 +44,17 @@ trait Nested {
     fn identity(self) -> Self;
 }
 
-// The predicate constrains the source u8, while Rust Self in the method
-// refers to the generated Vec<u8>. Vec<u8> deliberately does not implement Copy.
-#[batch_impl(Vec<@Self> where { @Self: Copy })]
-impl Nested for u8 {
+// The explicit predicate constrains u8 independently of the Target slot.
+// Rust Self is Vec<u8>, which deliberately does not implement Copy.
+#[batch_impl(Target: Vec<u8> where { u8: Copy })]
+impl Nested for Target {
     fn identity(self) -> Self {
         self
     }
 }
 
 #[test]
-fn direct_type_and_where_read_the_input_type() {
+fn fixed_where_types_are_independent_of_the_target_slot() {
     assert_eq!(vec![1u8, 2, 3].identity(), vec![1u8, 2, 3]);
 }
 
@@ -62,8 +62,8 @@ trait Layered {
     fn output_name() -> &'static str;
 }
 
-#[batch_impl(Vec<@Self>)]
-#[batch_impl(Box<@Self>)]
+#[batch_impl(@Self: Vec<@Self>)]
+#[batch_impl(@Self: Box<@Self>)]
 impl Layered for u8 {
     fn output_name() -> &'static str {
         std::any::type_name::<Self>()
@@ -79,7 +79,7 @@ trait Sibling {
     fn bytes(&self) -> usize;
 }
 
-#[batch_impl(Vec<@Self>; Box<@Self>)]
+#[batch_impl(@Self: Vec<@Self>; @Self: Box<@Self>)]
 impl Sibling for u16 {
     fn bytes(&self) -> usize {
         std::mem::size_of::<Self>()
@@ -94,7 +94,7 @@ fn sibling_specs_share_the_same_input() {
 
 struct Borrowed<'a, const N: usize>(&'a [u8; N]);
 
-#[batch_impl(@Self)]
+#[batch_impl(@Self: @Self)]
 impl<'a, const N: usize> Borrowed<'a, N> {
     fn len(&self) -> usize {
         self.0.len()

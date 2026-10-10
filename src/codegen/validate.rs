@@ -50,14 +50,14 @@ pub(crate) fn validate_at_refs(
     let tokens = std::iter::once(target.to_token_stream())
         .chain(trait_args.iter().cloned())
         .collect::<TokenStream>();
-    collect_dangling(tokens, &declared, ctx.names.len())
+    collect_dangling(tokens, &declared, ctx)
 }
 
 /// Recursive token walk: a carrier `@{...}` must be within the impl's fresh
 /// list — a single position indexes it, a grouped form must exist, a range
 /// end must be below the count (an open range never dangles: it truncates).
 fn collect_dangling(
-    tokens: TokenStream, declared: &HashSet<(usize, usize)>, fresh_count: usize,
+    tokens: TokenStream, declared: &HashSet<(usize, usize)>, ctx: &FreshCtx,
 ) -> Vec<TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
     let mut errs = vec![];
@@ -69,7 +69,7 @@ fn collect_dangling(
                 _ => Span::call_site(),
             };
             if let Some(r) = FreshRef::parse(&inner) {
-                errs.extend(validate_ref(&r, declared, fresh_count, span));
+                errs.extend(validate_ref(&r, declared, ctx, span));
             }
             i += 2;
             continue;
@@ -78,7 +78,7 @@ fn collect_dangling(
         if let TokenTree::Group(g) = cur
             && !crate::util::TokenDomain::Type.skips_group(&v, i)
         {
-            errs.extend(collect_dangling(g.stream(), declared, fresh_count));
+            errs.extend(collect_dangling(g.stream(), declared, ctx));
         }
         i += 1;
     }
@@ -88,12 +88,13 @@ fn collect_dangling(
 /// The range/single checks shared by every validator — one authority so the
 /// wording and the bounds cannot drift apart between positions.
 fn validate_ref(
-    r: &FreshRef, declared: &HashSet<(usize, usize)>, fresh_count: usize, span: Span,
+    r: &FreshRef, declared: &HashSet<(usize, usize)>, ctx: &FreshCtx, span: Span,
 ) -> Vec<TokenStream> {
+    let fresh_count = ctx.names.len();
     // Grouped form: the group must exist, then the extent must fit its slice.
     if let Some(g) = r.group {
         let len = declared.iter().filter(|&&(gg, _)| gg == g).count();
-        if len == 0 {
+        if !ctx.has_group(g) {
             return vec![at_group_out_of_range(g, r.start, span)];
         }
         let fits = match r.end {

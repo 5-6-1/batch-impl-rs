@@ -47,11 +47,11 @@ fn mapped(
 pub(crate) fn map_task(left: Ty, right: Ty) -> Ty {
     let left = match checked_input(left) {
         Ok(left) => left,
-        Err(error) => return error,
+        Err(error) => return *error,
     };
     let right = match checked_input(right) {
         Ok(right) => right,
-        Err(error) => return error,
+        Err(error) => return *error,
     };
     checked_result(run_task(left, right, 0))
 }
@@ -179,27 +179,14 @@ impl Apply for TyPack {
     fn apply_help(self, right: Ty, span: Span) -> Ty {
         let left = match checked_input(self.to_ty().with_span(span)) {
             Ok(left) => left,
-            Err(error) => return error,
+            Err(error) => return *error,
         };
         let right = match checked_input(right) {
             Ok(right) => right,
-            Err(error) => return error,
+            Err(error) => return *error,
         };
         match right.kind {
-            TyKind::Num(TyNum(n)) => {
-                let mut slots = vec![];
-                let mut decl = None;
-                numeric_slots(left, &mut slots, &mut decl);
-                if let Some(error) = check_generation(&slots, decl.as_ref(), n) {
-                    return error.with_span(span);
-                }
-                let generated = generated_pack(tuple_pow(slots, n)).with_span(span);
-                let result = match decl {
-                    Some(d) => carry(d, generated, span),
-                    None => generated,
-                };
-                checked_result(result)
-            }
+            TyKind::Num(TyNum(n)) => number(left, n, span, tuple_pow),
             TyKind::Pack(rows) => checked_result(mapped(
                 rows.0,
                 span,
@@ -209,4 +196,34 @@ impl Apply for TyPack {
             kind => map_task(left, Ty { span: right.span, kind }),
         }
     }
+}
+
+/// Range application reuses the numeric host contract but supplies identities
+/// from the source's structural position, rather than allocating per branch.
+pub(super) fn range_number(
+    left: Ty, n: usize, span: Span, group: impl FnOnce(&[Ty]) -> Option<usize>,
+) -> Ty {
+    let left = match checked_input(left) {
+        Ok(left) => left,
+        Err(error) => return *error,
+    };
+    number(left, n, span, |slots, n| {
+        let source = group(&slots);
+        super::apply_tuple::tuple_pow_with(slots, n, super::apply_tuple::PowScope::Range(source))
+    })
+}
+
+fn number(left: Ty, n: usize, span: Span, generate: impl FnOnce(Vec<Ty>, usize) -> Ty) -> Ty {
+    let mut slots = vec![];
+    let mut decl = None;
+    numeric_slots(left, &mut slots, &mut decl);
+    if let Some(error) = check_generation(&slots, decl.as_ref(), n) {
+        return error.with_span(span);
+    }
+    let generated = generated_pack(generate(slots, n)).with_span(span);
+    let result = match decl {
+        Some(d) => carry(d, generated, span),
+        None => generated,
+    };
+    checked_result(result)
 }

@@ -38,9 +38,9 @@ trait ExternNamedFn {
 }
 
 // The impl entry shares the type parser, so a named parameter works in its
-// direct form's for-type too.
-#[batch_impl(fn(w: u8) -> u8)]
-impl NamedEntry for fn(u8) -> u8 {
+// source too. A whole-type slot preserves the source's parameter label.
+#[batch_impl(Target: fn(w: u8) -> u8)]
+impl NamedEntry for Target {
     fn tag(&self) -> &'static str {
         "entry"
     }

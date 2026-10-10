@@ -17,18 +17,18 @@ pub(super) fn check_depth(depth: usize, span: Span) -> Option<Ty> {
 
 /// Moving traversal avoids cloning the very input whose depth/mass has not yet
 /// been checked. It shares the AST's exhaustive child traversal authority.
-pub(super) fn checked_input(value: Ty) -> Result<Ty, Ty> {
+pub(super) fn checked_input(value: Ty) -> Result<Ty, Box<Ty>> {
     checked_tree(value, "Pack input")
 }
 
 pub(super) fn checked_result(value: Ty) -> Ty {
     match checked_tree(value, "Pack result") {
         Ok(value) => value,
-        Err(error) => error,
+        Err(error) => *error,
     }
 }
 
-fn checked_tree(value: Ty, what: &str) -> Result<Ty, Ty> {
+fn checked_tree(value: Ty, what: &str) -> Result<Ty, Box<Ty>> {
     fn visit(value: Ty, what: &str, depth: usize, mass: &mut usize, error: &mut Option<Ty>) -> Ty {
         if error.is_some() {
             return value;
@@ -43,7 +43,7 @@ fn checked_tree(value: Ty, what: &str) -> Result<Ty, Ty> {
     let mut error = None;
     let value = visit(value, what, 0, &mut 0, &mut error);
     match error {
-        Some(error) => Err(error),
+        Some(error) => Err(error.into()),
         None => Ok(value),
     }
 }

@@ -1,7 +1,7 @@
-error: batch-impl: this form implements one type at a time — to batch targets, put `#[batch_impl(...)]` on a trait definition, or use `batch_trait!` for a foreign trait (e.g. `#[batch_impl(<T> Box<T>)] trait Tr { … }`)
- --> tests/ui/implentry_direct_not_type.rs:5:1
+error: batch-impl: the impl entry requires `template: source` in every nonempty spec; a bare type is not an implicit `@Self:` mapping. Write `@Self: source` to match the input self type, or name the placeholders to replace
+ --> tests/ui/implentry_direct_not_type.rs:4:1
   |
-5 | #[batch_impl(<T>)]
+4 | #[batch_impl(<T>)]
   | ^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

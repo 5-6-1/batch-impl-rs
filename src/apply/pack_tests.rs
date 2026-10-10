@@ -28,7 +28,11 @@ pub(super) fn identity() -> Ty {
 
 fn decl(name: &str, bound: Option<Ty>, inner: Ty) -> Ty {
     TyWithType(
-        TyTypeParam { params: vec![(atom(name).into(), bound.map(Into::into))], bindings: vec![] },
+        TyTypeParam {
+            params: vec![(atom(name).into(), bound.map(Into::into))],
+            bindings: vec![],
+            fresh_groups: vec![],
+        },
         inner.into(),
     )
     .to_ty()
@@ -90,6 +94,7 @@ fn star_keeps_unused_declarations_bounds_and_bindings() {
     let params = TyTypeParam {
         params: vec![(atom("T").into(), Some(atom("Clone").into()))],
         bindings: vec![(atom("Item").into(), atom("u8").into())],
+        fresh_groups: vec![],
     };
     let actual = TyWithType(params.clone(), choice(vec![]).into()).to_ty().star();
     same(&actual, &TyWithType(params, pack(vec![]).into()).to_ty());
@@ -260,19 +265,23 @@ fn zero_axis_keeps_prior_declarations_but_dropped_tuple_slots_do_not() {
 }
 
 #[test]
-fn range_branches_generate_distinct_fresh_groups_after_zero() {
+fn range_branches_keep_one_source_group_including_zero() {
     reset_fresh_counter();
     let value = pack(vec![]).apply(TyRange { start: 0, end: 2, inclusive: true }.to_ty());
     let TyKind::Array(branches) = value.kind else { panic!("expected range branches") };
     assert_eq!(branches.0.len(), 3);
-    same(&branches.0[0], &pack(vec![]));
-    for (branch, expected_group) in branches.0[1..].iter().zip(0..) {
+    let (empty, body) = split_decl(&branches.0[0]);
+    assert_eq!(empty.fresh_groups, vec![0]);
+    assert!(empty.params.is_empty());
+    same(body, &pack(vec![]));
+    for branch in &branches.0[1..] {
         let (params, _) = split_decl(branch);
         let TyKind::Fresh(TyFresh(reference)) = params.params[0].0.kind else {
             panic!("expected fresh")
         };
-        assert_eq!(reference.group, Some(expected_group));
+        assert_eq!(reference.group, Some(0));
     }
+    assert_eq!(take_group(), 1);
 }
 
 #[test]

@@ -198,23 +198,40 @@ impl Materializer {
                     QualifiedHead::Type(inner) => (inner, None),
                     QualifiedHead::Projection(inner, trait_) => (inner, Some(trait_)),
                 };
+                let head = self.one(*inner, depth + 1)?;
+                let mut tail = vec![Branch::bare(vec![], 0)];
+                for segment in qualified.1 {
+                    let pieces = match segment.args {
+                        Some(args) => self
+                            .params(args, false, depth + 1, segment.ident.span())?
+                            .into_iter()
+                            .map(|row| {
+                                row.map(
+                                    |args| TyPathSegment {
+                                        ident: segment.ident.clone(),
+                                        args: Some(args),
+                                    },
+                                    0,
+                                )
+                            })
+                            .collect(),
+                        None => vec![Branch::bare(segment, 0)],
+                    };
+                    tail = self.product(tail, pieces, span, |mut tail, segment| {
+                        tail.push(segment);
+                        tail
+                    })?;
+                }
                 Ok(self
-                    .one(*inner, depth + 1)?
+                    .product(head, tail, span, |inner, tail| {
+                        let head = match &trait_ {
+                            Some(trait_) => QualifiedHead::Projection(inner.into(), trait_.clone()),
+                            None => QualifiedHead::Type(inner.into()),
+                        };
+                        TyQualified(head, tail)
+                    })?
                     .into_iter()
-                    .map(|row| {
-                        row.map(
-                            |inner| {
-                                let head = match &trait_ {
-                                    Some(trait_) => {
-                                        QualifiedHead::Projection(inner.into(), trait_.clone())
-                                    }
-                                    None => QualifiedHead::Type(inner.into()),
-                                };
-                                vec![TyQualified(head, qualified.1.clone()).to_ty().with_span(span)]
-                            },
-                            1,
-                        )
-                    })
+                    .map(|row| row.map(|ty| vec![ty.to_ty().with_span(span)], 1))
                     .collect())
             }
             TyKind::WithCode(w) => self.optional(w.0, depth, span, |inner| {
