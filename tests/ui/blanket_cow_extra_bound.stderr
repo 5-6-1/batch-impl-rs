@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `str: Extra` is not satisfied
+  --> tests/ui/blanket_cow_extra_bound.rs:19:16
+   |
+19 |     Read::read(&Cow::Borrowed("text"));
+   |     ---------- ^^^^^^^^^^^^^^^^^^^^^^ the trait `Extra` is not implemented for `str`
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: this trait has no implementations, consider adding one
+  --> tests/ui/blanket_cow_extra_bound.rs:4:1
+   |
+ 4 | trait Extra {}
+   | ^^^^^^^^^^^
+note: required for `Cow<'_, str>` to implement `Read`
+  --> tests/ui/blanket_cow_extra_bound.rs:6:1
+   |
+ 6 | #[batch_impl(#blanket(@all_methods){@Cow where { @0: Extra }})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 7 | trait Read {
+   |       ^^^^
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

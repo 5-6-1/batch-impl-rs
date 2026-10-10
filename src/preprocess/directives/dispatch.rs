@@ -69,8 +69,10 @@ pub(crate) fn expand_directive(
                     "fill" => expand_fill(args, body, trait_def).map(|tt| (vec![tt], consumed)),
                     "delegate" => expand_delegate(args, body, trait_def, naming_scope)
                         .map(|tt| (vec![tt], consumed)),
-                    "blanket" => expand_blanket(args, body, trait_def, trait_full_path)
-                        .map(|v| (v, consumed)),
+                    "blanket" => {
+                        expand_blanket(args, body, trait_def, trait_full_path, naming_scope)
+                            .map(|v| (v, consumed))
+                    }
                     // Open extension: `#name(args){body}` → a **top-level**
                     // macro call `{ ! name!{(args){body} trait_def} }` — the
                     // `!` prefix marks top-level emission: codegen strips it,
@@ -271,25 +273,17 @@ fn expand_delegate(
             },
             None => name.clone(),
         };
-        let mut sig = f.sig.clone();
-        // Only patterns that cannot be used directly as an expression need
-        // renaming: `_` has no binding, `ref x` / guards / `x @ pat` are
-        // pattern-only tokens (checked recursively, so `(ref x, y)` is
-        // caught too). Everything else keeps its pattern — its token stream
-        // works as an expression in the call (`(a, b)` binds `a`/`b`, and
-        // `(a, b)` rebuilds the tuple). Reserve the complete input before
-        // naming: later parameters or body tokens can use our private prefix.
-        super::delegate_args::name_unforwardable_params(&mut sig, &mut names.clone());
-        let call_args = collect_call_args(&sig).map_err(|pat| {
-            compile_err!(
-                "batch-impl: #delegate method `{}::{}` param `{}` cannot be \
+        let (sig, call_args) =
+            super::delegate_args::prepare_forwarding(&f.sig, &names).map_err(|pat| {
+                compile_err!(
+                    "batch-impl: #delegate method `{}::{}` param `{}` cannot be \
                  forwarded (unsupported parameter pattern); please rename it \
                  to a plain identifier",
-                trait_def.ident,
-                name,
-                pat
-            )
-        })?;
+                    trait_def.ident,
+                    name,
+                    pat
+                )
+            })?;
         let generic_args = super::blanket_helpers::method_turbofish(&sig.generics);
         let body = match &template {
             Some(template) => template.render(&call_name, &generic_args, &call_args),

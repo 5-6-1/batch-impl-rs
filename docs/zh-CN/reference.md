@@ -940,6 +940,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `blanket_bad_huge_depth` | `#blanket(...:999999)` | batch-impl: #blanket `:999999` is too large (deref depth must be ≤ 128) | DSL |
 | `blanket_depth_zero` | `#blanket(@all_methods){Box:0}` | batch-impl: #blanket `:0` is meaningless (deref depth must be ≥ 1) | DSL |
 | `blanket_wrapper_empty` | `#blanket(@all_methods){Box,}` | batch-impl: #blanket wrapper list contains an empty element (e.g. `&,Box`); separate elements with `,` | DSL |
+| `blanket_cow_extra_bound` | `@Cow where{@0: Extra}` 必须保留用户约束 | the trait bound `str: Extra` is not satisfied | Rust |
 
 ### 10.6 形状模板、重复块与变长段
 

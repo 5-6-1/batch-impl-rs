@@ -7,6 +7,7 @@
 
 ## Unreleased
 
+- Preserve user predicates added to `@Cow` alongside its built-in constraints. Blanket forwarding now prepares anonymous and pattern-only parameters through the same naming path as `#delegate`; repeated impl-entry lifetime declarations retain their bounds as where predicates.
 - Apply the same type-domain boundary to impl-entry directive rejection, shape-template variadic-segment marking and its residue check, and blanket wrapper target/predicate scans. Preserve `#` inside user macro inputs and `n @ ..=3` inside const blocks without weakening visible DSL checks.
 - Preserve ordinary brace groups as a whole: fix `let n @ _` / `n @ 2` in associated type values, const arguments and where-clause types being parsed as fresh references. Only explicit `where{...}` / `impl{...}` structures are entered by the corresponding scans; `@{...}` remains an atomic marker. Enabled body substitution and named shape-slot replacement retain their contracts.
 - Preserve syntax domains: type-position macro inputs remain unchanged, including `@0` during early parsing of associated bindings; DSL validation skips complete Rust attributes. The literal `"<>"` is no longer mistaken for empty generics, and const multiplication in qualified path arguments is no longer mistaken for a Pack.

@@ -60,7 +60,7 @@ pub(crate) fn parse_blanket_wrappers(
         // guard runs before the `len - 2` arithmetic — a single-token
         // element (`#blanket(@all){{}}`) would otherwise underflow the
         // subtraction in debug builds.
-        let where_preds = if current.len() >= 2
+        let where_preds: Option<Vec<TokenTree>> = if current.len() >= 2
             && let Some(TokenTree::Group(g)) = current.last()
             && g.delimiter() == delimiter![{}]
             && let Some(TokenTree::Ident(id)) = current.get(current.len() - 2)
@@ -151,7 +151,10 @@ pub(crate) fn parse_blanket_wrappers(
             [TokenTree::Punct(at), TokenTree::Ident(name)]
                 if at.as_char() == '@' && name == "Cow" =>
             {
-                let preds = quote!(@0: ToOwned + ?Sized, @0::Owned: @trait).into_iter().collect();
+                let mut preds = quote!(@0: ToOwned + ?Sized, @0::Owned: @trait);
+                if let Some(extra) = where_preds.filter(|predicates| !predicates.is_empty()) {
+                    preds.extend(quote!(, #(#extra)*));
+                }
                 // quote does not pair angle brackets — `Cow<'_>` needs a
                 // manually built <> group (blanket output no longer goes
                 // through angle_collect; a flat `<` would remain)
@@ -159,7 +162,7 @@ pub(crate) fn parse_blanket_wrappers(
                 wrappers.push(BlanketWrapper {
                     ty: quote!(Cow #args),
                     depth,
-                    where_preds: Some(preds),
+                    where_preds: Some(preds.into_iter().collect()),
                     is_unsized: false,
                 });
                 Ok(())
@@ -198,4 +201,19 @@ pub(crate) fn parse_blanket_wrappers(
     }
     flush(current, &mut wrappers)?;
     Ok(wrappers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cow_predicates_merge_builtin_constraints_with_the_user_suffix() {
+        let tokens = quote!(@Cow where { @0: Copy, }).into_iter().collect::<Vec<_>>();
+        let wrappers = parse_blanket_wrappers(&tokens).unwrap();
+        let predicates =
+            wrappers[0].where_preds.clone().unwrap().into_iter().collect::<TokenStream>();
+        let expected = quote!(@0: ToOwned + ?Sized, @0::Owned: @trait, @0: Copy,);
+        assert_eq!(predicates.to_string(), expected.to_string());
+    }
 }

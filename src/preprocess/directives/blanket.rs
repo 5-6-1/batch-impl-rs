@@ -12,7 +12,7 @@ use syn::ItemTrait;
 
 use crate::ast::{fresh_decl_tokens, take_group};
 use crate::preprocess::{
-    angle_collect, build_from_item, collect_call_args, get_trait_item, parse_blanket_wrappers,
+    angle_collect, build_from_item, build_from_item_sig, get_trait_item, parse_blanket_wrappers,
     parse_names_from_tokens,
 };
 use crate::util::compile_err;
@@ -52,6 +52,7 @@ use super::blanket_helpers::forward_moves_the_value;
 /// expansion time — keep full pass-through + rustc fallback.
 pub(crate) fn expand_blanket(
     args_group: &Group, body: &Group, trait_def: &ItemTrait, trait_full_path: &TokenStream,
+    naming_scope: &[TokenTree],
 ) -> Result<Vec<TokenTree>, TokenStream> {
     // body is a Brace group (`angle_collect` does not enter), so flat `<...>`
     // such as `Cow<'_>` inside were not paired — do one pairing pass here
@@ -60,6 +61,7 @@ pub(crate) fn expand_blanket(
     let wrappers = parse_blanket_wrappers(&body_tokens)?;
     let method_names =
         parse_names_from_tokens(&args_group.stream().into_iter().collect::<Vec<_>>(), trait_def)?;
+    let names = super::delegate_args::ForwardNames::new(naming_scope, trait_def);
     // Fresh generic: avoids clashing with other names (same mechanism as the
     // `().N` tuple generic); group 0 position 0 — the blanket is the spec's
     // only fresh generator, and codegen assigns its display name (`P0`).
@@ -200,7 +202,6 @@ pub(crate) fn expand_blanket(
                 // Qualify the current trait for both receiver and static calls:
                 // supertraits can declare methods with the same name.
                 syn::TraitItem::Fn(f) => {
-                    let sig = f.sig.clone();
                     // Parameters, returns and generic constraints cannot
                     // identify the wrapper's bare `Self` with the inner type.
                     if crate::preprocess::directives::blanket_helpers::sig_refs_bare_self(&f.sig) {
@@ -213,15 +214,16 @@ pub(crate) fn expand_blanket(
                             name
                         ));
                     }
-                    let call_args = collect_call_args(&sig).map_err(|pat| {
-                        compile_err!(
-                            "batch-impl: #blanket method `{}::{}` param `{}` cannot be \
+                    let (sig, call_args) = super::delegate_args::prepare_forwarding(&f.sig, &names)
+                        .map_err(|pat| {
+                            compile_err!(
+                                "batch-impl: #blanket method `{}::{}` param `{}` cannot be \
                              forwarded: only `self` and plain identifier patterns are supported",
-                            trait_def.ident,
-                            name,
-                            pat
-                        )
-                    })?;
+                                trait_def.ident,
+                                name,
+                                pat
+                            )
+                        })?;
                     let generic_args =
                         crate::preprocess::directives::blanket_helpers::method_turbofish(
                             &sig.generics,
@@ -260,7 +262,7 @@ pub(crate) fn expand_blanket(
                     } else {
                         quote! { <#as_trait>::#name #generic_args ( #(#call_args),* ) #await_call }
                     };
-                    methods.extend(build_from_item(item, &body));
+                    methods.extend(build_from_item_sig(item, Some(&sig), &body));
                 }
                 // Assoc type/const: projection (not through self)
                 syn::TraitItem::Type(t) if !t.generics.params.is_empty() => {

@@ -204,11 +204,16 @@ fn reconcile_new_gen(
         // is still used (E0261).
         let already = item_param_names.contains(&name) || slot_names.contains(name.as_str());
         if already {
-            if let syn::GenericParam::Type(tp) = &p
-                && !tp.bounds.is_empty()
-            {
-                let (ident, bounds) = (&tp.ident, &tp.bounds);
-                dropped.push(quote!(#ident: #bounds));
+            match &p {
+                syn::GenericParam::Type(tp) if !tp.bounds.is_empty() => {
+                    let (ident, bounds) = (&tp.ident, &tp.bounds);
+                    dropped.push(quote!(#ident: #bounds));
+                }
+                syn::GenericParam::Lifetime(lp) if !lp.bounds.is_empty() => {
+                    let (lifetime, bounds) = (&lp.lifetime, &lp.bounds);
+                    dropped.push(quote!(#lifetime: #bounds));
+                }
+                _ => {}
             }
             continue;
         }
@@ -462,5 +467,22 @@ pub(crate) fn split_new_gen(tokens: &[TokenTree]) -> (Option<TokenStream>, Vec<T
             (Some(g.stream()), slice_from(tokens, 1).to_vec())
         }
         _ => (None, tokens.to_vec()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_lifetimes_and_types_keep_all_bounds() {
+        let names = ["'a", "'b", "'c", "T"].map(String::from).into_iter().collect();
+        let (kept, predicates) =
+            reconcile_new_gen(&quote!('a: 'b + 'c, 'd: 'a, T: Clone), &names, &Default::default());
+        assert_eq!(kept.iter().map(ToString::to_string).collect::<Vec<_>>(), ["'d : 'a"]);
+        assert_eq!(
+            predicates.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["'a : 'b + 'c", "T : Clone"],
+        );
     }
 }

@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- **约束与转发验收（2026-10-10，Rust 1.98.1）**：300 个单测、447 个功能测试、7 项 no-panic 守卫、18 项文档守卫、119 个 doctest 通过。173 个 Linux UI fixture 在正常比较模式下通过，包含新增的 Cow 用户约束拒绝用例。格式、全目标 check/clippy、无警告 rustdoc、三个示例及严格消费者通过。版本未修改，未发布；MSRV 未在本轮复测。
+- **约束与转发修复（2026-10-10）**：`@Cow` 将用户后缀合并进内置 `ToOwned` / `?Sized` / Owned-trait 谓词；blanket 与 delegate 共用 `prepare_forwarding`，按完整输入避让生成名字并输出准备后的签名；`reconcile_new_gen` 同样保留重复 lifetime 声明的约束。回归覆盖 Cow 额外约束的拒绝用例、按值 Copy 转发、匿名参数与 raw 名字冲突、复合模式、静态泛型调用、可变接收者，以及确实需要 lifetime 约束的方法体。
 - **预处理补漏验收（2026-10-10，Rust 1.98.1）**：298 单测、442 功能测试、7 项 no-panic 守卫、18 项文档守卫、119 doctest 通过；Linux 的 172 个 UI fixture 正常比对通过，未修改快照。fmt、全目标 check/clippy、无警告 rustdoc、三个示例与严格消费者通过。新增 13 项测试覆盖 Rust 输入保留和仍然有效的 DSL 检查；原始 impl 入口故障有通过的 trait 入口及手写 Rust 对照。版本未修改，未发布；本轮未重跑 MSRV 与独立 Pack 模型。
 - **另行记录的形状比较问题（2026-10-10）**：rustfmt 会给 impl 的具体 self 类型与 match 分支补尾逗号，却不改属性内 DSL；既有的 const token 比较或“忽略目标”检查因此可能拒绝两边。impl 入口模式保留回归用 `rustfmt::skip` 保持两侧写法一致，只验证扫描边界；比较规范化不在本轮修复内，仍待处理。
 - **预处理边界遗漏补齐（2026-10-10）**：`reject_directives`、模板段标记与残留检查、blanket wrapper 目标和谓词扫描统一复用 `TokenDomain::Type`。段标记后置条件限定于可见类型位置，保留穷举 canary 并补显式混合模板对照；wrapper 谓词载体保持原子，不透明内容中的 `@0` 不再阻止自动追加目标。先复现 impl 入口宏输入 `#` 和 const 范围模式两条故障，再修复并加入编译运行回归；真正的指令禁用、嵌套变长段和 body 词法替换保持原契约。

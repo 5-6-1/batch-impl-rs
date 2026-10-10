@@ -28,7 +28,6 @@ mod trait_items;
 
 pub(crate) use blanket::expand_blanket;
 pub(crate) use blanket_wrappers::*;
-pub(crate) use delegate_args::*;
 pub(crate) use dispatch::expand_directive;
 pub(crate) use name_list::*;
 pub(crate) use trait_items::*;

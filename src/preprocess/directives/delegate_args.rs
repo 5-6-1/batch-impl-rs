@@ -42,13 +42,25 @@ impl ForwardNames {
     }
 }
 
+/// Prepare one forwarded signature and its call arguments together. Every
+/// method starts from the complete reserved input, including template helpers
+/// allocated by the caller; bindings in separate methods may reuse names.
+pub(super) fn prepare_forwarding(
+    sig: &syn::Signature, names: &ForwardNames,
+) -> Result<(syn::Signature, Vec<TokenStream>), String> {
+    let mut sig = sig.clone();
+    name_unforwardable_params(&mut sig, &mut names.clone());
+    let args = collect_call_args(&sig)?;
+    Ok((sig, args))
+}
+
 /// Give pattern-only parameters names that avoid the macro's input.
 /// The entire original signature is reserved before this mutates any input.
 /// The private prefix avoids ordinary surrounding names: mixed-site spans
 /// still resolve external value items, which are outside the macro's input.
 /// Stable Rust cannot guarantee isolation from an external item deliberately
 /// using the same private name; explicit `mut`/`ref` bindings also fail E0530.
-pub(super) fn name_unforwardable_params(sig: &mut syn::Signature, names: &mut ForwardNames) {
+fn name_unforwardable_params(sig: &mut syn::Signature, names: &mut ForwardNames) {
     let mut index = 0;
     for input in &mut sig.inputs {
         if let syn::FnArg::Typed(param) = input
@@ -106,7 +118,7 @@ pub(crate) fn pat_is_forwardable(pat: &syn::Pat) -> bool {
 /// Collects the argument tokens to forward in a delegation call (skipping
 /// the `self` receiver).
 ///
-/// `#delegate` names pattern-only params before calling this. Forwardable
+/// `#delegate` and `#blanket` name pattern-only params before calling this. Forwardable
 /// parameters keep their original patterns, and their token streams are
 /// used directly as an expression in the call — `(a, b)` binds `a`/`b` and
 /// `(a, b)` rebuilds the tuple, `[x, y]` rebuilds the array, `x` forwards by
@@ -124,7 +136,7 @@ pub(crate) fn collect_call_args(sig: &syn::Signature) -> Result<Vec<TokenStream>
                         let id = &pi.ident;
                         args.push(quote!(#id));
                     }
-                    // `_` cannot appear after #delegate's naming pass;
+                    // `_` cannot appear after the shared naming pass;
                     // anything else keeps its pattern and its token stream
                     // works as an expression (`(a, b)` → tuple rebuild).
                     syn::Pat::Wild(_) => {
