@@ -110,7 +110,7 @@ pub(crate) fn sync_trait_application(
     tokens: TokenStream, args: &[TokenStream], trait_ident: Option<&Ident>,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
-    sync_at(&v, args, trait_ident, 0, crate::util::TokenDomain::Rust)
+    sync_at(&v, args, trait_ident, 0, crate::util::TokenDomain::Type)
         .map(|o| o.into_iter().collect())
 }
 
@@ -338,6 +338,17 @@ mod tests {
             sync_trait_application(ts, &args(&["Additive", "Multiplicative"]), Some(&ident("Tr")))
                 .unwrap();
         assert_eq!(out.to_string(), "@ 0 .. : Semiring < Additive , Multiplicative >");
+    }
+
+    #[test]
+    fn type_sync_preserves_markers_inside_const_blocks() {
+        // Strings prevent rustfmt from removing syntactically empty Rust
+        // arguments before the DSL can interpret them.
+        let source = "Wrapper<Other<>, { let _: Defaulted<>; 0 }>".parse().unwrap();
+        let expected: TokenStream =
+            "Wrapper<Other<u8> , { let _: Defaulted<>; 0 }>".parse().unwrap();
+        let output = sync_trait_application(source, &args(&["u8"]), Some(&ident("Tr"))).unwrap();
+        assert_eq!(output.to_string(), expected.to_string());
     }
 
     #[test]

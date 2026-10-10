@@ -39,8 +39,40 @@ fn opaque_groups_do_not_create_expansion_dependencies() {
         let error = collect(&format!("@a=u8; @a={value}; Tr:u8;")).unwrap_err();
         assert!(error.to_string().contains("circular reference"));
     }
-    for value in ["opaque!(@unknown)", "opaque![@unknown]", "#[attr(@unknown)] u8"] {
+    for value in [
+        "opaque!(@unknown)",
+        "opaque![@unknown]",
+        "#[attr(@unknown)] u8",
+        "{ @unknown @Self }",
+        "Arr<{ let n @ _ = 2; n * 3 }>",
+        "[u8; { let n @ _ = 2; n * 3 }]",
+        "u8 { fn value() { let n @ _ = 2; let _ = n; } }",
+        "Outer<{ where { @unknown } impl { @unknown } }>",
+    ] {
         let (rest, table) = collect(&format!("@a={value}; @a")).unwrap();
-        assert!(expand_consts(&rest, ConstCtx::Trait { user_table: &table }).is_ok());
+        let expanded = expand_consts(&rest, ConstCtx::Trait { user_table: &table }).unwrap();
+        assert_eq!(
+            expanded.into_iter().collect::<TokenStream>().to_string(),
+            value.parse::<TokenStream>().unwrap().to_string(),
+        );
     }
+}
+
+#[test]
+fn structural_braces_validate_constants_but_preserve_fresh_carriers() {
+    for value in ["where{@unknown: Clone}", "impl{(@unknown,)}"] {
+        let error = collect(&format!("@a={value}; @a")).unwrap_err();
+        assert!(error.to_string().contains("references unknown `@unknown`"));
+    }
+    let (rest, table) = collect(
+        "@bound=Clone; @a=().1 where{@{0_0}: @bound} impl{@{}} \
+         { fn bytes() -> usize { core::mem::size_of::<@{0}>() } }; @a",
+    )
+    .unwrap();
+    let expanded = expand_consts(&rest, ConstCtx::Trait { user_table: &table }).unwrap();
+    let expected: TokenStream = "().1 where{@{0_0}: Clone} impl{@{}} \
+        { fn bytes() -> usize { core::mem::size_of::<@{0}>() } }"
+        .parse()
+        .unwrap();
+    assert_eq!(expanded.into_iter().collect::<TokenStream>().to_string(), expected.to_string());
 }

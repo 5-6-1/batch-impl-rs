@@ -6,6 +6,31 @@ use quote::{ToTokens, quote};
 
 use super::{expand_attr_macro, expand_impl_entry};
 
+#[test]
+fn segment_trait_substitution_enters_only_dsl_braces() {
+    let source = quote!(
+        @trait<Arr<{ @trait }>> (Vec<@trait>,)
+        where { @trait: Bound<@trait, { @trait }> }
+        impl { Wrap<@trait, { @trait }> }
+        { fn body() { @trait; where { @trait } impl { @trait } } }
+        opaque!(@trait) opaque![@trait] opaque! { @trait }
+        #[opaque(@trait)] @{ @trait }
+    );
+    let output = super::replace_segment_trait(source.into_iter().collect(), &quote!(path::Tr))
+        .unwrap()
+        .into_iter()
+        .collect::<TokenStream>();
+    let expected = quote!(
+        path::Tr<Arr<{ @trait }>> (Vec<path::Tr>,)
+        where { path::Tr: Bound<path::Tr, { @trait }> }
+        impl { Wrap<path::Tr, { @trait }> }
+        { fn body() { @trait; where { @trait } impl { @trait } } }
+        opaque!(@trait) opaque![@trait] opaque! { @trait }
+        #[opaque(@trait)] @{ @trait }
+    );
+    assert_eq!(output.to_string(), expected.to_string());
+}
+
 fn trait_output(spec: TokenStream) -> TokenStream {
     expand_attr_macro(
         spec,

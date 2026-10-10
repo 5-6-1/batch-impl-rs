@@ -7,6 +7,7 @@
 
 ## Unreleased
 
+- Preserve ordinary brace groups as a whole: fix `let n @ _` / `n @ 2` in associated type values, const arguments and where-clause types being parsed as fresh references. Only explicit `where{...}` / `impl{...}` structures are entered by the corresponding scans; `@{...}` remains an atomic marker. Enabled body substitution and named shape-slot replacement retain their contracts.
 - Preserve syntax domains: type-position macro inputs remain unchanged, including `@0` during early parsing of associated bindings; DSL validation skips complete Rust attributes. The literal `"<>"` is no longer mistaken for empty generics, and const multiplication in qualified path arguments is no longer mistaken for a Pack.
 - Restore lexical body-template substitution: substitutions enabled by `impl{...}` enter every group, including macro inputs and attributes. Repeat blocks after unary `!` expand normally. Each switch still enables only its own features.
 - Preserve inherited `for<'a>` constraints and avoid lifetime capture during inheritance; resolve fresh references in associated type values. Anonymous delegate parameters use a private prefix and avoid input identifiers, fixing collisions with surrounding `arg0` structs, variants or constants; isolation from deliberately matching external private names is not guaranteed.

@@ -2,7 +2,7 @@
 
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 
-use super::{bracket_is_passthrough, group_at, is_punct_at};
+use super::{TokenDomain, group_at, is_punct_at};
 
 /// Find a token pattern in type positions. Braced const arguments, array
 /// lengths, literals and opaque macro/attribute inputs are not type syntax.
@@ -31,8 +31,7 @@ pub(crate) fn find_type_token(
             return Some(span);
         }
         if let TokenTree::Group(group) = tree
-            && group.delimiter() != Delimiter::Brace
-            && !bracket_is_passthrough(trees, i)
+            && !TokenDomain::Type.skips_group(trees, i)
         {
             let mut inner = group.stream().into_iter().collect::<Vec<_>>();
             if group.delimiter() == Delimiter::Bracket

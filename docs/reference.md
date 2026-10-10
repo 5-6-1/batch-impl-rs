@@ -88,6 +88,8 @@ Four fixed passes, and the order decides what may be written into what:
 
 **Pass-through guard**: the bodies of `ident![...]` macros and `#[...]` attributes are arbitrary Rust and none of the four recursive entries enters them — a `#name` written inside an attribute is never a directive.
 
+**Brace boundary**: ordinary `{...}` groups are preserved as a whole by general preprocessing and type-reference scans; no further classification into function bodies, const expressions or other Rust blocks is needed. The corresponding stages enter explicit `where{...}` / `impl{...}` structures, stopping again at ordinary braces inside them; `@{...}` is handled as one reference marker. Later dedicated body processing still performs enabled substitutions lexically (§8.4). Explicit named shape-slot replacement is independent of this parsing boundary.
+
 ### 1.4 Notation in one table
 
 Only the notations that have no section of their own — `@`, `#`, `<>`, the splat and the power are documented by their sections.

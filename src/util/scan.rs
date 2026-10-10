@@ -252,14 +252,37 @@ pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool
 /// every group participates, including macro inputs and attributes.
 #[derive(Clone, Copy)]
 pub(crate) enum TokenDomain {
+    /// Type walkers stop at ordinary braces. Explicit `where` / `impl`
+    /// attachments remain visible when a caller has not extracted them yet.
+    Type,
+    /// Unswitched bodies still check visible markers for missing switches,
+    /// but macro and attribute inputs are opaque.
     Rust,
     BodySubstitution,
 }
 
 impl TokenDomain {
     pub(crate) fn skips_group(self, tokens: &[TokenTree], index: usize) -> bool {
-        matches!(self, Self::Rust) && bracket_is_passthrough(tokens, index)
+        match self {
+            Self::Type => {
+                (group_at(tokens, index, proc_macro2::Delimiter::Brace).is_some()
+                    && !is_dsl_brace_group(tokens, index))
+                    || bracket_is_passthrough(tokens, index)
+            }
+            Self::Rust => bracket_is_passthrough(tokens, index),
+            Self::BodySubstitution => false,
+        }
     }
+}
+
+/// The only brace groups entered by general DSL preprocessing. Ordinary
+/// braces remain atomic, even when their contents contain `where` or `impl`.
+pub(crate) fn is_dsl_brace_group(tokens: &[TokenTree], index: usize) -> bool {
+    group_at(tokens, index, proc_macro2::Delimiter::Brace).is_some()
+        && index.checked_sub(1).is_some_and(|previous| {
+            matches!(tokens.get(previous), Some(TokenTree::Ident(id)) if id == "where")
+                || is_impl_template(tokens, previous)
+        })
 }
 
 /// The tokenizer folds the dot after a tuple field into a float literal when

@@ -128,10 +128,13 @@ pub(crate) fn resolve_where_at(
                 }
             }
         }
-        if let TokenTree::Group(g) = cur {
+        if let TokenTree::Group(g) = cur
+            && !crate::util::TokenDomain::Type.skips_group(&tokens, i)
+        {
             // Recurse into groups (`Module<..., Scalar = @{0}::Scalar>` — the
             // angle group is paired by angle_collect; a reference inside is a
-            // value reference that must resolve like the top level).
+            // value reference that must resolve like the top level). Ordinary
+            // braces, macro inputs and attributes are not type-reference syntax.
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let resolved = resolve_tail(&inner, ctx)?;
             let mut ng = Group::new(g.delimiter(), resolved.into_iter().collect());

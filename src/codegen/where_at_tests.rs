@@ -86,6 +86,14 @@ fn range_tail_value_ref() {
 }
 
 #[test]
+fn type_references_resolve_around_opaque_braces_and_macros() {
+    let source = quote!(@0: Bound<{ let n @ 99 = value; n }, opaque!(@9), @{1}>);
+    let expected = quote!(P0: Bound<{ let n @ 99 = value; n }, opaque!(@9), P1>);
+    let ctx = FreshCtx::new(&fresh_names(2), &Default::default());
+    assert_eq!(resolve_where_at(&source, &ctx).unwrap().to_string(), expected.to_string());
+}
+
+#[test]
 fn closed_range_tail_value_ref() {
     let names = fresh_names(3);
     let out = resolve("@1..=2 : Module < Scalar = @0 :: Scalar >", &names);

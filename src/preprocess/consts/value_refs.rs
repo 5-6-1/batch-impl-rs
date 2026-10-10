@@ -16,14 +16,15 @@ use crate::util::{compile_err, compile_error_str, is_punct_at};
 /// constants). Circular references (`@a=@a`) and forward references
 /// (`@a=@b` with `@b` defined later) are intercepted here — under lazy
 /// expansion a circular ref would recurse forever, and erroring at the
-/// definition beats erroring at the use site. Groups are inspected except for
-/// opaque macro inputs and attributes. Returns the dependencies reached by
+/// definition beats erroring at the use site. Ordinary Rust braces, macro
+/// inputs and attributes are opaque; `where` / `impl` braces are DSL structure.
+/// Fresh-reference carriers are atomic. Returns the dependencies reached by
 /// constant expansion, for the definition graph's separate cycle check.
 pub(crate) fn check_value_refs(
     tokens: &[TokenTree], table: &std::collections::HashMap<String, Vec<TokenTree>>, def_name: &str,
 ) -> Result<Vec<String>, TokenStream> {
     let mut dependencies = vec![];
-    check_value_refs_at(tokens, table, def_name, 0, true, &mut dependencies)?;
+    check_value_refs_at(tokens, table, def_name, 0, &mut dependencies)?;
     Ok(dependencies)
 }
 
@@ -32,13 +33,19 @@ pub(crate) fn check_value_refs(
 /// error out instead of overflowing the stack).
 fn check_value_refs_at(
     tokens: &[TokenTree], table: &std::collections::HashMap<String, Vec<TokenTree>>,
-    def_name: &str, depth: usize, expanded: bool, dependencies: &mut Vec<String>,
+    def_name: &str, depth: usize, dependencies: &mut Vec<String>,
 ) -> Result<(), TokenStream> {
     if depth > crate::util::MAX_NEST_DEPTH {
         return Err(crate::util::depth_err(tokens, " in a constant value"));
     }
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
+        // The constant expander preserves these references for codegen. Their
+        // contents are not constant names, including the `impl{@{}}` switch.
+        if crate::ast::fresh_protocol::carrier_group_at(tokens, i).is_some() {
+            i += 2;
+            continue;
+        }
         match cur {
             TokenTree::Punct(p) if p.as_char() == '@' => {
                 // Open-left range family (`@..u128`): the endpoint after the
@@ -114,8 +121,7 @@ fn check_value_refs_at(
                 // Keep lazy binding: a redefinition changes every later lookup.
                 // Only references the expansion walker enters create graph edges;
                 // Rust bodies, macro inputs and attributes stay opaque.
-                if expanded
-                    && name_str != "trait"
+                if name_str != "trait"
                     && !is_range
                     && table.contains_key(&name_str)
                     && !dependencies.contains(&name_str)
@@ -125,7 +131,7 @@ fn check_value_refs_at(
                 i += if star { 3 } else { 2 };
             }
             TokenTree::Group(g) => {
-                if crate::util::bracket_is_passthrough(tokens, i) {
+                if crate::util::TokenDomain::Type.skips_group(tokens, i) {
                     i += 1;
                     continue;
                 }
@@ -142,7 +148,6 @@ fn check_value_refs_at(
                     table,
                     def_name,
                     depth + 1,
-                    expanded && group_is_expanded(tokens, i, g),
                     dependencies,
                 )?;
                 i += 1;
@@ -151,16 +156,6 @@ fn check_value_refs_at(
         }
     }
     Ok(())
-}
-
-fn group_is_expanded(tokens: &[TokenTree], at: usize, group: &proc_macro2::Group) -> bool {
-    if group.delimiter() == delimiter![{}] {
-        return at.checked_sub(1).is_some_and(|previous| {
-            matches!(tokens.get(previous), Some(TokenTree::Ident(id)) if id == "where")
-                || crate::util::is_impl_template(tokens, previous)
-        });
-    }
-    !crate::util::bracket_is_passthrough(tokens, at)
 }
 
 /// The existing graph is acyclic. Replacing one definition can create a cycle

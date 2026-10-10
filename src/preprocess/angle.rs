@@ -11,22 +11,7 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::compile_error_str;
-use crate::util::{bracket_is_passthrough, is_arrow, slice_between};
-
-/// `true` when `tokens[i]` is a Brace group directly preceded by the `where`
-/// keyword — the `where{...}` predicate suffix (DSL: its content is type
-/// constraints and must be angle-paired), as opposed to a code-block body
-/// (arbitrary Rust, passthrough).
-fn is_where_group(tokens: &[TokenTree], i: usize) -> bool {
-    i >= 1 && matches!(tokens.get(i - 1), Some(TokenTree::Ident(id)) if id == "where")
-}
-
-/// `true` when `tokens[i]` is the Brace group of an `impl{...}` shape
-/// template (DSL: its content is a Rust type whose `<...>` must be paired —
-/// see [`is_impl_template`]), as opposed to a code-block body.
-fn is_impl_template_group(tokens: &[TokenTree], i: usize) -> bool {
-    i >= 1 && crate::util::is_impl_template(tokens, i - 1)
-}
+use crate::util::{bracket_is_passthrough, is_arrow, is_dsl_brace_group, slice_between};
 
 /// Entry transformation: a single pass flattens None groups and pairs `<...>`.
 ///
@@ -81,10 +66,9 @@ fn angle_collect_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>
             }
             // Passthrough code (body): do not enter — except `where{...}`
             // predicate groups and `impl{...}` shape templates, whose
-            // content is DSL and must be paired (see `is_where_group` /
-            // `is_impl_template_group`).
+            // content is DSL and must be paired (see `is_dsl_brace_group`).
             TokenTree::Group(g) if g.delimiter() == delimiter![{}] => {
-                if is_where_group(tokens, i) || is_impl_template_group(tokens, i) {
+                if is_dsl_brace_group(tokens, i) {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     let mut new_g = Group::new(
                         delimiter![{}],
@@ -205,8 +189,7 @@ pub(crate) fn render_angles(stream: TokenStream) -> TokenStream {
             // rebuild and recurse (spans restored like the Paren/Bracket
             // rebuild above).
             TokenTree::Group(g)
-                if g.delimiter() == delimiter![{}]
-                    && (is_where_group(&tokens, i) || is_impl_template_group(&tokens, i)) =>
+                if g.delimiter() == delimiter![{}] && is_dsl_brace_group(&tokens, i) =>
             {
                 let inner = render_angles(g.stream());
                 let mut new_g = Group::new(delimiter![{}], inner);

@@ -12,6 +12,39 @@ mod tests {
         // Display names are assigned against an empty collision set: P0, P1, P2.
         FreshCtx::new(&names(), &Default::default())
     }
+
+    #[test]
+    fn type_braces_are_atomic_but_body_references_still_resolve() {
+        use crate::util::TokenDomain;
+        use quote::quote;
+
+        let source = quote!(Holder<@{0}, { let n @ 99 = value; @{99}; n }>);
+        let expected = quote!(Holder<P0, { let n @ 99 = value; @{99}; n }>);
+        assert_eq!(
+            expand_range_refs(source, &fresh_ctx()).unwrap().to_string(),
+            expected.to_string(),
+        );
+
+        let source = quote!(fn f() { consume::<@{0_0}>(); stringify!(@{0}); });
+        let unswitched = quote!(
+            fn f() {
+                consume::<P0>();
+                stringify!(@{0});
+            }
+        );
+        let enabled = quote!(
+            fn f() {
+                consume::<P0>();
+                stringify!(P0);
+            }
+        );
+        for (domain, expected) in
+            [(TokenDomain::Rust, unswitched), (TokenDomain::BodySubstitution, enabled)]
+        {
+            let output = expand_body_refs(source.clone(), &fresh_ctx(), domain).unwrap();
+            assert_eq!(output.to_string(), expected.to_string());
+        }
+    }
     fn names() -> Vec<TokenStream> {
         // Declaration carriers `@{g_i}` — the identity form the ctx parses;
         // `@N` indexes them by (group, position) document order.

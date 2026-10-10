@@ -247,11 +247,12 @@ fn replace_segment_trait(
             out.extend(trait_full_path.clone());
             i += 2;
         } else if let TokenTree::Group(g) = cur
-            && !crate::util::bracket_is_passthrough(&tokens, i)
+            && !crate::util::TokenDomain::Type.skips_group(&tokens, i)
         {
             // Recurse into groups (where{...} predicates and type groups):
             // segment-level `@trait` must reach every DSL structure, not
-            // just the top level.
+            // just the top level. Ordinary bodies and const-expression braces
+            // remain Rust input, including any nested `where` / `impl` tokens.
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let inner = replace_segment_trait(inner, trait_full_path)?;
             let mut group = proc_macro2::Group::new(g.delimiter(), inner.into_iter().collect());

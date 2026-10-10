@@ -26,7 +26,7 @@ use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
 use quote::quote;
 
 use crate::preprocess::consts::ctx::{ConstCtx, UserConsts};
-use crate::util::{bracket_is_passthrough, compile_err, is_impl_template, is_punct, slice_from};
+use crate::util::{bracket_is_passthrough, compile_err, is_dsl_brace_group, is_punct, slice_from};
 
 /// Built-in name families: `@name` → list of type identifiers.
 pub(crate) fn builtin_named(name: &str) -> Option<Vec<&'static str>> {
@@ -111,10 +111,10 @@ fn expand_consts_at(
             // body), so enter it to expand `@trait` / `@` constants — bodies
             // are never entered (an `impl` inside `{body}` is inside a Brace
             // group this walker skips). The `impl{...}` discrimination is
-            // centralized in `util::is_impl_template` (shared with
-            // `where_process`); the guard below re-checks instead of
+            // centralized in `util::is_dsl_brace_group` (shared with
+            // angle pairing); the guard below re-checks instead of
             // unwrapping — no-panic promise.
-            TokenTree::Ident(id) if id == "where" || is_impl_template(tokens, i) => {
+            TokenTree::Ident(_) if is_dsl_brace_group(tokens, i + 1) => {
                 if let Some(TokenTree::Group(g)) = tokens.get(i + 1)
                     && g.delimiter() == delimiter![{}]
                 {

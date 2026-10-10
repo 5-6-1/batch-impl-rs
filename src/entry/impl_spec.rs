@@ -336,7 +336,8 @@ fn expand_fresh_inner(
     // resolve in `substitute`); top-level carriers pass through and resolve
     // here.
     let expanded = expand_repeat_blocks(inner.iter().cloned().collect(), &cx)?;
-    crate::codegen::expand_body_refs(expanded, &fresh).map(|o| o.into_iter().collect())
+    crate::codegen::expand_body_refs(expanded, &fresh, crate::util::TokenDomain::BodySubstitution)
+        .map(|o| o.into_iter().collect())
 }
 
 /// Collects the implicit segments of one `fresh!(...)` group: an `@ident`

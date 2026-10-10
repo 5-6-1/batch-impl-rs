@@ -269,11 +269,7 @@ pub(crate) fn generate_parts(
             budget: Cell::new(MAX_REPEAT_TOKENS),
         };
         let expanded = expand_repeat_blocks(b.clone(), &cx)?;
-        let expanded = if body_substitution {
-            range_refs::expand_body_refs(expanded, &fresh_ctx)?
-        } else {
-            range_refs::expand_range_refs(expanded, &fresh_ctx)?
-        };
+        let expanded = range_refs::expand_body_refs(expanded, &fresh_ctx, domain)?;
         *b = if shape_map.slots().is_empty() {
             expanded
         } else {

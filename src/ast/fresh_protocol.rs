@@ -278,8 +278,14 @@ fn carrier_at_any(
     }
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
-        if is_carrier_at(tokens, i) && !is_macro_generated_carrier(tokens, i) {
-            return Some(cur.span());
+        if is_carrier_at(tokens, i) {
+            if !is_macro_generated_carrier(tokens, i) {
+                return Some(cur.span());
+            }
+            // A carrier is one unit; its payload is validated by the resolver,
+            // never searched again as if it were an ordinary body block.
+            i += 2;
+            continue;
         }
         if let TokenTree::Group(g) = cur
             && !domain.skips_group(tokens, i)

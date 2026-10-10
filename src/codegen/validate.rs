@@ -76,7 +76,7 @@ fn collect_dangling(
         }
         // Declarations themselves are validated by construction; recurse.
         if let TokenTree::Group(g) = cur
-            && !crate::util::bracket_is_passthrough(&v, i)
+            && !crate::util::TokenDomain::Type.skips_group(&v, i)
         {
             errs.extend(collect_dangling(g.stream(), declared, fresh_count));
         }

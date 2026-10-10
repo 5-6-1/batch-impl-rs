@@ -94,17 +94,18 @@ pub(crate) fn expand_range_refs(
     tokens: TokenStream, ctx: &FreshCtx,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
-    let out = expand_at(&v, ctx, 0, crate::util::TokenDomain::Rust)?;
+    let out = expand_at(&v, ctx, 0, crate::util::TokenDomain::Type)?;
     Ok(out.into_iter().collect())
 }
 
-/// An enabled body template uses the same references but rewrites all groups,
-/// including macro inputs. The caller has already checked its body switch.
+/// Body processing receives its traversal policy from the caller. Enabled
+/// templates enter every group; unswitched bodies preserve opaque macro input
+/// but still resolve carriers generated inside method bodies by directives.
 pub(crate) fn expand_body_refs(
-    tokens: TokenStream, ctx: &FreshCtx,
+    tokens: TokenStream, ctx: &FreshCtx, domain: crate::util::TokenDomain,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
-    let out = expand_at(&v, ctx, 0, crate::util::TokenDomain::BodySubstitution)?;
+    let out = expand_at(&v, ctx, 0, domain)?;
     Ok(out.into_iter().collect())
 }
 

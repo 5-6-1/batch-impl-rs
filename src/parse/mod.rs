@@ -91,8 +91,8 @@ impl<'a> Ctx<'a> {
 /// Resolves `@N` / `@g_i` position references inside a token chunk that is
 /// **not** parsed as a type (angle-group contents go through flat token
 /// splitting in `parse_type_params`, so `Box<@0>` would otherwise keep the
-/// raw `@0`). Recurses into type groups, leaving macro and attribute inputs
-/// opaque; every visible reference folds into the
+/// raw `@0`). Recurses into type groups, leaving ordinary brace groups,
+/// macro inputs and attributes opaque; every visible reference folds into the
 /// self-delimiting carrier form (`@` + Brace group) that the parse layer and
 /// the codegen resolvers both recognize; `@` followed by a non-digit errors.
 ///
@@ -173,7 +173,7 @@ pub(crate) fn resolve_at_refs(
                     }
                 }
             }
-            TokenTree::Group(g) if !crate::util::bracket_is_passthrough(tokens, i) => {
+            TokenTree::Group(g) if !crate::util::TokenDomain::Type.skips_group(tokens, i) => {
                 let inner = g.stream().into_iter().collect::<Vec<_>>();
                 // The recursion keeps this function's own error type; only the
                 // outermost caller chooses which channel renders it.
@@ -232,19 +232,22 @@ mod tests {
     use super::Ctx;
 
     #[test]
-    fn fresh_folding_keeps_macro_and_attribute_inputs_opaque() {
+    fn fresh_folding_keeps_rust_blocks_and_macro_inputs_opaque() {
         use quote::quote;
         let tokens = quote!((
             @0,
             m!(@0), m![@0], m! { @0 },
             m!(nested!(([@named, @{0}, @0]))),
             fn(#[opaque(@0)] u8),
+            Arr<{ let n @ _ = 2; n * 3 }>,
+            [u8; { match 2 { n @ 2 => n * 3, _ => 0 } }],
+            @{0},
             Vec<@1_0>,
         ))
         .into_iter()
         .collect::<Vec<_>>();
         let folded = super::resolve_at_refs(&tokens)
-            .unwrap_or_else(|_| panic!("opaque macro and attribute inputs must not be parsed"))
+            .unwrap_or_else(|_| panic!("opaque Rust blocks and macro inputs must not be parsed"))
             .into_iter()
             .collect::<proc_macro2::TokenStream>();
         let expected = quote!((
@@ -252,6 +255,9 @@ mod tests {
             m!(@0), m![@0], m! { @0 },
             m!(nested!(([@named, @{0}, @0]))),
             fn(#[opaque(@0)] u8),
+            Arr<{ let n @ _ = 2; n * 3 }>,
+            [u8; { match 2 { n @ 2 => n * 3, _ => 0 } }],
+            @{0},
             Vec<@{1_0}>,
         ));
         assert_eq!(folded.to_string(), expected.to_string());
