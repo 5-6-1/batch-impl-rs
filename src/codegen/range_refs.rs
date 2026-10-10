@@ -94,7 +94,17 @@ pub(crate) fn expand_range_refs(
     tokens: TokenStream, ctx: &FreshCtx,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
-    let out = expand_at(&v, ctx, 0)?;
+    let out = expand_at(&v, ctx, 0, crate::util::TokenDomain::Rust)?;
+    Ok(out.into_iter().collect())
+}
+
+/// An enabled body template uses the same references but rewrites all groups,
+/// including macro inputs. The caller has already checked its body switch.
+pub(crate) fn expand_body_refs(
+    tokens: TokenStream, ctx: &FreshCtx,
+) -> Result<TokenStream, TokenStream> {
+    let v = tokens.into_iter().collect::<Vec<_>>();
+    let out = expand_at(&v, ctx, 0, crate::util::TokenDomain::BodySubstitution)?;
     Ok(out.into_iter().collect())
 }
 
@@ -184,7 +194,7 @@ pub(super) fn fold_empty_tuple(tokens: &[TokenTree]) -> TokenStream {
 }
 
 fn expand_at(
-    tokens: &[TokenTree], ctx: &FreshCtx, depth: usize,
+    tokens: &[TokenTree], ctx: &FreshCtx, depth: usize, domain: crate::util::TokenDomain,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > crate::util::MAX_NEST_DEPTH {
         return Err(crate::util::depth_err(tokens, ""));
@@ -223,7 +233,7 @@ fn expand_at(
             continue;
         }
         match cur {
-            TokenTree::Group(g) if !crate::util::bracket_is_passthrough(tokens, i) => {
+            TokenTree::Group(g) if !domain.skips_group(tokens, i) => {
                 if depth + 1 > crate::util::MAX_NEST_DEPTH {
                     return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
                 }
@@ -237,7 +247,8 @@ fn expand_at(
                 let has_range_ref =
                     inner.windows(2).any(|w| matches!(w, [a, b] if is_fresh_carrier_pair(a, b)));
                 let foldable = g.delimiter() == delimiter![()] && has_range_ref;
-                let expanded = expand_at(&inner, ctx, depth + 1)?.into_iter().collect::<Vec<_>>();
+                let expanded =
+                    expand_at(&inner, ctx, depth + 1, domain)?.into_iter().collect::<Vec<_>>();
                 // Empty-tuple folding: a range that re-opened to zero entries
                 // leaves orphaned empties (`(,)` / `(, P1,)` / `(P0, ,)`) —
                 // drop them and rejoin, restoring a valid tuple (`()` /

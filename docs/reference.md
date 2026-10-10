@@ -456,7 +456,7 @@ Redefinitions retain lazy lookup: in `@a=u8; @b=@a; @a=u16;`, `@b` ultimately ex
 | `@all*` families as directive arguments | the directive domain's own input — measured `u8 #fill(@all_methods){7}` fills every method of the trait |
 | `@Cow` as a blanket wrapper | `Cow<'_>` plus the wrapper's constraint predicates — measured `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized, …` (`tests/features/dsl_macro_meta.rs` locks the full form) |
 | `@trait` in `batch_trait!` | replaced per segment with that segment's trait path, which is what lets one segment pack another's constants |
-| `stringify!(@trait)` and other macro inputs | passed through as opaque tokens, including during segment substitution, body sync and repeat processing |
+| `stringify!(@trait)` and other macro inputs | opaque during constant and segment substitution, and in the type domain; explicitly enabled body-template substitutions enter macro inputs (§8.4, §13.2) |
 
 ## 6. `#` Directives
 
@@ -687,6 +687,8 @@ So the pattern reads "same ⇒ literal, different ⇒ slot": `impl{Container<U>}
 The mapping is applied once to the prototype's **`where` predicates** and **body**; the impl entry also rewrites the input block's **self type** and trait arguments. A trait-entry matrix leaf is already the final target and is never mapped again. A slot is a *subtree*: its value is spliced where the name appears (`Vec<i16> impl{SlotBox<T>} where{Vec<T>: Clone}` renders `where Vec<i16>: Clone`). Inserted values are not recursively substituted, so `u8 → u16, u16 → u32` is a valid simultaneous mapping. A single source name requiring two different results instead reports a conflict, including a name required to stay literal in one position.
 
 ### 8.4 Variadic segments and repeat blocks
+
+**Body substitution is lexical**: substitutions enabled by `impl{...}` traverse every group in the body, including macro inputs and attributes. For example, both `!(@(false)||..)` and `sum!(@(1),..)` expand under `impl{@0..}`. Each switch still authorizes only its own features: `impl{@{}}` supplies no repeat count, and ordinary shape templates do not enable `X<>` sync. Without a switch, markers inside macro inputs remain unchanged.
 
 | Spelling | Where | Role |
 |---|---|---|
@@ -1155,7 +1157,7 @@ The pass order is not a convention but a compiler-enforced one: each pass can on
 | `impl{...}` templates | ✓ (the templates are parsed **after** it — an `X<>` marker inside a template is not valid Rust before that) |
 | impl-generic bounds and the `dyn` bound tail | ✓ |
 | the target type | ✓ |
-| the **body** | only with a **switch template** (`impl{@trait<>}` / `impl{Tr<>}`): body sync is opt-in, and its absence is a documented rustc E0107 rather than a silent rewrite |
+| the **body** | only with a **switch template** (`impl{@trait<>}` / `impl{Tr<>}`), including `X<>` in macro inputs and attributes; its absence is a documented rustc E0107 rather than a silent rewrite |
 
 The marker is **ident-agnostic** — the spec's arguments are what go in, so `Other<>` becomes `Other<…spec args…>` and a trait with no generic arguments syncs to the bare name (`Tr<>` → `Tr`); an arity mismatch is rustc's to report.
 
@@ -1175,7 +1177,7 @@ The rules are in §8; the contract here is only that the substitution is a **sub
 - **No panicking paths**: no `unwrap` / `expect` / `panic!` / `unreachable!` / `debug_assert!` / `assert!` in production code (a panic in a proc macro is a compiler ICE). Internal invariants report a targeted error instead — enforced by a clippy deny family plus a source-level guard test (`tests/no_panic/`).
 - **No silent empty spec**: an input that produces zero impls without a diagnostic is a bug (`-usize` and an in-list `-element` used to be exactly that).
 - **No leaked internal names**: display names only; a dangling `@N` is intercepted in the macro, never surfaced as rustc's E0412.
-- **No new reserved symbols**: the DSL reserves `@`, `#` and the documented operator set; generated names stay inside `P0…` and are collision-checked against everything you wrote.
+- **No new DSL reserved symbols**: the DSL reserves `@`, `#` and the documented operator set. Fresh type parameters use `P0…`; delegate helper bindings use a private prefix. Names are checked against input identifiers; the macro cannot inspect declarations outside its input.
 
 ## 14. Counterintuitive Cases
 
@@ -1203,7 +1205,7 @@ Each of these is a question the surface invites, answered with the rule that pro
 
 **Why is a trait's `where T: Clone` merged into the parameter instead of the impl's where clause?** A single-type-parameter predicate belongs to that parameter; it becomes its inline bound. Everything else passes through verbatim, with positional substitution (§7.2).
 
-**Why can a generated name never collide with mine?** The fresh display names are chosen against every ident the impl writes (13.3) — including bounds, predicates and the body.
+**How do generated names avoid mine?** Fresh display names are chosen against every ident the impl writes (§13.3), including bounds, predicates and the body; delegate bindings also check input identifiers and use a private prefix. Declarations outside the input are not inspected: a deliberate `struct __batch_impl_arg0;` can still collide with an anonymous delegate parameter. Naming that trait parameter explicitly avoids the generated binding.
 
 **Why is a body `X<>` sometimes left unsynced?** Body sync is opt-in: only a switch template (`impl{@trait<>}` / `impl{Tr<>}`) turns it on, so a template without it leaves the body's marker to rustc (E0107), which is the documented behaviour (§13.2).
 

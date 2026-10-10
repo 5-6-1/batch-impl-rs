@@ -325,6 +325,7 @@ fn expand_fresh_inner(
         names: fresh_names.iter().enumerate().map(|(i, n)| (0, i, n.clone())).collect(),
     };
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &map,
         fresh: &fresh,
@@ -335,7 +336,7 @@ fn expand_fresh_inner(
     // resolve in `substitute`); top-level carriers pass through and resolve
     // here.
     let expanded = expand_repeat_blocks(inner.iter().cloned().collect(), &cx)?;
-    crate::codegen::expand_range_refs(expanded, &fresh).map(|o| o.into_iter().collect())
+    crate::codegen::expand_body_refs(expanded, &fresh).map(|o| o.into_iter().collect())
 }
 
 /// Collects the implicit segments of one `fresh!(...)` group: an `@ident`

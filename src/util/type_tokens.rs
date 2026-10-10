@@ -2,7 +2,7 @@
 
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 
-use super::bracket_is_passthrough;
+use super::{bracket_is_passthrough, group_at, is_punct_at};
 
 /// Find a token pattern in type positions. Braced const arguments, array
 /// lengths, literals and opaque macro/attribute inputs are not type syntax.
@@ -18,6 +18,15 @@ pub(crate) fn find_type_token(
             continue;
         };
         *index += 1;
+        // The leading `#` is part of an attribute, not a DSL marker. Skip
+        // the entire attribute before checking tokens, including inner attrs.
+        if is_punct_at(trees, i, '#') {
+            let group = i + 1 + usize::from(is_punct_at(trees, i + 1, '!'));
+            if group_at(trees, group, Delimiter::Bracket).is_some() {
+                *index = group + 1;
+                continue;
+            }
+        }
         if let Some(span) = check(trees, i) {
             return Some(span);
         }
@@ -67,6 +76,27 @@ mod tests {
     fn visits_types_inside_each_type_container() {
         for tokens in [quote!(M<*T>), quote!([*T; 2]), quote!(fn(u8) -> (*T,))] {
             assert!(star(&tokens).is_some(), "{tokens}");
+        }
+    }
+
+    #[test]
+    fn attributes_are_atomic_but_stray_hashes_remain_visible() {
+        // Strings keep rustfmt from normalizing away fn-parameter attributes
+        // while formatting the otherwise Rust-shaped contents of quote!.
+        for (source, expected) in [
+            ("fn(#[allow(unused)] u8)", false),
+            ("fn(#[cfg_attr(any(), allow(unused))] fn(#[allow(unused)] u8))", false),
+            ("fn(#![opaque(#dsl)] u8)", false),
+            ("fn(#[allow(unused)] #dsl)", true),
+            ("fn(#(not_an_attribute) u8)", true),
+            ("fn(#!(not_an_attribute) u8)", true),
+        ] {
+            let tokens: TokenStream = source.parse().unwrap();
+            let found = find_type_token(&tokens, |trees, i| match trees.get(i) {
+                Some(TokenTree::Punct(p)) if p.as_char() == '#' => Some(p.span()),
+                _ => None,
+            });
+            assert_eq!(found.is_some(), expected, "{tokens}");
         }
     }
 }

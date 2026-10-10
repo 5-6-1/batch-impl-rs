@@ -74,7 +74,16 @@ pub(crate) fn sync_impl_parts(
         return Err(e);
     }
     if body_sync && let Some(b) = &mut parts.body {
-        *b = sync_trait_application(b.clone(), &trait_args, Some(&trait_ident))?;
+        let tokens = b.clone().into_iter().collect::<Vec<_>>();
+        *b = sync_at(
+            &tokens,
+            &trait_args,
+            Some(&trait_ident),
+            0,
+            crate::util::TokenDomain::BodySubstitution,
+        )?
+        .into_iter()
+        .collect();
     }
     Ok(matched)
 }
@@ -101,7 +110,8 @@ pub(crate) fn sync_trait_application(
     tokens: TokenStream, args: &[TokenStream], trait_ident: Option<&Ident>,
 ) -> Result<TokenStream, TokenStream> {
     let v = tokens.into_iter().collect::<Vec<_>>();
-    sync_at(&v, args, trait_ident, 0).map(|o| o.into_iter().collect())
+    sync_at(&v, args, trait_ident, 0, crate::util::TokenDomain::Rust)
+        .map(|o| o.into_iter().collect())
 }
 
 /// Whether `tokens[i]` is an empty angle bracket pair (the pairing output of
@@ -116,6 +126,7 @@ fn empty_angle_at(tokens: &[TokenTree], i: usize) -> bool {
 
 fn sync_at(
     tokens: &[TokenTree], args: &[TokenStream], trait_ident: Option<&Ident>, depth: usize,
+    domain: crate::util::TokenDomain,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     if depth > crate::util::MAX_NEST_DEPTH {
         return Err(crate::util::depth_err(tokens, ""));
@@ -155,13 +166,13 @@ fn sync_at(
             continue;
         }
         if let TokenTree::Group(g) = cur
-            && !crate::util::bracket_is_passthrough(tokens, i)
+            && !domain.skips_group(tokens, i)
         {
             if depth + 1 > crate::util::MAX_NEST_DEPTH {
                 return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let synced = sync_at(&inner, args, trait_ident, depth + 1)?;
+            let synced = sync_at(&inner, args, trait_ident, depth + 1, domain)?;
             let mut ng = Group::new(g.delimiter(), synced.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));

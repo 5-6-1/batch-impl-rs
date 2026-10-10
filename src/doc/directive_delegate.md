@@ -104,18 +104,23 @@ The `self` receiver is never forwarded (a method's `self` is the impl's
   struct / slice patterns that cannot be used as an expression) are renamed
   to fresh bindings **in both the copied signature and the call** —
   so `fn m(&self, _: (u32, u32))` becomes
-  `fn m(&self, arg0: (u32, u32)) { (target).m(arg0) }`;
+  `fn m(&self, __batch_impl_arg0: (u32, u32)) { (target).m(__batch_impl_arg0) }`;
 - **forwardable compound patterns** keep their shape — `(a, b)` binds `a`/`b`
   and rebuilds the tuple in the call, `[x, y]` rebuilds the array, `&x`
   rebuilds the reference, `Foo { x }` rebuilds the struct (checked
   recursively: `(ref x, y)` is caught, not just a bare `ref x`).
 
-The generated names start from `arg0`, `arg1`, ... and avoid identifiers
+The generated names start from `__batch_impl_arg0`, `__batch_impl_arg1`, ... and avoid identifiers
 throughout the attribute and trait, including later parameters, nested pattern
-bindings and body tokens. `r#arg0` reserves the same name as `arg0`.
+bindings and body tokens. Raw identifiers reserve the same name as plain identifiers.
 The names shown below illustrate a collision-free case; their exact spelling
 is an implementation detail. Name a parameter explicitly to use it in your own
 delegate body. The `receiver.#call` helper uses the same reserved-name set.
+
+The macro cannot inspect surrounding declarations. The private prefix avoids
+ordinary names such as `arg0`, but stable Rust does not isolate these bindings
+from an external item deliberately named `__batch_impl_arg0`. Name the trait
+parameter explicitly if such a conflict occurs.
 
 ```rust
 # use batch_impl::batch_impl;
@@ -132,7 +137,7 @@ trait WildcardOuter {
     fn m(&self, _: (u32, u32)) -> u32;
 }
 // → impl WildcardOuter for Box<Vec<u32>> {
-//     fn m(&self, arg0: (u32, u32)) -> u32 { (**self).m(arg0) }
+//     fn m(&self, __batch_impl_arg0: (u32, u32)) -> u32 { (**self).m(__batch_impl_arg0) }
 //   }
 ```
 

@@ -1,6 +1,6 @@
 # batch-impl 内部架构
 
-**Unreleased — 0.10.2 后续修复。** 常量展开、同步与 body 重复处理均保留 Rust 宏/属性输入的不透明边界；继承约束保留生命周期绑定作用域，委托生成参数避开用户名字；重复预算在复制前按重复展开阶段的递归 token 输出计数。见 [CHANGELOG](CHANGELOG.md)。
+**Unreleased — 0.10.2 后续修复。** 类型解析保留 Rust 宏/属性输入；显式启用的 body 替换按契约进入全部括号。继承约束保留生命周期绑定作用域，委托生成参数使用私有前缀并避开输入名字；重复预算在复制前按重复展开阶段的递归 token 输出计数。见 [CHANGELOG](CHANGELOG.md)。
 
 **v0.10.0** 引入 `@Self`、const/函数指针匹配、形状替换修复、限定 trait 的异步及方法泛型 blanket 转发、`@all_fresh` 移除与文档更正；次版本边界隔离这些刻意的破坏性变更。
 
@@ -144,7 +144,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── repeat.rs         `@(...)..` 重复块 + token 预算
   │   ├── repeat_drivers.rs 段驱动 + 逐轮替换
   │   ├── repeat_output.rs  有界输出缓冲区，复制前计入组及全部后代 token
-  │   ├── repeat_budget_tests.rs 重复展开阶段的输出计数与不透明输入回归（cfg(test)）
+  │   ├── repeat_budget_tests.rs 重复展开阶段的输出计数与 body 词法替换回归（cfg(test)）
   │   ├── repeat_tests.rs   `@(...)..` 重复块测试（cfg(test)）：变长段轮次、`@ident` 元素拼接、`@N` 游标替换
   │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
   │   └── render.rs         collect_shape_mapping + render_impl
@@ -312,11 +312,12 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 - **域边界即模块边界**：类型域解析（`parse_item` 优先级攀爬）永远不递归进入
   指令参数；指令预处理（`expand_tokens`）只展开 `#` 指令，不解释 DSL 运算符；
   `@` 常量（`preprocess/consts/`）只做词法替换，不进入任何域；
-- **透传守卫统一**：三种括号中的宏输入与 `#[...]` 属性属于 Rust；预处理、
-  segment 级 `@trait` 替换、trait 实参同步与 body 重复识别均保留其内容。
-  共享 `scan::bracket_is_passthrough` 区分宏叹号与一元 `!`；验证已渲染类型时，
-  `util::find_type_token` 还跳过 const 表达式和数组长度。显式重复块中的宏
-  随整段复制，但不把其输入解释为重复 DSL。
+- **调用点确定替换域**：预处理与类型解析保留宏/属性输入；类型校验还跳过
+  const 表达式和数组长度，并在检查 `#` 前跳过完整属性结构。共享 walker
+  接收 `TokenDomain`：`Rust` 保留透传边界，`BodySubstitution` 进入全部 Group，
+  包括宏输入、属性和一元 `!` 后的括号。body 权限在同步消费 `impl{...}` 模板
+  之前保存，repeat 展开、驱动收集、替换和 fresh 解析共用该策略；`fresh!` 同样
+  全词法。开关仍各司其职：`impl{@{}}` 不提供轮次，普通形状模板不启用 `<>` 同步。
 - **delegate body 识别是局部的**：`delegate_template` 仅在交给 `#delegate`
   的 body 内识别 `.#call`，复用宏/属性透传守卫，并额外隔离内嵌 item 定义。
   被跳过的标记不触发完整方法体模式。闭包与内联 `const { ... }` 表达式仍属
@@ -438,7 +439,7 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 ## 错误机制
 
 `repeat_output::Output` 在扩充每个缓冲区前检查预算。一个组计为一个 token
-加全部后代，包括不透明宏和属性输入；普通 body token、替换产物与分隔符
+加全部后代，包括宏和属性输入；普通 body token、替换产物与分隔符
 共用重复展开阶段输出的 65,536 token 上限。临时嵌套展开也使用有界缓冲区，但不会
 随每层祖先重复扣账，因此恰好达到上限的有效输出仍可通过。
 此预算只覆盖重复展开阶段；后续 fresh 引用解析是独立阶段。
@@ -505,12 +506,12 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | 目录        | 文件            | 用途                                                                                                                                                                         |
 |-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景；另有 `simplify.rs`（约 15 行 DSL 生成 30 个 impl）与 `typeclass.rs`                    |
-| `src/`      | 文件内 `#[cfg(test)]` 模块 | **283** 个单测（`cargo test --lib`）：按关注点就近放置，并带模块限定以便查找（`codegen::repeat_tests` 32、`codegen::repeat_budget_tests` 6、`codegen::range_worker` 19、`parse` 17、`codegen::sync` 15、`preprocess::varseg` 12、`preprocess::where_process` 12、`preprocess::angle` 9、`codegen::where_at_tests` 7、`testing::fuzz` 6、`codegen::top_level` 5、`preprocess::consts` 9、`ast::param_kind` 5……、`entry::impl_entry` 3） |
+| `src/`      | 文件内 `#[cfg(test)]` 模块 | **285** 个单测（`cargo test --lib`）：按关注点就近放置，并带模块限定以便查找（`codegen::repeat_tests` 32、`codegen::repeat_budget_tests` 6、`codegen::range_worker` 19、`parse` 18、`codegen::sync` 15、`preprocess::varseg` 12、`preprocess::where_process` 12、`preprocess::angle` 9、`codegen::where_at_tests` 7、`testing::fuzz` 6、`codegen::top_level` 5、`preprocess::consts` 9、`ast::param_kind` 5……、`entry::impl_entry` 3） |
 | `src/`      | `testing/`      | crate 级测试基建（全部 `cfg(test)`）：`doc_claims.rs`（把文档里的 `// →` 声明喂进真实展开路径执行——精确 51 条、按片段 31 条、其余 19 条）、`fixture_dirs.rs`（2 个测试：每个 `proptest-regressions/**/*.txt` 必须按 proptest 自身的路径规则映射到源文件；快照目录必须与 specs 的快照名集合相等）、`fuzz.rs`（proptest——5 条属性 + 1 个用例，各 256 cases，随机 token 走真实入口，承诺不 panic）、`golden.rs`（2 个测试覆盖 10 份 `tests/golden/*.golden` 快照，`BLESS=1` 重写——**文本**锁：它钉住渲染出的 token 流，不保证该 token 流是合法 Rust，合法性由 `tests/features/*` 的编译承担）、`perf.rs`（展开开销测量）、`mod.rs`（`GuardAlloc` 256 MiB 分配守卫） |
 | `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
 | `tests/`    | `no_panic/main.rs` | no-panic 守卫：用 `syn` 走遍 `src/**/*.rs`，断言 `#[cfg(test)]` 之外无 panic 构造——包括**宏 token 流内部**铸出的（`quote!(x.unwrap())`）与**限定形式** `Option::unwrap(o)`——且任何属性位置、嵌在 `#[cfg_attr(…)]` 里或**宏体内**的 deny 家族 `#[allow]` / `#[expect]` 都被报出（一刀切静默同样在内：`clippy::all` / `clippy::restriction` / `warnings`）；`#[cfg(test)]` 闸门只跳过裸谓词，因此 `#[cfg(not(test))]` 的代码照样被扫描；crate 级 deny 行本身也被断言（`lib.rs` clippy deny 之外的第二条腿）；**检测器本身有自测**（`no_panic/selftest.rs`：每个臂都喂了合成违规 + 邻近反例，因此 `syn` 升级或收窄的 `matches!` 会让该文件失败而不是静默报 0 违规），唯一记录在案的洞是**宏体内手写的索引**逃过两条腿（`quote!(v[0])`——clippy 看不见宏体，而这里的 `[…]` 组无法与数组类型区分） |
 | `tests/`    | `doc_consistency.rs` + `doc_consistency/reader_entry.rs` | **18** 项文档守卫：源码/模块树、文件路径、双语章节与示例、诊断和计数保持一致；README 入门程序必须能作为带 `main` 的独立 Rust 文件解析。源码导航检查独立 Markdown 锚点及仓库路径/片段，验收另查生成的 rustdoc 链接。历史 changelog 与 architecture 版本前言豁免当前文件引用检查 |
-| `tests/`    | `features/`     | **67** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **418** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
+| `tests/`    | `features/`     | **68** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **430** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
 | `tests/`    | `ui.rs`         | `trybuild` UI 测试：**168** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
 | `tests/` | `pack_model/` | 独立 Pack 提案模型：Python 标准库，17 组测试、有限结构检查、双语教程核对与生成 Rust 的消费验证。执行 `python tests/pack_model/run.py`，独立 CI job 使用同一命令；不等于正式解析器或物化器的验证。 |
 

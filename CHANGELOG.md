@@ -7,8 +7,9 @@
 
 ## Unreleased
 
-- Preserve syntax domains: macro inputs retain `@trait`, fresh markers and empty angle brackets; the literal `"<>"` is no longer mistaken for empty generics, and const multiplication in qualified path arguments is no longer mistaken for a Pack.
-- Preserve inherited `for<'a>` constraints and avoid lifetime capture during inheritance; resolve fresh references in associated type values. Delegation now chooses anonymous parameter names that avoid user-written names.
+- Preserve syntax domains: type-position macro inputs remain unchanged, including `@0` during early parsing of associated bindings; DSL validation skips complete Rust attributes. The literal `"<>"` is no longer mistaken for empty generics, and const multiplication in qualified path arguments is no longer mistaken for a Pack.
+- Restore lexical body-template substitution: substitutions enabled by `impl{...}` enter every group, including macro inputs and attributes. Repeat blocks after unary `!` expand normally. Each switch still enables only its own features.
+- Preserve inherited `for<'a>` constraints and avoid lifetime capture during inheritance; resolve fresh references in associated type values. Anonymous delegate parameters use a private prefix and avoid input identifiers, fixing collisions with surrounding `arg0` structs, variants or constants; isolation from deliberately matching external private names is not guaranteed.
 - Count Group contents toward the 65536-token repeat limit and check while constructing output, counting nested tokens by their final occurrences. Reject cycles introduced by constant redefinitions at the definition site while retaining valid lazy redefinitions.
 
 - Align the independent Pack model with existing macro behavior for empty members: tuple and function slots may vanish, while surviving generic arguments are checked after collection. Restore omitted finite-audit cases and make unexpected model failures fail validation. Public macro syntax and behavior are unchanged.

@@ -26,7 +26,7 @@ use output::Output;
 
 use super::repeat_drivers::fix_literal_at;
 use crate::codegen::VarSeg;
-use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at};
+use crate::util::{MAX_NEST_DEPTH, TokenDomain, compile_error_str, depth_err, is_punct_at};
 
 /// The output-token budget of one body's repeat-block expansion. Nested
 /// blocks multiply their round counts (Cartesian semantics — the output is
@@ -41,6 +41,8 @@ pub(crate) const MAX_REPEAT_TOKENS: usize = 1 << 16;
 /// parameter lists — a new concern joins as a field, not as another thread
 /// through five signatures.
 pub(crate) struct RepeatCtx<'a> {
+    /// Explicit body switches authorize lexical rewriting inside every group.
+    pub(crate) domain: TokenDomain,
     pub(crate) segs: &'a [VarSeg],
     /// The value source of `@ident` substitution (the `(prefix, position)`
     /// bindings produced by the shape match).
@@ -131,7 +133,7 @@ fn expand_stream(
             continue;
         }
         if let TokenTree::Group(g) = cur {
-            if crate::util::bracket_is_passthrough(tokens, i) {
+            if cx.domain.skips_group(tokens, i) {
                 out.push(cur.clone())?;
                 i += 1;
                 continue;
@@ -172,7 +174,8 @@ fn expand_block(
     // 1. Nested repeat blocks expand first (own rounds).
     let body = expand_nested(body, cx, depth, MAX_REPEAT_TOKENS)?.tokens;
     // 2. The inner segment references (prefixes + their common length).
-    let (inner_prefixes, inner_len) = super::repeat_drivers::collect_drivers(&body, cx.segs)?;
+    let (inner_prefixes, inner_len) =
+        super::repeat_drivers::collect_drivers(&body, cx.segs, cx.domain)?;
     // 3. The repetition count.
     let len = match driver {
         // Declared driver: it is the length source; any inner references
@@ -319,7 +322,7 @@ fn expand_nested(
             continue;
         }
         if let TokenTree::Group(g) = cur {
-            if crate::util::bracket_is_passthrough(tokens, i) {
+            if cx.domain.skips_group(tokens, i) {
                 out.source(cur.clone());
                 i += 1;
                 continue;

@@ -43,6 +43,7 @@ fn expand_with(s: &str, segs: &[VarSeg]) -> Result<String, String> {
 fn expand_budget(s: &str, segs: &[VarSeg], budget: usize) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs,
         map: &mapping(segs),
         fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
@@ -62,6 +63,7 @@ fn expand_fresh(s: &str, n: usize) -> Result<String, String> {
 fn expand_fresh_from(s: &str, start: usize, n: usize) -> Result<String, String> {
     let ts = s.parse::<TokenStream>().map_err(|e| e.to_string())?;
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &[],
         map: &Default::default(),
         fresh: &crate::codegen::FreshCtx::new(&fresh_names(n), &Default::default()),
@@ -155,6 +157,7 @@ fn no_switch_no_segment_errors() {
     // with no template segment errors — fresh-driven body modification is off
     let ts = "@(args.@0,)..".parse::<TokenStream>().unwrap();
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &[],
         map: &Default::default(),
         fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
@@ -203,6 +206,7 @@ fn unequal_segment_lengths_error() {
     ];
     let ts = "@(@A + @B,)..".parse::<TokenStream>().unwrap();
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &mapping(&segs),
         fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
@@ -264,6 +268,7 @@ fn multi_element_value_splices_whole() {
     m.bind_seg("A", 1, "Vec < u16 >".parse().unwrap()).unwrap();
     let ts = "@(push::< @A > (),)..".parse::<TokenStream>().unwrap();
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &m,
         fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
@@ -281,6 +286,7 @@ fn float_literal_at_path_fixed() {
     let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
     let ts = "@(@A::from(self.0.@0),)..".parse::<TokenStream>().unwrap();
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &mapping(&segs),
         fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
@@ -323,6 +329,7 @@ fn cursor_only_multi_segment_errors() {
     ];
     let ts = "@(self.@0,)..".parse::<TokenStream>().unwrap();
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &mapping(&segs),
         fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),
@@ -340,6 +347,7 @@ fn declared_driver_conflict_errors() {
     ];
     let ts = "@A(@B::f(),)..".parse::<TokenStream>().unwrap();
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &mapping(&segs),
         fresh: &crate::codegen::FreshCtx::new(&[], &Default::default()),

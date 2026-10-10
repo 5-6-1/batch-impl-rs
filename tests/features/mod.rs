@@ -9,6 +9,7 @@
 
 pub(crate) mod bare_where_attachments;
 pub(crate) mod block_model;
+pub(crate) mod body_template_tokens;
 pub(crate) mod doc_table_claims;
 pub(crate) mod dsl_assoc_adaptation;
 pub(crate) mod dsl_at_refs;

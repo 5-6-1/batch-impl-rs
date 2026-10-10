@@ -278,7 +278,7 @@ fn expand_delegate(
         // caught too). Everything else keeps its pattern — its token stream
         // works as an expression in the call (`(a, b)` binds `a`/`b`, and
         // `(a, b)` rebuilds the tuple). Reserve the complete input before
-        // naming: a later parameter or body token can already use `arg0`.
+        // naming: later parameters or body tokens can use our private prefix.
         super::delegate_args::name_unforwardable_params(&mut sig, &mut names.clone());
         let call_args = collect_call_args(&sig).map_err(|pat| {
             compile_err!(

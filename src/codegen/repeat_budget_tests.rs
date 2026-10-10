@@ -13,6 +13,7 @@ fn expand(
     }
     let fresh = FreshCtx::new(&[], &Default::default());
     let cx = RepeatCtx {
+        domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
         map: &map,
         fresh: &fresh,
@@ -69,17 +70,17 @@ fn plain_source_and_separate_blocks_cannot_bypass_the_limit() {
 }
 
 #[test]
-fn macro_inputs_and_attributes_are_opaque_but_still_counted() {
-    for source in ["stringify!(@unknown)", "m![@unknown]", "m!{@unknown}", "#[attr(@unknown)] x"] {
+fn enabled_macro_inputs_and_attributes_are_rewritten_and_counted() {
+    for source in ["stringify!(@(@A)..)", "m![@(@A)..]", "m!{@(@A)..}", "#[attr(@(@A)..)] x"] {
         let direct = expand(source, 2, "u8", MAX_REPEAT_TOKENS).unwrap().0;
-        assert_eq!(direct, source.parse::<TokenStream>().unwrap().to_string());
+        assert_eq!(direct.matches("u8").count(), 2);
         let repeated = expand(&format!("@A({source}).."), 2, "u8", MAX_REPEAT_TOKENS).unwrap().0;
-        assert_eq!(repeated.matches("unknown").count(), 2);
+        assert_eq!(repeated.matches("u8").count(), 4);
     }
-    // m, !, group, @, unknown: an opaque group still contains three tokens.
-    assert_eq!(expand("m!(@unknown)", 1, "u8", 5).unwrap().1, 0);
-    assert!(expand("m!(@unknown)", 1, "u8", 4).is_err());
-    let nested = expand("@A(@A(stringify!(@unknown))..)..", 2, "u8", 20).unwrap();
-    assert_eq!(nested.0.matches("unknown").count(), 4);
+    // m, !, group, u8, u8: macro contents count toward the same budget.
+    assert_eq!(expand("m!(@(@A)..)", 2, "u8", 5).unwrap().1, 0);
+    assert!(expand("m!(@(@A)..)", 2, "u8", 4).is_err());
+    let nested = expand("@A(@A(stringify!(@A))..)..", 2, "u8", 16).unwrap();
+    assert_eq!(nested.0.matches("u8").count(), 4);
     assert_eq!(nested.1, 0);
 }

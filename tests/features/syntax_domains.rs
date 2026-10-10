@@ -88,8 +88,56 @@ trait Synced<T> {
 }
 
 #[test]
-fn opt_in_body_sync_preserves_macro_input() {
-    // Token round-trips can normalize whitespace, but must not fill the
-    // macro's angle brackets with the trait argument.
-    assert_eq!(<u8 as Synced<u16>>::text().replace(' ', ""), "Unrelated<>");
+fn opt_in_body_sync_rewrites_macro_input() {
+    assert_eq!(<u8 as Synced<u16>>::text().replace(' ', ""), "Unrelated<u16>");
+}
+
+#[batch_impl(<u8 as Family>::Typed<fn(#[allow(unused)] u8)>)]
+trait AttributeTarget {}
+
+#[batch_impl(<u8 as Family>::Typed<fn(
+    #[cfg_attr(all(), allow(unused))] fn(#[allow(unused)] u16)
+)>)]
+trait NestedAttributeTarget {}
+
+#[test]
+fn qualified_types_preserve_function_parameter_attributes() {
+    fn check<T: AttributeTarget>() {}
+    fn nested<T: NestedAttributeTarget>() {}
+    check::<fn(u8)>();
+    nested::<fn(fn(u16))>();
+}
+
+macro_rules! opaque_index {
+    (@0) => {
+        u8
+    };
+    (([@0])) => {
+        u16
+    };
+    (nested!(@0)) => {
+        u32
+    };
+    (@{0}) => {
+        u64
+    };
+}
+
+#[batch_impl(OpaqueAssociated<Item = (
+    opaque_index!(@0),
+    opaque_index![@0],
+    opaque_index! { @0 },
+    opaque_index!(([@0])),
+    opaque_index!(nested!(@0)),
+    opaque_index!(@{0}),
+    @0,
+)> ().1)]
+trait OpaqueAssociated {
+    type Item;
+}
+
+#[test]
+fn associated_values_keep_macro_tokens_and_resolve_visible_fresh() {
+    let value: <(bool,) as OpaqueAssociated>::Item = (1u8, 2u8, 3u8, 4u16, 5u32, 6u64, true);
+    assert_eq!(value, (1, 2, 3, 4, 5, 6, true));
 }

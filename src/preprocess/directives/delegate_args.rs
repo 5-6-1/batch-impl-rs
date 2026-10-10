@@ -42,8 +42,12 @@ impl ForwardNames {
     }
 }
 
-/// Give pattern-only parameters collision-free bindings before forwarding.
+/// Give pattern-only parameters names that avoid the macro's input.
 /// The entire original signature is reserved before this mutates any input.
+/// The private prefix avoids ordinary surrounding names: mixed-site spans
+/// still resolve external value items, which are outside the macro's input.
+/// Stable Rust cannot guarantee isolation from an external item deliberately
+/// using the same private name; explicit `mut`/`ref` bindings also fail E0530.
 pub(super) fn name_unforwardable_params(sig: &mut syn::Signature, names: &mut ForwardNames) {
     let mut index = 0;
     for input in &mut sig.inputs {
@@ -54,7 +58,7 @@ pub(super) fn name_unforwardable_params(sig: &mut syn::Signature, names: &mut Fo
                 attrs: vec![],
                 by_ref: None,
                 mutability: None,
-                ident: names.fresh(&format!("arg{index}")),
+                ident: names.fresh(&format!("__batch_impl_arg{index}")),
                 subpat: None,
             });
             index += 1;

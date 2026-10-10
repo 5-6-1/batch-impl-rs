@@ -263,12 +263,16 @@ pub(crate) fn carrier_inner(g: &proc_macro2::Group) -> String {
 /// `@{N}` in an expression, return type, etc. is user-written and requires
 /// the switch ("declare what you use"). Returns the carrier's span when one
 /// is found, so the caller can point the diagnostic at the offending token.
-pub(crate) fn body_has_carrier(tokens: &TokenStream) -> Option<proc_macro2::Span> {
+pub(crate) fn body_has_carrier(
+    tokens: &TokenStream, domain: crate::util::TokenDomain,
+) -> Option<proc_macro2::Span> {
     let v = tokens.clone().into_iter().collect::<Vec<_>>();
-    carrier_at_any(&v, 0)
+    carrier_at_any(&v, 0, domain)
 }
 
-fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> Option<proc_macro2::Span> {
+fn carrier_at_any(
+    tokens: &[TokenTree], depth: usize, domain: crate::util::TokenDomain,
+) -> Option<proc_macro2::Span> {
     if depth > crate::util::MAX_NEST_DEPTH {
         return None;
     }
@@ -277,9 +281,11 @@ fn carrier_at_any(tokens: &[TokenTree], depth: usize) -> Option<proc_macro2::Spa
         if is_carrier_at(tokens, i) && !is_macro_generated_carrier(tokens, i) {
             return Some(cur.span());
         }
-        if let TokenTree::Group(g) = cur {
+        if let TokenTree::Group(g) = cur
+            && !domain.skips_group(tokens, i)
+        {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            if let Some(sp) = carrier_at_any(&inner, depth + 1) {
+            if let Some(sp) = carrier_at_any(&inner, depth + 1, domain) {
                 return Some(sp);
             }
         }

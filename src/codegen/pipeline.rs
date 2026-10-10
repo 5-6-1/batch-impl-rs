@@ -110,6 +110,8 @@ pub(crate) fn generate_parts(
     // inside a template (`impl{GenW<>}`) is not valid Rust before it, so this is
     // the templates' one parse site (`render::parse_impl_templates`) and the shape
     // kernel receives types instead of tokens.
+    let body_substitution =
+        parts.body_at || parts.fresh_binding.is_some() || !parts.impl_templates.is_empty();
     let synced_templates = sync_impl_parts(&mut parts, trait_name)?;
     parts.shape_templates = render::parse_impl_templates(&synced_templates)?;
     // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
@@ -224,6 +226,11 @@ pub(crate) fn generate_parts(
         return Err(e);
     }
     if let Some(b) = &mut parts.body {
+        let domain = if body_substitution {
+            crate::util::TokenDomain::BodySubstitution
+        } else {
+            crate::util::TokenDomain::Rust
+        };
         // Body token postprocessing lives together here, where the impl's
         // fresh names are in hand:
         // 1. Repeat blocks expand (`@(…@0,)..`; without an `impl{...}` the
@@ -243,7 +250,7 @@ pub(crate) fn generate_parts(
         // errors with guidance.
         if !parts.body_at
             && parts.fresh_binding.is_none()
-            && let Some(carrier_span) = body_has_carrier(b)
+            && let Some(carrier_span) = body_has_carrier(b, domain)
         {
             return Err(compile_error_str(
                 "batch-impl: a `@{N}` fresh reference in the body requires the \
@@ -254,6 +261,7 @@ pub(crate) fn generate_parts(
         }
         let binding = parts.fresh_binding;
         let cx = RepeatCtx {
+            domain,
             segs: &var_segs,
             map: &shape_map,
             fresh: &fresh_ctx,
@@ -261,7 +269,11 @@ pub(crate) fn generate_parts(
             budget: Cell::new(MAX_REPEAT_TOKENS),
         };
         let expanded = expand_repeat_blocks(b.clone(), &cx)?;
-        let expanded = range_refs::expand_range_refs(expanded, &fresh_ctx)?;
+        let expanded = if body_substitution {
+            range_refs::expand_body_refs(expanded, &fresh_ctx)?
+        } else {
+            range_refs::expand_range_refs(expanded, &fresh_ctx)?
+        };
         *b = if shape_map.slots().is_empty() {
             expanded
         } else {

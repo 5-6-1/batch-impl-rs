@@ -29,7 +29,7 @@ use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at, tok
 /// prefixes (first-appearance order) and their common length (`None` when the
 /// block references no segment — a cursor-only block).
 pub(crate) fn collect_drivers(
-    tokens: &[TokenTree], segs: &[VarSeg],
+    tokens: &[TokenTree], segs: &[VarSeg], domain: crate::util::TokenDomain,
 ) -> Result<(Vec<String>, Option<usize>), TokenStream> {
     let mut prefixes = vec![];
     let mut len = None;
@@ -89,12 +89,12 @@ pub(crate) fn collect_drivers(
             continue;
         }
         if let TokenTree::Group(g) = cur {
-            if crate::util::bracket_is_passthrough(tokens, i) {
+            if domain.skips_group(tokens, i) {
                 i += 1;
                 continue;
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let (p, l) = collect_drivers(&inner, segs)?;
+            let (p, l) = collect_drivers(&inner, segs, domain)?;
             for p in p {
                 if !prefixes.contains(&p) {
                     prefixes.push(p);
@@ -256,7 +256,7 @@ pub(crate) fn substitute(
             }
         }
         if let TokenTree::Group(g) = cur {
-            if crate::util::bracket_is_passthrough(tokens, i) {
+            if cx.domain.skips_group(tokens, i) {
                 out.push(cur.clone())?;
                 i += 1;
                 continue;

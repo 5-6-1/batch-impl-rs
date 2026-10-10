@@ -247,6 +247,21 @@ pub(crate) fn bracket_is_passthrough(tokens: &[TokenTree], index: usize) -> bool
             if p.as_char() == '!' || p.as_char() == '#')
 }
 
+/// Token walkers shared by Rust type surfaces and explicitly enabled body
+/// templates must receive their domain from the caller. In a body template,
+/// every group participates, including macro inputs and attributes.
+#[derive(Clone, Copy)]
+pub(crate) enum TokenDomain {
+    Rust,
+    BodySubstitution,
+}
+
+impl TokenDomain {
+    pub(crate) fn skips_group(self, tokens: &[TokenTree], index: usize) -> bool {
+        matches!(self, Self::Rust) && bracket_is_passthrough(tokens, index)
+    }
+}
+
 /// The tokenizer folds the dot after a tuple field into a float literal when
 /// a DSL marker follows (`self.0.@0`, `self.0.#call`). Split only an integer
 /// with a trailing dot; callers decide whether the following marker applies.
