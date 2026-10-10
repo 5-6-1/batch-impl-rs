@@ -1,26 +1,27 @@
-error[E0119]: conflicting implementations of trait `BareFresh`
- --> tests/ui/pack_bare_fresh.rs:4:1
+error: batch-impl: duplicate generated trait impl #2: `impl < P0, P1 > BareFresh for P1 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+ --> tests/ui/pack_bare_fresh.rs:5:1
   |
-4 | #[batch_impl(*[].2)]
+5 | #[batch_impl(*[].2)]
   | ^^^^^^^^^^^^^^^^^^^^
-  | |
-  | first implementation here
-  | conflicting implementation
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0207]: the type parameter `P1` is not constrained by the impl trait, self type, or predicates
- --> tests/ui/pack_bare_fresh.rs:4:1
+error: batch-impl: first occurrence of this generated trait impl (#1)
+ --> tests/ui/pack_bare_fresh.rs:5:1
   |
-4 | #[batch_impl(*[].2)]
-  | ^^^^^^^^^^^^^^^^^^^^ unconstrained type parameter
+5 | #[batch_impl(*[].2)]
+  | ^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0207]: the type parameter `P0` is not constrained by the impl trait, self type, or predicates
- --> tests/ui/pack_bare_fresh.rs:4:1
-  |
-4 | #[batch_impl(*[].2)]
-  | ^^^^^^^^^^^^^^^^^^^^ unconstrained type parameter
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+error: batch-impl: duplicate generated trait impl #2: `impl < P0, P1 > BarePairs for Pair < P1, Vec < P1 > > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/pack_bare_fresh.rs:10:15
+   |
+10 | #[batch_impl(*Pair.*[self,Vec].*[].2)]
+   |               ^^^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/pack_bare_fresh.rs:10:15
+   |
+10 | #[batch_impl(*Pair.*[self,Vec].*[].2)]
+   |               ^^^^

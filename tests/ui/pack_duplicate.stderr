@@ -1,10 +1,11 @@
-error[E0119]: conflicting implementations of trait `DuplicateTargets` for type `u8`
- --> tests/ui/pack_duplicate.rs:4:1
+error: batch-impl: duplicate generated trait impl #2: `impl DuplicateTargets for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+ --> tests/ui/pack_duplicate.rs:4:20
   |
 4 | #[batch_impl(*[u8, u8])]
-  | -----------------^^^^
-  | |
-  | first implementation here
-  | conflicting implementation for `u8`
+  |                    ^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+ --> tests/ui/pack_duplicate.rs:4:16
   |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+4 | #[batch_impl(*[u8, u8])]
+  |                ^^

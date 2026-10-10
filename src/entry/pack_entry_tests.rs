@@ -93,11 +93,15 @@ fn empty_collections_and_empty_arguments_are_diagnosed() {
 
 #[test]
 fn the_spec_limit_counts_pack_targets_from_every_top_level_candidate() {
-    let members = vec![quote!(u8); 64];
-    let one_pack = quote!(*[#(#members,)*]);
-    let packs = vec![one_pack.clone(); 16];
-    assert_eq!(impls(trait_output(quote!([#(#packs),*]))).len(), 1024);
-    let packs = vec![one_pack; 17];
+    // Distinct targets keep this a budget test, not a duplicate-impl test.
+    let packs = (0..17)
+        .map(|group| {
+            let members = (0..64).map(|slot| quote::format_ident!("Target{group}_{slot}"));
+            quote!(*[#(#members,)*])
+        })
+        .collect::<Vec<_>>();
+    let within_limit = packs.iter().take(16);
+    assert_eq!(impls(trait_output(quote!([#(#within_limit),*]))).len(), 1024);
     let out = trait_output(quote!([#(#packs),*]));
     assert!(out.to_string().contains("more than 1024 impls"), "{out}");
     assert!(!out.to_string().contains("impl Marker"), "partial impls escaped: {out}");

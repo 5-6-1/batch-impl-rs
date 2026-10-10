@@ -137,7 +137,7 @@ pub(crate) fn expand_impl_entry(
         reset_fresh_counter();
         out.extend(expand_one_spec(spec, &item, trait_path.as_ref())?);
     }
-    Ok(render_angles(out))
+    crate::entry::duplicates::check(render_angles(out))
 }
 
 /// Expands one spec (shape form or direct form) into its impl(s).

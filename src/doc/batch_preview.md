@@ -7,11 +7,13 @@ displayed trait or impls into your program.
 
 Keep the attribute and item unchanged when removing the outer
 `batch_preview! { ... }` wrapper. Then build normally: previewing tokens
-does not check whether fields, methods, bounds or overlapping impls satisfy
-Rust's rules.
+does not check whether fields, methods, bounds or general impl overlap satisfy
+Rust's rules. It shares the entry's conservative check for definitely repeated
+trait impls and reports those errors instead of a successful expansion count.
 
-The displayed text can retain the attribute used to select the preview
-entry, including `#[batch_impl(...)]`. Inspect the generated targets and
+Trait previews can retain the attribute used to select the preview entry,
+including `#[batch_impl(...)]`; impl previews consume that selected attribute.
+Inspect the generated targets and
 members, then restore the original attributed program as above; do not
 paste the diagnostic text back as fully expanded source.
 

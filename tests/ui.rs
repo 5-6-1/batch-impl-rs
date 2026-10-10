@@ -15,8 +15,7 @@ fn ui() {
     // the diagnostic promise: an error replaces the impl, so a leaf that fails during codegen
     // must not leave the impls generated before it in the expansion
     t.compile_fail("tests/ui/half_built_impl.rs");
-    // a diagnostic minted while the target type is rendered (absent from the leaf tree, so the
-    // walk above cannot see it)
+    // A nested target error is retained structurally until codegen reports it.
     t.compile_fail("tests/ui/nested_error_target.rs");
 
     t.compile_fail("tests/ui/trait_path_no_ident.rs");
@@ -148,13 +147,15 @@ fn ui() {
     t.compile_fail("tests/ui/where_splat_bad.rs");
     t.compile_fail("tests/ui/decl_generator_splat.rs");
 
-    // Pack collection checks cardinality in single-type hosts. Structural
-    // declarations and duplicate targets remain visible to Rust coherence.
+    // Pack collection checks cardinality in single-type hosts. Definite
+    // duplicate trait impls are diagnosed; general overlap remains with Rust.
     t.compile_fail("tests/ui/pack_single_slot.rs");
     t.compile_fail("tests/ui/pack_flat_overlap.rs");
     t.compile_fail("tests/ui/pack_unused_axis.rs");
     t.compile_fail("tests/ui/pack_bare_fresh.rs");
     t.compile_fail("tests/ui/pack_duplicate.rs");
+    t.compile_fail("tests/ui/duplicate_impl.rs");
+    t.compile_fail("tests/ui/duplicate_impl_conservative.rs");
     t.compile_fail("tests/ui/pack_shared_identity.rs");
     t.compile_fail("tests/ui/preview_pack.rs");
     // a spec that materializes to zero targets is a diagnosed mistake: `*[]` is a

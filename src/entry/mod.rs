@@ -26,6 +26,9 @@ use path_prefix::try_parse_path_prefix;
 use crate::entry::driver::parse_batch_trait_entry;
 
 pub(crate) mod driver;
+mod duplicate_heads;
+mod duplicate_key;
+mod duplicates;
 pub(crate) mod impl_entry;
 mod impl_fresh;
 pub(crate) mod impl_spec;
@@ -94,7 +97,7 @@ pub(crate) fn expand_attr_macro(
         return Ok(if include_trait { quote!(#trait_item) } else { quote!() });
     }
     let p = prepare_attr_expansion(attr, trait_item, include_trait)?;
-    run_pipeline(
+    let output = run_pipeline(
         &p.expanded,
         Op::Comma,
         &p.trait_full_path,
@@ -103,7 +106,8 @@ pub(crate) fn expand_attr_macro(
         p.start_trait,
         &p.trait_bounds,
         &p.trait_param_names,
-    )
+    )?;
+    duplicates::check(output)
 }
 
 /// The prepared state of an attribute-macro expansion: everything the shared
@@ -373,7 +377,7 @@ pub(crate) fn expand_batch_trait(
     }
     // Preserve all segment diagnostics and their locations, without keeping
     // successful impls beside an internal failure.
-    if errors.is_empty() { Ok(result.into()) } else { Err(errors) }
+    if errors.is_empty() { duplicates::check(result).map(Into::into) } else { Err(errors) }
 }
 
 /// Give every token that still points at the macro **call site** the span of the segment it came from.

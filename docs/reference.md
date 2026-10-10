@@ -147,7 +147,7 @@ Two consequences worth remembering: **to nest, chain with `.`** (`Box Vec u8` ne
 
 ### 3.3 Lists and tuples
 
-`[A, B] T` distributes the trailing type over the elements — one impl each (`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); a bare list at the target position is the same thing spelled as impls. `(A, B)` is one tuple value; `(A)` is transparent; `[A]` as a type is a slice, `[u8; 3]` an array. Lists provide **candidate branches**, while tuples provide **fields that coexist**. `*` opens either one's direct members into the same kind of pack (§4). Neither lists nor packs deduplicate targets.
+`[A, B] T` distributes the trailing type over the elements — one impl each (`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`); a bare list at the target position is the same thing spelled as impls. `(A, B)` is one tuple value; `(A)` is transparent; `[A]` as a type is a slice, `[u8; 3]` an array. Lists provide **candidate branches**, while tuples provide **fields that coexist**. `*` opens a candidate list's direct members into a pack; a complete tuple remains one pack member (§4). Neither lists nor packs deduplicate targets.
 
 ### 3.4 Power `.N`
 
@@ -250,7 +250,7 @@ right-associative dot. The dispatch order is:
 |---|---|
 | `(*[Vec, Box] u8,)` | `(Vec<u8>, Box<u8>)` |
 | `(*Vec *[u8, u16],)` | `(Vec<u8>, Vec<u16>)` |
-| `(*Pair (*[self, Vec] *[].2),)` | `(Pair<P0, Vec<P0>>, Pair<P1, Vec<P1>>)` |
+| `(*Pair.*[self,Vec].*[].2,)` | `(Pair<P0, Vec<P0>>, Pair<P1, Vec<P1>>)` |
 | `(*() (*[self, Vec] *[].2),)` | `((P0, Vec<P0>), (P1, Vec<P1>))` |
 | `(*Map *[].2 *[].3,)` | `(Map<T0,U0>, Map<T1,U0>, Map<T0,U1>, Map<T1,U1>, Map<T0,U2>, Map<T1,U2>)` |
 
@@ -333,6 +333,27 @@ Flattening two *length ranges* can nevertheless yield overlapping generic
 impl patterns (E0119). Retaining rows with
 `(*() (*Map *[].1..=2 *[].1..=3),)` preserves the dimensions.
 Repeated targets are never silently removed.
+
+Within one macro invocation, finalized trait impls with the same trait path
+and arguments, target type, generic declarations and constraints are diagnosed
+as duplicates even when their generic parameter names differ. The diagnostic
+shows the generated head and both source locations; different method bodies
+do not make duplicate impls legal. This includes separate `batch_trait!`
+segments and expansion previews.
+Intermediate lists and packs are not checked: `(*[u8,u8],)` legally constructs
+`(u8,u8)`, whereas the bare target `*[u8,u8]` implements the same trait for
+`u8` twice and is rejected.
+
+This is not full Rust coherence checking. Inherent impls, attributes on impls
+or generic parameters, macros and unsupported complex heads are left to rustc.
+The check does not resolve aliases, infer relationships between different
+constraints or compare separate macro invocations. Type/const arguments whose
+same-name resolution cannot be determined from syntax also stay with rustc.
+Conditional attributes or
+later attribute macros may remove or rewrite an impl, so an unconditional
+early error would be incorrect. Complex output may bypass the conservative
+check altogether. Passing it does not guarantee that the generated impls
+are disjoint.
 
 Migration from the previous splat behavior:
 
@@ -834,8 +855,10 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `pack_single_slot` | a single-type host receives zero or multiple types; `<*[Vec<u8>,]>` declares a constructed type; or copying nested structures across 10 independent choice slots exceeds the cumulative budget | batch-impl: this type position requires exactly one type; the pack expands to 2 types (0 types for an empty pack); declaration error: batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type; work error: batch-impl: this type needs too much materialization work — it has too many slots or an oversized list; split the spec or write the type out ; batch-impl: this type position requires exactly one type; the pack expands to 0 types | DSL |
 | `pack_flat_overlap` | overlapping flat family `(*Map *[].1..=2 *[].1..=3,)` | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
 | `pack_unused_axis` | `(*Map *[].2 *[].0,)` retains unconstrained first-axis parameters | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
-| `pack_bare_fresh` | `*[].2` emits individual targets with the complete declarations | conflicting implementations of trait `BareFresh`; unconstrained parameters are also reported | rustc E0119 / E0207 |
-| `pack_duplicate` | `*[u8, u8]` does not deduplicate | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
+| `pack_bare_fresh` | bare fresh targets, including the Pair dot chain | batch-impl: duplicate generated trait impl #2: `impl < P0, P1 > BareFresh for P1 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: first occurrence of this generated trait impl (#1) ; batch-impl: duplicate generated trait impl #2: `impl < P0, P1 > BarePairs for Pair < P1, Vec < P1 > > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs | DSL |
+| `pack_duplicate` | `*[u8,u8]` emits duplicate impls | batch-impl: duplicate generated trait impl #2: `impl DuplicateTargets for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: first occurrence of this generated trait impl (#1) | DSL |
+| `duplicate_impl` | repeated choices, renamed binders and different bodies across all entries | batch-impl: duplicate generated trait impl #2: `impl RepeatedCandidates for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: first occurrence of this generated trait impl (#1) ; batch-impl: duplicate generated trait impl #2: `impl < B > RenamedTypes for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < 'b, const M : usize > RenamedLifetimesAndConsts for (& 'b [u8; M],) {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl DifferentBodies for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > Only for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > ImplEntry for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > AcrossSegments for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > PreviewTrait for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl PreviewImpl for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs | DSL |
+| `duplicate_impl_conservative` | different bounds, attributes or opaque type/const macros | conflicting implementations of traits `DifferentBounds`, `ConfiguredOverlap`, `OpaqueAttribute`, `OpaqueType`, `OpaqueConst` | rustc E0119 |
 | `pack_shared_identity` | mismatched Pair types at one fresh position, or mixing a uniform wrapper choice | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
 | `extern_fn_stray_hash` | `#(x)` after an `extern "C" fn` | batch-impl: `#` needs a directive name (`#name{…}`); to attach an attribute write `#[…]` | DSL |
 | `stray_hash_no_name` | a stray `#` where a directive name belongs (`#`, `#{0}`) | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
@@ -1157,7 +1180,7 @@ Each of these is a question the surface invites, answered with the rule that pro
 
 **Why is a splat refused in a `where` predicate?** The clause stays token-level all the way to the output, so the final predicate check reports it. Every other parameter-position list expands (§4).
 
-**How does `*[A, B]` alone as the target differ from `(A,B)`?** The standalone splat generates an impl for each element; the tuple generates one impl for `(A,B)`. Distinct elements such as `u8` and `u16` work in the splat form. E0119 comes from overlapping generated impls, for example `*[u8, u8]`, not from using a splat as the target (§4.6).
+**How does `*[A, B]` alone as the target differ from `(A,B)`?** The standalone splat generates an impl for each element; the tuple generates one impl for `(A,B)`. Distinct elements such as `u8` and `u16` work in the splat form. `*[u8, u8]` gets the macro's duplicate-impl diagnostic; more general overlap still produces Rust's E0119. The problem is conflicting generated impls, not using a splat as the target (§4.6).
 
 **Why does `@0..2` cover two freshs?** An exclusive range excludes its end in *every* position, so the type path and the where-predicate path agree — write `@0..=1` for the inclusive spelling.
 

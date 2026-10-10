@@ -4,8 +4,8 @@
 //! generation; `batch_impl_only` omits the signature mirror from the result.
 //! Impl inputs call `expand_impl_entry` directly. Both report generated items
 //! in a `compile_error!` message instead of emitting those items for Rust to
-//! type-check. The wrapped item's entry attribute remains in its parsed attrs,
-//! so the displayed text can retain it too; restore the original invocation
+//! type-check. Trait previews can retain their entry attribute; impl previews
+//! consume the selected attribute just as rustc does. Restore the invocation
 //! rather than pasting that text as fully expanded Rust. Trait-preview guidance
 //! (the `.`/space associativity miswrite note) rides the same message; the
 //! compiler path never guesses.
@@ -99,6 +99,7 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
     // The driver counts final targets, including nested host choices and
     // bare packs. Extension calls remain opaque DSL protocol invocations.
     let mut rendered = vec![];
+    let mut generated_items = TokenStream::new();
     if let Some(t) = &p.start_trait {
         rendered.push(render_angles(quote!(#t)).to_string());
     }
@@ -125,13 +126,16 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
         // One item per line: the preview is for reading, not formatting —
         // a full pretty-printer is out of scope.
         count += 1;
-        rendered.push(render_angles(generated).to_string());
+        let generated = render_angles(generated);
+        rendered.push(generated.to_string());
+        generated_items.extend(generated);
     }
     if !errors.is_empty() {
         // The real expansion holds no impl here, so the preview reports what a reader would get
         // from the attribute instead: the diagnostic, on its own.
         return Err(errors.into_iter().collect());
     }
+    crate::entry::duplicates::check(generated_items)?;
     let expansion = rendered.join("\n");
     let mut msg = format!("batch-impl preview: {} impl(s) generated\n\n{}", count, expansion);
     for note in notes {
@@ -145,13 +149,27 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
 /// subset → `;`-spec split → shape match → assembly) and render the generated
 /// impls into the diagnostic channel. The original impl is withheld, exactly
 /// as under the attribute macro.
-fn preview_impl(impl_item: syn::ItemImpl) -> Result<TokenStream, TokenStream> {
+fn preview_impl(mut impl_item: syn::ItemImpl) -> Result<TokenStream, TokenStream> {
     let (attr_tokens, _) = find_impl_attr(&impl_item.attrs).ok_or_else(|| {
         compile_error_str(
             "batch-impl: batch_preview! expects a `#[batch_impl(...)]` attribute on the impl",
             Span::call_site(),
         )
     })?;
+    // rustc consumes the active attribute before the real entry runs. Mirror
+    // that here too: retaining it would make the duplicate check treat every
+    // preview as an opaque later derivation. Other stacked attributes stay.
+    let mut consumed = false;
+    impl_item.attrs.retain(|attr| {
+        if !consumed
+            && (attr.path().is_ident("batch_impl") || attr.path().is_ident("batch_impl_only"))
+        {
+            consumed = true;
+            false
+        } else {
+            true
+        }
+    });
     let expanded = crate::entry::expand_impl_entry(attr_tokens, impl_item)?;
     let msg = format!("batch-impl preview (ItemImpl entry):\n\n{}", expanded);
     Ok(compile_error_str(&msg, Span::call_site()))

@@ -7,6 +7,7 @@
 
 ## Unreleased
 
+- Diagnose definite duplicate trait impls within one invocation, including renamed generic parameters and separate `batch_trait!` segments. Preview uses the same check. Diagnostics show the generated head and both sources; legitimate repeated pack members remain unchanged. Attributed impls, opaque syntax and general Rust coherence remain rustc's responsibility.
 - Fix user-written `compile_error!` tokens being mistaken for internal macro diagnostics: preserve their context inside `stringify!`, disabled `cfg` branches, user-defined macros and open-extension inputs. Real DSL errors still replace the invocation's generated output, and preview follows the same policy.
 - Correct the Pack model notes: `*` opens only candidate lists, while a complete tuple remains one type. Record the verified boundaries of per-position construction, parameter sharing and two-axis composition; two independent `0..=4` tuple generators produce 25 combinations.
 

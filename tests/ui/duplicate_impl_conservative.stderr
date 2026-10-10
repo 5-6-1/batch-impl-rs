@@ -1,0 +1,54 @@
+error[E0119]: conflicting implementations of trait `DifferentBounds` for type `Vec<_>`
+ --> tests/ui/duplicate_impl_conservative.rs:4:1
+  |
+4 | #[batch_impl(<T: Clone> Vec<T>, <U: Copy> Vec<U>)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | |
+  | first implementation here
+  | conflicting implementation for `Vec<_>`
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `ConfiguredOverlap` for type `u8`
+ --> tests/ui/duplicate_impl_conservative.rs:7:1
+  |
+7 | #[batch_impl(#[cfg(all())] [u8, u8])]
+  | ------------------------------^^^^
+  | |
+  | first implementation here
+  | conflicting implementation for `u8`
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `OpaqueAttribute` for type `u16`
+  --> tests/ui/duplicate_impl_conservative.rs:12:1
+   |
+12 | #[batch_impl(#[batch_impl()] [u16, u16])]
+   | ---------------------------------^^^^^
+   | |
+   | first implementation here
+   | conflicting implementation for `u16`
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `OpaqueType` for type `u32`
+  --> tests/ui/duplicate_impl_conservative.rs:21:1
+   |
+21 | #[batch_impl(target!(), target!())]
+   | ----------------------^^^^^^^^^^^
+   | |
+   | first implementation here
+   | conflicting implementation for `u32`
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `OpaqueConst` for type `[u8; 2]`
+  --> tests/ui/duplicate_impl_conservative.rs:30:1
+   |
+30 | #[batch_impl([u8; length!()], [u8; length!()])]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | |
+   | first implementation here
+   | conflicting implementation for `[u8; 2]`
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

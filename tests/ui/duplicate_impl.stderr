@@ -1,0 +1,107 @@
+error: batch-impl: duplicate generated trait impl #2: `impl RepeatedCandidates for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+ --> tests/ui/duplicate_impl.rs:4:19
+  |
+4 | #[batch_impl([u8, u8])]
+  |                   ^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+ --> tests/ui/duplicate_impl.rs:4:15
+  |
+4 | #[batch_impl([u8, u8])]
+  |               ^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl < B > RenamedTypes for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+ --> tests/ui/duplicate_impl.rs:7:30
+  |
+7 | #[batch_impl(<A> Vec<A>, <B> Vec<B>)]
+  |                              ^^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+ --> tests/ui/duplicate_impl.rs:7:18
+  |
+7 | #[batch_impl(<A> Vec<A>, <B> Vec<B>)]
+  |                  ^^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl < 'b, const M : usize > RenamedLifetimesAndConsts for (& 'b [u8; M],) {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/duplicate_impl.rs:12:32
+   |
+12 |     <'b, const M: usize> (&'b [u8; M],)
+   |                                ^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/duplicate_impl.rs:11:32
+   |
+11 |     <'a, const N: usize> (&'a [u8; N],),
+   |                                ^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl DifferentBodies for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/duplicate_impl.rs:16:31
+   |
+16 | #[batch_impl(u8 #value { 1 }, u8 #value { 2 })]
+   |                               ^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/duplicate_impl.rs:16:14
+   |
+16 | #[batch_impl(u8 #value { 1 }, u8 #value { 2 })]
+   |              ^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl < B > Only for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/duplicate_impl.rs:23:35
+   |
+23 | #[batch_impl_only(<A> Vec<A>, <B> Vec<B>)]
+   |                                   ^^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/duplicate_impl.rs:23:23
+   |
+23 | #[batch_impl_only(<A> Vec<A>, <B> Vec<B>)]
+   |                       ^^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl < B > ImplEntry for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/duplicate_impl.rs:28:30
+   |
+28 | #[batch_impl(<A> Vec<A>; <B> Vec<B>)]
+   |                              ^^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/duplicate_impl.rs:28:18
+   |
+28 | #[batch_impl(<A> Vec<A>; <B> Vec<B>)]
+   |                  ^^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl < B > AcrossSegments for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/duplicate_impl.rs:35:25
+   |
+35 |     AcrossSegments: <B> Vec<B>;
+   |                         ^^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/duplicate_impl.rs:34:25
+   |
+34 |     AcrossSegments: <A> Vec<A>;
+   |                         ^^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl < B > PreviewTrait for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/duplicate_impl.rs:39:34
+   |
+39 |     #[batch_impl(<A> Vec<A>, <B> Vec<B>)]
+   |                                  ^^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/duplicate_impl.rs:39:22
+   |
+39 |     #[batch_impl(<A> Vec<A>, <B> Vec<B>)]
+   |                      ^^^
+
+error: batch-impl: duplicate generated trait impl #2: `impl PreviewImpl for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs
+  --> tests/ui/duplicate_impl.rs:46:22
+   |
+46 |     #[batch_impl(u8; u8)]
+   |                      ^^
+
+error: batch-impl: first occurrence of this generated trait impl (#1)
+  --> tests/ui/duplicate_impl.rs:46:18
+   |
+46 |     #[batch_impl(u8; u8)]
+   |                  ^^

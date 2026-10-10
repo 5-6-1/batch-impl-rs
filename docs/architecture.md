@@ -105,6 +105,11 @@ For contributors: module organization, parsing pipeline, error handling, testing
 ```text
 lib.rs              macro entry (#[batch_impl] / #[batch_impl_only] / batch_trait! / test macros) + module tree
   ├── entry/                entry and driver
+  │   ├── duplicate_heads.rs bounded header extraction without parsing bodies or macro inputs
+  │   ├── duplicate_key.rs  conservative alpha-equivalent trait-impl head keys
+  │   ├── duplicate_key/
+  │   │   └── tests.rs      head-comparison boundaries and binder identity (cfg(test))
+  │   ├── duplicates.rs     invocation-local duplicate diagnostics after final Rust rendering
   │   ├── mod.rs            entry implementation: expand_attr_macro / expand_batch_trait + the shared pipeline run_pipeline
   │   ├── impl_entry.rs     the impl entry (ItemImpl): shape-template × matrix-source instantiation (attr preprocessing subset + `;`-spec split + assembly); stacked `#[batch_impl]` attributes are stages of one derivation (rustc's own attribute order)
   │   ├── impl_fresh.rs     impl-entry fresh context and predicate resolution after target materialization
@@ -288,10 +293,13 @@ the renderer never consults `target_type` — it renders the caller's
 `target_tokens` — so parsing the target into real nodes is work nothing can
 observe (a successful parse and the fallback render identically, which means no
 test can falsify it), and the entry does not do it. The two models meet at the
-same output without pretending to be one model. Making the entry's inputs
-fully AST-level would only matter if a future feature had to *reason* about an
-impl-entry target or its params; today nothing does, and one renderer with two
-adapters is what the code shows.
+same output without pretending to be one model. The duplicate check reasons
+about finalized Rust headers after rendering, so it needs no change to these
+input models. `duplicate_heads.rs` skips bodies and macro inputs and bounds its
+extra parsing work; `duplicate_key.rs` compares supported heads under generic
+renaming, and `duplicates.rs` reports both occurrences without deduplication.
+Attributes and uncertain syntax stay with rustc. All entry points and preview
+use this invocation-local check.
 
 ### Key Design Decisions
 
@@ -409,13 +417,13 @@ Four layers:
 | Directory | File | Purpose |
 |-----------|------|---------|
 | `examples/` | `quickstart.rs` | Runnable DSL main-feature demo (`cargo run --example quickstart`), 14 sections covering basic → complex scenarios; `simplify.rs` (30 impls from ~15 lines of DSL) and `typeclass.rs` are further examples |
-| `src/` | inline `#[cfg(test)]` modules | **250** unit tests (`cargo test --lib`): per-concern semantics, module-qualified so a reviewer can find them (`codegen::repeat_tests` 32, `codegen::range_worker` 19, `parse` 17, `codegen::sync` 15, `preprocess::varseg` 12, `preprocess::where_process` 12, `preprocess::angle` 9, `codegen::where_at_tests` 7, `testing::fuzz` 6, `codegen::top_level` 5, `preprocess::consts` 6, `ast::param_kind` 5, …, `entry::impl_entry` 3) — the layer a fix lands next to |
+| `src/` | inline `#[cfg(test)]` modules | **272** unit tests (`cargo test --lib`): per-concern semantics, module-qualified so a reviewer can find them (`codegen::repeat_tests` 32, `codegen::range_worker` 19, `parse` 17, `codegen::sync` 15, `preprocess::varseg` 12, `preprocess::where_process` 12, `preprocess::angle` 9, `codegen::where_at_tests` 7, `testing::fuzz` 6, `codegen::top_level` 5, `preprocess::consts` 6, `ast::param_kind` 5, …, `entry::impl_entry` 3) — the layer a fix lands next to |
 | `src/` | `testing/` | the crate-level test infrastructure (all `cfg(test)`): `doc_claims.rs` (executes the documented `// →` claims against the real expansion path — 51 exact, 31 partial, 19 skipped), `fixture_dirs.rs` (2 tests: every `proptest-regressions/**/*.txt` must map to a source file by proptest's own path rule, and the snapshot directory must name exactly the specs' snapshots), `fuzz.rs` (proptest — 5 properties + 1 case, 256 cases each, random tokens through the real entry points, promising never to panic), `golden.rs` (2 tests over the 10 `tests/golden/*.golden` snapshots, `BLESS=1` rewrites — a **text** lock: it pins the rendered token stream, not that the stream is legal Rust, which is what `tests/features/*` compile), `perf.rs` (expansion-cost measurement), `mod.rs` (`GuardAlloc`, the 256 MiB allocation guard) |
 | `tests/` | `dsl.rs` | thin entry (`mod features;`) mounting the split test modules |
 | `tests/` | `no_panic/main.rs` | the no-panic guard: a `syn` walk over every `src/**/*.rs` asserting no panic construct outside `#[cfg(test)]` — including one minted **inside a macro token stream** (`quote!(x.unwrap())`) and a **qualified** `Option::unwrap(o)` — and no `#[allow]` / `#[expect]` of the deny family in **any** attribute position, nested in `#[cfg_attr(…)]` or inside a **macro body**, blanket silencers included (`clippy::all` / `clippy::restriction` / `warnings`); the `#[cfg(test)]` gate skips only the bare predicate, so `#[cfg(not(test))]` code is scanned; the crate-level deny lines themselves are asserted too (the second leg to `lib.rs`'s clippy deny); **the detectors are self-tested** (`no_panic/selftest.rs`: every arm is fed a synthetic violation plus its near-miss controls, so a `syn` upgrade or a narrowed `matches!` fails that file instead of reporting nothing), and the one recorded hole is that a hand-written **index** inside a macro body escapes both legs (`quote!(v[0])` — clippy cannot see a macro body, and a `[…]` group cannot be told apart from an array type here) |
 | `tests/` | `doc_consistency.rs` + `doc_consistency/reader_entry.rs` | **18** documentation guards: source/module trees, file paths, bilingual sections/examples, diagnostics and counts stay consistent; README entry programs must parse as standalone Rust with `main`. Source navigation checks standalone Markdown anchors and repository paths/fragments; acceptance also checks generated rustdoc links. Historical changelogs and architecture version preambles are exempt from current-file references |
-| `tests/` | `features/` | **63** per-feature test modules (each at most 350 lines; split from the former single-file `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs`), **392** `#[test]`s: `dsl_*` (operators, qualified types, bound-position bindings, global paths, named fn parameters, directives, blanket, `@` constants, `@N` refs, parameter packs, where, generics, receivers, entry macros, open extension, distribution), `regression_*` (corner cases + `batch_impl` vs `batch_trait!` consistency + macros/path-prefix + arrays), `impl_entry_*` (incl. nested/boundary/conflict ItemImpl cases), `shape_template_*` (incl. nested/boundary/conflict/shape-form/prototype-pattern/cross-combo + variadic-segment/repeat-block cases), plus `dup_params` and `block_model` |
-| `tests/` | `ui.rs` | `trybuild` UI tests: **162** `compile_fail` fixtures locking down diagnostic wording + 4 `pass` fixtures |
+| `tests/` | `features/` | **64** per-feature test modules (each at most 350 lines; split from the former single-file `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs`), **401** `#[test]`s: `dsl_*` (operators, qualified types, bound-position bindings, global paths, named fn parameters, directives, blanket, `@` constants, `@N` refs, parameter packs, where, generics, receivers, entry macros, open extension, distribution), `regression_*` (corner cases + `batch_impl` vs `batch_trait!` consistency + macros/path-prefix + arrays), `impl_entry_*` (incl. nested/boundary/conflict ItemImpl cases), `shape_template_*` (incl. nested/boundary/conflict/shape-form/prototype-pattern/cross-combo + variadic-segment/repeat-block cases), plus `dup_params` and `block_model` |
+| `tests/` | `ui.rs` | `trybuild` UI tests: **164** `compile_fail` fixtures locking down diagnostic wording + 4 `pass` fixtures |
 | `tests/` | `pack_model/` | Independent Pack proposal model: Python standard library, 17 test groups, finite structural checks, bilingual tutorial checks and generated Rust consumers. Run `python tests/pack_model/run.py`; the separate CI job uses the same command. This does not exercise the production parser or materializer. |
 
 Running:

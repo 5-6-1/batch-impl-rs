@@ -47,6 +47,7 @@ pub(crate) mod dsl_trait_args;
 pub(crate) mod dsl_where;
 pub(crate) mod dsl_where_rename;
 pub(crate) mod dup_params;
+pub(crate) mod duplicate_impl;
 pub(crate) mod impl_entry_basic;
 pub(crate) mod impl_entry_boundary;
 pub(crate) mod impl_entry_chain;

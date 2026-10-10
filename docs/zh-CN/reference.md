@@ -145,7 +145,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 ### 3.3 列表与元组
 
-`[A, B] T` 把后面的类型分发到每个元素——各生成一个 impl（`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`）；裸列表作目标时就是同一件事的另一种写法。`(A, B)` 是一个元组值；`(A)` 透明；`[A]` 作类型是切片、`[u8; 3]` 是数组。列表提供**候选分支**，元组提供**同时存在的字段**；二者都可以用 `*` 打开直接成员，得到同一种包（§4）。列表及包均不自动去重。
+`[A, B] T` 把后面的类型分发到每个元素——各生成一个 impl（`[Box, Rc] u8` → `Box<u8>` + `Rc<u8>`）；裸列表作目标时就是同一件事的另一种写法。`(A, B)` 是一个元组值；`(A)` 透明；`[A]` 作类型是切片、`[u8; 3]` 是数组。列表提供**候选分支**，元组提供**同时存在的字段**；`*` 打开候选列表的直接成员，完整元组仍作为一个包成员（§4）。列表及包均不自动去重。
 
 ### 3.4 幂 `.N`
 
@@ -241,7 +241,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 |---|---|
 | `(*[Vec, Box] u8,)` | `(Vec<u8>, Box<u8>)` |
 | `(*Vec *[u8, u16],)` | `(Vec<u8>, Vec<u16>)` |
-| `(*Pair (*[self, Vec] *[].2),)` | `(Pair<P0, Vec<P0>>, Pair<P1, Vec<P1>>)` |
+| `(*Pair.*[self,Vec].*[].2,)` | `(Pair<P0, Vec<P0>>, Pair<P1, Vec<P1>>)` |
 | `(*() (*[self, Vec] *[].2),)` | `((P0, Vec<P0>), (P1, Vec<P1>))` |
 | `(*Map *[].2 *[].3,)` | `(Map<T0,U0>, Map<T1,U0>, Map<T0,U1>, Map<T1,U1>, Map<T0,U2>, Map<T1,U2>)` |
 
@@ -312,6 +312,20 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 但拼平两个*长度范围*可能产生重叠泛型 impl 模式（E0119）。
 用 `(*() (*Map *[].1..=2 *[].1..=3),)` 保留行，即可保留维度。
 重复目标永远不会被静默删除。
+
+同一次宏调用内，最终生成的 trait impl 若仅泛型参数名字不同，
+而 trait 路径及实参、目标类型、泛型声明和约束相同，宏会报告重复实现，
+展示生成的头部并指出两处来源；方法体不同不能使重复实现合法。
+这也适用于 `batch_trait!` 的不同段以及展开预览。
+检查不在列表或包的中间结构上进行：`(*[u8,u8],)` 合法构造 `(u8,u8)`，
+而裸目标 `*[u8,u8]` 为同一个 trait 生成两次 `u8` 实现，会报错。
+
+这不是完整的 Rust 重叠检查。固有 impl、带属性的 impl 或泛型参数、
+宏及暂不支持的复杂头部交给 rustc；不会推理类型别名、不同约束之间的关系，
+也不会跨宏调用比较。仅凭语法无法确定的同名类型/const 实参同样交给 rustc。
+条件属性或后续属性宏可能移除或改写实现，
+因此不能无条件提前报错；复杂输出也可能整体跳过这项保守检查。
+未报告重复不表示生成的实现一定互不重叠。
 
 从旧 splat 行为迁移：
 
@@ -788,8 +802,10 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `pack_single_slot` | 单类型槽收到零个或多个类型；`<*[Vec<u8>,]>` 将构造类型用作参数声明；或 10 个独立候选槽的嵌套结构累计复制超限 | batch-impl: this type position requires exactly one type; the pack expands to 2 types（空包为 0 types）；声明错误：batch-impl: a generic declaration requires a parameter name (`T`, `'a`, or `const N`), not a constructed type；工作量错误：batch-impl: this type needs too much materialization work — it has too many slots or an oversized list; split the spec or write the type out ; batch-impl: this type position requires exactly one type; the pack expands to 0 types | DSL |
 | `pack_flat_overlap` | `(*Map *[].1..=2 *[].1..=3,)` 的扁平类型族重叠 | conflicting implementations of trait `FlatFamily` for type `(Map<_, _>, Map<_, _>)` | rustc E0119 |
 | `pack_unused_axis` | `(*Map *[].2 *[].0,)` 保留未受约束的第一轴参数 | the type parameter `P0` is not constrained by the impl trait, self type, or predicates | rustc E0207 |
-| `pack_bare_fresh` | `*[].2` 逐成员发出目标，但保留完整声明 | conflicting implementations of trait `BareFresh`；并报告未受约束的参数 | rustc E0119 / E0207 |
-| `pack_duplicate` | `*[u8, u8]` 不去重 | conflicting implementations of trait `DuplicateTargets` for type `u8` | rustc E0119 |
+| `pack_bare_fresh` | 裸 fresh 目标，包含 Pair 点链 | batch-impl: duplicate generated trait impl #2: `impl < P0, P1 > BareFresh for P1 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: first occurrence of this generated trait impl (#1) ; batch-impl: duplicate generated trait impl #2: `impl < P0, P1 > BarePairs for Pair < P1, Vec < P1 > > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs | DSL |
+| `pack_duplicate` | `*[u8,u8]` 生成重复实现 | batch-impl: duplicate generated trait impl #2: `impl DuplicateTargets for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: first occurrence of this generated trait impl (#1) | DSL |
+| `duplicate_impl` | 各入口中的重复候选、泛型改名及不同方法体 | batch-impl: duplicate generated trait impl #2: `impl RepeatedCandidates for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: first occurrence of this generated trait impl (#1) ; batch-impl: duplicate generated trait impl #2: `impl < B > RenamedTypes for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < 'b, const M : usize > RenamedLifetimesAndConsts for (& 'b [u8; M],) {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl DifferentBodies for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > Only for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > ImplEntry for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > AcrossSegments for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl < B > PreviewTrait for Vec < B > {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs ; batch-impl: duplicate generated trait impl #2: `impl PreviewImpl for u8 {}`; repeats impl #1 after generic renaming; remove the repeated target or use disjoint specs | DSL |
+| `duplicate_impl_conservative` | 不同约束、属性及不透明类型/const 宏 | conflicting implementations of traits `DifferentBounds`, `ConfiguredOverlap`, `OpaqueAttribute`, `OpaqueType`, `OpaqueConst` | rustc E0119 |
 | `pack_shared_identity` | 同位置的 Pair 参数不相同，或整体包装选择被混用 | the trait bound `(Pair<u8, Vec<u16>>,): SamePosition` is not satisfied | rustc E0277 |
 | `extern_fn_stray_hash` | `extern "C" fn` 后接 `#(x)` | batch-impl: `#` needs a directive name (`#name{…}`); to attach an attribute write `#[…]` | DSL |
 | `stray_hash_no_name` | 该写指令名的位置出现裸 `#`（`#`、`#{0}`） | batch-impl: `#` must start a directive with a name (`#name{…}`) or an attribute (`#[…]`) | DSL |
@@ -1111,7 +1127,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 
 **为什么 `where` 谓词里拒绝 splat？** 该子句到输出全程 token 级，所以由谓词终检报出。其余每个参数位置列表都会展开（§4）。
 
-**`*[A, B]` 单独作目标与 `(A,B)` 有什么区别？** 独立 splat 为每个元素分别生成 impl；元组形式为 `(A,B)` 生成一个 impl。`u8`、`u16` 这样的不同元素可以使用 splat 形式。E0119 来自生成的 impl 重叠，例如 `*[u8, u8]`，而不是 splat 作为目标本身（§4.6）。
+**`*[A, B]` 单独作目标与 `(A,B)` 有什么区别？** 独立 splat 为每个元素分别生成 impl；元组形式为 `(A,B)` 生成一个 impl。`u8`、`u16` 这样的不同元素可以使用 splat 形式。`*[u8, u8]` 会得到宏的重复实现诊断；更一般的重叠仍由 Rust 报 E0119。问题是生成的实现冲突，而不是 splat 作为目标本身（§4.6）。
 
 **为什么 `@0..2` 覆盖两个 fresh？** 排他区间在**每个**位置都不含末尾，于是类型路径与 where 谓词路径一致——闭区间写 `@0..=1`。
 
