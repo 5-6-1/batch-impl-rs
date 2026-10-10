@@ -17,6 +17,9 @@ mod range;
 mod table;
 mod value_refs;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) use ctx::*;
 pub(crate) use expand::*;
 pub(crate) use range::*;

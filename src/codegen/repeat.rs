@@ -17,8 +17,12 @@
 //! comma — legal in tuple/list contexts). Outside a block, `@` in a body is
 //! an error: repeat blocks are the only legal `@` construct there.
 
-use proc_macro2::{Group, Ident, Span, TokenStream, TokenTree};
+use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use std::cell::Cell;
+
+#[path = "repeat_output.rs"]
+pub(crate) mod output;
+use output::Output;
 
 use super::repeat_drivers::fix_literal_at;
 use crate::codegen::VarSeg;
@@ -45,34 +49,32 @@ pub(crate) struct RepeatCtx<'a> {
     pub(crate) fresh: &'a super::FreshCtx,
     /// The `impl{@0..}` switch driving cursor-only blocks.
     pub(crate) binding: Option<crate::ast::fresh_protocol::FreshRef>,
-    /// Remaining output budget ([`MAX_REPEAT_TOKENS`]), spent by every block
-    /// as it assembles its rounds. Interior-mutable: the expansion walks an
-    /// immutable context.
+    /// Remaining final-output budget. Temporary nested expansions have local
+    /// bounds; their tokens are not debited again at every ancestor level.
     pub(crate) budget: Cell<usize>,
 }
 
 /// Expands every repeat block in a body token stream.
-///
-/// A cursor-only block with no template variadic segment to drive it
-/// (`@(args.@0,)..` in a spec whose template has no `ident@..` segment)
-/// repeats once per fresh — the bound-generator arity (`Fn()0..N`) becomes
-/// the body's repetition count.
+/// Cursor-only blocks use the selected fresh-binding scope when no template
+/// segment supplies their length.
 pub(crate) fn expand_repeat_blocks(
     tokens: TokenStream, cx: &RepeatCtx,
 ) -> Result<TokenStream, TokenStream> {
-    let v = fix_literal_at(tokens.into_iter().collect::<Vec<_>>());
-    expand_stream(&v, cx, 0).map(|out| out.into_iter().collect())
+    let v = tokens.into_iter().collect::<Vec<_>>();
+    let out = expand_stream(&v, cx, 0, cx.budget.get())?;
+    cx.budget.set(cx.budget.get().saturating_sub(out.count));
+    Ok(out.tokens.into_iter().collect())
 }
 
 /// Stream-level scan: expands `@( ... )..` blocks and recurses into groups;
 /// any other `@` in a body is an error.
 fn expand_stream(
-    tokens: &[TokenTree], cx: &RepeatCtx, depth: usize,
-) -> Result<Vec<TokenTree>, TokenStream> {
+    tokens: &[TokenTree], cx: &RepeatCtx, depth: usize, limit: usize,
+) -> Result<Output, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
     }
-    let mut out = vec![];
+    let mut out = Output::new(limit);
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
         if is_punct_at(tokens, i, '@') {
@@ -86,14 +88,27 @@ fn expand_stream(
                 Some(TokenTree::Ident(id))
                     if let Some((body, sep, next)) = parse_repeat_at(tokens, i + 2) =>
                 {
-                    out.extend(expand_block(&body, &sep, cx, depth + 1, Some(id.clone()))?);
+                    out.append(
+                        expand_block(
+                            &body,
+                            &sep,
+                            cx,
+                            depth + 1,
+                            Some(id.clone()),
+                            out.remaining(),
+                        )?,
+                        cur.span(),
+                    )?;
                     i = next;
                 }
                 // `@ ( body ) [sep] ..` — the inter-round separator (`sep`)
                 // is emitted between rounds, never after the last one (the
                 // `$($A),*` vs `$($A,)*` distinction).
                 _ if let Some((body, sep, next)) = parse_repeat_at(tokens, i + 1) => {
-                    out.extend(expand_block(&body, &sep, cx, depth + 1, None)?);
+                    out.append(
+                        expand_block(&body, &sep, cx, depth + 1, None, out.remaining())?,
+                        cur.span(),
+                    )?;
                     i = next;
                 }
                 // A fresh-ref carrier (`@{...}` — landed in the body by the
@@ -101,8 +116,8 @@ fn expand_stream(
                 // a repeat block: pass it through for the later range
                 // re-opening pass (`expand_range_refs` in `generate_parts`).
                 _ if let Some(g) = crate::ast::fresh_protocol::carrier_group_at(tokens, i) => {
-                    out.push(cur.clone());
-                    out.push(TokenTree::Group(g.clone()));
+                    out.push(cur.clone())?;
+                    out.push(TokenTree::Group(g.clone()))?;
                     i += 2;
                 }
                 _ => {
@@ -116,18 +131,25 @@ fn expand_stream(
             continue;
         }
         if let TokenTree::Group(g) = cur {
+            if crate::util::bracket_is_passthrough(tokens, i) {
+                out.push(cur.clone())?;
+                i += 1;
+                continue;
+            }
             if depth + 1 > MAX_NEST_DEPTH {
                 return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let expanded = expand_stream(&inner, cx, depth + 1)?;
-            let mut ng = Group::new(g.delimiter(), expanded.into_iter().collect());
-            ng.set_span(g.span());
-            out.push(TokenTree::Group(ng));
+            let expanded = expand_stream(&inner, cx, depth + 1, out.group_limit(g.span())?)?;
+            out.group(g, expanded)?;
             i += 1;
             continue;
         }
-        out.push(cur.clone());
+        if let Some(repaired) = fix_literal_at(tokens, i) {
+            out.extend(repaired)?;
+        } else {
+            out.push(cur.clone())?;
+        }
         i += 1;
     }
     Ok(out)
@@ -142,12 +164,13 @@ fn expand_stream(
 /// write the separator inside the body for the `$($A,)*` form.
 fn expand_block(
     body: &[TokenTree], sep: &[TokenTree], cx: &RepeatCtx, depth: usize, driver: Option<Ident>,
-) -> Result<Vec<TokenTree>, TokenStream> {
+    limit: usize,
+) -> Result<Output, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(body, " in a repeat block"));
     }
     // 1. Nested repeat blocks expand first (own rounds).
-    let body = expand_nested(body, cx, depth)?;
+    let body = expand_nested(body, cx, depth, MAX_REPEAT_TOKENS)?.tokens;
     // 2. The inner segment references (prefixes + their common length).
     let (inner_prefixes, inner_len) = super::repeat_drivers::collect_drivers(&body, cx.segs)?;
     // 3. The repetition count.
@@ -203,28 +226,15 @@ fn expand_block(
     };
     // 4. L rounds of marker substitution, with the literal separator
     //    between rounds (never after the last one).
-    let mut out = vec![];
+    let mut out = Output::new(limit);
     for round in 0..len {
-        out.extend(super::repeat_drivers::substitute(&body, cx, round, depth + 1)?);
+        out.append(
+            super::repeat_drivers::substitute(&body, cx, round, depth + 1, out.remaining())?,
+            body.first().map_or_else(Span::call_site, TokenTree::span),
+        )?;
         if round + 1 < len {
-            out.extend(sep.iter().cloned());
+            out.extend(sep.iter().cloned())?;
         }
-    }
-    // Spend the output budget: nested rounds already sit inside `out` (the
-    // inner blocks expanded in step 1), so this single deduction covers the
-    // whole ∏len of every nesting level below.
-    let exceeded = out.len() > cx.budget.get();
-    cx.budget.update(|b| b.saturating_sub(out.len()));
-    if exceeded {
-        return Err(compile_error_str(
-            &format!(
-                "batch-impl: repeat-block expansion produces {} tokens (limit {}); \
-                 reduce the nesting depth or segment sizes",
-                out.len(),
-                MAX_REPEAT_TOKENS,
-            ),
-            body.first().map_or_else(Span::call_site, |t| t.span()),
-        ));
     }
     Ok(out)
 }
@@ -277,12 +287,12 @@ fn binding_len(cx: &RepeatCtx, body: &[TokenTree]) -> Result<usize, TokenStream>
 /// Expands nested repeat blocks inside a block body, keeping `@ident` / `@N`
 /// markers untouched (they are substituted per round by the outer block).
 fn expand_nested(
-    tokens: &[TokenTree], cx: &RepeatCtx, depth: usize,
-) -> Result<Vec<TokenTree>, TokenStream> {
+    tokens: &[TokenTree], cx: &RepeatCtx, depth: usize, limit: usize,
+) -> Result<Output, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, " in a repeat block"));
     }
-    let mut out = vec![];
+    let mut out = Output::new(limit);
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
         // `@ident ( body ) [sep] ..` — declared driver
@@ -290,7 +300,10 @@ fn expand_nested(
             && let Some(TokenTree::Ident(id)) = tokens.get(i + 1)
             && let Some((body, sep, next)) = parse_repeat_at(tokens, i + 2)
         {
-            out.extend(expand_block(&body, &sep, cx, depth + 1, Some(id.clone()))?);
+            out.append(
+                expand_block(&body, &sep, cx, depth + 1, Some(id.clone()), out.remaining())?,
+                cur.span(),
+            )?;
             i = next;
             continue;
         }
@@ -298,23 +311,35 @@ fn expand_nested(
         if is_punct_at(tokens, i, '@')
             && let Some((body, sep, next)) = parse_repeat_at(tokens, i + 1)
         {
-            out.extend(expand_block(&body, &sep, cx, depth + 1, None)?);
+            out.append(
+                expand_block(&body, &sep, cx, depth + 1, None, out.remaining())?,
+                cur.span(),
+            )?;
             i = next;
             continue;
         }
         if let TokenTree::Group(g) = cur {
+            if crate::util::bracket_is_passthrough(tokens, i) {
+                out.source(cur.clone());
+                i += 1;
+                continue;
+            }
             if depth + 1 > MAX_NEST_DEPTH {
                 return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let expanded = expand_nested(&inner, cx, depth + 1)?;
-            let mut ng = Group::new(g.delimiter(), expanded.into_iter().collect());
-            ng.set_span(g.span());
-            out.push(TokenTree::Group(ng));
+            let expanded = expand_nested(&inner, cx, depth + 1, out.remaining())?;
+            out.template_group(g, expanded)?;
             i += 1;
             continue;
         }
-        out.push(cur.clone());
+        if let Some(repaired) = fix_literal_at(tokens, i) {
+            for token in repaired {
+                out.source(token);
+            }
+        } else {
+            out.source(cur.clone());
+        }
         i += 1;
     }
     Ok(out)

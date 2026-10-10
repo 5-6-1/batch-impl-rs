@@ -1,0 +1,7 @@
+error: batch-impl: an inherited lifetime binder conflicts with an impl lifetime and occurs in opaque macro input — choose a different lifetime name in the impl spec
+  --> tests/ui/inherited_hrtb_macro_capture.rs:11:1
+   |
+11 | #[batch_impl(<'a, U> Inherited<'a, U> (&'a (), U))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

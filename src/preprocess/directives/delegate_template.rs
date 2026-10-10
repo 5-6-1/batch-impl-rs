@@ -5,7 +5,9 @@
 //! opaque. The old target-expression form is selected when no site was found.
 
 use proc_macro2::{Group, Ident, Literal, Span, TokenStream, TokenTree};
-use quote::{ToTokens, quote};
+use quote::quote;
+
+use super::delegate_args::ForwardNames;
 
 use crate::util::{
     MAX_NEST_DEPTH, Op, bracket_is_passthrough, compile_error_str, depth_err, is_punct_at,
@@ -25,33 +27,14 @@ pub(super) struct Template {
 
 impl Template {
     pub(super) fn parse(
-        body: TokenStream, naming_scope: &[TokenTree], trait_def: &syn::ItemTrait,
+        body: TokenStream, names: &mut ForwardNames,
     ) -> Result<Option<Self>, TokenStream> {
         let mut found = false;
         let parts = scan(&body.into_iter().collect::<Vec<_>>(), 0, &mut found)?;
         if !found {
             return Ok(None);
         }
-        // Include the entire attribute, not just this directive: shape slots
-        // are rewritten lexically later and must not rename our private macro.
-        let mut pending = naming_scope.to_vec();
-        pending.extend(trait_def.to_token_stream());
-        let mut names = std::collections::HashSet::new();
-        while let Some(token) = pending.pop() {
-            match token {
-                TokenTree::Ident(id) => {
-                    let name = id.to_string();
-                    names.insert(name.strip_prefix("r#").unwrap_or(&name).to_owned());
-                }
-                TokenTree::Group(group) => pending.extend(group.stream()),
-                _ => {}
-            }
-        }
-        let mut name = String::from("__batch_impl_delegate_args");
-        while names.contains(&name) {
-            name.push('_');
-        }
-        Ok(Some(Self { parts, args_macro: Ident::new(&name, Span::mixed_site()) }))
+        Ok(Some(Self { parts, args_macro: names.fresh("__batch_impl_delegate_args") }))
     }
 
     pub(super) fn render(

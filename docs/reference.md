@@ -441,6 +441,8 @@ records the evaluation stages and counterexamples.
 
 A value is stored as **verbatim tokens** and expanded where it is referenced. Rejected **at the definition**, before any impl is generated: cycles (`@a=@a`), forward references (`@a=@b` written before `@b`), and a bare range endpoint (`@a=@u8` without `..`). Nesting inside a value shares the depth cap of §11.
 
+Redefinitions retain lazy lookup: in `@a=u8; @b=@a; @a=u16;`, `@b` ultimately expands to `u16`. A redefinition that creates a cycle (changing the last definition to `@a=@b;`) is rejected there, even if unused. Markers inside opaque macro inputs do not create expansion dependencies.
+
 ### 5.6 Boundaries and crossings
 
 | Written | What happens |
@@ -454,6 +456,7 @@ A value is stored as **verbatim tokens** and expanded where it is referenced. Re
 | `@all*` families as directive arguments | the directive domain's own input — measured `u8 #fill(@all_methods){7}` fills every method of the trait |
 | `@Cow` as a blanket wrapper | `Cow<'_>` plus the wrapper's constraint predicates — measured `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized, …` (`tests/features/dsl_macro_meta.rs` locks the full form) |
 | `@trait` in `batch_trait!` | replaced per segment with that segment's trait path, which is what lets one segment pack another's constants |
+| `stringify!(@trait)` and other macro inputs | passed through as opaque tokens, including during segment substitution, body sync and repeat processing |
 
 ## 6. `#` Directives
 
@@ -589,6 +592,10 @@ The trait's own parameters are paired with the spec's trait arguments **by posit
 - a predicate mentioning a trait parameter follows that position, so **renaming a parameter is fine**: `trait Store<T, K> where T: Clone` with `<X, Y> Store<X, Y> usize` renders `impl<X: Clone, Y> Store<X, Y> for usize` (locked by `features::dsl_where::subst_renamed_generics`; `features::dsl_where_rename` covers a renamed lifetime, a `const` parameter and a multi-parameter trait);
 - a **single-type-parameter predicate** (`T: Clone`) merges into that parameter's **inline bound**; every other predicate passes through verbatim with the substitution applied (`HashMap<T, K>: Send` → `HashMap<X, Y>: Send`);
 - the trait's **inline** parameter bounds (`trait B<T: IntoIter>`) are inherited the same way, through the same position mapping.
+
+`for<'a> T: B<'a>` retains its complete binder instead of merging into an ordinary parameter bound. When inheritance needs a rename, locally bound lifetimes and free trait lifetimes are handled separately to avoid accidental capture.
+
+If a conflicting bound lifetime also appears inside opaque macro input, the macro reports the conflict instead of guessing how to rewrite that input. Choose a different lifetime name in the impl spec.
 
 ### 7.3 The three fill sources
 
@@ -906,6 +913,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 
 | Fixture | Trigger | Locked message | Source |
 | --- | --- | --- | --- |
+| `const_redefinition_cycle` | `@a=u8; @b=@a; @a=@b;` | batch-impl: constant `@a` creates a circular reference after redefinition | DSL |
 | `const_unknown` | `@unknown` | batch-impl: unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` `@num` `@scalar` and ranges `@u8..u128` `@..u128` `@u16..` | DSL |
 | `const_cycle` | `@a=@a` | batch-impl: constant `@a` references unknown `@a` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
 | `const_forward` | `@a=@b` before `@b` | batch-impl: constant `@a` references unknown `@b` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
@@ -935,6 +943,8 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 
 | Fixture | Trigger | Locked message | Source |
 | --- | --- | --- | --- |
+| `associated_fresh_out_of_range` | `Assoc<Item=@1> ().1` | batch-impl: `@1` is out of range — this impl has 1 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `inherited_hrtb_macro_capture` | a conflicting inherited binder also used in macro input | batch-impl: an inherited lifetime binder conflicts with an impl lifetime and occurs in opaque macro input — choose a different lifetime name in the impl spec | DSL |
 | `concrete_binding` | `Assoc<Item = u32>` (plain type args) | batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a bound (`T: Iterator<Item = u8>`) — a concrete type's args are a plain type list | DSL |
 | `concrete_bound` | `Wrap<u8: Clone>` | batch-impl: bound args (`T: Clone`) are only valid on a trait path, in a generic declaration (`<T: Clone> Foo`) or in a bound — a concrete type's args are a plain type list | DSL |
 | `declaration_binding` | `<Item = u8> Target` | batch-impl: an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`, not `<Item = u8> Target` (a `<>` block declares parameters) | DSL |
@@ -984,6 +994,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 
 | Fixture | Trigger | Locked message | Source |
 | --- | --- | --- | --- |
+| `repeat_output_limit` | three nested rounds of 32 containing `{n+=1;}` | batch-impl: repeat-block expansion produces more than 65536 tokens (limit 65536); reduce the nesting depth or segment sizes | DSL |
 | `impl_template_dsl_ops` | DSL operators inside `impl{...}` | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
 | `impl_template_range_constant` | a range constant inside a template | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
 | `impl_shape_mismatch` | a template that does not match the target | batch-impl: `impl{...}` template cannot destructure the target type (generic argument shape differs at segment `Rc`) | DSL |
@@ -1110,7 +1121,7 @@ A body's `X<>` is synced only through a **switch template** (`impl{@trait<>}` / 
 | Expansion mass | **1024 AST nodes**, shared by lists, chains, packs and Cartesian products (`src/apply/mod.rs`, `src/apply/pack_limits.rs`) | "`list chain expansion` reaches an expansion mass of 1406 nodes (limit 1024)". The label names the shape that tripped it (`list chain expansion`, `range chain expansion` — both measured). This is **not** the impl count: a spec that expands to 300 impls can trip it, and so can one of exactly 1024 impls — the two quantities are measured separately. A range over a three-node type therefore tops out well below 1024: `Cg.1..342` expands (341 leaves × 3 nodes = 1023), while `Cg.1..343` reports "…an expansion mass of 1026 nodes (limit 1024)" — both halves measured in one compile |
 | Materialization work | **131072 steps** (`MAX_EXPAND × MAX_NEST_DEPTH`, `src/ast/materialize.rs`) | "this type needs too much materialization work — it has too many slots or an oversized list; split the spec or write the type out". The work is counted in **slots**, not in fresh parameters: `(u8,).3` mints none at all (`impl Pv for (u8, u8, u8,) {}`), and the budget trips at `(u8,).509`; a flat 500-slot tuple does **not**, measured |
 | Nesting depth | **128** internally, which makes **127 the deepest nesting you can write**; chains and attachments count one more level, a `.`-chain of generic links reaches only 64 links rather than 127 (the materializer charges about two levels per link, so 65 links report "nesting depth exceeds 128 levels during materialization"; measured), and a `[`-nesting spends two per bracket, so a bracket nest is rejected from 64 or 65 brackets on, depending on what sits inside — 65 around a plain atom, 64 around a list, both measured; the guard charges two levels per bracket (`src/util/mod.rs`) | groups, constant values and delegate bodies report "nesting depth exceeds 128 levels" (`deep_nesting`, `nested_bracket_too_deep`, `const_value_deep_nesting`, `delegate_call_depth`); chains and attachments report "…exceeds 129 levels (limit 128)" (`chain_too_deep`, `segments_too_deep`, `attach_too_deep`, `impl_attach_too_deep`) |
-| Repeat-block output | **65536 tokens** (`src/codegen/repeat.rs`) | the budget guard reports the block that ran away |
+| Repeat-block output | **65536 tokens** (`src/codegen/repeat.rs`) | count each Group and its contents; check before appending, counting nested output by its final occurrences |
 | `#blanket` deref depth | **128** | "#blanket `:999999` is too large (deref depth must be ≤ 128)" (`blanket_bad_huge_depth`) |
 
 **Guarantees that hold under every ceiling**: an error **replaces** the impl — there is never a half-built impl next to a diagnostic; the macro never panics (a panic inside a proc macro is a compiler ICE), so invariant checks report a targeted error instead; and a spec that expands to nothing is **reported**, not dropped. The deliberate exception is the empty spelling itself — `#[batch_impl()]`, `#[batch_impl(;)]` and `batch_trait!(T: ;)` re-emit the item unchanged with no impls, which is the documented identity rather than a silent failure. The ceilings exist for accidental blowups, not because the normal case is slow — the measured expansion cost is in `README.md`.

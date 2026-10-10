@@ -236,8 +236,8 @@ pub(crate) fn is_joint_punct_at(tokens: &[TokenTree], index: usize, ch: char) ->
         if p.as_char() == ch && p.spacing() == Spacing::Joint)
 }
 
-/// Whether a Bracket group (`[...]`) "passes through": when the previous token is `!`
-/// (an `ident![...]` macro call body) or `#` (a `#[...]` attribute), the group may contain
+/// Whether a group "passes through": when the previous token is `!`
+/// (a macro input with any delimiter) or `#` (a `#[...]` attribute), the group may contain
 /// arbitrary Rust (comparison `<`, `#name` directives, etc.); the recursive entry
 /// points (`angle_collect` / `expand_consts` / `expand_tokens` / `where_process`) decide
 /// uniformly, to avoid guard drift (0.5.7 mis-expanded `#name` due to a missing `#[...]` guard).

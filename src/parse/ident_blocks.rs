@@ -539,8 +539,8 @@ pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead) -> Ty {
         }
         // A `::`-tail is plain Rust path text: it is stored verbatim and never
         // re-parsed, so a DSL-only token there would leak into the output
-        // (`Assoc<@0>` → rustc's "expected type, found `@`"). `@` / `#` cannot
-        // appear in a Rust path at all, so reporting them is exact.
+        // (`Assoc<@0>` → rustc's "expected type, found `@`"). Inspect type
+        // positions only: const expressions and macro inputs have their own grammar.
         if let Some(span) = dsl_token_in(&seg_ts) {
             return crate::apply::err_ty_at(
                 "batch-impl: a `::`-tail segment is a plain Rust path — DSL tokens (`@…` / `#…` \
@@ -558,13 +558,12 @@ pub(crate) fn qualified_tail(cursor: &mut Cursor, head: QualifiedHead) -> Ty {
     }
 }
 
-/// The span of the first DSL-only token (`@` / `#` / a `*` pack prefix, at any
-/// depth) in a `::`-tail segment, if any — see [`qualified_tail`]. A `*` that
+/// The span of the first DSL-only token (`@` / `#` / a `*` pack prefix) in a
+/// type position of a `::`-tail segment — see [`qualified_tail`]. A `*` that
 /// names its pointee (`*const T` / `*mut T`) is ordinary Rust and is not flagged.
 fn dsl_token_in(tokens: &TokenStream) -> Option<proc_macro2::Span> {
-    let trees: Vec<TokenTree> = tokens.clone().into_iter().collect();
-    for (i, tree) in trees.iter().enumerate() {
-        match tree {
+    crate::util::find_type_token(tokens, |trees, i| {
+        match trees.get(i)? {
             TokenTree::Punct(p) if p.as_char() == '@' || p.as_char() == '#' => {
                 return Some(p.span());
             }
@@ -577,15 +576,10 @@ fn dsl_token_in(tokens: &TokenStream) -> Option<proc_macro2::Span> {
                     return Some(p.span());
                 }
             }
-            TokenTree::Group(g) => {
-                if let Some(span) = dsl_token_in(&g.stream()) {
-                    return Some(span);
-                }
-            }
             _ => {}
         }
-    }
-    None
+        None
+    })
 }
 
 /// Splits the contents of a leading `<...>` angle group into a **qualified-self**

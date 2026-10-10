@@ -60,7 +60,7 @@ pub(crate) fn generate_parts(
     // silently change what the predicate means (F3 of the second review round).
     // Running it here also keeps the later stages (`sync_impl_parts`, where
     // resolution) reading exactly the predicates they read before.
-    inherit_trait_bounds(&mut parts, trait_bounds, &trait_args);
+    inherit_trait_bounds(&mut parts, trait_bounds, &trait_args)?;
 
     // The collision set display names must skip: every ident the impl
     // already writes (user params, **their inline bounds**, target type, trait
@@ -152,6 +152,12 @@ pub(crate) fn generate_parts(
     // every user-written ident by construction; an overlap with an existing
     // declaration is skipped, not duplicated.
     range_refs::expand_range_decls(&mut parts.impl_generics, &fresh_ctx)?;
+
+    // Associated bindings become impl items, so they need the same final
+    // fresh names as target types and trait arguments before rendering.
+    for (_, value) in &mut parts.associated_types {
+        *value = range_refs::expand_range_refs(value.clone(), &fresh_ctx)?;
+    }
 
     // The target type's references resolve now: its tokens must be valid
     // Rust before the shape kernel syn-parses them, and the resolvers emit
@@ -330,7 +336,12 @@ fn caret_span(tokens: TokenStream) -> Option<proc_macro2::Span> {
 /// type — handing it over produced a half-built impl whose only complaint was rustc's
 /// E0107, aimed at the type rather than at the attribute.
 fn empty_angle_group(tokens: &proc_macro2::TokenStream) -> Option<proc_macro2::TokenStream> {
-    if tokens.to_string().replace(' ', "").contains("<>") {
+    if crate::util::find_type_token(tokens, |trees, i| {
+        (crate::util::is_punct_at(trees, i, '<') && crate::util::is_punct_at(trees, i + 1, '>'))
+            .then(|| crate::util::span_at(trees, i))
+    })
+    .is_some()
+    {
         return Some(crate::util::compile_error_str(
             "batch-impl: this target has an empty argument list (`Vec<>`) — a fresh \
              range expands to nothing when the impl has no fresh generics for it; \

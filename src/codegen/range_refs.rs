@@ -223,7 +223,7 @@ fn expand_at(
             continue;
         }
         match cur {
-            TokenTree::Group(g) => {
+            TokenTree::Group(g) if !crate::util::bracket_is_passthrough(tokens, i) => {
                 if depth + 1 > crate::util::MAX_NEST_DEPTH {
                     return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
                 }

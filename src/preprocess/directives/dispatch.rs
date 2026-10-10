@@ -27,7 +27,6 @@
 use proc_macro2::{Group, Ident, TokenStream, TokenTree};
 use quote::quote;
 use syn::ItemTrait;
-use syn::parse::Parser;
 
 use super::*;
 use crate::util::compile_err;
@@ -224,10 +223,11 @@ fn expand_delegate(
         }
     }
     let method_names = parse_names_from_tokens(&method_tokens, trait_def)?;
+    let mut names = super::delegate_args::ForwardNames::new(naming_scope, trait_def);
     let template = if method_names.is_empty() {
         None
     } else {
-        super::delegate_template::Template::parse(target_stream.clone(), naming_scope, trait_def)?
+        super::delegate_template::Template::parse(target_stream.clone(), &mut names)?
     };
     let mut methods = TokenStream::new();
     for name in &method_names {
@@ -277,30 +277,9 @@ fn expand_delegate(
         // pattern-only tokens (checked recursively, so `(ref x, y)` is
         // caught too). Everything else keeps its pattern — its token stream
         // works as an expression in the call (`(a, b)` binds `a`/`b`, and
-        // `(a, b)` rebuilds the tuple). Parsed via syn (`arg{i}` is always a
-        // valid identifier pattern).
-        let mut arg_idx = 0usize;
-        for input in &mut sig.inputs {
-            if let syn::FnArg::Typed(pat_type) = input
-                && !pat_is_forwardable(&pat_type.pat)
-            {
-                // `arg{i}` is always a valid identifier pattern; the
-                // fallback turns a hypothetical failure into a compile
-                // error instead of a panic (no-panic promise).
-                let arg_name = format!("arg{}", arg_idx);
-                pat_type.pat = syn::Pat::parse_single
-                    .parse_str(&arg_name)
-                    .map_err(|_| {
-                        compile_err!(
-                            "batch-impl: internal error: generated argument name \
-                             `{}` is not a valid identifier pattern",
-                            arg_name
-                        )
-                    })?
-                    .into();
-                arg_idx += 1;
-            }
-        }
+        // `(a, b)` rebuilds the tuple). Reserve the complete input before
+        // naming: a later parameter or body token can already use `arg0`.
+        super::delegate_args::name_unforwardable_params(&mut sig, &mut names.clone());
         let call_args = collect_call_args(&sig).map_err(|pat| {
             compile_err!(
                 "batch-impl: #delegate method `{}::{}` param `{}` cannot be \

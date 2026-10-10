@@ -889,7 +889,7 @@ const UNREACHABLE_DIAGNOSTICS: [(&str, &str); 6] = [
 /// fixture. A cold review found this class by hand (`-` in leading position,
 /// `#blanket :0`, two top-level blocks, …) — those now have fixtures and are
 /// gone from here; what remains is the rest of the same class.
-const UNLOCKED_DIAGNOSTICS: [(&str, &str); 61] = [
+const UNLOCKED_DIAGNOSTICS: [(&str, &str); 60] = [
     (
         "batch-impl preview:",
         "preview channel: the payload is a rendering, not a diagnostic - no UI fixture can lock it",
@@ -937,7 +937,6 @@ const UNLOCKED_DIAGNOSTICS: [(&str, &str); 61] = [
     ("cannot be an apply operand", "apply-operand gate: a qualified type cannot be applied"),
     ("range must end with a number", "`@N` reference gate: a malformed `@N..M` range"),
     ("block without an attached type", "attachment gate: a bare `{...}` block with no type"),
-    ("repeat-block expansion produces", "repeat-block gate: the output token budget"),
     (
         "is out of range — this impl has",
         "`@N` reference gate: a `@{N}` body reference out of range",
@@ -1159,7 +1158,7 @@ fn every_source_diagnostic_is_locked_or_listed() {
     // marker from `batch-impl: ` to `batch-impl`, which uncovered four such literals), and never for
     // a message added today.
     assert!(
-        UNLOCKED_DIAGNOSTICS.len() <= 61,
+        UNLOCKED_DIAGNOSTICS.len() <= 60,
         "UNLOCKED_DIAGNOSTICS grew to {} entries — lock the new message with a UI fixture instead",
         UNLOCKED_DIAGNOSTICS.len()
     );
@@ -1613,7 +1612,7 @@ fn collect_stderr(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 }
 
 /// How many `batch-impl` literals the two debt lists exempt today. See the assertion that reads it.
-const EXEMPTED_DIAGNOSTICS: usize = 98;
+const EXEMPTED_DIAGNOSTICS: usize = 96;
 
 /// Files with the given extension under a directory, recursively.
 fn count_files_below(dir: &Path, ext: &str) -> usize {

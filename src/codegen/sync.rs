@@ -154,7 +154,9 @@ fn sync_at(
             i += adv;
             continue;
         }
-        if let TokenTree::Group(g) = cur {
+        if let TokenTree::Group(g) = cur
+            && !crate::util::bracket_is_passthrough(tokens, i)
+        {
             if depth + 1 > crate::util::MAX_NEST_DEPTH {
                 return Err(crate::util::depth_err(std::slice::from_ref(cur), ""));
             }

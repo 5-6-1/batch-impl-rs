@@ -92,6 +92,7 @@ fn ui() {
     t.compile_fail("tests/ui/const_range_bad.rs");
     t.compile_fail("tests/ui/const_range_empty.rs");
     t.compile_fail("tests/ui/const_cycle.rs");
+    t.compile_fail("tests/ui/const_redefinition_cycle.rs");
     t.compile_fail("tests/ui/const_forward.rs");
     // a bare range endpoint (`@u8` without `..`) is not a constant — rejected
     // at the definition by `check_value_refs`
@@ -350,6 +351,9 @@ fn ui() {
     t.compile_fail("tests/ui/range_left_operand.rs");
     t.compile_fail("tests/ui/top_level_two_blocks.rs");
     t.compile_fail("tests/ui/repeat_needs_driver.rs");
+    t.compile_fail("tests/ui/repeat_output_limit.rs");
+    t.compile_fail("tests/ui/associated_fresh_out_of_range.rs");
+    t.compile_fail("tests/ui/inherited_hrtb_macro_capture.rs");
     t.compile_fail("tests/ui/at_trait_inherent_impl.rs");
 
     // one path, ensuring normal cases are not broken

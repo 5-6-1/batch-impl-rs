@@ -5,7 +5,8 @@
 //! (`@ident` → the segment's i-th bound element, spliced directly — the
 //! `$(...)*` semantics; `@N` → `N + i`).
 
-use proc_macro2::{Group, Literal, TokenStream, TokenTree};
+use super::repeat::output::Output;
+use proc_macro2::{Literal, TokenStream, TokenTree};
 
 use crate::codegen::VarSeg;
 /// Repairs the float-literal tokenization of `数字.@`: the tokenizer reads
@@ -13,31 +14,13 @@ use crate::codegen::VarSeg;
 /// would render `self.0.0` as two adjacent literals. Splitting the trailing
 /// `.` off keeps the natural `self.0.@0` spelling working (the cursor then
 /// expands into `self.0.0`, `self.0.1`, ...).
-pub(super) fn fix_literal_at(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
-    let mut out = vec![];
-    let mut i = 0;
-    while let Some(cur) = tokens.get(i) {
-        if let TokenTree::Literal(lit) = cur
-            && is_punct_at(&tokens, i + 1, '@')
-            && let Some((field, dot)) = crate::util::split_tuple_field_dot(lit)
-        {
-            out.push(TokenTree::Literal(field));
-            out.push(TokenTree::Punct(dot));
-            i += 1;
-            continue;
-        }
-        if let TokenTree::Group(g) = cur {
-            let inner = fix_literal_at(g.stream().into_iter().collect::<Vec<_>>());
-            let mut ng = Group::new(g.delimiter(), inner.into_iter().collect());
-            ng.set_span(g.span());
-            out.push(TokenTree::Group(ng));
-            i += 1;
-            continue;
-        }
-        out.push(cur.clone());
-        i += 1;
+pub(super) fn fix_literal_at(tokens: &[TokenTree], at: usize) -> Option<[TokenTree; 2]> {
+    let TokenTree::Literal(lit) = tokens.get(at)? else { return None };
+    if !is_punct_at(tokens, at + 1, '@') {
+        return None;
     }
-    out
+    let (field, dot) = crate::util::split_tuple_field_dot(lit)?;
+    Some([TokenTree::Literal(field), TokenTree::Punct(dot)])
 }
 
 use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at, tokens_to_string};
@@ -106,6 +89,10 @@ pub(crate) fn collect_drivers(
             continue;
         }
         if let TokenTree::Group(g) = cur {
+            if crate::util::bracket_is_passthrough(tokens, i) {
+                i += 1;
+                continue;
+            }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             let (p, l) = collect_drivers(&inner, segs)?;
             for p in p {
@@ -140,12 +127,12 @@ pub(crate) fn collect_drivers(
 /// per-round), and `@{@N}` → the `(N + i)`-th fresh's name (the per-round
 /// form — each round names its own fresh).
 pub(crate) fn substitute(
-    tokens: &[TokenTree], cx: &super::RepeatCtx, round: usize, depth: usize,
-) -> Result<Vec<TokenTree>, TokenStream> {
+    tokens: &[TokenTree], cx: &super::RepeatCtx, round: usize, depth: usize, limit: usize,
+) -> Result<Output, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
     }
-    let mut out = vec![];
+    let mut out = Output::new(limit);
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
         // A fresh-ref carrier (`@{g_i}`) inside a repeat block: `@{N}` is a
@@ -188,8 +175,8 @@ pub(crate) fn substitute(
                     // A range or grouped carrier: pass through for range
                     // re-opening.
                     Err(_) => {
-                        out.push(cur.clone());
-                        out.push(TokenTree::Group(g.clone()));
+                        out.push(cur.clone())?;
+                        out.push(TokenTree::Group(g.clone()))?;
                         i += 2;
                         continue;
                     }
@@ -206,7 +193,7 @@ pub(crate) fn substitute(
                     cur.span(),
                 ));
             };
-            out.extend(name.clone());
+            out.extend(name.clone())?;
             i += 2;
             continue;
         }
@@ -239,7 +226,7 @@ pub(crate) fn substitute(
                             id.span(),
                         ));
                     };
-                    out.extend(value.clone());
+                    out.extend(value.clone())?;
                     i += 2;
                     continue;
                 }
@@ -255,7 +242,7 @@ pub(crate) fn substitute(
                     // literal can parse to usize::MAX; a raw `n + round`
                     // would overflow in debug builds (no-panic promise).
                     let val = Literal::u64_unsuffixed((n.saturating_add(round)) as u64);
-                    out.push(TokenTree::Literal(val));
+                    out.push(TokenTree::Literal(val))?;
                     i += 2;
                     continue;
                 }
@@ -269,18 +256,25 @@ pub(crate) fn substitute(
             }
         }
         if let TokenTree::Group(g) = cur {
+            if crate::util::bracket_is_passthrough(tokens, i) {
+                out.push(cur.clone())?;
+                i += 1;
+                continue;
+            }
             if depth + 1 > MAX_NEST_DEPTH {
                 return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let substituted = substitute(&inner, cx, round, depth + 1)?;
-            let mut ng = Group::new(g.delimiter(), substituted.into_iter().collect());
-            ng.set_span(g.span());
-            out.push(TokenTree::Group(ng));
+            let substituted = substitute(&inner, cx, round, depth + 1, out.group_limit(g.span())?)?;
+            out.group(g, substituted)?;
             i += 1;
             continue;
         }
-        out.push(cur.clone());
+        if let Some(repaired) = fix_literal_at(tokens, i) {
+            out.extend(repaired)?;
+        } else {
+            out.push(cur.clone())?;
+        }
         i += 1;
     }
     Ok(out)

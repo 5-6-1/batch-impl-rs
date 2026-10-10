@@ -7,6 +7,10 @@
 
 ## Unreleased
 
+- Preserve syntax domains: macro inputs retain `@trait`, fresh markers and empty angle brackets; the literal `"<>"` is no longer mistaken for empty generics, and const multiplication in qualified path arguments is no longer mistaken for a Pack.
+- Preserve inherited `for<'a>` constraints and avoid lifetime capture during inheritance; resolve fresh references in associated type values. Delegation now chooses anonymous parameter names that avoid user-written names.
+- Count Group contents toward the 65536-token repeat limit and check while constructing output, counting nested tokens by their final occurrences. Reject cycles introduced by constant redefinitions at the definition site while retaining valid lazy redefinitions.
+
 - Align the independent Pack model with existing macro behavior for empty members: tuple and function slots may vanish, while surviving generic arguments are checked after collection. Restore omitted finite-audit cases and make unexpected model failures fail validation. Public macro syntax and behavior are unchanged.
 - Diagnose definite duplicate trait impls within one invocation, including renamed generic parameters and separate `batch_trait!` segments. Preview uses the same check. Diagnostics show the generated head and both sources; legitimate repeated pack members remain unchanged. Attributed impls, opaque syntax and general Rust coherence remain rustc's responsibility.
 - Fix user-written `compile_error!` tokens being mistaken for internal macro diagnostics: preserve their context inside `stringify!`, disabled `cfg` branches, user-defined macros and open-extension inputs. Real DSL errors still replace the invocation's generated output, and preview follows the same policy.

@@ -1,0 +1,24 @@
+error: batch-impl: constant `@a` creates a circular reference after redefinition
+ --> tests/ui/const_redefinition_cycle.rs:4:1
+  |
+4 | / batch_trait! {
+5 | |     @a = u8;
+6 | |     @b = @a;
+7 | |     @a = @b;
+8 | |     Indirect: u8;
+9 | | }
+  | |_^
+  |
+  = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: constant `@a` creates a circular reference after redefinition
+  --> tests/ui/const_redefinition_cycle.rs:12:1
+   |
+12 | / batch_trait! {
+13 | |     @a = u8;
+14 | |     @a = @a;
+15 | |     Direct: u8;
+16 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `batch_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

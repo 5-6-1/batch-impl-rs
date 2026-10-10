@@ -8,10 +8,12 @@ pub(crate) mod diagnostic;
 pub(crate) mod punct_ops;
 pub(crate) mod scan;
 pub(crate) mod subst;
+mod type_tokens;
 
 pub(crate) use diagnostic::*;
 pub(crate) use punct_ops::*;
 pub(crate) use scan::*;
+pub(crate) use type_tokens::find_type_token;
 
 use proc_macro2::{Span, TokenStream, TokenTree};
 

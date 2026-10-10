@@ -43,7 +43,7 @@ proc-macro = true
 # lines; preview examples use `compile_fail` because their output is a diagnostic.
 
 [dependencies]
-syn = { version = "3", features = ["full", "visit"] }
+syn = { version = "3", features = ["full", "visit", "visit-mut"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
 

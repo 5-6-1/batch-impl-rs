@@ -119,6 +119,28 @@ fn trait_const_value_with_angles() {
     _check_nest::<Vec<Vec<u8>>>();
 }
 
+trait LazyRedefinition {}
+trait ReplacedDependencies {}
+batch_trait! {
+    @a = u8;
+    @b = @a;
+    @a = u16;
+    LazyRedefinition: @b;
+}
+batch_trait! {
+    @a = u8;
+    @b = @a;
+    @b = u16;
+    @a = @b;
+    ReplacedDependencies: @a;
+}
+
+#[test]
+fn redefinitions_preserve_lazy_lookup_and_replace_old_edges() {
+    fn check<T: LazyRedefinition + ReplacedDependencies>() {}
+    check::<u16>();
+}
+
 // ------------------------------------------------------------
 // Open-ended range families: `@..=u32` (family minimum) and
 // `@i16..` (family maximum) — either endpoint omittable. The spec

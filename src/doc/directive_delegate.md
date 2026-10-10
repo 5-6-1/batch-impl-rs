@@ -102,13 +102,20 @@ The `self` receiver is never forwarded (a method's `self` is the impl's
   `(target).m(x)`;
 - **non-identifier patterns** (`_`, `ref x`, guards, `x @ pat`, tuple /
   struct / slice patterns that cannot be used as an expression) are renamed
-  to `arg0`, `arg1`, ... **in both the copied signature and the call** —
+  to fresh bindings **in both the copied signature and the call** —
   so `fn m(&self, _: (u32, u32))` becomes
   `fn m(&self, arg0: (u32, u32)) { (target).m(arg0) }`;
 - **forwardable compound patterns** keep their shape — `(a, b)` binds `a`/`b`
   and rebuilds the tuple in the call, `[x, y]` rebuilds the array, `&x`
   rebuilds the reference, `Foo { x }` rebuilds the struct (checked
   recursively: `(ref x, y)` is caught, not just a bare `ref x`).
+
+The generated names start from `arg0`, `arg1`, ... and avoid identifiers
+throughout the attribute and trait, including later parameters, nested pattern
+bindings and body tokens. `r#arg0` reserves the same name as `arg0`.
+The names shown below illustrate a collision-free case; their exact spelling
+is an implementation detail. Name a parameter explicitly to use it in your own
+delegate body. The `receiver.#call` helper uses the same reserved-name set.
 
 ```rust
 # use batch_impl::batch_impl;

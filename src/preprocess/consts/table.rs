@@ -203,6 +203,7 @@ pub(crate) fn collect_user_consts(
 ) -> Result<(Vec<TokenTree>, UserConsts), TokenStream> {
     let mut i = 0;
     let mut table = UserConsts::new();
+    let mut dependencies = std::collections::HashMap::new();
     while let Some(TokenTree::Punct(at)) = tokens.get(i) {
         if at.as_char() != '@' {
             break;
@@ -278,7 +279,9 @@ pub(crate) fn collect_user_consts(
         let value = value.to_vec();
         // Value is arbitrary tokens (lazy expansion); reference visibility is
         // validated in `check_value_refs`
-        crate::preprocess::check_value_refs(&value, &table, &name_str)?;
+        let refs = crate::preprocess::check_value_refs(&value, &table, &name_str)?;
+        super::check_definition_cycle(&name_str, &refs, &dependencies, name.span())?;
+        dependencies.insert(name_str.clone(), refs);
         table.insert(name_str, value);
         i = end + 1;
     }

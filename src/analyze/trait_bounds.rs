@@ -5,8 +5,8 @@
 //! written bounds** (`trait Foo<T: Clone>` + `<T> Foo<T>` → `impl<T: Clone>`).
 //!
 //! Trait-level where clause handling:
-//! - **Single-param predicates** (`trait Foo<T> where T: Clone`, left side is a bare param
-//!   name) → merged into the bound at that position (inline + where joined); `A<>` copying
+//! - **Single-param predicates without a binder** (`trait Foo<T> where T: Clone`, left side
+//!   is a bare param name) → merged into the bound at that position (inline + where joined); `A<>` copying
 //!   carries them along;
 //! - **Remaining predicates** (`T::Item: Clone`, `Vec<T>: ...`, lifetime predicates, etc.) →
 //!   stored verbatim in [`TraitBounds::extra_predicates`], appended by codegen to the impl's
@@ -26,7 +26,7 @@ use crate::ast::ParamKind;
 pub(crate) struct TraitParam {
     pub(crate) name: String,
     pub(crate) kind: ParamKind,
-    pub(crate) bound: Option<TokenStream>,
+    pub(crate) bound: Option<syn::punctuated::Punctuated<syn::TypeParamBound, syn::Token![+]>>,
 }
 
 /// List of the trait's generic params (positionally matching the trait args in a spec),
@@ -50,7 +50,7 @@ pub(crate) struct TraitBounds {
     pub(crate) params: Vec<TraitParam>,
     /// Where predicates not merged into bounds (compound / lifetime predicates), appended
     /// verbatim to the impl's where clause.
-    pub(crate) extra_predicates: Vec<TokenStream>,
+    pub(crate) extra_predicates: Vec<syn::WherePredicate>,
 }
 
 /// Collect generic param names (Lifetime → `'a`, Type/Const → ident).
@@ -86,14 +86,7 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
         let kind = ParamKind::of_generic_param(p);
         match p {
             syn::GenericParam::Type(tp) => {
-                let bound = if tp.bounds.is_empty() {
-                    None
-                } else {
-                    // Note: (quote interpolation does not support field access, take a
-                    // reference first)
-                    let b = &tp.bounds;
-                    Some(quote!(#b))
-                };
+                let bound = if tp.bounds.is_empty() { None } else { Some(tp.bounds.clone()) };
                 params.push(TraitParam { name: tp.ident.to_string(), kind, bound });
             }
             syn::GenericParam::Lifetime(ld) => params.push(TraitParam {
@@ -109,26 +102,22 @@ pub(crate) fn extract_trait_bounds(trait_item: &ItemTrait) -> TraitBounds {
     let mut extra_predicates = vec![];
     if let Some(wc) = &trait_item.generics.where_clause {
         for pred in &wc.predicates {
-            // Single-param predicate (`X: Bound`) merges into the bound at the matching
-            // position.
+            // Only binder-free single-param predicates can become inline bounds.
+            // `for<'a> T: B<'a> + C<'a>` binds the entire predicate; preserve it
+            // intact instead of dropping its binder or moving it onto one bound.
             if let syn::WherePredicate::Type(pt) = pred
+                && pt.lifetimes.is_none()
                 && let Some(name) = single_ident_param(&pt.bounded_ty)
                 && let Some(pos) = params.iter().position(|p| p.name == name)
             {
-                // Note: quote interpolation only supports `#ident`, not field access
-                let b = &pt.bounds;
-                let extra = quote!(#b);
                 let Some(param) = params.get_mut(pos) else {
                     continue;
                 };
-                param.bound = Some(match &param.bound {
-                    Some(inline) => quote!(#inline + #extra),
-                    None => extra,
-                });
+                param.bound.get_or_insert_with(Default::default).extend(pt.bounds.clone());
                 continue;
             }
             // Remaining predicates: passed through verbatim.
-            extra_predicates.push(quote!(#pred));
+            extra_predicates.push(pred.clone());
         }
     }
     TraitBounds { params, extra_predicates }

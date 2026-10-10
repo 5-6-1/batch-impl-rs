@@ -410,6 +410,8 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 
 值是**逐字 token**，在引用处展开。**定义处**就被拒（在任何 impl 生成之前）：循环（`@a=@a`）、前向引用（`@b` 之前就写 `@a=@b`）、裸范围端点（`@a=@u8` 无 `..`）。值内的嵌套共用 §11 的深度上限。
 
+重定义保留惰性查找：`@a=u8; @b=@a; @a=u16;` 中 `@b` 最终是 `u16`。若重定义使依赖成环（如把最后一条改为 `@a=@b;`），即使未使用，也在该定义处报错。不透明宏输入中的标记不产生展开依赖。
+
 ### 5.6 边界与交叉
 
 | 写的 | 会发生什么 |
@@ -423,6 +425,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | `@all*` 家族作指令参数 | 指令域自己的输入——实测 `u8 #fill(@all_methods){7}` 填满该 trait 的每个方法 |
 | `@Cow` 作 blanket 包装 | `Cow<'_>` + 该包装的约束谓词——实测 `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized, …`（完整形式由 `tests/features/dsl_macro_meta.rs` 锁定） |
 | `batch_trait!` 里的 `@trait` | 逐段替换成该段自己的 trait 路径，因此一段可以复用另一段的常量 |
+| `stringify!(@trait)` 等宏输入 | 保持为不透明 token，包括逐段替换、body 同步和重复块处理阶段 |
 
 ## 6. `#` 指令
 
@@ -550,6 +553,10 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 - 谓词里的 trait 参数按**位置**跟随，因此**参数改名没问题**：`trait Store<T, K> where T: Clone` 配 `<X, Y> Store<X, Y> usize` 生成 `impl<X: Clone, Y> Store<X, Y> for usize`（由 `features::dsl_where::subst_renamed_generics` 锁定；`features::dsl_where_rename` 覆盖改名的生命周期、`const` 参数与多参数 trait）；
 - **单类型参数谓词**（`T: Clone`）并进该参数的**内联 bound**；其余谓词带替换逐字通过（`HashMap<T, K>: Send` → `HashMap<X, Y>: Send`）；
 - trait 的**内联**参数 bound（`trait B<T: IntoIter>`）以同样方式、经同一套位置映射继承。
+
+`for<'a> T: B<'a>` 保留完整 binder，不并入普通参数 bound。继承需要改名时，局部绑定的生命周期与自由的 trait 生命周期分别处理，避免名字相同导致捕获。
+
+如果冲突的绑定生命周期也出现在不透明宏输入中，宏会报告冲突，不猜测宏输入的改写方式。将 impl spec 的生命周期换一个不冲突的名字即可。
 
 ### 7.3 三类填充源
 
@@ -853,6 +860,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
+| `const_redefinition_cycle` | `@a=u8; @b=@a; @a=@b;` | batch-impl: constant `@a` creates a circular reference after redefinition | DSL |
 | `const_unknown` | `@unknown` | batch-impl: unknown @ constant `@unknown`; built-ins: `@u*` `@i*` `@f*` `@num` `@scalar` and ranges `@u8..u128` `@..u128` `@u16..` | DSL |
 | `const_cycle` | `@a=@a` | batch-impl: constant `@a` references unknown `@a` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
 | `const_forward` | `@b` 之前引用 `@b` | batch-impl: constant `@a` references unknown `@b` (undefined or defined later; inside a constant definition, only built-in constants or previously defined constants can be referenced) | DSL |
@@ -882,6 +890,8 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
+| `associated_fresh_out_of_range` | `Assoc<Item=@1> ().1` | batch-impl: `@1` is out of range — this impl has 1 fresh generics (numbered from 0 in document order; user-written params are addressed by name) | DSL |
+| `inherited_hrtb_macro_capture` | 继承的冲突 binder 也在宏输入中出现 | batch-impl: an inherited lifetime binder conflicts with an impl lifetime and occurs in opaque macro input — choose a different lifetime name in the impl spec | DSL |
 | `concrete_binding` | `Assoc<Item = u32>`（纯类型实参） | batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a bound (`T: Iterator<Item = u8>`) — a concrete type's args are a plain type list | DSL |
 | `concrete_bound` | `Wrap<u8: Clone>` | batch-impl: bound args (`T: Clone`) are only valid on a trait path, in a generic declaration (`<T: Clone> Foo`) or in a bound — a concrete type's args are a plain type list | DSL |
 | `declaration_binding` | `<Item = u8> Target` | batch-impl: an associated-type binding belongs on the trait application — write `Trait<Item = u8> Target`, not `<Item = u8> Target` (a `<>` block declares parameters) | DSL |
@@ -931,6 +941,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 
 | fixture | 触发 | 锁定的措辞 | 来源 |
 | --- | --- | --- | --- |
+| `repeat_output_limit` | 三层 32 轮重复包含 `{n+=1;}` | batch-impl: repeat-block expansion produces more than 65536 tokens (limit 65536); reduce the nesting depth or segment sizes | DSL |
 | `impl_template_dsl_ops` | `impl{...}` 里写 DSL 算子 | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
 | `impl_template_range_constant` | 模板里写范围常量 | batch-impl: the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside) | DSL |
 | `impl_shape_mismatch` | 模板与目标形状不匹配 | batch-impl: `impl{...}` template cannot destructure the target type (generic argument shape differs at segment `Rc`) | DSL |
@@ -1057,7 +1068,7 @@ body 的 `X<>` 只有在**开关模板**（`impl{@trait<>}` / `impl{Tr<>}`）下
 | 展开质量 | **1024 个 AST 节点**，列表、链、包与笛卡尔积共用（`src/apply/mod.rs`、`src/apply/pack_limits.rs`） | "`list chain expansion` reaches an expansion mass of 1406 nodes (limit 1024)"。标签会点出触发它的形状（`list chain expansion`、`range chain expansion`，两者均已实测）。它**不是** impl 数：展开成 300 个 impl 的规格可能撞上它，恰好 1024 个 impl 的规格也可能——两个量是分开计量的。因此，一个 3 节点类型上的区间，实际天花板远低于 1024：`Cg.1..342` 可以展开（341 个叶子 × 3 节点 = 1023），而 `Cg.1..343` 报 "…an expansion mass of 1026 nodes (limit 1024)" —— 两半都在一次编译里实测 |
 | 物化工作量 | **131072 步**（`MAX_EXPAND × MAX_NEST_DEPTH`，`src/ast/materialize.rs`） | "this type needs too much materialization work — it has too many slots or an oversized list; split the spec or write the type out"。真正的计量单位是**槽位**，而不是 fresh 参数：`(u8,).3` 一个也不造（`impl Pv for (u8, u8, u8,) {}`），预算在 `(u8,).509` 处撞上；**平铺**的 500 槽元组不会（实测） |
 | 嵌套深度 | 内部上限 **128**，因此**可写的最深嵌套是 127**；链与附件多算一层，`.N` 泛型链因此止于 **64** 个链接而不是 127（物化器每链计约两层，所以 65 个链接会报 "nesting depth exceeds 128 levels during materialization"；已实测），`[` 嵌套每个括号算两层，所以方括号嵌套从 64 或 65 个起被拒，取决于里面是什么 —— 包着普通原子时是 65、包着列表时是 64（两者均已实测）；守卫每个括号算两层（`src/util/mod.rs`） | 组、常量值与 delegate body 报 "nesting depth exceeds 128 levels"（`deep_nesting`、`nested_bracket_too_deep`、`const_value_deep_nesting`、`delegate_call_depth`）；链与附件报 "…exceeds 129 levels (limit 128)"（`chain_too_deep`、`segments_too_deep`、`attach_too_deep`、`impl_attach_too_deep`） |
-| 重复块输出 | **65536 token**（`src/codegen/repeat.rs`） | 预算守卫报出跑飞的那个块 |
+| 重复块输出 | **65536 token**（`src/codegen/repeat.rs`） | 每个 Group 自身及内部 token 均计数；追加前检查，嵌套输出按最终出现次数计算 |
 | `#blanket` deref 深度 | **128** | "#blanket `:999999` is too large (deref depth must be ≤ 128)"（`blanket_bad_huge_depth`） |
 
 **任何上限之下都成立的保证**：错误会**替换**掉 impl——绝不会在诊断旁边留一个半成品 impl；宏绝不 panic（proc macro 里 panic 就是编译器 ICE），因此不变量检查改为报定向诊断；展开成零个目标的规格会被**报出来**，而不是被丢掉。唯一的例外是**空写法本身**——`#[batch_impl()]`、`#[batch_impl(;)]` 与 `batch_trait!(T: ;)` 原样回显该项、不产出 impl，这是文档规定的恒等写法，不是静默失败。这些上限针对的是意外爆炸，而不是说正常情况很慢——实测展开开销在 `README.md`。

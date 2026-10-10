@@ -57,7 +57,7 @@ pub(crate) fn apply_bound_const_slots(parts: &mut ImplParts, slots: &super::Mapp
 /// segment (`A::B`'s `B` is an associated type), never a parameter.
 pub(crate) fn inherit_trait_bounds(
     parts: &mut ImplParts, trait_bounds: &TraitBounds, trait_args: &[TokenStream],
-) {
+) -> Result<(), TokenStream> {
     // The positional map: trait param name → the spec's rendered arg. Full
     // positional zip — lifetimes participate (`'a` → `'b` when the spec
     // renames them); Rust orders lifetimes first, so alignment holds.
@@ -67,7 +67,7 @@ pub(crate) fn inherit_trait_bounds(
         .zip(trait_args.iter())
         .map(|(tp, arg)| (tp.name.clone(), arg.clone()))
         .collect::<Vec<_>>();
-    let substitute = |ts| crate::util::subst::replace_map(ts, &map);
+    let declarations = parts.impl_generics.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
 
     // Inline bounds: each type param's bound lands on the impl generic its
     // positional arg names; a non-generic arg degrades to a where predicate.
@@ -84,7 +84,7 @@ pub(crate) fn inherit_trait_bounds(
             .impl_generics
             .iter_mut()
             .find(|(n, _)| arg_is_bare && ParamKind::bare_name(n).to_string() == arg_ident);
-        let substituted = substitute(b);
+        let substituted = super::inherit_scope::bounds(b, &map, &declarations)?;
         match slot {
             Some((_, slot_bound)) if slot_bound.is_none() => {
                 *slot_bound = Some(TyPrimitive(substituted).to_ty());
@@ -102,8 +102,9 @@ pub(crate) fn inherit_trait_bounds(
     // removes every trait param name, and any *other* undeclared ident is
     // rustc's E0412 to report.)
     for pred in &trait_bounds.extra_predicates {
-        parts.where_clauses.push(substitute(pred));
+        parts.where_clauses.push(super::inherit_scope::predicate(pred, &map, &declarations)?);
     }
+    Ok(())
 }
 
 /// Merges same-name impl generic declarations from chained `<>` blocks.

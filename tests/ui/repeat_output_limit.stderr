@@ -1,0 +1,12 @@
+error: batch-impl: repeat-block expansion produces more than 65536 tokens (limit 65536); reduce the nesting depth or segment sizes
+  --> tests/ui/repeat_output_limit.rs:4:1
+   |
+ 4 | / #[batch_impl((u8,).32 impl{(A@..,)} {
+ 5 | |     fn count() -> usize {
+ 6 | |         let mut n = 0;
+ 7 | |         @(@(@({ n += 1; })..)..)..
+...  |
+10 | | })]
+   | |___^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

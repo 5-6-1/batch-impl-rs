@@ -37,12 +37,15 @@
 mod extract;
 mod fresh_naming;
 mod generics;
+mod inherit_scope;
 mod match_ty;
 mod pipeline;
 mod range_refs;
 mod range_worker;
 mod render;
 mod repeat;
+#[cfg(test)]
+mod repeat_budget_tests;
 mod repeat_drivers;
 #[cfg(test)]
 mod repeat_tests;
