@@ -7,6 +7,7 @@
 
 ## Unreleased
 
+- Apply the same type-domain boundary to impl-entry directive rejection, shape-template variadic-segment marking and its residue check, and blanket wrapper target/predicate scans. Preserve `#` inside user macro inputs and `n @ ..=3` inside const blocks without weakening visible DSL checks.
 - Preserve ordinary brace groups as a whole: fix `let n @ _` / `n @ 2` in associated type values, const arguments and where-clause types being parsed as fresh references. Only explicit `where{...}` / `impl{...}` structures are entered by the corresponding scans; `@{...}` remains an atomic marker. Enabled body substitution and named shape-slot replacement retain their contracts.
 - Preserve syntax domains: type-position macro inputs remain unchanged, including `@0` during early parsing of associated bindings; DSL validation skips complete Rust attributes. The literal `"<>"` is no longer mistaken for empty generics, and const multiplication in qualified path arguments is no longer mistaken for a Pack.
 - Restore lexical body-template substitution: substitutions enabled by `impl{...}` enter every group, including macro inputs and attributes. Repeat blocks after unary `!` expand normally. Each switch still enables only its own features.

@@ -17,6 +17,8 @@
 
 mod blanket;
 mod blanket_helpers;
+#[cfg(test)]
+mod blanket_helpers_boundary_tests;
 mod blanket_wrappers;
 mod delegate_args;
 mod delegate_template;
@@ -39,8 +41,9 @@ use crate::util::compile_error_str;
 /// used by the ItemImpl entry, which has no directive system. `@` is handled
 /// earlier by `expand_consts` (built-in constants + `@trait`). Establishes
 /// the same "no bare `#` left" invariant as [`expand_tokens`] (which expands
-/// them) — hence both map `Paired → DirectivesResolved` in the typestate
-/// pipeline.
+/// them) in visible DSL positions — hence both map `Paired → DirectivesResolved`
+/// in the typestate pipeline. Ordinary braces and macro/attribute inputs are
+/// preserved; explicit DSL attachments keep their normal traversal boundary.
 pub(crate) fn reject_directives(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
@@ -60,7 +63,7 @@ pub(crate) fn reject_directives(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, 
                     ));
                 }
             }
-            TokenTree::Group(g) => {
+            TokenTree::Group(g) if !crate::util::TokenDomain::Type.skips_group(tokens, i) => {
                 let inner = reject_directives(&g.stream().into_iter().collect::<Vec<_>>())?;
                 let mut ng = Group::new(g.delimiter(), inner.into_iter().collect());
                 ng.set_span(g.span());
@@ -74,4 +77,41 @@ pub(crate) fn reject_directives(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, 
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejection_preserves_rust_blocks_macro_inputs_and_attributes() {
+        for source in [
+            "Arr<{ six!(#token) }>",
+            "ty!(#token)",
+            "ty![#token]",
+            "ty!{#token}",
+            "fn(#[opaque(#token)] u8)",
+            "where { Arr<{ #token }>: Bound<ty!(#token)> }",
+            "impl { Arr<{ #token }> }",
+            "@{ #token }",
+        ] {
+            let source: TokenStream = source.parse().unwrap();
+            let output = reject_directives(&source.clone().into_iter().collect::<Vec<_>>())
+                .unwrap()
+                .into_iter()
+                .collect::<TokenStream>();
+            assert_eq!(output.to_string(), source.to_string());
+        }
+    }
+
+    #[test]
+    fn rejection_still_reaches_directives_in_dsl_type_groups() {
+        for source in
+            ["#fill", "(u8, #fill)", "[u8, (#fill)]", "where { u8: #fill }", "impl { (#fill,) }"]
+        {
+            let tokens = source.parse::<TokenStream>().unwrap().into_iter().collect::<Vec<_>>();
+            let error = reject_directives(&tokens).unwrap_err().to_string();
+            assert!(error.contains("directives are not supported"), "{source}: {error}");
+        }
+    }
 }

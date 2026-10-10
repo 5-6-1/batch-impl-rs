@@ -6,7 +6,8 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 
-use crate::util::compile_error_str;
+use crate::ast::fresh_protocol::carrier_group_at;
+use crate::util::{TokenDomain, compile_error_str};
 
 /// Forwards method type/const arguments explicitly. Lifetimes remain inferred:
 /// supplying late-bound lifetimes in a call's turbofish is rejected by Rust.
@@ -171,15 +172,16 @@ fn ty_tokens_refs_bare_self(tokens: &[TokenTree]) -> bool {
 }
 
 /// Whether a wrapper's main part contains the `@0` target marker (`@` +
-/// literal `0`, possibly nested inside groups) — the position decision only;
+/// literal `0`, possibly nested inside type groups) — the position decision only;
 /// the marker itself is resolved by the parse layer into the fresh name.
 pub(crate) fn has_at0(tokens: &[TokenTree]) -> bool {
-    let v = tokens.to_vec();
-    v.iter().enumerate().any(|(i, tt)| match tt {
+    tokens.iter().enumerate().any(|(i, tt)| match tt {
         TokenTree::Punct(p) if p.as_char() == '@' => {
-            matches!(v.get(i + 1), Some(TokenTree::Literal(l)) if l.to_string() == "0")
+            matches!(tokens.get(i + 1), Some(TokenTree::Literal(l)) if l.to_string() == "0")
         }
-        TokenTree::Group(g) => has_at0(&g.stream().into_iter().collect::<Vec<_>>()),
+        TokenTree::Group(g) if !TokenDomain::Type.skips_group(tokens, i) => {
+            has_at0(&g.stream().into_iter().collect::<Vec<_>>())
+        }
         _ => false,
     })
 }
@@ -200,13 +202,19 @@ pub(crate) fn trait_with_args(path: &TokenStream, param_names: &[TokenStream]) -
 /// (local name, or the `#ext::Trait:` external path for `batch_impl_only`).
 /// `@N` position references are **kept as-is** and resolved by codegen's
 /// `resolve_where_at` like any user where predicate (blanket's fresh generic
-/// is the only fresh, so `@0` indexes it); other tokens after `@` error.
+/// is the only fresh, so `@0` indexes it). Existing carriers are also kept
+/// atomic; other tokens after a visible `@` error.
 pub(crate) fn resolve_target_predicates(
     preds: &[TokenTree], trait_full_path: &TokenStream,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
     while let Some(cur) = preds.get(i) {
+        if let Some(carrier) = carrier_group_at(preds, i) {
+            out.extend([cur.clone(), TokenTree::Group(carrier.clone())]);
+            i += 2;
+            continue;
+        }
         match cur {
             TokenTree::Punct(p) if p.as_char() == '@' => match preds.get(i + 1) {
                 Some(TokenTree::Ident(id)) if id == "trait" => {
@@ -228,11 +236,11 @@ pub(crate) fn resolve_target_predicates(
                 }
             },
             _ => {
-                // Recurse into groups: `Vec<@trait>` in a wrapper where
-                // predicate must substitute the trait path inside the group
-                // too (a top-level-only scan would leak `@trait` into the
-                // output — same recursion the sibling `has_at0` performs).
-                if let TokenTree::Group(g) = cur {
+                // Follow type structure, leaving Rust blocks, macro inputs
+                // and attributes unchanged, just like the position detector.
+                if let TokenTree::Group(g) = cur
+                    && !TokenDomain::Type.skips_group(preds, i)
+                {
                     let inner = g.stream().into_iter().collect::<Vec<_>>();
                     let resolved = resolve_target_predicates(&inner, trait_full_path)?;
                     let mut ng = Group::new(g.delimiter(), resolved.into_iter().collect());

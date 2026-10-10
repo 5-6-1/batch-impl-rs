@@ -18,7 +18,9 @@
 
 use proc_macro2::{Group, TokenStream, TokenTree};
 
-use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_impl_template, is_punct_at};
+use crate::util::{
+    MAX_NEST_DEPTH, TokenDomain, compile_error_str, depth_err, is_impl_template, is_punct_at,
+};
 
 /// Replaces every `ident@..` in `impl{...}` templates with a placeholder.
 pub(crate) fn mark_varseg(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
@@ -74,8 +76,9 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
     Ok(out)
 }
 
-/// Marks `ident@..` inside one template's token stream; recurses into every
-/// group (tuples `(A@..,)`, flat `<...>` args, arrays, ...). Shared by
+/// Marks `ident@..` inside one template's type structure (tuples `(A@..,)`,
+/// flat `<...>` args, arrays, ...). Ordinary braces, macros and attributes
+/// remain opaque. Shared by
 /// `mark_varseg` (inside `impl{...}` groups) and the impl entry's shape
 /// template (`(T@..)` — the template of the shape form).
 pub(crate) fn mark_template(
@@ -86,7 +89,8 @@ pub(crate) fn mark_template(
     }
     let out = mark_template_impl(tokens, depth)?;
     // Postcondition: `mark_template`'s contract is to consume every
-    // `ident@..` inside the template — its output must contain none. This
+    // visible type-position `ident@..` inside the template — its output must
+    // contain none. Opaque Rust inputs may retain the same tokens. This
     // guard lives **here** (the consumer's output), not at `expand_consts`'s
     // input, because only here is the `ident@..` shape unambiguous: an open
     // constant range (`@..u128`) has its `@` preceded by `<`/`,`/`(` — never
@@ -133,17 +137,18 @@ fn contains_unmarked_segment(tokens: &[TokenTree]) -> bool {
     (0..tokens.len().saturating_sub(3)).any(|i| unmarked_segment_at(tokens, i).is_some())
 }
 
-/// The first surviving `ident@..` **anywhere** in `tokens`, groups included —
-/// the postcondition's detector. The contract is "the output contains none",
-/// so the scan must recurse: a partial marking that skipped a nested group
-/// would otherwise slip past a top-level-only test. Returns the offending
-/// slice (for the diagnostic's span).
+/// The first surviving type-position `ident@..`, nested type groups included.
+/// The postcondition shares the marking loop's domain: ordinary braces,
+/// macros and attributes may retain these tokens. A partial marking that
+/// skipped a nested type would otherwise slip past a top-level-only test.
+/// Returns the offending slice (for the diagnostic's span).
 fn first_unmarked_segment(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
     if contains_unmarked_segment(tokens) {
         return Some(tokens.to_vec());
     }
-    for t in tokens {
+    for (i, t) in tokens.iter().enumerate() {
         if let TokenTree::Group(g) = t
+            && !TokenDomain::Type.skips_group(tokens, i)
             && let Some(found) = first_unmarked_segment(&g.stream().into_iter().collect::<Vec<_>>())
         {
             return Some(found);
@@ -152,15 +157,10 @@ fn first_unmarked_segment(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
     None
 }
 
-/// The marking loop (see [`mark_template`]); recurses into groups.
-///
-/// **Every** group is entered — unlike the outer [`mark_varseg_at`] pass there
-/// is no `ident![...]` / `#[...]` passthrough exemption here: inside an
-/// `impl{...}` template the whole content is DSL territory (the template is
-/// matched structurally, so a rewritten macro body can only become a shape
-/// mismatch, never silent corruption). The postcondition's
-/// `first_unmarked_segment` scan recurses the same way — the two must stay in
-/// step, or a legal input could report a residue.
+/// The marking loop and [`first_unmarked_segment`] enter the same type
+/// groups. Rust patterns such as `n @ ..=3` in a const block, and arbitrary
+/// macro/attribute inputs, are not variadic segments. Both walkers must stop
+/// at these boundaries or legal Rust may be rewritten or report a residue.
 fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
     let mut i = 0;
@@ -208,7 +208,9 @@ fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTre
             }
             continue;
         }
-        if let TokenTree::Group(g) = cur {
+        if let TokenTree::Group(g) = cur
+            && !TokenDomain::Type.skips_group(tokens, i)
+        {
             if depth + 1 > MAX_NEST_DEPTH {
                 return Err(depth_err(std::slice::from_ref(cur), ""));
             }
@@ -277,7 +279,7 @@ mod tests {
     }
 
     /// Recursive residue test — the canary's contract ("the output contains
-    /// no `ident@..`") checked at **every** level, not just the top. Uses the
+    /// no type-position `ident@..`") checked at every visible type level. Uses the
     /// production detector (single authority for the shape).
     fn residue(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
         first_unmarked_segment(tokens)
@@ -297,7 +299,7 @@ mod tests {
     /// user-visible compiler panic in debug builds (proc macros usually build
     /// debug) — and is now a diagnostic, where a false positive would still be
     /// a defect (a legal spelling rejected as an internal error). The
-    /// invariant is structural (the loop consumes every `ident@..`; no
+    /// invariant is structural (the loop consumes every visible `ident@..`; no
     /// transformation can create one), so this sweeps **every** sequence up
     /// to length 6 over an alphabet that covers the shape's token kinds,
     /// separators, and nested groups — then randomizes longer sequences.
@@ -430,6 +432,44 @@ mod tests {
         // `@u8..u128` is a constant range, not a segment: its `@` has no
         // ident before it.
         assert_eq!(mark("impl{[@u8..u128]}"), "impl { [@ u8 .. u128] }");
+    }
+
+    #[test]
+    fn template_const_patterns_remain_rust_tokens() {
+        let source = "impl{Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>}";
+        let unchanged = source.parse::<TokenStream>().unwrap().to_string();
+        assert_eq!(mark(source), unchanged);
+    }
+
+    #[test]
+    fn template_opaque_groups_are_not_segment_residue() {
+        for source in [
+            "impl{opaque!(A@..)}",
+            "impl{opaque![A@..]}",
+            "impl{opaque!{A@..}}",
+            "impl{fn(#[opaque(A@..)] u8)}",
+            "impl{Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>} ",
+        ] {
+            let tokens = source.parse::<TokenStream>().unwrap();
+            assert!(residue(&tokens.clone().into_iter().collect::<Vec<_>>()).is_none());
+            assert_eq!(mark(source), tokens.to_string());
+        }
+    }
+
+    #[test]
+    fn nested_type_segments_and_opaque_groups_share_one_template() {
+        let source = "impl{Wrap<((A@..,),), opaque!(B@..),
+            Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>, fn(#[opaque(C@..)] u8)>}";
+        let expected = "impl{Wrap<(([A; ()],),), opaque!(B@..),
+            Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>, fn(#[opaque(C@..)] u8)>}";
+        let input = source.parse::<TokenStream>().unwrap().into_iter().collect::<Vec<_>>();
+        assert!(residue(&input).is_some());
+        let marked = mark(source);
+        assert_eq!(marked, expected.parse::<TokenStream>().unwrap().to_string());
+        assert!(
+            residue(&marked.parse::<TokenStream>().unwrap().into_iter().collect::<Vec<_>>())
+                .is_none()
+        );
     }
 
     #[test]

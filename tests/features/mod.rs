@@ -8,6 +8,7 @@
 //! helper types/macros live next to their tests.
 
 pub(crate) mod bare_where_attachments;
+pub(crate) mod blanket_type_boundaries;
 pub(crate) mod block_model;
 pub(crate) mod body_template_tokens;
 pub(crate) mod const_block_tokens;

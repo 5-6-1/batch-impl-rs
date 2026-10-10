@@ -17,8 +17,8 @@
 //! - `ConstsDone` — `@` constants resolved (output may contain flat `<...>`!);
 //! - `Paired` — `<...>` paired into opaque groups (**destructive** — this state
 //!   can never be paired again);
-//! - `DirectivesResolved` — `#` handled (expanded or rejected; `#[...]`
-//!   attributes pass through);
+//! - `DirectivesResolved` — DSL `#` handled (expanded or rejected;
+//!   attributes, macro inputs and ordinary braces pass through);
 //! - `WhereDone` — bare `where` rewritten (`Foo<>` inside predicates is safe);
 //! - `Ready` — `A<>` expanded — the only state safe to hand to `syn::parse`.
 //!
@@ -31,8 +31,8 @@
 //! Fuzz note: `testing::fuzz` calls the free functions directly (by design —
 //! it wants out-of-order, malformed input to hit single passes). The typestate
 //! chain therefore protects only the entry points. The one guard beyond the
-//! chain is the `mark_template` **postcondition** (its output contains no
-//! unmarked `ident@..`) — see the canaries section below; it lives on the
+//! chain is the `mark_template` **postcondition** (its visible type positions
+//! contain no unmarked `ident@..`) — see the canaries section below; it lives on the
 //! consumer's output, not on the free functions' inputs, because only there
 //! is the segment shape unambiguous.
 
@@ -228,8 +228,8 @@ pub(crate) fn new(tokens: Vec<TokenTree>) -> Stream<Raw> {
 // ---------------------------------------------------------------------------
 
 // The one guard beyond the typestate chain lives in `varseg.rs` as the
-// **postcondition of `mark_template`** ("my output contains no unmarked
-// `ident@..`") — not at `expand_consts`'s input. Only the consumer's output
+// **postcondition of `mark_template`** ("my visible type positions contain
+// no unmarked `ident@..`") — not at `expand_consts`'s input. Only the consumer's output
 // makes the shape unambiguous: an open constant range (`@..u128`) has its
 // `@` preceded by `<`/`,`/`(` — never an ident — while a true segment is
 // `ident @ ..`; at `expand_consts`'s input the same shape is a legal

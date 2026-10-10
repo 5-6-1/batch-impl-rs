@@ -98,3 +98,63 @@ fn explicit_shape_slots_still_rewrite_const_expressions() {
     let value: <Arr<2> as ShapeAssociated<2>>::Item = [9u8; 3];
     assert_eq!(value, [9; 3]);
 }
+
+macro_rules! six {
+    (#token) => {
+        6
+    };
+}
+
+trait ImplHash {}
+
+#[batch_impl(Arr<{ six!(#token) }>)]
+impl ImplHash for u8 {}
+
+#[test]
+fn impl_entry_preserves_macro_hashes_in_const_blocks() {
+    fn check<T: ImplHash>() {}
+    check::<Arr<6>>();
+}
+
+macro_rules! opaque_type {
+    (#token) => {
+        u16
+    };
+}
+
+trait ImplMacroHashes {}
+
+#[batch_impl((opaque_type!(#token), opaque_type![#token], opaque_type! { #token }))]
+impl ImplMacroHashes for u8 {}
+
+#[test]
+fn impl_entry_preserves_hashes_in_all_type_macro_delimiters() {
+    fn check<T: ImplMacroHashes>() {}
+    check::<(u16, u16, u16)>();
+}
+
+#[batch_impl(
+    Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>
+    impl{Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>}
+)]
+trait RangePatternTemplate {}
+
+#[test]
+fn trait_shape_templates_preserve_open_range_patterns() {
+    fn check<T: RangePatternTemplate>() {}
+    check::<Arr<2>>();
+}
+
+trait ImplRangePatternTemplate {}
+
+// Keep both concrete shapes textually identical: this tests pattern preservation,
+// independently of the existing shape comparison's trailing-comma sensitivity.
+#[rustfmt::skip]
+#[batch_impl(@Self: Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>)]
+impl ImplRangePatternTemplate for Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }> {}
+
+#[test]
+fn impl_shape_templates_preserve_open_range_patterns() {
+    fn check<T: ImplRangePatternTemplate>() {}
+    check::<Arr<2>>();
+}

@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- **预处理补漏验收（2026-10-10，Rust 1.98.1）**：298 单测、442 功能测试、7 项 no-panic 守卫、18 项文档守卫、119 doctest 通过；Linux 的 172 个 UI fixture 正常比对通过，未修改快照。fmt、全目标 check/clippy、无警告 rustdoc、三个示例与严格消费者通过。新增 13 项测试覆盖 Rust 输入保留和仍然有效的 DSL 检查；原始 impl 入口故障有通过的 trait 入口及手写 Rust 对照。版本未修改，未发布；本轮未重跑 MSRV 与独立 Pack 模型。
+- **另行记录的形状比较问题（2026-10-10）**：rustfmt 会给 impl 的具体 self 类型与 match 分支补尾逗号，却不改属性内 DSL；既有的 const token 比较或“忽略目标”检查因此可能拒绝两边。impl 入口模式保留回归用 `rustfmt::skip` 保持两侧写法一致，只验证扫描边界；比较规范化不在本轮修复内，仍待处理。
+- **预处理边界遗漏补齐（2026-10-10）**：`reject_directives`、模板段标记与残留检查、blanket wrapper 目标和谓词扫描统一复用 `TokenDomain::Type`。段标记后置条件限定于可见类型位置，保留穷举 canary 并补显式混合模板对照；wrapper 谓词载体保持原子，不透明内容中的 `@0` 不再阻止自动追加目标。先复现 impl 入口宏输入 `#` 和 const 范围模式两条故障，再修复并加入编译运行回归；真正的指令禁用、嵌套变长段和 body 词法替换保持原契约。
 - **大括号边界验收（2026-10-10，Rust 1.98.1）**：290 单测、437 功能测试、7 项 no-panic 守卫、18 项文档守卫、119 doctest（无忽略）通过；Linux 的 172 个 UI fixture 正常比对通过，未修改快照。fmt、全目标 check/clippy、无警告 rustdoc、三个示例与严格消费者通过。新增 12 项测试并扩充既有用例，覆盖约定的大括号边界和显式替换行为。版本未修改，未发布；本轮仅修改扫描边界，未重跑 MSRV 和独立 Pack 模型。
 - **普通大括号边界（2026-10-10）**：`TokenDomain::Type` 将普通 Brace 与宏/属性输入保留，`is_dsl_brace_group` 集中识别 `where` / `impl` 例外，并供常量展开、尖括号配对共用。早期 fresh 折叠、晚期展开/校验、where 引用、同步、分段 `@trait` 和自定义常量引用检查采用相同边界；常量检查删除无效的 `expanded` 状态，`@{...}` 原子处理。无开关 body 的诊断与内部 carrier 展开继续使用 `Rust`，显式开启的 body 使用 `BodySubstitution`，不会因类型隔离跳过方法体。新增 const pattern、局部宏定义、where/impl 例外和阶段对照；保留无大括号 `size_of::<@Self>()` 与显式命名槽 `N + 1` 的兼容用例。
 - **契约修复验收（2026-10-10，Rust 1.98.1）**：285 单测、430 功能测试、7 项 no-panic 守卫、18 项文档守卫、119 doctest（无忽略）通过；Linux 的 172 个 UI fixture 正常比对通过，未改快照。fmt、全目标 check/clippy、无警告 rustdoc、三个示例、严格消费者和独立 Pack 模型通过。新增 14 个测试，锁定 body 全词法替换、类型域透传和外围普通值项冲突；同名私有外围项仍是已记录的名称卫生边界。版本未修改，未发布；本轮未复测 MSRV。
