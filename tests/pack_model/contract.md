@@ -2,7 +2,7 @@
 
 English | [简体中文](contract.zh-CN.md)
 
-Status: integrated into the 0.10.0 development version; this directory
+Status: describes the Pack rules checked against batch-impl 0.10.2; this directory
 remains an independent semantic model. Start with the
 [tutorial](tutorial.md). This document defines rules precisely and helps find
 counterexamples; it is not prerequisite reading for beginners.
@@ -16,17 +16,20 @@ without remembering a tuple/list origin. `Choice(items)` represents candidates;
 internal notation, not user syntax.
 
 `*X` crosses declaration carriers to process their bodies. If X is a Pack, return
-that same Pack; for an ordinary tuple or candidate list, take its direct members;
-otherwise retain the complete type as one member. It does not recursively open
-ordinary types. Parse raw pointers `*const`/`*mut` before this rule.
+that same Pack; for a candidate list, take its direct members; otherwise retain
+the complete type as one member. Thus `*[A,B]` has two members, while `*(A,B)`
+has one ordinary tuple member and `*[X,]` has one member X, not a pending choice.
+It does not recursively open ordinary types. Parse raw pointers `*const`/`*mut`
+before this rule.
 
 For the ordinary Ty and pack expressions covered here, commas distinguish one-item
 containers: `(X)` is transparent, `(X,)` a tuple, `[X]` a slice and `[X,]` a candidate.
 Version 0.10.0 intentionally removes the lone-splat promotion exception. Existing
 positional-reference meta-syntax such as `(@0..)` has its own grouping contract;
 this model neither implements nor redefines it, and does not remove those spellings.
-Empty `[]` remains the existing slice-constructor prefix, not an empty candidate;
-the independent parser has not implemented that prefix.
+Empty `[]` is an empty candidate list, and `*[]` is an empty pack. Sizing that
+empty pack, `*[].N`, generates N fresh members; the independent parser implements
+these forms. Slices and arrays are written `[T]` and `[T; N]`.
 
 `Pack(Pack(A,B),Pack(C,D))` and `Pack(A,B,C,D)` may splice to the same final members,
 but behave differently under further application. Equal final Rust types do not
@@ -36,6 +39,8 @@ establish DSL equivalence in arbitrary contexts.
 
 `Apply(L,R)` is ordinary application. `MapTask(L,row)` preserves a complete input
 row during that mapping task; it is neither new syntax nor an observable variable.
+The selected row has no persistent identity marker: this is the continuation of
+one application, not a promise that later applications will never split its result.
 
 Apply proceeds in this order:
 
@@ -90,7 +95,7 @@ Structural expressions become ordinary types at the end:
 
 - Choice retains candidate branches; choices in sibling slots form Cartesian combinations.
 - Pack recursively splices pack layers and merges declarations, without opening ordinary tuples or types into outer members.
-- Ordinary tuple fields, generic arguments and function parameters accept multiple materialized slots.
+- Ordinary tuple fields, generic arguments and unnamed function parameters accept multiple materialized slots.
 - Reference targets, pointer targets, slice/array elements and function returns require exactly one type in each branch; zero or multiple types produce a single-slot diagnostic.
 - A bare target pack yields one target per member, without automatic deduplication.
 
@@ -103,11 +108,9 @@ ordinary-type boundaries. Raw intermediate structures and materialized Rust type
 are not freely interchangeable expressions.
 
 Keep `Pack()` distinct from `Pack(Pack())`. Given to `*F`, the former produces zero
-entries while the latter produces one F with no arguments.
-
-That row cannot supply an *argument*, though: an argument slot needs at least one
-member to splice, so `*F *[*[],]` — one entry whose argument list is empty — is an
-error. `*F *[]` reads differently in the two positions it can appear in: as a
+entries; the latter supplies one empty argument-pack row, which an argument host
+rejects. An argument slot needs at least one member to splice, so `*F *[*[],]`
+is an error. `*F *[]` reads differently in the two positions it can appear in: as a
 sub-expression it stays legal because it produces no entry at all, while as one spec of a
 multi-spec attribute the macro reports "this spec expands to zero impls — no target
 survived". (Round-7 probe E measured the macro rejecting the former shape and this model
@@ -130,8 +133,8 @@ produces no rows in the model. That is by design, not a gap: the model describes
 nothing to say about an entry that does not exist. The divergence was stated only in `test_model.py`
 before this paragraph, which is a test file; the attribute-level reading of `*F *[]` also cannot be
 expressed here at all, because the model has no multi-spec attribute (`not_expressible.txt`,
-`trailing-token`). The last three spellings sit on §0's `[]`-as-slice-prefix boundary, which is why the
-enumeration above is longer than the four that were first written down.
+`trailing-token`). The nested empty-list spellings above extend the original
+four-case audit; they do not give `[]` a slice-constructor meaning.
 
 **A boundary the model cannot draw, recorded rather than faked (round-9 probe E's E-A).** On the ident
 that is **not** the annotated trait, an empty `<>` with no arguments to fill from is refused by the
@@ -180,9 +183,18 @@ Not introduced: zip, indexing, lambdas, arbitrary templates with holes, bindings
 or automatic cross-slot constraints. `Vec.Box` is an already constructed type,
 not a function awaiting T to produce `Vec<Box<T>>`.
 
-The six row-preserving Map matrix impls for two positive length ranges compile;
-their flat counterparts produce E0119. This demonstrates the value of retaining
-rows, not a coherence guarantee for arbitrary combinations.
+`Pair (*[self, Vec] ().0..=4)` shares one complete tuple in two positions and
+produces five impls, including `Pair<(), Vec<()>>`. By contrast,
+`Pair<().0..=4, Vec<().0..=4>>` has two independent generators and produces all
+25 arity pairs, including 0-by-0. Zero arity declares no fresh parameters;
+an empty `@0..` reference in that branch is not evidence of a visibility defect.
+
+`(*() (*Map *[].1..=2 *[].1..=3),)` produces six row-preserving matrix impls that
+compile. Its flat counterpart `(*Map *[].1..=2 *[].1..=3,)` also produces six
+impls, but Rust reports E0119: different dimensions can describe overlapping
+flat tuple types. E0119 does not itself prove incorrect row distribution.
+This demonstrates the value of retaining rows, not a coherence guarantee for
+arbitrary combinations.
 
 Declaration blocks accept only valid parameter declarations. A pack does not turn
 constructed types into parameter names. Where clauses, impl templates, bodies and

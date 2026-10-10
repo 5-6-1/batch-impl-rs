@@ -333,6 +333,13 @@ impl Apply for TyPrimitiveArray {
         match (self.0, self.1) {
             (None, None) => TyPrimitiveArray(o.into(), None).to_ty().with_span(span),
             (Some(elem), None) => {
+                // Array lengths become opaque Rust tokens here. Preserve any
+                // nested DSL diagnostics before that structural boundary.
+                let mut errors = vec![];
+                o.collect_errors(&mut errors);
+                if !errors.is_empty() {
+                    return TyError(errors.into_iter().collect()).to_ty().with_span(span);
+                }
                 let length = o.to_token_stream();
                 // A builtin type name is not one of the three documented length forms, and
                 // `[u8].u16` rendered `[u8; u16]`, which rustc rejects. No name resolution is

@@ -136,7 +136,7 @@ fn const_param_where_predicate_no_error() {
         wrapped.into(),
     )
     .into();
-    let out = generate_impl(impl_ty, &quote!(WhereArr), false, &tb, &[]).to_string();
+    let out = generate_impl(impl_ty, &quote!(WhereArr), false, &tb, &[]).unwrap().to_string();
     assert!(!out.contains("compile_error"), "expansion must not contain compile_error: {out}");
     assert!(out.contains("where [T ; N] : Sized"), "missing where predicate: {out}");
     assert!(

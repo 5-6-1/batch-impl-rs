@@ -89,10 +89,51 @@ fn choice_families_and_explicit_collection_have_different_shapes() {
 #[batch_impl(Pair.*[self, Vec].().2)]
 trait WholeTuple {}
 
+#[batch_impl(*(u8, u16))]
+trait StarredTuple {}
+
 #[test]
 fn an_unpacked_tuple_is_one_complete_input_row() {
     fn accepts<T: WholeTuple>() {}
+    fn starred<T: StarredTuple>() {}
     accepts::<Pair<(u8, u16), Vec<(u8, u16)>>>();
+    starred::<(u8, u16)>();
+}
+
+#[batch_impl(Pair (*[self, Vec] ().0..=4))]
+trait SharedTupleFamily {}
+
+#[test]
+fn one_tuple_generator_is_shared_in_both_argument_positions() {
+    fn accepts<T: SharedTupleFamily>() {}
+    accepts::<Pair<(), Vec<()>>>();
+    accepts::<Pair<(u8,), Vec<(u8,)>>>();
+    accepts::<Pair<(u8, u16), Vec<(u8, u16)>>>();
+    accepts::<Pair<(u8, u16, u32), Vec<(u8, u16, u32)>>>();
+    accepts::<Pair<(u8, u16, u32, u64), Vec<(u8, u16, u32, u64)>>>();
+}
+
+#[batch_impl(Pair<().0..=4, Vec<().0..=4>>)]
+trait IndependentTupleFamilies {}
+
+#[test]
+fn two_tuple_generators_cover_all_twenty_five_arity_pairs() {
+    fn accepts<T: IndependentTupleFamilies>() {}
+    // Different element types also check independence when the arities match.
+    macro_rules! check_right_arities {
+        ($left:ty) => {
+            accepts::<Pair<$left, Vec<()>>>();
+            accepts::<Pair<$left, Vec<(bool,)>>>();
+            accepts::<Pair<$left, Vec<(bool, char)>>>();
+            accepts::<Pair<$left, Vec<(bool, char, i8)>>>();
+            accepts::<Pair<$left, Vec<(bool, char, i8, i16)>>>();
+        };
+    }
+    check_right_arities!(());
+    check_right_arities!((u8,));
+    check_right_arities!((u8, u16));
+    check_right_arities!((u8, u16, u32));
+    check_right_arities!((u8, u16, u32, u64));
 }
 
 #[batch_impl((*[u8, u16],).2)]

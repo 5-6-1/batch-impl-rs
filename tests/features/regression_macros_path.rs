@@ -157,3 +157,60 @@ fn cmp_path_prefix_blanket() {
     assert_eq!(<&u8 as PathPrefixTrait>::tag(&&0u8), "u8");
     assert_eq!(Box::new(1u8).tag(), "u8");
 }
+
+// The Rust macro name is user data, not a DSL diagnostic carrier. These
+// calls must reach Rust with their surrounding macro/attribute intact.
+#[batch_impl(u8 {
+    fn text() -> &'static str {
+        #[cfg(any())]
+        compile_error!("disabled Rust diagnostic");
+        stringify!(::core::compile_error!("quoted Rust diagnostic"))
+    }
+})]
+trait QuotedDiagnostic {
+    fn text() -> &'static str;
+}
+
+#[test]
+fn quoted_and_disabled_diagnostics_remain_user_rust() {
+    // stringify! spacing may change across a proc-macro token round trip.
+    let invocation = syn::parse_str::<syn::Macro>(<u8 as QuotedDiagnostic>::text()).unwrap();
+    assert_eq!(invocation.path.segments.last().unwrap().ident, "compile_error");
+    let message = syn::parse2::<syn::LitStr>(invocation.tokens).unwrap();
+    assert_eq!(message.value(), "quoted Rust diagnostic");
+}
+
+#[batch_impl(u16 {
+    fn value() -> usize {
+        macro_rules! compile_error {
+            () => { 73 };
+        }
+        compile_error!()
+    }
+})]
+trait ShadowedDiagnostic {
+    fn value() -> usize;
+}
+
+#[test]
+fn a_user_macro_named_compile_error_can_return_a_value() {
+    assert_eq!(<u16 as ShadowedDiagnostic>::value(), 73);
+}
+
+macro_rules! capture_diagnostic_tokens {
+    ({$target:ty} () {$($body:tt)*} trait $name:ident {$($item:tt)*}) => {
+        impl $name for $target {
+            fn text() -> &'static str { stringify!($($body)*) }
+        }
+    };
+}
+
+#[batch_impl(u32 #capture_diagnostic_tokens(){compile_error!("extension input")})]
+trait ExtensionDiagnostic {
+    fn text() -> &'static str;
+}
+
+#[test]
+fn open_extensions_receive_uninterpreted_diagnostic_tokens() {
+    assert_eq!(<u32 as ExtensionDiagnostic>::text(), stringify!(compile_error!("extension input")));
+}

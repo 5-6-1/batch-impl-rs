@@ -5,6 +5,14 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+- **Production-macro capability audit (2026-10-10)**: eight preview structure comparisons and 46 independent-consumer type constraints passed. Three negative probes confirmed E0119 for flat two-axis arity families and E0277 when per-position or axis parameter sharing is broken. The whole-tuple family `Pair (*[self, Vec] ().0..=4)` produces five impls; independent generators `Pair<().0..=4, Vec<().0..=4>>` produce 25. This record covers those probes, not a proof of model completeness.
+- **Semantic notes aligned**: the architecture, independent-model contract and derivation notes follow the current `Star::star` and `MapTask`, distinguishing Choice, Pack members and complete types. Old release records remain historical.
+- **Diagnostic provenance retained**: remove `extract_error_carriers` and its recursive search through user tokens. Generation, rendering and entry points propagate `Result<TokenStream, TokenStream>`; four generic-parse errors remain `TyError`, and array lengths collect structural errors with the shared `Ty::collect_errors` before becoming tokens. Correct `half_built_impl` to witness a conflict on the same trait; add opaque-user-macro and preview regressions plus persistent shared/independent tuple-generator assertions.
+- **Core-extraction boundary**: the proposal separates the type engine from trait-context adaptation, with explicit naming, extension-exit and evaluation-session responsibilities. Staging now requires an internal interface and an unpublished real second consumer before a public API decision. No crate was extracted in this change.
+- **Validation (2026-10-10, Rust 1.98.1)**: Windows fmt, all-target check/clippy, 250 unit tests, 392 feature tests, seven no-panic guards, 18 documentation guards, 119 doctests (none ignored), warning-free rustdoc, three examples and strict-consumer clippy/two tests passed. The full independent Pack model passed; the eight production capability probes and original false-positive reproduction passed again. All 166 Linux UI fixtures passed without overwrite. Five updated snapshots record the corrected same-trait witness, preserved line-17 segment location plus the next segment's error, and three more precise generic-error locations. `batch_trait!` collects successful items separately from failing segments and suppresses all successes on an internal error. MSRV was not rerun in this round.
+
 ## 0.10.2 — 2026-10-05
 
 > Released **2026-10-05** as 0.10.2: two diagnostics, three documentation facts and one derivation note.

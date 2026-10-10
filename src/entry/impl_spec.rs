@@ -168,7 +168,7 @@ pub(crate) fn assemble_impl(
         body_at: false,
     };
     let trait_tokens = trait_path.map(|p| trait_path_with_mapped_args(p, m));
-    Ok(crate::codegen::render_impl(parts, preds, for_ty, trait_tokens.as_ref(), false, None))
+    crate::codegen::render_impl(parts, preds, for_ty, trait_tokens.as_ref(), false, None)
 }
 
 /// Reconciles the attr's `new-generic-decl` with the params the impl block

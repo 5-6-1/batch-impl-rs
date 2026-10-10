@@ -15,6 +15,12 @@ batch_trait! {
     Tr: A;
     Tr: B;
     Tr: 7;
+    Tr: u8 where { @3: Clone };
 }
+
+// A later failing segment must still be reported, and earlier successes
+// must not leak out as conflicting impls.
+impl Tr for A {}
+impl Tr for B {}
 
 fn main() {}

@@ -55,15 +55,6 @@ pub(crate) fn compile_error_str(msg: &str, span: Span) -> TokenStream {
     quote! { :: core :: #err_ident!(#msg); }
 }
 
-/// Type-position `::core::compile_error!(msg)` without a trailing `;` —
-/// inside generic args / type positions a semicolon is a syntax error; same
-/// ident-span scheme as [`compile_error_str`].
-pub(crate) fn compile_error_ty(msg: &str, span: Span) -> TokenStream {
-    let msg = prefixed(msg);
-    let err_ident = Ident::new("compile_error", span);
-    quote! { :: core :: #err_ident!(#msg) }
-}
-
 /// `compile_err!("msg {}", x)` → `compile_error_str(&format!(...), call_site)`.
 /// Self-contained via `$crate` / `::proc_macro2` (definition-site paths), so
 /// use sites need no `compile_error_str` import.

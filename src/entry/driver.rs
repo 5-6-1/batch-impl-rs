@@ -125,84 +125,25 @@ pub(crate) fn parse_batch_trait_entry(
     cursor: &mut Cursor, top_level: Op, trait_full_path: &TokenStream, trait_last_ident: &Ident,
     is_unsafe_trait: bool, start_trait: Option<ItemTrait>, trait_bounds: &TraitBounds,
     trait_param_names: &[Ident],
-) -> TokenStream {
+) -> Result<TokenStream, TokenStream> {
     let (tys, errors) = collect_spec_leaves(cursor, top_level, Some(trait_last_ident));
     if !errors.is_empty() {
-        return errors.into_iter().collect();
-    }
-    // The same policy as the parse refusal above, one stage later. A leaf that fails during
-    // codegen returns its diagnostic *instead of* its impl, so appending per leaf would emit a
-    // half-built module: whatever was generated before the failure sits next to the error, and
-    // `docs/reference.md` promises the opposite ("an error replaces the impl"). `collect_errors`
-    // descends into every child position, so this also catches an error nested inside a target
-    // type - which would otherwise be rendered into the `for` position as unparsable Rust, with
-    // the crate's own message buried inside the item and only rustc's parse error left visible.
-    let mut leaf_errors = vec![];
-    for t in &tys {
-        collect_errors(t, &mut leaf_errors);
-    }
-    if !leaf_errors.is_empty() {
-        return leaf_errors.into_iter().collect();
+        return Err(errors.into_iter().collect());
     }
     let mut impls = start_trait.map_or(quote![], |t| quote![#t]);
-    // A diagnostic can also be minted *while* a leaf is rendered, which the walk above cannot
-    // see: probe D's `[u8] * *` renders `[u8; * ::core::compile_error!(…);,]` — the crate's own
-    // message inside an item rustc cannot parse, so the reader only gets "expected expression,
-    // found `,`". Such a leaf is collected as a diagnostic instead of an impl, which is the same
-    // policy as the two refusals above.
+    // Keep successes separate from diagnostics: any codegen error replaces
+    // the entire output, including impls generated for earlier leaves.
     let mut rendered_errors = vec![];
     for t in tys {
-        let generated =
-            generate_impl(t, trait_full_path, is_unsafe_trait, trait_bounds, trait_param_names);
-        let mut found = vec![];
-        extract_error_carriers(&generated, &mut found);
-        if found.is_empty() {
-            impls.extend(generated);
-        } else {
-            rendered_errors.extend(found);
+        match generate_impl(t, trait_full_path, is_unsafe_trait, trait_bounds, trait_param_names) {
+            Ok(generated) => impls.extend(generated),
+            Err(error) => rendered_errors.push(error),
         }
     }
     if !rendered_errors.is_empty() {
-        return rendered_errors.into_iter().collect();
+        return Err(rendered_errors.into_iter().collect());
     }
-    impls
-}
-
-/// Collect the `::core::compile_error!("…")` invocations of an already-rendered stream, so a
-/// diagnostic that a renderer wrote *into* a type can be reported on its own.
-pub(crate) fn extract_error_carriers(tokens: &TokenStream, out: &mut Vec<TokenStream>) {
-    use proc_macro2::{Punct, Spacing, TokenTree};
-    let items: Vec<TokenTree> = tokens.clone().into_iter().collect();
-    let mut i = 0;
-    while let Some(first) = items.get(i) {
-        // The carrier is `compile_error` `!` `( … )`; taking the ident plus the two following
-        // tokens keeps the invocation valid on its own, and the trailing `;` keeps it valid as an
-        // *item* - without it rustc adds "macros that expand to items must be delimited with
-        // braces or followed by a semicolon" to the very message this extraction is meant to
-        // surface cleanly.
-        // `.get(i + n)` rather than indexing: the crate denies `clippy::indexing_slicing`
-        // at the root (`src/lib.rs`), and a walker is exactly where that lint earns its keep.
-        if matches!(first, TokenTree::Ident(id) if id == "compile_error")
-            && let (Some(TokenTree::Punct(bang)), Some(group)) =
-                (items.get(i + 1), items.get(i + 2))
-            && bang.as_char() == '!'
-        {
-            let mut carrier = TokenStream::new();
-            carrier.extend([
-                first.clone(),
-                TokenTree::Punct(bang.clone()),
-                group.clone(),
-                TokenTree::Punct(Punct::new(';', Spacing::Alone)),
-            ]);
-            out.push(carrier);
-            i += 3;
-            continue;
-        }
-        if let TokenTree::Group(g) = first {
-            extract_error_carriers(&g.stream(), out);
-        }
-        i += 1;
-    }
+    Ok(impls)
 }
 
 /// Parses the cursor into leaf `Ty`s (specs → worklist expansion → materialization)
@@ -299,23 +240,9 @@ pub(crate) fn collect_spec_leaves(
     }
     let mut errors = vec![];
     for t in &tys {
-        collect_errors(t, &mut errors);
+        t.collect_errors(&mut errors);
     }
     (tys, errors)
-}
-
-fn collect_errors(ty: &Ty, out: &mut Vec<TokenStream>) {
-    if let Ty { kind: TyKind::Error(e), .. } = ty {
-        out.push(e.0.clone());
-    }
-    // map_children is the single traversal authority and descends into
-    // every child position — parameter lists included (`Box<@0..=2>`'s
-    // range carrier, a generator inside `T<...>`), so aggregation cannot
-    // miss an error nested in a generic argument.
-    ty.clone().map_children(&mut |child| {
-        collect_errors(&child, out);
-        child
-    });
 }
 
 #[cfg(test)]
@@ -329,8 +256,50 @@ mod tests {
         let target =
             TyGeneric(TyPrimitive(quote!(Wrapper)).into(), TyTypeParam::single(&inner)).to_ty();
         let mut errors = vec![];
-        collect_errors(&target, &mut errors);
+        target.collect_errors(&mut errors);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].to_string().contains("inner error"));
+    }
+
+    #[test]
+    fn diagnostics_survive_generic_and_array_length_token_boundaries() {
+        let cases = [
+            (quote!(Marker<Item = > u8), "missing a value"),
+            (quote!(Vec<Item = u32>), "binding args"),
+            (quote!(<T:> Vec<T>), "missing a bound"),
+            (quote!(Vec<T: Clone>), "bound args"),
+            (quote!([u8] * *), "`*` needs a type block"),
+        ];
+        for (spec, message) in cases {
+            let error = crate::entry::expand_attr_macro(
+                spec.clone(),
+                syn::parse_quote!(
+                    trait Marker {}
+                ),
+                false,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains(message), "{spec}: {error}");
+            let file = syn::parse2::<syn::File>(error).unwrap();
+            assert!(file.items.iter().all(|item| matches!(item, syn::Item::Macro(_))));
+        }
+    }
+
+    #[test]
+    fn codegen_errors_replace_all_successful_leaves() {
+        let error = crate::entry::expand_attr_macro(
+            quote!([u16, u8 where { @3: Clone }, u32 where { @4: Clone }]),
+            syn::parse_quote!(
+                trait Marker {}
+            ),
+            true,
+        )
+        .unwrap_err();
+        let output = error.to_string();
+        assert!(output.contains("`@3` is out of range"), "{output}");
+        assert!(output.contains("`@4` is out of range"), "{output}");
+        let file = syn::parse2::<syn::File>(error).unwrap();
+        assert_eq!(file.items.len(), 2);
+        assert!(file.items.iter().all(|item| matches!(item, syn::Item::Macro(_))));
     }
 }

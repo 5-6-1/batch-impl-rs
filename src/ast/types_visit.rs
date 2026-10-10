@@ -65,6 +65,18 @@ where
 }
 
 impl Ty {
+    /// Collect only diagnostics carried by the DSL tree. Opaque Rust tokens
+    /// (bodies, macro inputs and attributes) are never interpreted as errors.
+    pub(crate) fn collect_errors(&self, out: &mut Vec<proc_macro2::TokenStream>) {
+        if let TyKind::Error(error) = &self.kind {
+            out.push(error.0.clone());
+        }
+        self.clone().map_children(&mut |child| {
+            child.collect_errors(out);
+            child
+        });
+    }
+
     /// Maps every child `Ty` node — **including the parameter positions**:
     /// generic argument lists (`T<...>` params + bounds + associated-type
     /// bindings), generic declarations (`<...>` on `WithType`), and trait

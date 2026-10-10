@@ -14,7 +14,7 @@ fn trait_output(spec: TokenStream) -> TokenStream {
         ),
         false,
     )
-    .unwrap()
+    .unwrap_or_else(|error| error)
 }
 
 fn impls(tokens: TokenStream) -> Vec<syn::ItemImpl> {

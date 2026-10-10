@@ -80,7 +80,7 @@ fn errors_nested_in_splat_arguments_stop_the_public_pipeline() {
         ),
         true,
     )
-    .unwrap();
+    .unwrap_err();
     let file = syn::parse_file(&output.to_string()).unwrap();
     assert_eq!(file.items.len(), 1);
     assert!(matches!(file.items[0], syn::Item::Macro(_)));

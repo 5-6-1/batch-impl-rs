@@ -3,3 +3,9 @@ error: batch-impl: a bare number is not a type — a number is an arity or a `.N
    |
 17 |     Tr: 7;
    |     ^^
+
+error: batch-impl: `@3` is out of range — this impl has 0 fresh generics (numbered from 0 in document order; user-written params are addressed by name)
+  --> tests/ui/batch_trait_span_points_at_the_segment.rs:18:5
+   |
+18 |     Tr: u8 where { @3: Clone };
+   |     ^^^^^^^^^^^^^^^^

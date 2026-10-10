@@ -94,7 +94,7 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
     let (leaves, errors) = collect_spec_leaves(&mut cursor, Op::Comma, Some(&p.trait_last_ident));
     if !errors.is_empty() {
         // DSL errors surface exactly as they would under the attribute macro.
-        return Ok(errors.into_iter().collect());
+        return Err(errors.into_iter().collect());
     }
     // The driver counts final targets, including nested host choices and
     // bare packs. Extension calls remain opaque DSL protocol invocations.
@@ -106,24 +106,19 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
     let mut errors = vec![];
     let mut count = 0;
     for leaf in leaves {
-        let generated = generate_impl(
+        let generated = match generate_impl(
             leaf.clone(),
             &p.trait_full_path,
             p.is_unsafe,
             &p.trait_bounds,
             &p.trait_param_names,
-        );
-        // A leaf that fails while its target type is rendered returns a diagnostic *instead* of an
-        // impl - the promise `driver.rs` keeps on the attribute path. The preview must neither
-        // print that carrier as generated code nor count it as an impl: probe D's F3 caught both,
-        // showing "2 impl(s) generated" for a spec whose real expansion holds none. Same helper
-        // and same policy, so the two channels cannot drift apart again.
-        let mut carriers = vec![];
-        crate::entry::driver::extract_error_carriers(&generated, &mut carriers);
-        if !carriers.is_empty() {
-            errors.extend(carriers);
-            continue;
-        }
+        ) {
+            Ok(generated) => generated,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
         // The miswrite shape lives in the target type — extract it so the
         // walker sees type positions only (no trait/decl wrappers, no bodies).
         notes.extend(miswrite_notes(&extract_impl_parts(leaf).target_type));
@@ -135,7 +130,7 @@ fn preview_trait(trait_item: ItemTrait) -> Result<TokenStream, TokenStream> {
     if !errors.is_empty() {
         // The real expansion holds no impl here, so the preview reports what a reader would get
         // from the attribute instead: the diagnostic, on its own.
-        return Ok(errors.into_iter().collect());
+        return Err(errors.into_iter().collect());
     }
     let expansion = rendered.join("\n");
     let mut msg = format!("batch-impl preview: {} impl(s) generated\n\n{}", count, expansion);
@@ -242,4 +237,42 @@ fn miswrite_note(g: &TyGeneric) -> Option<String> {
         base,
         args.len(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_preserves_opaque_user_diagnostics_as_generated_code() {
+        let out = preview(
+            r##"#[batch_impl(u8 #text{stringify!(::core::compile_error!("user text"))})]
+            trait Example { fn text() -> &'static str; }"##
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        let item = syn::parse2::<syn::ItemMacro>(out).unwrap();
+        let message = syn::parse2::<syn::LitStr>(item.mac.tokens).unwrap().value();
+        assert!(message.contains("1 impl(s) generated"), "{message}");
+        assert!(message.contains("stringify !"), "{message}");
+        assert!(message.contains("compile_error !"), "{message}");
+        assert!(message.contains("user text"), "{message}");
+    }
+
+    #[test]
+    fn preview_reports_dsl_errors_without_a_successful_count() {
+        for spec in [quote!([u16, u8 where { @3: Clone }]), quote!([u8] * *)] {
+            let error = preview(quote! {
+                #[batch_impl(#spec)]
+                trait Example {}
+            })
+            .unwrap_err();
+            let output = error.to_string();
+            assert!(output.contains("batch-impl:"), "{output}");
+            assert!(!output.contains("impl(s) generated"), "{output}");
+            let file = syn::parse2::<syn::File>(error).unwrap();
+            assert!(file.items.iter().all(|item| matches!(item, syn::Item::Macro(_))));
+        }
+    }
 }

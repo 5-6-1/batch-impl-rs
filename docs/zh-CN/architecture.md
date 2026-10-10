@@ -55,7 +55,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   ├── util/                 共享工具（mod.rs 聚合 re-export，引用侧写 crate::util::X）
   │   ├── mod.rs            re-export 门面（调用侧写 crate::util::X）
   │   ├── scan.rs           扫描与游标：Cursor<'a> + scan_stop + bracket_is_passthrough + is_impl_template + split_tuple_field_dot
-  │   ├── diagnostic.rs     统一 compile_error_str(msg, span) / compile_error_ty / compile_err! / compile_err_at!（ident-span 方案：只盖 compile_error 关键字）
+  │   ├── diagnostic.rs     统一 compile_error_str(msg, span) / compile_err! / compile_err_at!（ident-span 方案：只盖 compile_error 关键字）
   │   ├── punct_ops.rs      多字符运算符字典（read_op——`..` / `..=` / `->` / `::`）
   │   └── subst.rs          路径感知替换器（replace_map——trait bound 继承 + 指令 body）
   ├── parse/                解析层
@@ -273,8 +273,8 @@ impl 入口的目标或形参时才有意义；今天没有这样的特性，因
   （`ParamKind`，取自 `syn` 变体），不再由 codegen 从名字字符串反推；
   `impl_names` 里 `const N` 经 `ParamKind::bare_name` 归一为 `N`。（此处曾有
   一套 `syn::visit` 引用收集器，产物无人读取——R4 已删除。）
-- **参数包 `*` 前缀**：`star_block` 只读取紧随其后的一个块，`*const` / `*mut` 优先识别为指针，随后把该操作数交给 `Star::star`（`apply/star.rs`）—— 解析器自身不含任何 `*` 语义。`star` 打开普通元组或候选列表的直接成员，穿过分组和声明载体，已有 Pack 保持不变，其余类型构成单成员包。因此 `*(A)` 是单成员包，`(*(A,B))` 是包外的透明分组，`(*(A,B),)` 才是显式元组宿主；`(@0..)` 保留范围引用元组的规则。列表序列化保留单成员逗号（`[A,]`），空列表写成 `[]`，使开放扩展重解析不会把列表变成 slice。
-- **映射与生成**：左 Pack 逐成员映射；双 Pack 运算只把右包拆成直接行一次，`map_task` 在选择候选与穿过元数据时始终把该行整体传递。嵌套 Pack 到消费前保留结构。标量应用仍把右包作为实参节点追加；`F<...>` 已是泛型宿主，物化不会对其中实参重跑 apply。包的数字应用将嵌套包消费成模板槽并复用元组生成；普通元组幂保留自身槽位：`(*(),).2` 是两个最终消费为空的槽，得到 unit；`*(*(),).2` 则生成两个 fresh 参数。声明随复制及空结果保留，不静默裁剪未使用的生成参数。
+- **参数包 `*` 前缀**：`star_block` 只读取紧随其后的一个块，`*const` / `*mut` 优先识别为指针，随后把该操作数交给 `Star::star`（`apply/star.rs`）——解析器自身不含任何 `*` 语义。`star` 只打开候选列表的直接成员，穿过分组和声明载体，已有 Pack 保持不变，其余完整类型构成单成员包。因此 `*[A,B]` 有两个成员，`*(A,B)` 只有一个元组类型成员；`*()` 包含 unit 类型，`*[]` 才是空包。`(*[A,B])` 是包外的透明分组，`(*[A,B],)` 是收下两个成员的元组宿主；`(@0..)` 保留范围引用元组的规则。列表序列化保留单成员逗号（`[A,]`），空列表写成 `[]`，使开放扩展重解析不会把列表变成 slice。
+- **映射与生成**：左 Pack 逐成员映射；双 Pack 运算只把右包拆成直接行一次，`map_task` 在选择候选与穿过元数据时始终把该行整体传递。嵌套 Pack 到消费前保留结构。标量应用仍把右包作为实参节点追加；`F<...>` 已是泛型宿主，物化不会对其中实参重跑 apply。包的数字应用将嵌套包消费成模板槽并复用元组生成；普通元组幂保留自身槽位：`(*[],).2` 是两个最终消费为空的槽，得到 unit；`*[*[],].2` 则消费得到空成员表，生成两个 fresh 参数。声明随复制及空结果保留，不静默裁剪未使用的生成参数。
 - **物化边界**：`materialize_targets` 拼接 Pack 成员并选择普通候选分支，保持候选的笛卡尔组合与声明顺序。元组成员、泛型实参、泛型声明名及无名函数参数是多槽位置；引用/指针/slice 元素、固定 Rust 前缀、函数返回值、每项 bound 和关联类型绑定值在每个分支中只能得到一个类型。声明名在展开后校验，构造类型和声明内 fresh 生成器仍有定向错误。普通元组在单槽宿主中始终是一个类型。共享驱动的 `Expand::Leaf` 分支保留开放扩展 DSL，并物化全部普通目标；整 spec 上限在汇总全部目标后检查。因此 trait 生成、impl 入口匹配与 preview 收到同一批已物化目标。标准 Rust where 子句、body、impl 模板及限定路径尾部不增加 Pack 语法。
 
 ## 语法域隔离
@@ -457,14 +457,16 @@ token 层护栏看不见它们——`.`/空格 算子链（右结合 `.` 每个�
 **ident-span 方案**：`compile_error!` 只给关键字标识符盖目标 span、其余保持
 call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用户代码
 （"macros that expand to items must be delimited..."）。
-**平台限制**（rustc 行为，宏侧不可修）：属性宏输入顶层 token 精确、组内 token
-退化 call-site、`Err` 返回错误显示宏调用行——精确 span 只出现在 Ok 输出的
-`Ty::Error` 路径（parse/apply）。
+诊断位置由错误 token 携带的 span 决定；内部 `Result` 的 `Ok`/`Err`
+标签不改变 span。宏入口最终把两种结果转换为 token 输出。
 
-- **DSL 解析层**（parse/apply/codegen）：`Ty::Error` 变体在 AST 链中透传
-  （链式组合中途失败需要信号值），最终经 ToTokens 输出 `compile_error!`；
-- **入口层**（preprocess/expand）：`Result<_, TokenStream>` 经 `?` 传播，
-  由 `util/diagnostic.rs::compile_error_str` 统一构造。
+- **DSL 解析层**（parse/apply）：`Ty::Error` 变体在 AST 链中透传。
+  `Ty::collect_errors` 只遍历结构化类型节点；数组长度等转为不透明 Rust
+  token 之前，先提取其中的 DSL 错误，避免把诊断藏进不可解析的类型。
+- **生成与入口层**（codegen/entry）：`Result<_, TokenStream>` 显式区分
+  成功输出和内部诊断。任一叶子失败时丢弃本次调用的成功输出，preview
+  遵守同一规则。`stringify!`、用户宏、属性和 body 中的 `compile_error!`
+  token 不被扫描或提升；它们是否执行由 Rust 决定。
 
 ## 测试矩阵
 
@@ -473,12 +475,12 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | 目录        | 文件            | 用途                                                                                                                                                                         |
 |-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景；另有 `simplify.rs`（约 15 行 DSL 生成 30 个 impl）与 `typeclass.rs`                    |
-| `src/`      | 文件内 `#[cfg(test)]` 模块 | **246** 个单测（`cargo test --lib`）：按关注点就近放置，并带模块限定以便查找（`codegen::repeat_tests` 32、`codegen::range_worker` 19、`parse` 17、`codegen::sync` 15、`preprocess::varseg` 12、`preprocess::where_process` 12、`preprocess::angle` 9、`codegen::where_at_tests` 7、`testing::fuzz` 6、`codegen::top_level` 5、`preprocess::consts` 6、`ast::param_kind` 5……、`entry::impl_entry` 3） |
+| `src/`      | 文件内 `#[cfg(test)]` 模块 | **250** 个单测（`cargo test --lib`）：按关注点就近放置，并带模块限定以便查找（`codegen::repeat_tests` 32、`codegen::range_worker` 19、`parse` 17、`codegen::sync` 15、`preprocess::varseg` 12、`preprocess::where_process` 12、`preprocess::angle` 9、`codegen::where_at_tests` 7、`testing::fuzz` 6、`codegen::top_level` 5、`preprocess::consts` 6、`ast::param_kind` 5……、`entry::impl_entry` 3） |
 | `src/`      | `testing/`      | crate 级测试基建（全部 `cfg(test)`）：`doc_claims.rs`（把文档里的 `// →` 声明喂进真实展开路径执行——精确 51 条、按片段 31 条、其余 19 条）、`fixture_dirs.rs`（2 个测试：每个 `proptest-regressions/**/*.txt` 必须按 proptest 自身的路径规则映射到源文件；快照目录必须与 specs 的快照名集合相等）、`fuzz.rs`（proptest——5 条属性 + 1 个用例，各 256 cases，随机 token 走真实入口，承诺不 panic）、`golden.rs`（2 个测试覆盖 10 份 `tests/golden/*.golden` 快照，`BLESS=1` 重写——**文本**锁：它钉住渲染出的 token 流，不保证该 token 流是合法 Rust，合法性由 `tests/features/*` 的编译承担）、`perf.rs`（展开开销测量）、`mod.rs`（`GuardAlloc` 256 MiB 分配守卫） |
 | `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
 | `tests/`    | `no_panic/main.rs` | no-panic 守卫：用 `syn` 走遍 `src/**/*.rs`，断言 `#[cfg(test)]` 之外无 panic 构造——包括**宏 token 流内部**铸出的（`quote!(x.unwrap())`）与**限定形式** `Option::unwrap(o)`——且任何属性位置、嵌在 `#[cfg_attr(…)]` 里或**宏体内**的 deny 家族 `#[allow]` / `#[expect]` 都被报出（一刀切静默同样在内：`clippy::all` / `clippy::restriction` / `warnings`）；`#[cfg(test)]` 闸门只跳过裸谓词，因此 `#[cfg(not(test))]` 的代码照样被扫描；crate 级 deny 行本身也被断言（`lib.rs` clippy deny 之外的第二条腿）；**检测器本身有自测**（`no_panic/selftest.rs`：每个臂都喂了合成违规 + 邻近反例，因此 `syn` 升级或收窄的 `matches!` 会让该文件失败而不是静默报 0 违规），唯一记录在案的洞是**宏体内手写的索引**逃过两条腿（`quote!(v[0])`——clippy 看不见宏体，而这里的 `[…]` 组无法与数组类型区分） |
 | `tests/`    | `doc_consistency.rs` + `doc_consistency/reader_entry.rs` | **18** 项文档守卫：源码/模块树、文件路径、双语章节与示例、诊断和计数保持一致；README 入门程序必须能作为带 `main` 的独立 Rust 文件解析。源码导航检查独立 Markdown 锚点及仓库路径/片段，验收另查生成的 rustdoc 链接。历史 changelog 与 architecture 版本前言豁免当前文件引用检查 |
-| `tests/`    | `features/`     | **63** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **387** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
+| `tests/`    | `features/`     | **63** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **392** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
 | `tests/`    | `ui.rs`         | `trybuild` UI 测试：**162** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
 | `tests/` | `pack_model/` | 独立 Pack 提案模型：Python 标准库，17 组测试、有限结构检查、双语教程核对与生成 Rust 的消费验证。执行 `python tests/pack_model/run.py`，独立 CI job 使用同一命令；不等于正式解析器或物化器的验证。 |
 

@@ -84,16 +84,17 @@ use quote::ToTokens;
 /// bounds referencing undeclared params error out; user-bounded params are untouched
 /// (the sub-trait macro cannot infer; writing a bound = user's responsibility).
 ///
-/// Three exits:
-/// - `Ty::Error` → output the `compile_error!` stream directly;
-/// - bare code block `WithCode(None, ...)` (an open-instruction expansion product) →
-///   injected verbatim as a top-level item, not wrapped in an impl;
-/// - otherwise → dismantle metadata (`extract_impl_parts`) → hoist nested generics
-///   (`hoist_type_params`) → build generics / trait generics / impl body → render `quote!`
+/// Errors use a separate result channel throughout generation. Successful
+/// output may contain arbitrary user macro tokens, including `compile_error!`.
 pub(crate) fn generate_impl(
     ty: Ty, trait_name: &TokenStream, is_unsafe_trait: bool, trait_bounds: &TraitBounds,
     trait_param_names: &[Ident],
-) -> TokenStream {
+) -> Result<TokenStream, TokenStream> {
+    let mut errors = vec![];
+    ty.collect_errors(&mut errors);
+    if !errors.is_empty() {
+        return Err(errors.into_iter().collect());
+    }
     // Bare `{...}` as the whole spec. A `!`-marked block (top-level macro
     // form) without an attached type has no spec body to prepend — error
     // instead of emitting invalid Rust (`!` is not an item). Any other bare
@@ -106,7 +107,7 @@ pub(crate) fn generate_impl(
             code.0.clone().into_iter().next(),
             Some(TokenTree::Punct(p)) if p.as_char() == '!'
         );
-        return compile_error_str(
+        return Err(compile_error_str(
             if is_top_marked {
                 "batch-impl: a top-level `{! ...}` block needs an attached type \
                  (the spec body is prepended to the macro input)"
@@ -120,7 +121,7 @@ pub(crate) fn generate_impl(
                 .into_iter()
                 .next()
                 .map_or_else(proc_macro2::Span::call_site, |t| t.span()),
-        );
+        ));
     }
     // Top-level macro form: a chain ending in a `{! ...}` block (or the
     // `#cmd(args){body}` open-extension product) marks a macro call for
@@ -132,44 +133,36 @@ pub(crate) fn generate_impl(
         return match result {
             Ok((spec, mac)) => {
                 if spec.is_empty() {
-                    compile_error_str(
+                    Err(compile_error_str(
                         "batch-impl: a top-level `{! ...}` block needs an attached type \
                          (the spec body is prepended to the macro input)",
                         proc_macro2::Span::call_site(),
-                    )
+                    ))
                 } else if mac.is_empty() {
-                    compile_error_str(
+                    Err(compile_error_str(
                         "batch-impl: a `{! ...}` top-level block must contain a macro \
                          call (e.g. `{! my_macro!{...}}`)",
                         proc_macro2::Span::call_site(),
-                    )
+                    ))
                 } else {
                     // The protocol transports DSL, including fresh identity
                     // carriers. The receiving entry names each selected branch;
                     // naming here would erase the scope of `@N..` predicates.
-                    rewrite_macro_input(mac, spec)
+                    Ok(rewrite_macro_input(mac, spec))
                 }
             }
-            Err(e) => e,
+            Err(e) => Err(e),
         };
-    }
-    if let Ty { kind: TyKind::Error(error), .. } = ty {
-        return error.0;
     }
     // The shared driver has materialized all ordinary targets; extensions
     // took the DSL exit above. Metadata may now safely become token streams.
     let parts = extract_impl_parts(ty);
-    // A **codegen-minted** error rides in the target-type slot — the only
-    // error channel `extract_impl_parts` has (today: an `impl{...}`
-    // attachment classification failure, e.g. an invalid fresh-binding
-    // switch). It replaces the impl with the diagnostic instead of rendering
-    // inside the `for` position: `err_ty` emits the item form, whose trailing
-    // `;` is a syntax error in a type position, so the message would be buried
-    // under "expected `{}`, found `;`" plus the unconstrained-parameter
-    // fallout. Errors minted earlier (parse/apply) never reach here — the
-    // driver's `collect_errors` already reported them.
-    if let Ty { kind: TyKind::Error(e), .. } = &parts.target_type {
-        return e.0.clone();
+    // Extraction can reject an impl attachment through the target slot.
+    // Prefix/dyn/for wrappers may enclose that error, so inspect structure
+    // before the target becomes Rust tokens.
+    parts.target_type.collect_errors(&mut errors);
+    if !errors.is_empty() {
+        return Err(errors.into_iter().collect());
     }
 
     generate_parts(parts, trait_name, is_unsafe_trait, trait_bounds, trait_param_names)

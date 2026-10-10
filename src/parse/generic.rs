@@ -10,9 +10,7 @@ use crate::apply::err_ty_at;
 use crate::ast::*;
 use crate::parse::resolve_at_refs;
 use crate::parse::{Ctx, parse_item};
-use crate::util::{
-    Cursor, compile_error_ty, is_single_colon, scan_stop, slice_from, slice_upto, span_at,
-};
+use crate::util::{Cursor, is_single_colon, scan_stop, slice_from, slice_upto, span_at};
 
 // ============================================================
 // Angle brackets and generic parameters
@@ -87,8 +85,7 @@ pub(crate) fn parse_angle_bracket_contents(
         // declarations carried by generators nested inside a pack.
         // `@N` position refs inside angle args (`Box<@0>`) are not parsed as
         // types (flat token splitting) — resolve them to fresh names here.
-        // A resolution error yields a `compile_error!` token stream that
-        // surfaces when the impl header is rendered.
+        // Resolution errors remain structural until the entry reports them.
         if let Some(eq) = scan_stop(chunk, &['=']) {
             if position == ArgsPosition::Declaration {
                 // A declaration block declares **parameters**; an associated-type
@@ -109,11 +106,10 @@ pub(crate) fn parse_angle_bracket_contents(
                 let name = slice_upto(chunk, eq);
                 let name_ty = TyPrimitive(name.iter().cloned().collect()).to_ty();
                 let value = match resolve_at_refs(slice_from(chunk, eq + 1)) {
-                    Ok(v) if v.is_empty() => TyPrimitive(compile_error_ty(
+                    Ok(v) if v.is_empty() => err_ty_at(
                         "batch-impl: binding `Item =` missing a value (write `Item = u32`)",
                         span_at(chunk, eq),
-                    ))
-                    .to_ty(),
+                    ),
                     // Bindings have one type slot: a singleton pack is legal;
                     // materialization reports an empty or multi-slot result.
                     Ok(v) => parse_item(&mut Cursor::new(&v), Op::Space, ctx).unwrap_or_else(empty),
@@ -128,11 +124,10 @@ pub(crate) fn parse_angle_bracket_contents(
             } else {
                 params.push((
                     Box::new(
-                        TyPrimitive(compile_error_ty(
+                        err_ty_at(
                             "batch-impl: binding args (`Item = u32`) are only valid on a trait path (`Conv<Item = u32> X`) or in a bound (`T: Iterator<Item = u8>`) — a concrete type's args are a plain type list",
                             span_at(chunk, eq),
-                        ))
-                        .to_ty(),
+                        ),
                     ),
                     None,
                 ));
@@ -142,11 +137,10 @@ pub(crate) fn parse_angle_bracket_contents(
                 params.push((
                     Box::new(parse_param_name(slice_upto(chunk, colon), ctx)),
                     Some(Box::new(if slice_from(chunk, colon + 1).is_empty() {
-                        TyPrimitive(compile_error_ty(
+                        err_ty_at(
                             "batch-impl: bound `T:` missing a bound (write `T: Clone`)",
                             span_at(chunk, colon),
-                        ))
-                        .to_ty()
+                        )
                     } else {
                         // A bound is a `+`-chain (`Clone + Send + 'a`) — the
                         // bound operator is not a space application.
@@ -159,11 +153,10 @@ pub(crate) fn parse_angle_bracket_contents(
             } else {
                 params.push((
                     Box::new(
-                        TyPrimitive(compile_error_ty(
+                        err_ty_at(
                             "batch-impl: bound args (`T: Clone`) are only valid on a trait path, in a generic declaration (`<T: Clone> Foo`) or in a bound — a concrete type's args are a plain type list",
                             span_at(chunk, colon),
-                        ))
-                        .to_ty(),
+                        ),
                     ),
                     None,
                 ));

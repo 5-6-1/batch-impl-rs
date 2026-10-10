@@ -84,7 +84,7 @@ pub(crate) fn collect_shape_mapping(
 pub(crate) fn render_impl(
     parts: ImplParts, where_resolved: Vec<TokenStream>, target_tokens: TokenStream,
     trait_name: Option<&TokenStream>, is_unsafe_trait: bool, fresh_ctx: Option<&FreshCtx>,
-) -> TokenStream {
+) -> Result<TokenStream, TokenStream> {
     let is_unsafe = is_unsafe_trait || parts.is_unsafe_impl;
 
     // impl generic params (with bounds)
@@ -106,18 +106,15 @@ pub(crate) fn render_impl(
             // Only the attribute entry has placeholders, and it always passes a
             // context; reaching this means the invariant broke, so report instead
             // of dropping the args silently.
-            return crate::util::compile_error_str(
+            return Err(crate::util::compile_error_str(
                 "batch-impl: internal error: trait-arg placeholders without a fresh context \
                  (please report this spelling)",
                 proc_macro2::Span::call_site(),
-            );
+            ));
         };
         let mut names = vec![];
         for n in &parts.trait_generic_names {
-            match crate::codegen::range_refs::expand_range_refs(n.clone(), fresh_ctx) {
-                Ok(expanded) => names.push(expanded),
-                Err(e) => return e,
-            }
+            names.push(crate::codegen::range_refs::expand_range_refs(n.clone(), fresh_ctx)?);
         }
         trait_gen = quote!(<#(#names),*>);
     }
@@ -160,7 +157,7 @@ pub(crate) fn render_impl(
         // Inherent impl (impl entry only): no `for` section.
         None => quote!(impl #impl_gen #target),
     };
-    render_impl_block(&attrs, is_unsafe, head, where_clause, &body_tokens)
+    Ok(render_impl_block(&attrs, is_unsafe, head, where_clause, &body_tokens))
 }
 
 /// The impl block's **textual skeleton** — the one place that knows how a

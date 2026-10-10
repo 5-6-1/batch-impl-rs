@@ -5,6 +5,11 @@
 > English docs are the release artifact, translated from the development Chinese docs in
 > `docs/zh-CN/` right before publishing.
 
+## Unreleased
+
+- Fix user-written `compile_error!` tokens being mistaken for internal macro diagnostics: preserve their context inside `stringify!`, disabled `cfg` branches, user-defined macros and open-extension inputs. Real DSL errors still replace the invocation's generated output, and preview follows the same policy.
+- Correct the Pack model notes: `*` opens only candidate lists, while a complete tuple remains one type. Record the verified boundaries of per-position construction, parameter sharing and two-axis composition; two independent `0..=4` tuple generators produce 25 combinations.
+
 ## 0.10.2 — 2026-10-05
 
 > Released **2026-10-05** as 0.10.2, a patch on 0.10.1: two diagnostics the impl entry could not give before, and

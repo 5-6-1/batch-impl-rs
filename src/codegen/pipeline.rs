@@ -17,7 +17,7 @@ use super::*;
 pub(crate) fn generate_parts(
     mut parts: ImplParts, trait_name: &TokenStream, is_unsafe_trait: bool,
     trait_bounds: &TraitBounds, trait_param_names: &[Ident],
-) -> TokenStream {
+) -> Result<TokenStream, TokenStream> {
     // Codegen postprocess: substitute trait generic params in the body
     // (`From<bool>`: `value: T` → `value: bool` — the directive-copied
     // signature and user code block). ImplParts carries the arg names.
@@ -110,14 +110,8 @@ pub(crate) fn generate_parts(
     // inside a template (`impl{GenW<>}`) is not valid Rust before it, so this is
     // the templates' one parse site (`render::parse_impl_templates`) and the shape
     // kernel receives types instead of tokens.
-    let synced_templates = match sync_impl_parts(&mut parts, trait_name) {
-        Ok(t) => t,
-        Err(e) => return e,
-    };
-    parts.shape_templates = match render::parse_impl_templates(&synced_templates) {
-        Ok(t) => t,
-        Err(e) => return e,
-    };
+    let synced_templates = sync_impl_parts(&mut parts, trait_name)?;
+    parts.shape_templates = render::parse_impl_templates(&synced_templates)?;
     // where-predicate macro-meta replacement (`@N` → impl generic N) + bare-splat rejection
     let mut where_resolved = match resolve_where_predicates(&parts.where_clauses, &fresh_ctx) {
         Ok(ws) => ws,
@@ -133,7 +127,7 @@ pub(crate) fn generate_parts(
     // the declared set is still readable off the carriers.
     errs.extend(validate_at_refs(&parts.target_type, &parts.trait_generic_names, &fresh_ctx));
     if !errs.is_empty() {
-        return errs.into_iter().collect();
+        return Err(errs.into_iter().collect());
     }
 
     // Declarations take their final display names — after validation, before
@@ -147,10 +141,7 @@ pub(crate) fn generate_parts(
         if let Some(b) = bound
             && b.to_token_stream().to_string().contains('@')
         {
-            let resolved = match range_refs::expand_range_refs(b.to_token_stream(), &fresh_ctx) {
-                Ok(t) => t,
-                Err(e) => return e,
-            };
+            let resolved = range_refs::expand_range_refs(b.to_token_stream(), &fresh_ctx)?;
             *b = TyPrimitive(resolved).to_ty();
         }
     }
@@ -160,9 +151,7 @@ pub(crate) fn generate_parts(
     // entries already carry display names — unique among freshs and skipping
     // every user-written ident by construction; an overlap with an existing
     // declaration is skipped, not duplicated.
-    if let Err(e) = range_refs::expand_range_decls(&mut parts.impl_generics, &fresh_ctx) {
-        return e;
-    }
+    range_refs::expand_range_decls(&mut parts.impl_generics, &fresh_ctx)?;
 
     // The target type's references resolve now: its tokens must be valid
     // Rust before the shape kernel syn-parses them, and the resolvers emit
@@ -171,17 +160,14 @@ pub(crate) fn generate_parts(
     // collision set predates it, and the sync may have filled empty brackets
     // (`dyn SyncMarker<> + Send` → `dyn SyncMarker<T> + Send`).
     let target_tokens =
-        match range_refs::expand_range_refs(parts.target_type.to_token_stream(), &fresh_ctx) {
-            Ok(t) => t,
-            Err(e) => return e,
-        };
+        range_refs::expand_range_refs(parts.target_type.to_token_stream(), &fresh_ctx)?;
     // A fresh range that covers nothing leaves an empty argument list: with no fresh
     // generics in scope, `Vec<@0..>` becomes `Vec<>`. Returning zero is deliberate in
     // `range_count` *for where predicates*, but an empty `<>` is never a legal target
     // type, and handing it over produced a half-built impl whose only complaint was
     // rustc's E0107, aimed at the type rather than at the attribute.
     if let Some(err) = empty_angle_group(&target_tokens) {
-        return err;
+        return Err(err);
     }
     // shape template: the `impl{...}` shape templates — match each template
     // against the leaf target type, merge the slot mappings, and apply the
@@ -211,7 +197,7 @@ pub(crate) fn generate_parts(
             &declared_consts,
         ) {
             Ok((m, s)) => (m, s),
-            Err(e) => return compile_error_str(&e.message(), target_span),
+            Err(e) => return Err(compile_error_str(&e.message(), target_span)),
         }
     };
     // Only declared const slots affect the attribute's declarations and trait
@@ -229,7 +215,7 @@ pub(crate) fn generate_parts(
     // nothing expands inside a predicate; see `render_impl`'s note) is not a
     // predicate either.
     if let Some(e) = validate_where_predicates(&where_resolved) {
-        return e;
+        return Err(e);
     }
     if let Some(b) = &mut parts.body {
         // Body token postprocessing lives together here, where the impl's
@@ -253,12 +239,12 @@ pub(crate) fn generate_parts(
             && parts.fresh_binding.is_none()
             && let Some(carrier_span) = body_has_carrier(b)
         {
-            return compile_error_str(
+            return Err(compile_error_str(
                 "batch-impl: a `@{N}` fresh reference in the body requires the \
                  `impl{@{}}` body-slot switch (declare it on the spec, e.g. \
                  `impl{@{}}`); without it, `@` in a body starts a repeat block",
                 carrier_span,
-            );
+            ));
         }
         let binding = parts.fresh_binding;
         let cx = RepeatCtx {
@@ -268,14 +254,8 @@ pub(crate) fn generate_parts(
             binding,
             budget: Cell::new(MAX_REPEAT_TOKENS),
         };
-        let expanded = match expand_repeat_blocks(b.clone(), &cx) {
-            Ok(e) => e,
-            Err(e) => return e,
-        };
-        let expanded = match range_refs::expand_range_refs(expanded, &fresh_ctx) {
-            Ok(e) => e,
-            Err(e) => return e,
-        };
+        let expanded = expand_repeat_blocks(b.clone(), &cx)?;
+        let expanded = range_refs::expand_range_refs(expanded, &fresh_ctx)?;
         *b = if shape_map.slots().is_empty() {
             expanded
         } else {

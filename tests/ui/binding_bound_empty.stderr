@@ -1,7 +1,5 @@
 error: batch-impl: binding `Item =` missing a value (write `Item = u32`)
- --> tests/ui/binding_bound_empty.rs:6:1
+ --> tests/ui/binding_bound_empty.rs:6:24
   |
 6 | #[batch_impl(Conv<Item =>)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                        ^

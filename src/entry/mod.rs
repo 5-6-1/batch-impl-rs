@@ -3,8 +3,8 @@
 //!
 //! Error handling split: this (entry) layer propagates `Result<_, TokenStream>` via
 //! `?` and builds errors uniformly with `compile_error_str`; the DSL layer (parse/
-//! apply/codegen) passes `Ty::Error` through the AST chain — the two mechanisms serve
-//! different layers and are never merged.
+//! apply) passes `Ty::Error` through the AST chain. Codegen and entry report these
+//! structural errors through `Result`, without inspecting rendered user tokens.
 //!
 //! Common pipeline [`run_pipeline`] = DSL parse/expand → generate impl → restore angle
 //! brackets. `angle_collect` and the bare `where` rewrite are **not in** the pipeline:
@@ -64,7 +64,7 @@ fn run_pipeline(
         start_trait,
         trait_bounds,
         trait_param_names,
-    );
+    )?;
     // Exit conversion: restore angle-bracket groups to flat `<...>` tokens (see render_angles)
     Ok(render_angles(impls))
 }
@@ -280,6 +280,7 @@ pub(crate) fn expand_batch_trait(
     let tokens = where_done.into_tokens();
     let mut cursor = Cursor::new(&tokens);
     let mut result = quote![];
+    let mut errors = TokenStream::new();
     loop {
         // Fresh-generator group ids are DSL-local per segment (each segment
         // generates independent impl sets).
@@ -355,22 +356,24 @@ pub(crate) fn expand_batch_trait(
         // this segment's full trait path — the `@type_t=<T>@trait<T>` cross-segment reuse
         // scenario (`A: @type_t ...` / `B: @type_t ...`).
         let spec = replace_segment_trait(spec, &trait_full_path)?;
-        result.extend(respan_call_site(
-            run_pipeline(
-                &spec,
-                Op::Comma,
-                &trait_full_path,
-                trait_last_ident,
-                is_unsafe,
-                None,
-                // batch_trait! has no trait definition, so generic bounds cannot be inherited
-                &Default::default(),
-                &[],
-            )?,
-            segment_span,
-        ));
+        match run_pipeline(
+            &spec,
+            Op::Comma,
+            &trait_full_path,
+            trait_last_ident,
+            is_unsafe,
+            None,
+            // batch_trait! has no trait definition, so generic bounds cannot be inherited
+            &Default::default(),
+            &[],
+        ) {
+            Ok(impls) => result.extend(respan_call_site(impls, segment_span)),
+            Err(error) => errors.extend(respan_call_site(error, segment_span)),
+        }
     }
-    Ok(result.into())
+    // Preserve all segment diagnostics and their locations, without keeping
+    // successful impls beside an internal failure.
+    if errors.is_empty() { Ok(result.into()) } else { Err(errors) }
 }
 
 /// Give every token that still points at the macro **call site** the span of the segment it came from.

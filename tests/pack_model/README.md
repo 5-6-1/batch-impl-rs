@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-**Pack v2 is integrated into the batch-impl 0.10.0 development version.**
+**Pack v2 is implemented in batch-impl; these rules were checked against 0.10.2.**
 This directory preserves an independent executable semantic model for comparison
 with the public macro. Passing these checks does not replace production regression
 tests or establish release readiness. `tests/` is excluded from the published crate.
