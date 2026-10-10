@@ -291,6 +291,7 @@ fn ui() {
     // cursor-only blocks: multi-segment templates need a declared driver;
     // a declared driver must not conflict with inner references
     t.compile_fail("tests/ui/impl_shape_repeat_cursor_multi.rs");
+    t.compile_fail("tests/ui/impl_shape_repeat_cursor_literal.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_driver_conflict.rs");
     // a fresh-binding switch whose range covers no fresh (`@2..1` / `@2..=1`)
     // binds nothing: targeted error, not a silent re-open and not the

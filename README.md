@@ -193,12 +193,14 @@ The macro runs at compile time. `cargo test --lib perf -- --nocapture` measures 
 
 Existing token semantics are covered by the syntax-freeze commitment introduced in 0.7.2. Compatible releases add capabilities, improve diagnostics and correct behavior that contradicts the documented rules. Deliberate syntax changes require a compatibility boundary and migration notes.
 
-This development cycle targets **0.10.0**, rather than the previously planned 0.9.8, because it includes deliberate breaking changes. Cargo's `"0.9.7"` requirement permits 0.9.8 but excludes 0.10.0; see [Cargo's version rules](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements).
+The released transition from **0.9.x to 0.10.0** included the breaking changes below. Cargo's `"0.9.7"` requirement permits 0.9.8 but excludes 0.10.0; see [Cargo's version rules](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements).
 
 - Replace removed `@all_fresh` with `@0..`.
 - `*` opens candidate lists only: write `*[F,G] T` to map both constructors. A tuple is a type, so `*(F,G)` is one member — the tuple — and `*(F,G) T` appends `T` into it. A lone pack no longer turns a group into a container: use `(*X,)` / `[*X,]`. See [the Pack migration rules](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md#46-branches-coherence-and-migration).
 - Rename custom constants named `Self`; `@Self` is now reserved for the impl entry's input self type.
 - Named type-family ranges follow Rust's endpoint convention: `@u8..u16` selects only `u8`; use `@u8..=u16` to keep both. Omitted upper endpoints still include the family's **maximum** - `@u16..` is `@u16..=u128`, and neither `usize` nor `isize` belongs to a range family.
+
+The current **Unreleased changes after 0.10.2** add a separate breaking impl-entry requirement: every nonempty spec must use `template: source`. Follow the [explicit mapping rules](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md#92-the-impl-entry-explicit-shape-specs) to choose which positions in the prototype should change. These changes are not part of the published 0.10.2 release.
 
 The [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) records the full migration. The source and docs on `main` describe ongoing development; use a release's versioned documentation when maintaining that release.
 

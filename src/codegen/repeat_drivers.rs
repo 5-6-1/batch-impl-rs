@@ -6,7 +6,7 @@
 //! `$(...)*` semantics; `@N` → `N + i`).
 
 use super::repeat::output::Output;
-use proc_macro2::{Literal, TokenStream, TokenTree};
+use proc_macro2::{Literal, Punct, Spacing, TokenStream, TokenTree};
 
 use crate::codegen::VarSeg;
 /// Repairs the float-literal tokenization of `数字.@`: the tokenizer reads
@@ -23,7 +23,39 @@ pub(super) fn fix_literal_at(tokens: &[TokenTree], at: usize) -> Option<[TokenTr
     Some([TokenTree::Literal(field), TokenTree::Punct(dot)])
 }
 
-use crate::util::{MAX_NEST_DEPTH, compile_error_str, depth_err, is_punct_at, tokens_to_string};
+use crate::util::{
+    MAX_NEST_DEPTH, Op, compile_error_str, depth_err, is_punct_at, read_op, tokens_to_string,
+};
+
+/// `self.@0.1` lexes its two indices as one literal. Split only an
+/// unsuffixed decimal pair in a field position; floats elsewhere stay Rust.
+fn cursor_field(
+    tokens: &[TokenTree], at: usize, literal: &Literal,
+) -> Option<(usize, [TokenTree; 2])> {
+    let previous = at.checked_sub(1)?;
+    if !matches!(read_op(tokens, previous), Some((Op::Dot, 1)))
+        || previous.checked_sub(1).is_some_and(|before| {
+            matches!(read_op(tokens, before), Some((Op::DotDot | Op::DotDotEq, _)))
+        })
+    {
+        return None;
+    }
+    let spelling = literal.to_string();
+    let (cursor, field) = spelling.split_once('.')?;
+    if cursor.is_empty()
+        || field.is_empty()
+        || !cursor.bytes().all(|b| b.is_ascii_digit())
+        || !field.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    let cursor = cursor.parse::<usize>().ok()?;
+    let mut field = field.parse::<Literal>().ok()?;
+    field.set_span(literal.span());
+    let mut dot = Punct::new('.', Spacing::Alone);
+    dot.set_span(literal.span());
+    Some((cursor, [TokenTree::Punct(dot), TokenTree::Literal(field)]))
+}
 
 /// The inner segment references of a block body: the deduplicated `@ident`
 /// prefixes (first-appearance order) and their common length (`None` when the
@@ -231,10 +263,15 @@ pub(crate) fn substitute(
                     continue;
                 }
                 Some(TokenTree::Literal(lit)) => {
-                    let Ok(n) = lit.to_string().parse::<usize>() else {
+                    let parsed =
+                        lit.to_string().parse::<usize>().ok().map(|n| (n, None)).or_else(|| {
+                            cursor_field(tokens, i, lit).map(|(n, tail)| (n, Some(tail)))
+                        });
+                    let Some((n, tail)) = parsed else {
                         return Err(compile_error_str(
-                            "batch-impl: `@` inside a repeat block must be followed by a \
-                             segment name (`@ident`) or a number (`@0`)",
+                            "batch-impl: a repeat cursor requires an unsuffixed decimal integer \
+                             (`@0`); nested tuple fields can be written as `self.@0.1` or \
+                             `(self.@0).1`",
                             lit.span(),
                         ));
                     };
@@ -243,6 +280,9 @@ pub(crate) fn substitute(
                     // would overflow in debug builds (no-panic promise).
                     let val = Literal::u64_unsuffixed((n.saturating_add(round)) as u64);
                     out.push(TokenTree::Literal(val))?;
+                    if let Some(tail) = tail {
+                        out.extend(tail)?;
+                    }
                     i += 2;
                     continue;
                 }

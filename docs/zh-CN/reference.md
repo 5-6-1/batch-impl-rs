@@ -667,6 +667,13 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 典型形状：一条带变长段的模板覆盖一个元组族的全部元数（`().1..=4 where @0..: Magma impl{(A@..)} #combine{…}`），body 的重复块逐轮写出该轮的元素。
 
+索引游标后可以直接接元组字段：`self.@0.1` 与 `(self.@0).1` 等价。只有
+`@0` 随轮次递增，`.1` 保持固定。驱动长度为三轮时：
+
+```text
+@(self.@0.1,)..  →  self.0.1, self.1.1, self.2.1,
+```
+
 ### 8.5 边界
 
 | 形态 | 会发生什么 |
@@ -971,6 +978,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `impl_shape_repeat_driver_conflict` | 驱动 `@A` 与内层 `@B` 冲突 | batch-impl: repeat block driver `@A` conflicts with the inner segment reference `@B` (they must be the same) | DSL |
 | `impl_shape_repeat_bare_at` | body 里裸写 `@foo` | batch-impl: `@` inside an impl body must start a repeat block `@(...)..` (or `@ident(...)..` with the driving segment declared) | DSL |
 | `impl_shape_repeat_cursor_multi` | 多模板下只有游标块 | batch-impl: a cursor-only repeat block needs a driving segment — with several template segments write `@ident(...)..` declaring the driver | DSL |
+| `impl_shape_repeat_cursor_literal` | 小数或带后缀的重复游标；小数形态仅在元组字段链中拆分 | batch-impl: a repeat cursor requires an unsuffixed decimal integer (`@0`); nested tuple fields can be written as `self.@0.1` or `(self.@0).1` | DSL |
 | `impl_shape_repeat_invalid_switch` | `impl{@2..1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
 | `impl_shape_repeat_invalid_switch_closed` | `impl{@2..=1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
 | `impl_shape_repeat_no_driver` | 无开关的纯游标 body 块 | expected one of `.`, `;`, `?`, `}`, or an operator, found `,` | rustc |

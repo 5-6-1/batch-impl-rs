@@ -1679,6 +1679,14 @@ trait ShapeElems { fn elems(&self) -> (u8, u16, u32); }
 //  explicit spelling, also valid for multi-segment templates)
 ```
 
+Nested tuple fields can be written directly as `self.@0.1`, equivalent to
+`(self.@0).1`. Only `@0` advances with the round; the following `.1` stays fixed.
+For a block driven for three rounds:
+
+```text
+@(self.@0.1,)..  →  self.0.1, self.1.1, self.2.1,
+```
+
 The alga2-style end-to-end — one spec covers every tuple arity, with
 `@0..` constraining every fresh generic:
 

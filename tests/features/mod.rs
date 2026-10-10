@@ -74,6 +74,7 @@ pub(crate) mod regression_arrays_prefix;
 pub(crate) mod regression_basics;
 pub(crate) mod regression_consistency;
 pub(crate) mod regression_macros_path;
+pub(crate) mod repeat_tuple_fields;
 pub(crate) mod shape_template_adaptation;
 pub(crate) mod shape_template_advanced;
 pub(crate) mod shape_template_basic;

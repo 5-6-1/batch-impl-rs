@@ -710,6 +710,14 @@ The mapping is applied once to the prototype's **`where` predicates** and **body
 
 Typical shape: one spec with a template carrying the segment covers every arity of a tuple family (`().1..=4 where @0..: Magma impl{(A@..)} #combine{…}`), and the body's repeat block writes each round's elements.
 
+An index cursor can be followed directly by a tuple field: `self.@0.1` is
+equivalent to `(self.@0).1`. Only `@0` advances each round; `.1` remains fixed.
+With a three-round driver:
+
+```text
+@(self.@0.1,)..  →  self.0.1, self.1.1, self.2.1,
+```
+
 ### 8.5 Boundaries
 
 | Shape | What happens |
@@ -1028,6 +1036,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `impl_shape_repeat_driver_conflict` | driver `@A` vs inner `@B` | batch-impl: repeat block driver `@A` conflicts with the inner segment reference `@B` (they must be the same) | DSL |
 | `impl_shape_repeat_bare_at` | a bare `@foo` in a body | batch-impl: `@` inside an impl body must start a repeat block `@(...)..` (or `@ident(...)..` with the driving segment declared) | DSL |
 | `impl_shape_repeat_cursor_multi` | a cursor-only block with several templates | batch-impl: a cursor-only repeat block needs a driving segment — with several template segments write `@ident(...)..` declaring the driver | DSL |
+| `impl_shape_repeat_cursor_literal` | fractional or suffixed repeat cursor; a decimal pair is only split in a tuple-field chain | batch-impl: a repeat cursor requires an unsuffixed decimal integer (`@0`); nested tuple fields can be written as `self.@0.1` or `(self.@0).1` | DSL |
 | `impl_shape_repeat_invalid_switch` | `impl{@2..1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
 | `impl_shape_repeat_invalid_switch_closed` | `impl{@2..=1}` | batch-impl: invalid fresh-binding switch — the range covers no fresh (`@2..1` / `@2..=1`); write `@N..` / `@N..=M` with `N <= M` | DSL |
 | `impl_shape_repeat_no_driver` | a cursor-only body block with no switch | expected one of `.`, `;`, `?`, `}`, or an operator, found `,` | rustc |

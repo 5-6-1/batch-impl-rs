@@ -1,0 +1,29 @@
+error: batch-impl: a repeat cursor requires an unsuffixed decimal integer (`@0`); nested tuple fields can be written as `self.@0.1` or `(self.@0).1`
+ --> tests/ui/impl_shape_repeat_cursor_literal.rs:4:1
+  |
+4 | / #[batch_impl(().1 impl{@0..} {
+5 | |     fn bad(&self) { @(let _ = @0.1;).. }
+6 | | })]
+  | |___^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a repeat cursor requires an unsuffixed decimal integer (`@0`); nested tuple fields can be written as `self.@0.1` or `(self.@0).1`
+  --> tests/ui/impl_shape_repeat_cursor_literal.rs:9:1
+   |
+ 9 | / #[batch_impl(().1 impl{@0..} {
+10 | |     fn bad(&self) { @(let _ = self.@0.1f32;).. }
+11 | | })]
+   | |___^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: batch-impl: a repeat cursor requires an unsuffixed decimal integer (`@0`); nested tuple fields can be written as `self.@0.1` or `(self.@0).1`
+  --> tests/ui/impl_shape_repeat_cursor_literal.rs:14:1
+   |
+14 | / #[batch_impl(().1 impl{@0..} {
+15 | |     fn bad(&self) { @(let _ = 0..@0.1;).. }
+16 | | })]
+   | |___^
+   |
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -298,6 +298,56 @@ fn float_literal_at_path_fixed() {
 }
 
 #[test]
+fn cursor_followed_by_a_tuple_field_keeps_the_field_fixed() {
+    assert_eq!(expand_fresh("@(self.@0.1,)..", 2).unwrap(), "self .0 . 1 , self .1 . 1 ,");
+    for (source, expected) in [
+        ("@(self.@1.0,)..", "self.1.0,self.2.0,"),
+        ("@(self.0.@0.1.2,)..", "self.0.0.1.2,self.0.1.1.2,"),
+        ("@(self.@0.@1,)..", "self.0.1,self.1.2,"),
+        ("@((self.@0).1,)..", "(self.0).1,(self.1).1,"),
+        ("@(self.@0.1 + 0.5,)..", "self.0.1+0.5,self.1.1+0.5,"),
+    ] {
+        assert_eq!(expand_fresh(source, 2).unwrap().replace(' ', ""), expected, "{source}");
+    }
+}
+
+#[test]
+fn nested_tuple_field_cursors_are_expanded_once() {
+    let out = expand("@A(self.@0.0; @B(self.@1.1;)..)..").unwrap();
+    assert_eq!(
+        out.replace(' ', ""),
+        "self.0.0;self.1.1;self.2.1;self.1.0;self.1.1;self.2.1;self.2.0;self.1.1;self.2.1;"
+    );
+}
+
+#[test]
+fn invalid_cursor_literals_report_the_required_integer() {
+    for body in [
+        "@0.1",
+        "self..@0.1",
+        "self.@0.1f32",
+        "self.@0.1e2",
+        "self.@0_0.1",
+        "@0u8",
+        "@0x0",
+        "@\"0\"",
+    ] {
+        let error = expand_fresh(&format!("@({body},).."), 1).unwrap_err();
+        assert!(
+            error.contains("a repeat cursor requires an unsuffixed decimal integer"),
+            "{body}: {error}"
+        );
+    }
+}
+
+#[test]
+fn tuple_field_cursor_split_counts_every_output_token() {
+    let segs = vec![VarSeg { prefix: "A".into(), start: 0, len: 2 }];
+    assert!(expand_budget("@A(self.@0.1,)..", &segs, 12).is_ok());
+    assert!(expand_budget("@A(self.@0.1,)..", &segs, 11).is_err());
+}
+
+#[test]
 fn plain_body_passthrough() {
     let s = "fn combine (& self , rhs : & Self) -> Self { todo ! () }";
     assert_eq!(expand(s).unwrap(), s);
