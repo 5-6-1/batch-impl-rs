@@ -407,7 +407,7 @@ fn expand_leaf(
             )
         })?;
         m.merge(m2).map_err(|e| compile_error_str(&e.message(), lt_span))?;
-        template_segs.extend(segs2);
+        crate::codegen::merge_segments(&mut template_segs, segs2);
     }
     // for-Type: slot names rewritten to the bound leaf subtrees.
     let for_ty = apply_type_mapping(item.self_ty.to_token_stream(), &m);

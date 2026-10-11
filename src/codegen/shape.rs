@@ -16,39 +16,32 @@
 use proc_macro2::{TokenStream, TokenTree};
 use std::collections::HashSet;
 
-/// A variadic segment (`ident@..`) resolved by a shape match: the name
-/// prefix, the leaf start index (= the name numbering start), and the
-/// element count. Collected in template order; duplicate prefixes are
-/// rejected by the match.
+/// One variadic segment (`P@..`): each target element contributes an
+/// independent row of captures. Multiple names in that row share a driver.
+/// Names are collected from the pattern even when the segment has no rows.
 #[derive(Clone, Debug)]
 pub(crate) struct VarSeg {
-    pub(crate) prefix: String,
+    pub(crate) names: Vec<String>,
     pub(crate) start: usize,
-    pub(crate) len: usize,
+    pub(crate) rows: Vec<Mapping>,
 }
 
-/// The slot mapping produced by a shape match. Two channels, split by who
-/// wrote the name:
-/// - `slots` — **user-written** fixed placeholder names (`W`, `T` in
-///   `impl{W<T>}`, the fixed tuple element `T` in `impl{(T, A@..)}`);
-///   rewritten in where/body via [`apply_mapping`], and in an impl entry's
-///   prototype type/trait arguments via [`apply_type_mapping`]. An attribute
-///   entry's already-resolved target leaf is never rewritten.
-/// - `segs` — **variadic-segment elements** (`A@..`), keyed by the
-///   structured `(prefix, leaf position)` pair; consumed directly by the
-///   repeat-block substitution (`repeat_drivers.rs::substitute`, which
-///   splices each round's element into the body), never as a bare name.
-///
-/// Both are order-preserving (rendering walks them in match order). The separate
-/// `literals` list constrains matching and merging without becoming a replacement
-/// slot or causing an unchanged generic declaration to be removed.
-#[derive(Default)]
+impl VarSeg {
+    pub(crate) fn len(&self) -> usize {
+        self.rows.len()
+    }
+}
+
+/// Captures from one ordinary shape match. `slots` rewrite user-written
+/// names; equal positions in `literals` constrain matching without becoming
+/// replacement slots or removing unchanged generic declarations. Segment rows
+/// use both channels as values, including identity captures.
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Mapping {
     slots: Vec<(String, TokenStream)>,
     // Equal positions constrain subsequent matches without becoming replacement
     // slots: identity mappings must never remove an impl's generic declaration.
     literals: Vec<(String, TokenStream)>,
-    segs: Vec<((String, usize), TokenStream)>,
 }
 
 impl Mapping {
@@ -85,29 +78,24 @@ impl Mapping {
         Ok(())
     }
 
-    /// Binds segment element `(prefix, pos)` to its leaf subtree; same
-    /// re-binding rules as [`Mapping::bind`].
-    pub(crate) fn bind_seg(
-        &mut self, prefix: &str, pos: usize, value: TokenStream,
-    ) -> Result<(), ShapeError> {
-        if let Some(entry) = self.segs.iter_mut().find(|((p, k), _)| *p == prefix && *k == pos) {
-            let old = entry.1.clone();
-            if old.to_string() != value.to_string() {
-                return Err(ShapeError::InconsistentBinding(
-                    format!("{prefix}#{}", pos),
-                    old,
-                    value,
-                ));
-            }
-            return Ok(());
-        }
-        self.segs.push(((prefix.to_string(), pos), value));
-        Ok(())
-    }
-
     /// The user-slot entries (slot name, bound value), in match order.
     pub(crate) fn slots(&self) -> &[(String, TokenStream)] {
         &self.slots
+    }
+
+    /// Every captured name, including identities, once. Replacement slots
+    /// precede identity-only names; consumers must not infer source positions.
+    pub(crate) fn captures(&self) -> impl Iterator<Item = (&str, &TokenStream)> {
+        self.slots
+            .iter()
+            .chain(
+                self.literals.iter().filter(|(name, _)| !self.slots.iter().any(|(n, _)| n == name)),
+            )
+            .map(|(name, value)| (name.as_str(), value))
+    }
+
+    pub(crate) fn capture(&self, name: &str) -> Option<&TokenStream> {
+        self.captures().find_map(|(n, value)| (n == name).then_some(value))
     }
 
     /// Restricts rewriting to selected declared names. Literal constraints belong
@@ -119,13 +107,6 @@ impl Mapping {
         }
     }
 
-    /// The bound leaf subtree of one segment element `(prefix, pos)` — the
-    /// repeat-block substitution reads these directly and splices the value
-    /// into the round's output (`@ident` → the i-th element's tokens).
-    pub(crate) fn seg_value(&self, prefix: &str, pos: usize) -> Option<&TokenStream> {
-        self.segs.iter().find(|((p, k), _)| p == prefix && *k == pos).map(|(_, v)| v)
-    }
-
     /// Merges another mapping into this one; a conflicting re-binding of
     /// the same slot errors (`InconsistentBinding`), identical ones are kept.
     pub(crate) fn merge(&mut self, other: Mapping) -> Result<(), ShapeError> {
@@ -135,10 +116,39 @@ impl Mapping {
         for (name, value) in other.slots {
             self.bind(&name, value)?;
         }
-        for (key, value) in other.segs {
-            self.bind_seg(&key.0, key.1, value)?;
-        }
         Ok(())
+    }
+}
+
+/// Repeated attachments of the same captures are idempotent. Distinct rows
+/// or positions remain distinct segments; ambiguous names are resolved by the
+/// repeat consumer rather than guessing which segment the user meant.
+pub(crate) fn merge_segments(segments: &mut Vec<VarSeg>, incoming: Vec<VarSeg>) {
+    // Match against earlier attachments only, preserving the multiplicity of
+    // distinct segments inside one template even when their rows are equal.
+    let mut matched = vec![false; segments.len()];
+    for segment in incoming {
+        let duplicate = segments.iter().zip(matched.iter_mut()).any(|(existing, used)| {
+            let same = !*used
+                && existing.start == segment.start
+                && existing.names.len() == segment.names.len()
+                && existing.names.iter().all(|name| segment.names.contains(name))
+                && existing.len() == segment.len()
+                && existing.rows.iter().zip(&segment.rows).all(|(a, b)| {
+                    a.captures().count() == b.captures().count()
+                        && a.captures().all(|(name, value)| {
+                            b.capture(name)
+                                .is_some_and(|other| value.to_string() == other.to_string())
+                        })
+                });
+            if same {
+                *used = true;
+            }
+            same
+        });
+        if !duplicate {
+            segments.push(segment);
+        }
     }
 }
 /// Shape-match failure: the template cannot destructure the leaf.
@@ -146,8 +156,8 @@ impl Mapping {
 pub(crate) enum ShapeError {
     /// Structural or verbatim mismatch (template vs leaf shapes differ).
     ShapeMismatch(String),
-    /// The same slot bound to two different subtrees across merged
-    /// templates (`impl{...} impl{...}`).
+    /// The same slot bound to two different subtrees within one match
+    /// or across merged templates (`impl{...} impl{...}`).
     InconsistentBinding(String, TokenStream, TokenStream),
 }
 
@@ -161,8 +171,7 @@ impl ShapeError {
                 )
             }
             ShapeError::InconsistentBinding(name, old, new) => format!(
-                "batch-impl: binding slot `{}` is bound to different subtrees \
-                 across merged `impl{{...}}` templates (`{}` vs `{}`)",
+                "batch-impl: binding slot `{}` is bound to different subtrees (`{}` vs `{}`)",
                 name, old, new
             ),
         }
@@ -170,7 +179,7 @@ impl ShapeError {
 }
 
 /// Matches `template` against `leaf`, producing the slot mapping and the
-/// resolved variadic segments (`ident@..`, in template order).
+/// resolved variadic segments (`P@..`, in template order).
 pub(crate) fn match_shape(
     template: &syn::Type, leaf: &syn::Type, declared_consts: &HashSet<String>,
 ) -> Result<(Mapping, Vec<VarSeg>), ShapeError> {
@@ -179,6 +188,7 @@ pub(crate) fn match_shape(
         segs: Vec::new(),
         declared_consts,
         exact_ref_lifetimes: false,
+        bare_segments: HashSet::new(),
     };
     crate::codegen::match_ty::match_ty(template, leaf, &mut context)?;
     Ok((context.map, context.segs))
@@ -191,6 +201,7 @@ pub(crate) struct MatchContext<'a> {
     pub(crate) segs: Vec<VarSeg>,
     pub(crate) declared_consts: &'a HashSet<String>,
     pub(crate) exact_ref_lifetimes: bool,
+    pub(crate) bare_segments: HashSet<String>,
 }
 
 /// Rewrites a token stream through the mapping: a bare ident equal to a
@@ -198,7 +209,7 @@ pub(crate) struct MatchContext<'a> {
 /// name to be substituted — a fixed element like `T` in
 /// `impl{(T, A@..)}`, or any other template ident). Segment elements are
 /// NOT resolved here — the repeat-block expansion splices their values
-/// directly (`repeat_drivers.rs::substitute` against [`Mapping::seg_value`]),
+/// directly (`repeat_drivers.rs::substitute` against each segment's rows),
 /// so no segment spelling ever reaches the body. Recursive (groups descended).
 ///
 /// A **lifetime is not a slot position**: `'a` is a quote plus an ident, but

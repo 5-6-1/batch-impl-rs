@@ -6,11 +6,15 @@ use std::cell::Cell;
 fn expand(
     source: &str, len: usize, element: &str, limit: usize,
 ) -> Result<(String, usize), String> {
-    let segs = [VarSeg { prefix: "A".into(), start: 0, len }];
-    let mut map = Mapping::default();
-    for index in 0..len {
-        map.bind_seg("A", index, element.parse::<TokenStream>().unwrap()).unwrap();
-    }
+    let rows = (0..len)
+        .map(|_| {
+            let mut row = Mapping::default();
+            row.bind("A", element.parse::<TokenStream>().unwrap()).unwrap();
+            row
+        })
+        .collect();
+    let segs = [VarSeg { names: vec!["A".into()], start: 0, rows }];
+    let map = Mapping::default();
     let fresh = FreshCtx::new(&[], &Default::default());
     let cx = RepeatCtx {
         domain: crate::util::TokenDomain::BodySubstitution,
@@ -83,4 +87,37 @@ fn enabled_macro_inputs_and_attributes_are_rewritten_and_counted() {
     let nested = expand("@A(@A(stringify!(@A))..)..", 2, "u8", 16).unwrap();
     assert_eq!(nested.0.matches("u8").count(), 4);
     assert_eq!(nested.1, 0);
+}
+
+#[test]
+fn empty_fresh_ranges_charge_folded_tuple_output() {
+    for (source, count, expected) in [
+        ("(@{0..},)", 1, "()"),
+        ("(@{0..}, x,)", 3, "(x,)"),
+        ("(@{0..}, (u8, u16),)", 6, "((u8,u16),)"),
+        ("@A((@{0..},))..", 2, "()()"),
+        ("@A(@A((@{0..},))..)..", 4, "()()()()"),
+    ] {
+        let (tokens, remaining) = expand(source, 2, "u8", count).unwrap();
+        assert_eq!(tokens.replace(' ', ""), expected, "{source}");
+        assert_eq!(remaining, 0, "{source}");
+        assert!(expand(source, 2, "u8", count - 1).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn temporary_comma_allowance_cannot_enlarge_final_output() {
+    // Folding rejoins the two surviving elements without a trailing comma;
+    // both elements, their separator, and the enclosing group still count.
+    let source = "(@{0..}, x, y,)";
+    assert_eq!(expand(source, 1, "u8", 4).unwrap().1, 0);
+    assert!(expand(source, 1, "u8", 3).is_err());
+    // Macro inputs participate in an enabled body, with the same final count.
+    assert_eq!(expand("m!((@{0..},))", 1, "u8", 4).unwrap().1, 0);
+    assert!(expand("m!((@{0..},))", 1, "u8", 3).is_err());
+    // A captured group that resembles an unresolved range stays literal.
+    let (tokens, remaining) = expand("@A(@A)..", 1, "(@{0..},)", 7).unwrap();
+    assert_eq!(tokens.replace(' ', ""), "(@{0..},)");
+    assert_eq!(remaining, 0);
+    assert!(expand("@A(@A)..", 1, "(@{0..},)", 6).is_err());
 }

@@ -611,7 +611,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 ### 8.1 解析点
 
-模板里是**标准 Rust 类型**（`impl{Container<U>}`）：里面的 DSL 算子被拒——"the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)"（`impl_template_dsl_ops`、`impl_template_range_constant`）。它**只解析一次**，就在 `X<>` 同步之后；这个顺序在两个方向上都成立：同步前模板里的 `X<>` 标记（`impl{GenW<>}`）不是合法 Rust，同步后形状匹配面对的是类型而不是 token。`@trait` 与 `@` 常量在常量阶段（最早那一趟，§13.1）进入模板，而 `where` 那一趟把它当作谓词区边界——它后面的 `where{...}` 不属于模板。
+模板里是**标准 Rust 类型**（`impl{Container<U>}`），另支持 §8.4 的变长后缀 `P@..`。里面的类型生成 DSL 算子被拒——"the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)"（`impl_template_dsl_ops`、`impl_template_range_constant`）。它**只解析一次**，就在 `X<>` 同步之后；这个顺序在两个方向上都成立：同步前模板里的 `X<>` 标记（`impl{GenW<>}`）不是合法 Rust，同步后形状匹配面对的是类型而不是 token。`@trait` 与 `@` 常量在常量阶段（最早那一趟，§13.1）进入模板，而 `where` 那一趟把它当作谓词区边界——它后面的 `where{...}` 不属于模板。
 
 ### 8.2 逐位匹配
 
@@ -622,7 +622,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | ident 与目标**相同** | 字面——原样保留；同名不能同时要求不同的替换 |
 | ident **不同** | **槽位**，绑定到目标在该位置的那棵子树 |
 | 一个 spec 里有多个模板 | 合并成**一份映射**——同形重复合法且冗余，冲突是 `impl_inconsistent_binding` |
-| 模板无法解构的形状 | `impl_shape_mismatch` 并指出形状：元数/种类不同、fn 修饰不兼容（`impl_shape_fn_qualifiers`）、生命周期实参不同（`impl_shape_lifetime_arg`）、重复的变长段（`impl_shape_varseg_duplicate`）、段不在元组里（`impl_shape_varseg_outside_tuple`）、各段长度不齐（`impl_shape_varseg_uneven`） |
+| 模板无法解构的形状 | `impl_shape_mismatch` 并指出形状：元数/种类不同、fn 修饰不兼容（`impl_shape_fn_qualifiers`）、生命周期实参不同（`impl_shape_lifetime_arg`）、重复的裸变长段（`impl_shape_varseg_duplicate`）、段不在元组里（`impl_shape_varseg_outside_tuple`）、各段长度不齐（`impl_shape_varseg_uneven`） |
 
 哪些形态会绑定：
 
@@ -636,7 +636,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | `[A; N]`（const 参数长度） | 长度**绑定**到叶子的长度（`N := 3`；body 里可以用 `N`） |
 | `Wrap<N>`，且已声明 `const N: usize` | 将 `N` 绑定到 `2` 等 const 实参；由参数声明区分 const 名与类型名 |
 | `fn(A) -> B` | 参数与返回类型递归匹配；安全性、ABI、可变参数形态与绑定生命周期必须匹配 |
-| `[A; ()]` | **保留形态**（数组长度 `()` 在可编译代码里不可能存在）——变长段的标记，不要手写 |
+| `[P; ()]` | **保留形态**（数组长度 `()` 在可编译代码里不可能存在）——变长段的标记，不要手写 |
 | `Cow<'_, A>` | `'_'` 是**通配**，匹配任意生命周期；`'a` 与 `'b` 逐字比较；类型实参绑定 |
 | `_` | **通配**，匹配任何东西并保持 `_` |
 
@@ -659,13 +659,30 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 | 拼写 | 位置 | 作用 |
 |---|---|---|
-| `A@..` | 模板里 | **变长段**：匹配该形状族剩余的位置，并驱动 body |
+| `P@..` | 模板里 | **变长段**：对覆盖的每个元素独立匹配形状模式 `P`，并驱动 body；裸 `A@..` 捕获整个元素 |
 | `@(…@0,)..` | body 里 | **重复块**：每个被覆盖元素一轮，`@ident` 拼接该轮的子树（`$(…)*` 语义） |
 | `@(…)+..` | body 里 | **轮间分隔符**：写在 `)` 与 `..` 之间的字面 token 会在**轮与轮之间**写出（任意 token 都行，`+` 只是常用选择）。单轮时**什么都不发**，所以"逐元素搭出一个元组"要用块**内**的分隔符（`@(…, )..`）——那才是让 arity 1 得到真正 1 元组 `(x,)` 的写法 |
 | `impl{@0..}` | 模板 | **fresh 绑定开关**：为纯游标块每轮绑一个 fresh，并启用 `@{N}` 引用 |
 | `impl{@{}}` | 模板 | **body 槽开关**：在重复块否则会把 `@` 读成块首的地方启用 `@{N}` |
 
 典型形状：一条带变长段的模板覆盖一个元组族的全部元数（`().1..=4 where @0..: Magma impl{(A@..)} #combine{…}`），body 的重复块逐轮写出该轮的元素。
+
+复合模式沿用 §8.2 的结构匹配。`(A<B>@..,)` 从每个已有元素捕获 `A` 和 `B`，
+两者在同一轮对应。匹配不新增笛卡尔积，也不去重：`(Vec<u8>, Rc<u16>)` 只有两行。
+`Pair<T, Vec<T>>@..` 要求同一行的两个 `T` 一致，不同行可绑定不同类型。
+相同名字的字面匹配也提供捕获：`Vec<T>` 匹配 `Vec<u8>` 时提供 `@Vec = Vec`。
+空段仍声明这些名字，驱动零轮重复。
+
+同一元组层先扣除固定位置，再将其余元素等分给各段。重复的**裸**段，例如
+`(A@.., A@..,)`，仍然报错。复合段可以共享捕获名：在
+`(Vec<T>@.., Vec<U>@..,)` 中，`@T` 和 `@U` 分别确定各自的段，未选段时
+引用 `@Vec` 则有歧义。显式驱动 `@T(... @Vec<@T> ...)..` 选择该段的捕获；
+同一行的其他名字可以一起使用，另一段的捕获则与驱动冲突。不写显式驱动时，
+等长段的唯一捕获名可以在一个重复块中共同引用。
+
+固定槽位与逐行捕获分开：`(T, Vec<T>@..,)` 中，裸 `T` 使用固定绑定，`@T`
+使用当前行。拼入的捕获值不会再次替换。普通固定嵌套 `((A@..,), (B@..,))`
+仍合法；重复模式内部再包含变长段，例如 `((T@..,)@..,)`，目前明确拒绝。
 
 索引游标后可以直接接元组字段：`self.@0.1` 与 `(self.@0).1` 等价。只有
 `@0` 随轮次递增，`.1` 保持固定。驱动长度为三轮时：
@@ -683,7 +700,9 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 | 纯游标块、连开关都没有 | 以解析错误到达 rustc（`impl_shape_repeat_no_driver`，记录在 §10.6） |
 | 各段长度不等 | "repeat block segments have different lengths (2 vs 3)"（`impl_shape_repeat_unequal`） |
 | 引用了模板没声明的段 | "repeat block references unknown variadic segment `@X`"（`impl_shape_repeat_unknown`） |
-| 一个块里两个不同驱动 | "repeat block driver `@A` conflicts with the inner segment reference `@B`"（`impl_shape_repeat_driver_conflict`） |
+| 显式驱动与另一段的捕获一起使用 | "repeat block driver `@A` conflicts with the inner segment reference `@B`"（`impl_shape_repeat_driver_conflict`） |
+| 复合段共享捕获名，却未选择其中一段 | 在有歧义的引用处报错；用唯一捕获名作显式驱动 |
+| 重复模式内部再包含变长段 | 拒绝；固定嵌套元组仍可包含各自的段 |
 | 开关区间覆盖不到 fresh（`impl{@2..1}` / `impl{@2..=1}`） | "invalid fresh-binding switch — the range covers no fresh"（`impl_shape_repeat_invalid_switch`、`impl_shape_repeat_invalid_switch_closed`） |
 | 模板不是标准 Rust 类型 | §8.1 的模板解析诊断；不再用该无效模板生成 impl |
 
@@ -967,12 +986,17 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `impl_shape_fn_qualifiers` | safe 与 unsafe 函数指针类型不同 | batch-impl: `impl{...}` template cannot destructure the target type (function pointer qualifiers differ (unsafe, ABI, lifetimes, variadic or attributes)) — template `fn(u8)`, the impl's self type `fn(u8)`, matrix leaf `unsafe fn(u16)` | DSL |
 | `impl_shape_const_kind` | 已声明 const 槽匹配类型 | batch-impl: `impl{...}` template cannot destructure the target type (declared const parameter `N` needs a const argument (target `u8`)) — template `Wrap < N >`, the impl's self type `Wrap < N >`, matrix leaf `Wrap < u8 >` | DSL |
 | `impl_shape_type_to_const` | 类型槽匹配已声明 const | batch-impl: `impl{...}` template cannot destructure the target type (a type argument cannot bind declared const argument `N`) — template `TypeBox < T >`, the impl's self type `TypeBox < T >`, matrix leaf `ConstBox < N >` | DSL |
-| `impl_shape_literal_conflict` | 同名既须保持字面又须改变 | batch-impl: binding slot `u8` is bound to different subtrees across merged `impl{...}` templates (`u8` vs `u16`) — template `(u8, u8)`, the impl's self type `(u8, u8)`, matrix leaf `(u8, u16,)` | DSL |
+| `impl_shape_literal_conflict` | 同名既须保持字面又须改变 | batch-impl: binding slot `u8` is bound to different subtrees (`u8` vs `u16`) — template `(u8, u8)`, the impl's self type `(u8, u8)`, matrix leaf `(u8, u16,)` | DSL |
 | `impl_shape_lifetime_arg` | 生命周期实参不一致 | batch-impl: `impl{...}` template cannot destructure the target type (generic argument differs (template `'_` vs target `u8`)) | DSL |
 | `impl_shape_varseg_duplicate` | 同一个 `A@..` 出现两次 | batch-impl: `impl{...}` template cannot destructure the target type (duplicate variadic segment prefix `A` (each `ident@..` in one template must be unique)) | DSL |
-| `impl_shape_varseg_outside_tuple` | 变长段不在元组里 | batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`ident@..`) in a generic argument needs a tuple target (`A<(T@..)>` against `A<(P0, P1)>`)) | DSL |
+| `impl_shape_varseg_outside_tuple` | 变长段不在元组里 | batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`P@..`) needs a tuple target) | DSL |
 | `impl_shape_varseg_uneven` | 变长段长度不齐 | batch-impl: `impl{...}` template cannot destructure the target type (variadic segments cannot be split evenly: target tuple has 3 elements after 0 fixed, split across 2 segments) | DSL |
-| `impl_inconsistent_binding` | 两个模板给 `X` 绑不同子树 | batch-impl: binding slot `X` is bound to different subtrees across merged `impl{...}` templates (`Box < u32 >` vs `Box`) | DSL |
+| `variadic_pattern_inconsistent` | 同一轮的同名捕获不一致 | batch-impl: binding slot `T` is bound to different subtrees (`u8` vs `u16`) | DSL |
+| `variadic_pattern_structure` | 模式与元素结构不同 | batch-impl: `impl{...}` template cannot destructure the target type (generic argument shape differs at segment `A`);<br>batch-impl: `impl{...}` template cannot destructure the target type (generic arity differs (template `A < B, C >` has 2 args, target has 1)) | DSL |
+| `variadic_pattern_ambiguous` | 捕获名属于多个段 | batch-impl: variadic capture `@Vec` belongs to more than one segment; use an unambiguous capture as the repeat driver (`@name(...)..`) or rename the capture | DSL |
+| `variadic_pattern_nested` | 重复模式内部又包含变长段 | batch-impl: `impl{...}` template cannot destructure the target type (nested variadic segments inside a repeated pattern (`P@..`) are not supported) | DSL |
+| `variadic_pattern_driver_conflict` | 显式驱动与捕获属于不同段 | batch-impl: repeat block driver `@T` conflicts with the inner segment reference `@U` (they must be the same) | DSL |
+| `impl_inconsistent_binding` | 两个模板给 `X` 绑不同子树 | batch-impl: binding slot `X` is bound to different subtrees (`Box < u32 >` vs `Box`) | DSL |
 | `impl_shape_repeat_unknown` | `@X` 没有对应段 | batch-impl: repeat block references unknown variadic segment `@X` (the `impl{...}` template declares no `X@..`) | DSL |
 | `impl_shape_repeat_unequal` | 各段长度 2 vs 3 | batch-impl: repeat block segments have different lengths (2 vs 3); all referenced segments must be equal-length | DSL |
 | `impl_shape_repeat_driver_conflict` | 驱动 `@A` 与内层 `@B` 冲突 | batch-impl: repeat block driver `@A` conflicts with the inner segment reference `@B` (they must be the same) | DSL |

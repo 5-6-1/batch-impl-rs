@@ -1547,7 +1547,7 @@ How the match works, in plain terms:
   re-bindings are legal, conflicting ones error.
 - `@trait` inside the template expands to the trait path before matching.
 
-The template holds a **standard Rust type** — DSL operators are rejected inside it, `_` is a wildcard that matches anything, and an array length may bind a const parameter (`impl{[A; N]}` binds `N := 3`, usable in the body). Function-pointer parameter and return types match recursively; trait-object templates still compare verbatim. In generic arguments, a declared const name can bind a const value (`Wrap<N>` with `const N: usize` against `Wrap<3>`); declarations distinguish it from a type name, and actual type/lifetime/const kinds do not cross-bind. The full table, including the reserved `[A; ()]` shape, is in `docs/reference.md` §8.2.
+The template holds a **standard Rust type**, with the variadic suffix `P@..` described below. Type-generation DSL operators are rejected inside it, `_` is a wildcard that matches anything, and an array length may bind a const parameter (`impl{[A; N]}` binds `N := 3`, usable in the body). Function-pointer parameter and return types match recursively; trait-object templates still compare verbatim. In generic arguments, a declared const name can bind a const value (`Wrap<N>` with `const N: usize` against `Wrap<3>`); declarations distinguish it from a type name, and actual type/lifetime/const kinds do not cross-bind. The full table, including the reserved `[P; ()]` shape, is in `docs/reference.md` §8.2.
 
 #### The prototype-impl pattern
 
@@ -1591,13 +1591,14 @@ segment needs **no comma** — `impl{(A@..)}` and `impl{(A@..,)}` are
 equivalent (0.9.2; the trailing comma is supplied automatically so the
 template still parses as a tuple). The segment's elements are addressed by
 their absolute leaf position, but they carry **no derived names** — writing
-`@A..` does not occupy or declare `A1`, `A2`, ... anywhere. To name a
+`A@..` does not occupy or declare `A1`, `A2`, ... anywhere. To name a
 specific element, write it as an ordinary fixed element next to the segment
-(`impl{(A0, @A..,)}` binds `A0 := ` leaf\[0\] through the normal slot channel,
+(`impl{(A0, A@..,)}` binds `A0 := ` leaf\[0\] through the normal slot channel,
 and the body references the plain ident `A0`). Same-level segments split the
 leaf evenly (`(A@.., B@..,)` on an arity-4 leaf → A len 2, B len 2); an
 uneven split errors. Segments recurse into nested tuples
-(`((A@..,),(B@..,))`), and duplicate segment prefixes in one template error.
+(`((A@..,),(B@..,))`); two bare segments with the same prefix, such as
+`(A@.., A@..,)`, remain an error. Composite patterns are described below.
 
 The body repeats with `@(...)..` — a repeat block emitted once per element
 of the segment(s) it references (the `$( ... )*` semantics of Rust's
@@ -1610,18 +1611,18 @@ trait ShapeTail { fn tail(&self) -> (u8, u16, u32); }
 // body → (u8::from(self.0), u16::from(self.1), u32::from(self.2))
 ```
 
-- `@ident` inside a block is an **element reference** — round `i` splices
-  the segment's i-th bound leaf element **directly** into the output (no
-  intermediate spelling exists between the expansion and the rendered impl);
+- `@ident` inside a block is a **capture reference** — round `i` splices
+  that row's captured subtree directly into the output. For a bare `A@..`,
+  `@A` is the whole element; a composite pattern can capture its parts;
 - a fixed template element written next to the segment (`A0` in
-  `impl{(A0, @A..,)}`) is an ordinary slot: the body writes the plain ident
+  `impl{(A0, A@..,)}`) is an ordinary slot: the body writes the plain ident
   `A0` wherever the named element is needed;
 - `@N` is an **index cursor** — the numeric literal `N + i`; write the path
   prefix yourself (`self.@1` for a segment starting at leaf index 1);
 - the block repeats `L` times, and the length comes from one of three
   sources: the segments referenced inside (`@ident`, all equal-length),
-  a **declared driver** (`@A(self.@0,)..` — the segment named right after
-  `@`, useful for cursor-only bodies), or — for a cursor-only block with no
+  a **declared driver** (`@A(self.@0,)..` — a capture name identifying one
+  segment, useful for cursor-only bodies), or — for a cursor-only block with no
   declared driver — the template's **unique segment** (an arity-shape with
   several segments rejects the ambiguous cursor-only form);
 - each repeat block's trailing `,` is the separator, emitted after every
@@ -1686,6 +1687,62 @@ For a block driven for three rounds:
 ```text
 @(self.@0.1,)..  →  self.0.1, self.1.1, self.2.1,
 ```
+
+The general form is **`P@..`**, where `P` is a shape pattern applied
+independently to each covered element. For `(A<B>@..,)`, one round captures
+both the constructor `A` and its argument `B` from the same element.
+Matching adds no Cartesian product and removes no duplicates: an existing
+`(Vec<u8>, Rc<u16>)` has exactly two rows. Here the source itself constructs
+18 elements, so the body runs 18 times:
+
+```rust
+use batch_impl::batch_impl;
+use core::any::type_name;
+use std::rc::Rc;
+
+#[batch_impl(
+    (*[Vec, Rc, Box] *@u*,) impl{(A<B>@..,)}
+    #pairs { vec![@A((type_name::<@A<@B>>(), type_name::<@B>())),..] }
+)]
+trait ConstructorRows {
+    fn pairs() -> Vec<(&'static str, &'static str)>;
+}
+
+fn main() {
+    type All = (
+        Vec<u8>, Rc<u8>, Box<u8>, Vec<u16>, Rc<u16>, Box<u16>,
+        Vec<u32>, Rc<u32>, Box<u32>, Vec<u64>, Rc<u64>, Box<u64>,
+        Vec<u128>, Rc<u128>, Box<u128>, Vec<usize>, Rc<usize>, Box<usize>,
+    );
+    macro_rules! family {
+        ($ty:ty) => {[
+            (type_name::<Vec<$ty>>(), type_name::<$ty>()),
+            (type_name::<Rc<$ty>>(), type_name::<$ty>()),
+            (type_name::<Box<$ty>>(), type_name::<$ty>()),
+        ]};
+    }
+    let expected = [family!(u8), family!(u16), family!(u32),
+                    family!(u64), family!(u128), family!(usize)].concat();
+    assert_eq!(All::pairs(), expected);
+}
+```
+
+Repeated names constrain **one row**: `Pair<T, Vec<T>>@..` requires the two
+occurrences of `T` to agree, while another row may use a different `T`.
+Identity matches are captures too (`Vec<T>` matched against `Vec<u8>`
+provides `@Vec = Vec`). An empty segment still declares its capture names
+and runs zero rounds. Fixed slots stay separate: in `(T, Vec<T>@..,)`,
+bare `T` uses the fixed slot and `@T` uses the current row; an inserted
+capture is not substituted again.
+
+Composite segments may share names. In `(Vec<T>@.., Vec<U>@..,)`, `@T`
+and `@U` identify their respective segments; referencing `@Vec` without a
+selected segment is ambiguous. Use `@T(... @Vec<@T> ...)..` to select the
+first segment. Names from that same row may appear together (`@A` driving
+`@B` in the example), but an explicit driver cannot use another segment's
+captures. Ordinary fixed nesting, such as `((A@..,), (B@..,))`, remains
+valid; a repeated pattern containing another variadic segment, such as
+`((T@..,)@..,)`, is currently rejected.
 
 The alga2-style end-to-end — one spec covers every tuple arity, with
 `@0..` constraining every fresh generic:

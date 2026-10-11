@@ -62,7 +62,7 @@ pub(crate) fn collect_shape_mapping(
     for template in templates {
         let (m, s) = match_shape(template, &target, declared_consts)?;
         merged.merge(m)?;
-        segs.extend(s);
+        crate::codegen::shape::merge_segments(&mut segs, s);
     }
     Ok((merged, segs))
 }

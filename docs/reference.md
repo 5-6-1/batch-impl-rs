@@ -654,7 +654,7 @@ An `impl{...}` attachment is a **prototype of the impl's own shape**: it names t
 
 ### 8.1 The parse site
 
-A template holds a **standard Rust type** (`impl{Container<U>}`): DSL operators inside it are rejected — "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)" (`impl_template_dsl_ops`, `impl_template_range_constant`). It is parsed **once**, right after the `X<>` sync, and the order matters in both directions: before the sync an `X<>` marker inside the template (`impl{GenW<>}`) is not valid Rust, and after it the shape matching works on types rather than tokens. `@trait` and `@` constants reach the template at the constant stage (the earliest pass, §13.1), and the `where` pass treats it as a predicate-region boundary — a `where{...}` after it is not part of the template.
+A template holds a **standard Rust type** (`impl{Container<U>}`), with the variadic suffix `P@..` from §8.4. Type-generation DSL operators inside it are rejected — "the `impl{...}` template is not a standard Rust type (DSL operators are not allowed inside)" (`impl_template_dsl_ops`, `impl_template_range_constant`). It is parsed **once**, right after the `X<>` sync, and the order matters in both directions: before the sync an `X<>` marker inside the template (`impl{GenW<>}`) is not valid Rust, and after it the shape matching works on types rather than tokens. `@trait` and `@` constants reach the template at the constant stage (the earliest pass, §13.1), and the `where` pass treats it as a predicate-region boundary — a `where{...}` after it is not part of the template.
 
 ### 8.2 Matching, position by position
 
@@ -665,7 +665,7 @@ The template is matched against the **leaf target type** by structural recursion
 | an ident **equal** to the target's | a literal — kept untouched; the same name cannot also require a different replacement |
 | an ident **different** | a **slot**, bound to the target's subtree there |
 | several templates in one spec | merged into **one mapping** — identical re-bindings are legal and redundant, conflicting ones are `impl_inconsistent_binding` |
-| a shape the template cannot destructure | `impl_shape_mismatch`, naming the shape: an arity/kind difference, incompatible fn qualifiers (`impl_shape_fn_qualifiers`), a different lifetime argument (`impl_shape_lifetime_arg`), a duplicate variadic segment (`impl_shape_varseg_duplicate`), a segment outside a tuple (`impl_shape_varseg_outside_tuple`), uneven segments (`impl_shape_varseg_uneven`) |
+| a shape the template cannot destructure | `impl_shape_mismatch`, naming the shape: an arity/kind difference, incompatible fn qualifiers (`impl_shape_fn_qualifiers`), a different lifetime argument (`impl_shape_lifetime_arg`), duplicate bare variadic segments (`impl_shape_varseg_duplicate`), a segment outside a tuple (`impl_shape_varseg_outside_tuple`), uneven segments (`impl_shape_varseg_uneven`) |
 
 Which forms bind:
 
@@ -679,7 +679,7 @@ Which forms bind:
 | `[A; N]` (const-parameter length) | the length **binds** to the leaf's length (`N := 3`; the body may use `N`) |
 | `Wrap<N>` with a declared `const N: usize` | binds `N` to a const argument such as `2`; parameter declarations distinguish a const name from a type name |
 | `fn(A) -> B` | parameter and return types recurse; safety, ABI, variadic shape and bound lifetimes must match |
-| `[A; ()]` | a **reserved shape** (an array length of `()` cannot exist in compilable code) — the variadic-segment marker; never write it by hand |
+| `[P; ()]` | a **reserved shape** (an array length of `()` cannot exist in compilable code) — the variadic-segment marker; never write it by hand |
 | `Cow<'_, A>` | `'_'` is a **wildcard** matching any lifetime; `'a` against `'b` compares verbatim; the type argument binds |
 | `_` | a **wildcard** that matches anything and stays `_` |
 
@@ -702,13 +702,38 @@ The mapping is applied once to the prototype's **`where` predicates** and **body
 
 | Spelling | Where | Role |
 |---|---|---|
-| `A@..` | in the template | a **variadic segment**: it matches the remaining positions of the shape family and drives the body |
+| `P@..` | in the template | a **variadic segment**: independently matches each covered element against shape pattern `P` and drives the body; bare `A@..` captures the whole element |
 | `@(…@0,)..` | in the body | a **repeat block**: one round per covered element, with `@ident` splicing that round's subtree (the `$(…)*` semantics) |
 | `@(…)+..` | in the body | the **inter-round separator**: the literal tokens between `)` and `..` are written **between** rounds (any tokens work — `+` is just the usual choice). Nothing is emitted for a single round, so rounds that build a tuple one element at a time need the separator **inside** the block (`@(…, )..`), which is what makes arity 1 a real 1-tuple |
 | `impl{@0..}` | a template | the **fresh-binding switch**: binds one fresh per round for cursor-only blocks and enables `@{N}` references |
 | `impl{@{}}` | a template | the **body-slot switch**: enables `@{N}` in a body where a repeat block would otherwise read `@` as a block start |
 
 Typical shape: one spec with a template carrying the segment covers every arity of a tuple family (`().1..=4 where @0..: Magma impl{(A@..)} #combine{…}`), and the body's repeat block writes each round's elements.
+
+Composite patterns use the same structural matching as §8.2. `(A<B>@..,)`
+captures `A` and `B` from each existing element, keeping both captures in
+the same round. Matching neither adds a Cartesian product nor removes
+duplicates: `(Vec<u8>, Rc<u16>)` has two rows. `Pair<T, Vec<T>>@..`
+requires the two `T` occurrences to agree within each row; different rows
+may bind different types. Identity matches are available as captures too:
+`Vec<T>` against `Vec<u8>` provides `@Vec = Vec`. An empty segment still
+declares these names and drives zero rounds.
+
+At one tuple level, fixed positions are removed before the remaining
+elements are split equally between segments. Duplicate **bare** segments
+such as `(A@.., A@..,)` remain rejected. Composite segments may share
+capture names: in `(Vec<T>@.., Vec<U>@..,)`, `@T` and `@U` select their
+respective segments, while an unqualified `@Vec` is ambiguous. An explicit
+driver such as `@T(... @Vec<@T> ...)..` selects that segment's captures;
+other names from the same row are allowed, but captures from another
+segment conflict with the driver. Without an explicit driver, references
+to unique names from equal-length segments may share one repeat block.
+
+Fixed slots and row captures are separate: in `(T, Vec<T>@..,)`, bare `T`
+uses the fixed binding and `@T` the current row. An inserted capture is
+not substituted again. Ordinary fixed nesting such as
+`((A@..,), (B@..,))` remains valid; a repeated pattern containing another
+variadic segment, such as `((T@..,)@..,)`, is currently rejected.
 
 An index cursor can be followed directly by a tuple field: `self.@0.1` is
 equivalent to `(self.@0).1`. Only `@0` advances each round; `.1` remains fixed.
@@ -727,7 +752,9 @@ With a three-round driver:
 | a cursor-only block with no switch at all | reaches rustc as a parse error (`impl_shape_repeat_no_driver`, recorded in §10.6) |
 | segments of different lengths | "repeat block segments have different lengths (2 vs 3)" (`impl_shape_repeat_unequal`) |
 | a reference to a segment the template does not declare | "repeat block references unknown variadic segment `@X`" (`impl_shape_repeat_unknown`) |
-| two different drivers in one block | "repeat block driver `@A` conflicts with the inner segment reference `@B`" (`impl_shape_repeat_driver_conflict`) |
+| an explicit driver with a capture from another segment | "repeat block driver `@A` conflicts with the inner segment reference `@B`" (`impl_shape_repeat_driver_conflict`) |
+| a capture name shared by composite segments, without selecting one segment | rejected at the ambiguous reference; use a unique capture name as the explicit driver |
+| a variadic segment inside another repeated pattern | rejected; fixed nested tuples may still contain their own segments |
 | a switch range that covers no fresh (`impl{@2..1}` / `impl{@2..=1}`) | "invalid fresh-binding switch — the range covers no fresh" (`impl_shape_repeat_invalid_switch`, `impl_shape_repeat_invalid_switch_closed`) |
 | a template that is not a standard Rust type | the template parse diagnostic from §8.1; the invalid template is not used to generate impls |
 
@@ -1025,12 +1052,17 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `impl_shape_fn_qualifiers` | safe and unsafe fn-pointer types differ | batch-impl: `impl{...}` template cannot destructure the target type (function pointer qualifiers differ (unsafe, ABI, lifetimes, variadic or attributes)) — template `fn(u8)`, the impl's self type `fn(u8)`, matrix leaf `unsafe fn(u16)` | DSL |
 | `impl_shape_const_kind` | a declared const slot matched to a type | batch-impl: `impl{...}` template cannot destructure the target type (declared const parameter `N` needs a const argument (target `u8`)) — template `Wrap < N >`, the impl's self type `Wrap < N >`, matrix leaf `Wrap < u8 >` | DSL |
 | `impl_shape_type_to_const` | a type slot matched to a declared const | batch-impl: `impl{...}` template cannot destructure the target type (a type argument cannot bind declared const argument `N`) — template `TypeBox < T >`, the impl's self type `TypeBox < T >`, matrix leaf `ConstBox < N >` | DSL |
-| `impl_shape_literal_conflict` | one name must both stay literal and change | batch-impl: binding slot `u8` is bound to different subtrees across merged `impl{...}` templates (`u8` vs `u16`) — template `(u8, u8)`, the impl's self type `(u8, u8)`, matrix leaf `(u8, u16,)` | DSL |
+| `impl_shape_literal_conflict` | one name must both stay literal and change | batch-impl: binding slot `u8` is bound to different subtrees (`u8` vs `u16`) — template `(u8, u8)`, the impl's self type `(u8, u8)`, matrix leaf `(u8, u16,)` | DSL |
 | `impl_shape_lifetime_arg` | a lifetime argument differs | batch-impl: `impl{...}` template cannot destructure the target type (generic argument differs (template `'_` vs target `u8`)) | DSL |
 | `impl_shape_varseg_duplicate` | the same `A@..` twice | batch-impl: `impl{...}` template cannot destructure the target type (duplicate variadic segment prefix `A` (each `ident@..` in one template must be unique)) | DSL |
-| `impl_shape_varseg_outside_tuple` | a varseg outside a tuple | batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`ident@..`) in a generic argument needs a tuple target (`A<(T@..)>` against `A<(P0, P1)>`)) | DSL |
+| `impl_shape_varseg_outside_tuple` | a varseg outside a tuple | batch-impl: `impl{...}` template cannot destructure the target type (a variadic segment (`P@..`) needs a tuple target) | DSL |
 | `impl_shape_varseg_uneven` | uneven variadic segments | batch-impl: `impl{...}` template cannot destructure the target type (variadic segments cannot be split evenly: target tuple has 3 elements after 0 fixed, split across 2 segments) | DSL |
-| `impl_inconsistent_binding` | two templates binding `X` differently | batch-impl: binding slot `X` is bound to different subtrees across merged `impl{...}` templates (`Box < u32 >` vs `Box`) | DSL |
+| `variadic_pattern_inconsistent` | same capture name differs within one row | batch-impl: binding slot `T` is bound to different subtrees (`u8` vs `u16`) | DSL |
+| `variadic_pattern_structure` | pattern and element structures differ | batch-impl: `impl{...}` template cannot destructure the target type (generic argument shape differs at segment `A`);<br>batch-impl: `impl{...}` template cannot destructure the target type (generic arity differs (template `A < B, C >` has 2 args, target has 1)) | DSL |
+| `variadic_pattern_ambiguous` | capture name belongs to several segments | batch-impl: variadic capture `@Vec` belongs to more than one segment; use an unambiguous capture as the repeat driver (`@name(...)..`) or rename the capture | DSL |
+| `variadic_pattern_nested` | a repeated pattern contains another variadic segment | batch-impl: `impl{...}` template cannot destructure the target type (nested variadic segments inside a repeated pattern (`P@..`) are not supported) | DSL |
+| `variadic_pattern_driver_conflict` | explicit driver and capture belong to different segments | batch-impl: repeat block driver `@T` conflicts with the inner segment reference `@U` (they must be the same) | DSL |
+| `impl_inconsistent_binding` | two templates binding `X` differently | batch-impl: binding slot `X` is bound to different subtrees (`Box < u32 >` vs `Box`) | DSL |
 | `impl_shape_repeat_unknown` | `@X` with no such segment | batch-impl: repeat block references unknown variadic segment `@X` (the `impl{...}` template declares no `X@..`) | DSL |
 | `impl_shape_repeat_unequal` | segments of length 2 vs 3 | batch-impl: repeat block segments have different lengths (2 vs 3); all referenced segments must be equal-length | DSL |
 | `impl_shape_repeat_driver_conflict` | driver `@A` vs inner `@B` | batch-impl: repeat block driver `@A` conflicts with the inner segment reference `@B` (they must be the same) | DSL |

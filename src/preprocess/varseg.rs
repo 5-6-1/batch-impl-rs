@@ -1,14 +1,14 @@
-//! Variadic-segment marking: `ident@..` inside an `impl{...}` shape
+//! Variadic-segment marking: `P@..` inside an `impl{...}` shape
 //! template is a DSL-only construct (a variadic segment — not legal Rust),
 //! so it must be replaced before the `@` constant stage (which would
 //! otherwise reject the unknown `@`), before `angle_collect`, and before
 //! the syn parse in codegen.
 //!
 //! The replacement is a **structural marker**, not a reserved name: an
-//! array type `[Prefix; ()]` — unit-tuple length. It parses as
+//! array type `[P; ()]` — unit-tuple length. It parses as
 //! ordinary Rust (so `syn` accepts the template), and codegen decodes it by
 //! shape; the two stacked features never co-occur in a meaningful template,
-//! recovering the segment's name prefix from the element position. No
+//! recovering the complete Rust type pattern from the element position. No
 //! reserved identifier pattern exists anywhere in the pipeline.
 //!
 //! Only `impl{...}` template groups are entered (via
@@ -19,10 +19,11 @@
 use proc_macro2::{Group, TokenStream, TokenTree};
 
 use crate::util::{
-    MAX_NEST_DEPTH, TokenDomain, compile_error_str, depth_err, is_impl_template, is_punct_at,
+    MAX_NEST_DEPTH, Op, TokenDomain, compile_error_str, depth_err, group_at, is_impl_template,
+    is_punct_at, read_op, slice_upto,
 };
 
-/// Replaces every `ident@..` in `impl{...}` templates with a placeholder.
+/// Replaces every `P@..` in `impl{...}` templates with a structural marker.
 pub(crate) fn mark_varseg(tokens: &[TokenTree]) -> Result<Vec<TokenTree>, TokenStream> {
     mark_varseg_at(tokens, 0)
 }
@@ -76,7 +77,7 @@ fn mark_varseg_at(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, 
     Ok(out)
 }
 
-/// Marks `ident@..` inside one template's type structure (tuples `(A@..,)`,
+/// Marks `P@..` inside one template's type structure (tuples `(A@..,)`,
 /// flat `<...>` args, arrays, ...). Ordinary braces, macros and attributes
 /// remain opaque. Shared by
 /// `mark_varseg` (inside `impl{...}` groups) and the impl entry's shape
@@ -87,16 +88,12 @@ pub(crate) fn mark_template(
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
     }
-    let out = mark_template_impl(tokens, depth)?;
+    let out = mark_template_impl(tokens, depth, false)?;
     // Postcondition: `mark_template`'s contract is to consume every
-    // visible type-position `ident@..` inside the template — its output must
-    // contain none. Opaque Rust inputs may retain the same tokens. This
-    // guard lives **here** (the consumer's output), not at `expand_consts`'s
-    // input, because only here is the `ident@..` shape unambiguous: an open
-    // constant range (`@..u128`) has its `@` preceded by `<`/`,`/`(` — never
-    // an ident — while a true segment is `ident @ ..`; at `expand_consts`'s
-    // input the same shape is a legal error path (`A@..` reports "range
-    // constant must name endpoint").
+    // visible type-position `P@..` inside the template — its output must
+    // contain none. Opaque Rust inputs may retain the same tokens. An open
+    // constant range (`@..u128`) starts a slot rather than following a type,
+    // so it is not a segment. Detection and rewriting share SlotBoundary.
     //
     // It reports instead of asserting: a panic inside a proc macro is a
     // compiler ICE, and the no-panic promise is unconditional. The invariant
@@ -116,43 +113,90 @@ pub(crate) fn mark_template(
     Ok(out)
 }
 
-/// The segment shape `mark_template` consumes: `ident @ . .` (an ident
-/// **before** the `@`). Single authority for the shape — the marking loop
-/// and the postcondition canary both use it, so the two cannot drift (the
-/// previous regression root cause was detection and consumption disagreeing).
-/// Returns the segment's prefix ident, which the loop consumes directly.
-/// The prefix must be an **ident** — `Vec<@..u128>`'s `@` is preceded by `<`,
-/// not an ident, so the open constant range is not a segment.
-fn unmarked_segment_at(tokens: &[TokenTree], i: usize) -> Option<&TokenTree> {
-    (matches!(tokens.get(i), Some(TokenTree::Ident(_)))
-        && is_punct_at(tokens, i + 1, '@')
-        && is_punct_at(tokens, i + 2, '.')
-        && is_punct_at(tokens, i + 3, '.'))
-    .then(|| tokens.get(i))
-    .flatten()
+/// Boundaries of complete type slots, tracked forwards before angle pairing.
+/// `fn(T) -> U` stays one slot; `<...>` starts its own comma-separated slots.
+/// A named function argument or associated binding starts its type after
+/// `:` / `=`. Path separators and return arrows never split a type slot.
+#[derive(Default)]
+struct SlotBoundary {
+    start: usize,
+    angles: Vec<usize>,
 }
 
-/// Whether `tokens` contains any unmarked segment (the postcondition test).
-fn contains_unmarked_segment(tokens: &[TokenTree]) -> bool {
-    (0..tokens.len().saturating_sub(3)).any(|i| unmarked_segment_at(tokens, i).is_some())
+impl SlotBoundary {
+    fn has_suffix(&self, tokens: &[TokenTree], i: usize, position: usize) -> bool {
+        self.start < position
+            && is_punct_at(tokens, i, '@')
+            && is_punct_at(tokens, i + 1, '.')
+            && is_punct_at(tokens, i + 2, '.')
+    }
+
+    /// `position` is measured in the current output, or input for read-only
+    /// detection. Return the token count so compound operators stay atomic.
+    fn advance(&mut self, tokens: &[TokenTree], i: usize, position: usize) -> usize {
+        if is_punct_at(tokens, i, '#') {
+            let group = i + 1 + usize::from(is_punct_at(tokens, i + 1, '!'));
+            if group_at(tokens, group, delimiter![[]]).is_some() {
+                let count = group + 1 - i;
+                if self.start == position {
+                    self.start += count;
+                }
+                return count;
+            }
+        }
+        if is_punct_at(tokens, i, '<') {
+            self.angles.push(self.start);
+            self.start = position + 1;
+        } else if is_punct_at(tokens, i, '>') {
+            if let Some(parent) = self.angles.pop() {
+                self.start = parent;
+            }
+        } else if let Some((op, count)) = read_op(tokens, i) {
+            if matches!(op, Op::Comma | Op::Semicolon | Op::Colon | Op::Eq) {
+                self.start = position + count;
+            }
+            return count;
+        }
+        1
+    }
 }
 
-/// The first surviving type-position `ident@..`, nested type groups included.
+/// Array lengths are expression tokens, not type slots. This is the same
+/// boundary as the shared type-token scanner; const/macro groups stay opaque.
+fn type_group_len(group: &Group, tokens: &[TokenTree]) -> usize {
+    if group.delimiter() == delimiter![[]] {
+        tokens
+            .iter()
+            .position(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == ';'))
+            .unwrap_or(tokens.len())
+    } else {
+        tokens.len()
+    }
+}
+
+/// The first surviving type-position `P@..`, nested type groups included.
 /// The postcondition shares the marking loop's domain: ordinary braces,
 /// macros and attributes may retain these tokens. A partial marking that
 /// skipped a nested type would otherwise slip past a top-level-only test.
 /// Returns the offending slice (for the diagnostic's span).
 fn first_unmarked_segment(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
-    if contains_unmarked_segment(tokens) {
-        return Some(tokens.to_vec());
-    }
-    for (i, t) in tokens.iter().enumerate() {
+    let mut slot = SlotBoundary::default();
+    let mut i = 0;
+    while let Some(t) = tokens.get(i) {
+        if slot.has_suffix(tokens, i, i) {
+            return Some(tokens.to_vec());
+        }
         if let TokenTree::Group(g) = t
             && !TokenDomain::Type.skips_group(tokens, i)
-            && let Some(found) = first_unmarked_segment(&g.stream().into_iter().collect::<Vec<_>>())
         {
-            return Some(found);
+            let inner = g.stream().into_iter().collect::<Vec<_>>();
+            if let Some(found) =
+                first_unmarked_segment(slice_upto(&inner, type_group_len(g, &inner)))
+            {
+                return Some(found);
+            }
         }
+        i += slot.advance(tokens, i, i);
     }
     None
 }
@@ -161,22 +205,18 @@ fn first_unmarked_segment(tokens: &[TokenTree]) -> Option<Vec<TokenTree>> {
 /// groups. Rust patterns such as `n @ ..=3` in a const block, and arbitrary
 /// macro/attribute inputs, are not variadic segments. Both walkers must stop
 /// at these boundaries or legal Rust may be rewritten or report a residue.
-fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTree>, TokenStream> {
+fn mark_template_impl(
+    tokens: &[TokenTree], depth: usize, tuple_members: bool,
+) -> Result<Vec<TokenTree>, TokenStream> {
     let mut out = vec![];
+    let mut slot = SlotBoundary::default();
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
-        // `ident @ ..` — the `..` is two joint/alone `.` puncts; Spacing is
-        // irrelevant (a leading segment never follows it). `@u8..u128` is
-        // untouched: its `@` is not preceded by an ident. The shape test is
-        // the shared [`unmarked_segment_at`] — the postcondition canary
-        // re-checks with the same function.
-        if let Some(TokenTree::Ident(id)) = unmarked_segment_at(tokens, i) {
-            // Structural marker: `[Prefix; ()]` — an array whose length is
-            // the **unit tuple**: a shape that cannot appear in any
-            // compilable code (array lengths are `usize`; `()` never is), so
-            // no meaningful user template can collide with it. Ordinary Rust
-            // for `syn`, decoded by shape — no reserved name involved.
-            let mut marker: TokenStream = TokenTree::Ident(id.clone()).into();
+        if slot.has_suffix(tokens, i, out.len()) {
+            // The whole current slot is P, including modifiers, function
+            // returns and nested generics. Its nested groups are already
+            // marked. No backward type-grammar guess or name is involved.
+            let mut marker = out.split_off(slot.start).into_iter().collect::<TokenStream>();
             marker.extend(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
                 ';',
                 proc_macro2::Spacing::Alone,
@@ -185,26 +225,22 @@ fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTre
                 delimiter![()],
                 TokenStream::new(),
             ))));
-            out.push(TokenTree::Group(Group::new(delimiter![[]], marker)));
-            i += 4;
-            // A variadic segment at the end of a tuple/list element list is
+            let mut group = Group::new(delimiter![[]], marker);
+            group.set_span(cur.span());
+            out.push(TokenTree::Group(group));
+            i += 3;
+            // A variadic segment at the end of a parenthesized member list is
             // normally written with a trailing comma (`(A@..,)`) — the comma
             // keeps syn from parsing `(A@..)` as a parenthesized group. When
             // the user omits it (`impl{(A@..)}`), supply it here so the
             // template still parses as a tuple. Only the *last* element of
             // the enclosing group needs this — a middle segment already has
             // the following comma in the stream.
-            if i >= tokens.len() && !out.is_empty() {
-                let last_is_comma = matches!(
-                    out.last(),
-                    Some(TokenTree::Punct(p)) if p.as_char() == ','
-                );
-                if !last_is_comma {
-                    out.push(TokenTree::Punct(proc_macro2::Punct::new(
-                        ',',
-                        proc_macro2::Spacing::Alone,
-                    )));
-                }
+            if tuple_members && i >= tokens.len() {
+                out.push(TokenTree::Punct(proc_macro2::Punct::new(
+                    ',',
+                    proc_macro2::Spacing::Alone,
+                )));
             }
             continue;
         }
@@ -217,22 +253,30 @@ fn mark_template_impl(tokens: &[TokenTree], depth: usize) -> Result<Vec<TokenTre
             let inner = g.stream().into_iter().collect::<Vec<_>>();
             // Inner recursion: use the raw impl (the public entry's
             // postcondition runs once at the template's top level).
-            let marked = mark_template_impl(&inner, depth + 1)?;
+            let end = type_group_len(g, &inner);
+            let mut marked = mark_template_impl(
+                slice_upto(&inner, end),
+                depth + 1,
+                g.delimiter() == delimiter![()],
+            )?;
+            marked.extend(inner.into_iter().skip(end));
             let mut ng = Group::new(g.delimiter(), marked.into_iter().collect());
             ng.set_span(g.span());
             out.push(TokenTree::Group(ng));
             i += 1;
             continue;
         }
-        out.push(cur.clone());
-        i += 1;
+        let count = slot.advance(tokens, i, out.len());
+        out.extend(tokens.iter().skip(i).take(count).cloned());
+        i += count;
     }
     Ok(out)
 }
 
 /// Whether a syn type is a variadic-segment marker: an array type whose
-/// length is the **unit tuple** (`[Prefix; ()]`) — a shape that cannot
+/// length is the **unit tuple** (`[P; ()]`) — a shape that cannot
 /// appear in compilable code, decoded by shape, never by a name pattern.
+#[cfg(test)]
 pub(crate) fn is_varseg_type(tp: &syn::Type) -> bool {
     let syn::Type::Array(a) = tp else { return false };
     is_varseg_array(a)
@@ -241,18 +285,20 @@ pub(crate) fn is_varseg_type(tp: &syn::Type) -> bool {
 /// Whether a syn array type is a variadic-segment marker (`[A; ()]` — the
 /// unit-tuple length). Same test as [`is_varseg_type`] on the array form.
 pub(crate) fn is_varseg_array(a: &syn::TypeArray) -> bool {
-    is_unit_len(&a.len) && varseg_prefix(&syn::Type::Array(a.clone())).is_some()
+    is_unit_len(&a.len)
+}
+
+/// The complete Rust type pattern carried by a segment marker.
+pub(crate) fn varseg_pattern(tp: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Array(a) = tp else { return None };
+    is_varseg_array(a).then_some(a.elem.as_ref())
 }
 
 /// The variadic segment's name prefix from its marker (`[A; ()]` → `A`; the
 /// element must be a bare single-segment path and the length the unit tuple).
+#[cfg(test)]
 pub(crate) fn varseg_prefix(tp: &syn::Type) -> Option<String> {
-    let syn::Type::Array(a) = tp else { return None };
-    // The length must be the unit tuple — the marker's distinguishing shape.
-    if !is_unit_len(&a.len) {
-        return None;
-    }
-    let syn::Type::Path(p) = &*a.elem else { return None };
+    let syn::Type::Path(p) = varseg_pattern(tp)? else { return None };
     if !p.qself.is_none() || p.path.segments.len() != 1 {
         return None;
     }
@@ -485,5 +531,102 @@ mod tests {
         let plain: syn::Type = syn::parse_str("[A; 3]").unwrap();
         assert!(!is_varseg_type(&plain));
         assert_eq!(varseg_prefix(&plain), None);
+    }
+
+    #[test]
+    fn complete_rust_patterns_roundtrip_inside_one_segment() {
+        use quote::ToTokens;
+
+        for pattern in [
+            "A<B, C>",
+            "(T, Vec<T>)",
+            "&'a mut T",
+            "*const T",
+            "[T; N]",
+            "[T]",
+            "fn(T) -> U",
+            "for<'a> unsafe extern \"C\" fn(&'a T) -> U",
+            "<T as Trait<U>>::Assoc<V>",
+            "dyn Trait<T> + Send",
+        ] {
+            let input = format!("({pattern}@..)").parse::<TokenStream>().unwrap();
+            let output = mark_template(&input.into_iter().collect::<Vec<_>>(), 0).unwrap();
+            let ty = syn::parse2::<syn::Type>(output.into_iter().collect()).unwrap();
+            let syn::Type::Tuple(tuple) = ty else { panic!("not a tuple: {pattern}") };
+            assert_eq!(tuple.elems.len(), 1, "{pattern}");
+            let marker = tuple.elems.first().unwrap();
+            assert!(is_varseg_type(marker), "{pattern}");
+            assert_eq!(
+                varseg_pattern(marker).unwrap().to_token_stream().to_string(),
+                syn::parse_str::<syn::Type>(pattern).unwrap().to_token_stream().to_string(),
+                "{pattern}"
+            );
+            assert_eq!(varseg_prefix(marker), None, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn generic_slots_preserve_outer_patterns_and_inner_commas() {
+        let source = "impl{Wrap<A<B, C>@.., &T@.., fn(T) -> U@.., Last>}";
+        let expected = "impl{Wrap<[A<B, C>; ()], [&T; ()], [fn(T) -> U; ()], Last>}";
+        assert_eq!(mark(source), expected.parse::<TokenStream>().unwrap().to_string());
+    }
+
+    #[test]
+    fn named_function_arguments_and_bindings_keep_their_prefixes() {
+        for (source, expected) in [
+            (
+                "impl{fn(#[opaque(A@..)] field: &T@.., plain: U)}",
+                "impl{fn(#[opaque(A@..)] field: [&T; ()], plain: U)}",
+            ),
+            ("impl{Trait<Item = A<B>@..>}", "impl{Trait<Item = [A<B>; ()]>}"),
+            ("impl{fn(#[opaque(A@..)] &T@..)}", "impl{fn(#[opaque(A@..)] [&T; ()],)}"),
+        ] {
+            assert_eq!(mark(source), expected.parse::<TokenStream>().unwrap().to_string());
+        }
+    }
+
+    #[test]
+    fn root_and_single_type_slots_do_not_gain_tuple_commas() {
+        for (source, expected) in [
+            ("impl{A<B>@..}", "impl{[A<B>; ()]}"),
+            ("impl{[T@..; N]}", "impl{[[T; ()]; N]}"),
+            ("impl{[T@..]}", "impl{[[T; ()]]}"),
+            ("impl{Vec<T@..>@..}", "impl{[Vec<[T; ()]>; ()]}"),
+        ] {
+            assert_eq!(mark(source), expected.parse::<TokenStream>().unwrap().to_string());
+        }
+    }
+
+    #[test]
+    fn complex_segments_preserve_opaque_inputs_and_array_lengths() {
+        for source in [
+            "impl{[u8; (|[n @ ..]| n.len())([])]}",
+            "opaque!(impl{(A<B>@..)})",
+            "#[opaque(impl{(A<B>@..)})]",
+            "impl{opaque!((T, Vec<T>)@..)}",
+            "impl{Arr<{ match 2 { n @ ..=3 => n, _ => 0 } }>} ",
+        ] {
+            let input = source.parse::<TokenStream>().unwrap();
+            assert_eq!(mark(source), input.to_string(), "{source}");
+        }
+        let source = "impl{(opaque!(A@..), Arr<{n @ ..}>)@..}";
+        let expected = "impl{[(opaque!(A@..), Arr<{n @ ..}>); ()]}";
+        assert_eq!(mark(source), expected.parse::<TokenStream>().unwrap().to_string());
+    }
+
+    #[test]
+    fn malformed_slot_boundaries_never_leave_a_recognized_segment() {
+        for prefix in ["", "<", ">", "&", "fn() ->", "T::", "Item =", "name:", "#[x]"] {
+            for middle in ["A", "A<B>", "(A, B)", "[A; N]", "&A"] {
+                for tail in ["", ", B@..", "> A@..", "@..", "<B@..>"] {
+                    let source = format!("{prefix} {middle}@..{tail}");
+                    let input = source.parse::<TokenStream>().unwrap();
+                    let output = mark_template(&input.into_iter().collect::<Vec<_>>(), 0)
+                        .unwrap_or_else(|error| panic!("{source}: {error}"));
+                    assert!(first_unmarked_segment(&output).is_none(), "{source}");
+                }
+            }
+        }
     }
 }

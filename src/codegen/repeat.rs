@@ -5,17 +5,15 @@
 //! A block's repetition count is the common length of its driving segments
 //! (the `@ident` references inside; all must be equal-length, else error).
 //! Each round `i` substitutes:
-//! - `@ident` → the segment's i-th **bound element**, spliced directly from
-//!   the shape mapping (the `$(...)*` semantics — the round's output shows
-//!   the actual leaf subtree, no intermediate spelling), and
+//! - `@ident` → that capture's value in the selected segment's i-th row,
+//!   spliced directly without rewriting the captured target subtree, and
 //! - `@N` → the numeric literal `N + i` (a plain index cursor — the caller
 //!   writes the path prefix, e.g. `self.@1` for a segment starting at 1).
 //!
-//! Nested blocks get independent rounds (Cartesian semantics: every outer
-//! round re-runs the inner block over its own segment). The block body is
-//! emitted verbatim each round (a trailing `,` separator stays a trailing
-//! comma — legal in tuple/list contexts). Outside a block, `@` in a body is
-//! an error: repeat blocks are the only legal `@` construct there.
+//! Nested blocks finish independently before outer rounds copy their results
+//! (Cartesian semantics); copied values are not substituted again. Source
+//! tokens use the fixed-slot mapping once. Outside a block, fresh carriers
+//! remain supported, but bare segment references and cursors are errors.
 
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use std::cell::Cell;
@@ -36,7 +34,7 @@ use crate::util::{MAX_NEST_DEPTH, TokenDomain, compile_error_str, depth_err, is_
 pub(crate) const MAX_REPEAT_TOKENS: usize = 1 << 16;
 
 /// The per-expansion context, shared by every recursion level: the declared
-/// segments (structure), the shape mapping (bound values), the fresh
+/// segments (capture rows), the fixed-slot mapping, the fresh
 /// context and the fresh-binding switch. One struct instead of parallel
 /// parameter lists — a new concern joins as a field, not as another thread
 /// through five signatures.
@@ -44,8 +42,7 @@ pub(crate) struct RepeatCtx<'a> {
     /// Explicit body switches authorize lexical rewriting inside every group.
     pub(crate) domain: TokenDomain,
     pub(crate) segs: &'a [VarSeg],
-    /// The value source of `@ident` substitution (the `(prefix, position)`
-    /// bindings produced by the shape match).
+    /// Fixed-slot replacements for source tokens; row captures live in `segs`.
     pub(crate) map: &'a crate::codegen::Mapping,
     /// The fresh display names (`@{N}` references).
     pub(crate) fresh: &'a super::FreshCtx,
@@ -68,8 +65,8 @@ pub(crate) fn expand_repeat_blocks(
     Ok(out.tokens.into_iter().collect())
 }
 
-/// Stream-level scan: expands `@( ... )..` blocks and recurses into groups;
-/// any other `@` in a body is an error.
+/// Expands repeat blocks and fresh carriers, applying fixed slots to source
+/// tokens. Group traversal follows the caller's body-substitution domain.
 fn expand_stream(
     tokens: &[TokenTree], cx: &RepeatCtx, depth: usize, limit: usize,
 ) -> Result<Output, TokenStream> {
@@ -115,11 +112,13 @@ fn expand_stream(
                 }
                 // A fresh-ref carrier (`@{...}` — landed in the body by the
                 // directive signature substitution of trait args) is **not**
-                // a repeat block: pass it through for the later range
-                // re-opening pass (`expand_range_refs` in `generate_parts`).
+                // a repeat block: resolve it now and mark its value generated.
                 _ if let Some(g) = crate::ast::fresh_protocol::carrier_group_at(tokens, i) => {
-                    out.push(cur.clone())?;
-                    out.push(TokenTree::Group(g.clone()))?;
+                    out.extend(crate::codegen::expand_body_refs(
+                        [cur.clone(), TokenTree::Group(g.clone())].into_iter().collect(),
+                        cx.fresh,
+                        cx.domain,
+                    )?)?;
                     i += 2;
                 }
                 _ => {
@@ -142,15 +141,21 @@ fn expand_stream(
                 return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let expanded = expand_stream(&inner, cx, depth + 1, out.group_limit(g.span())?)?;
-            out.group(g, expanded)?;
+            let expanded =
+                expand_stream(&inner, cx, depth + 1, out.resolved_group_limit(g, &inner, &[])?)?;
+            out.resolved_group(g, &inner, &[], expanded)?;
             i += 1;
+            continue;
+        }
+        if is_punct_at(tokens, i, '\'') {
+            out.extend(crate::util::slice_window(tokens, i, 2).iter().cloned())?;
+            i += 2;
             continue;
         }
         if let Some(repaired) = fix_literal_at(tokens, i) {
             out.extend(repaired)?;
         } else {
-            out.push(cur.clone())?;
+            super::repeat_drivers::emit_source(&mut out, cur, cx.map)?;
         }
         i += 1;
     }
@@ -158,10 +163,11 @@ fn expand_stream(
 }
 
 /// Expands one repeat block: nested blocks first (their rounds are
-/// independent), then `L` rounds of marker substitution (`L` = the driving
+/// independent and their completed output is copied), then `L` rounds of
+/// source-marker substitution (`L` = the driving
 /// segment's length — a declared `@ident` prefix, the block's inner segment
 /// references, the template's unique segment for a cursor-only block, or the
-/// fresh-binding switch's scope). The literal `sep` tokens are emitted
+/// fresh-binding switch's scope). Source `sep` tokens are resolved and emitted
 /// **between** rounds (never after the last one) — the `$($A),*` form;
 /// write the separator inside the body for the `$($A,)*` form.
 fn expand_block(
@@ -171,79 +177,50 @@ fn expand_block(
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(body, " in a repeat block"));
     }
-    // 1. Nested repeat blocks expand first (own rounds).
-    let body = expand_nested(body, cx, depth, MAX_REPEAT_TOKENS)?.tokens;
-    // 2. The inner segment references (prefixes + their common length).
-    let (inner_prefixes, inner_len) =
-        super::repeat_drivers::collect_drivers(&body, cx.segs, cx.domain)?;
-    // 3. The repetition count.
-    let len = match driver {
-        // Declared driver: it is the length source; any inner references
-        // must point at the same segment.
-        Some(id) => {
-            let prefix = id.to_string();
-            let Some(seg) = cx.segs.iter().find(|s| s.prefix == prefix) else {
-                return Err(compile_error_str(
-                    &format!(
-                        "batch-impl: repeat block driver `@{}` is not a variadic \
-                         segment (the `impl{{...}}` template declares no `{}@..`)",
-                        prefix, prefix,
-                    ),
-                    id.span(),
-                ));
-            };
-            for p in &inner_prefixes {
-                if *p != prefix {
-                    return Err(compile_error_str(
-                        &format!(
-                            "batch-impl: repeat block driver `@{}` conflicts with the \
-                             inner segment reference `@{}` (they must be the same)",
-                            prefix, p,
-                        ),
-                        id.span(),
-                    ));
-                }
-            }
-            seg.len
+    // Nested blocks finish independently. Provenance protects their values
+    // from both outer cursors and fixed-slot substitutions.
+    let body = expand_nested(body, cx, depth, MAX_REPEAT_TOKENS)?;
+    let names = super::repeat_drivers::collect_drivers(&body.tokens, &body.origins, cx.domain)?;
+    let span = body.tokens.first().map_or_else(Span::call_site, TokenTree::span);
+    let selection = super::repeat_bindings::select(&names, cx.segs, driver.as_ref(), span)?;
+    let len = match selection.len {
+        Some(len) => len,
+        None if cx.segs.len() == 1 => cx.segs.first().map_or(0, VarSeg::len),
+        None if cx.segs.len() > 1 => {
+            return Err(compile_error_str(
+                "batch-impl: a cursor-only repeat block needs a driving \
+                 segment — with several template segments write \
+                 `@ident(...)..` declaring the driver",
+                span,
+            ));
         }
-        // No declared driver: the inner references decide; a cursor-only
-        // block binds the template's unique segment (its length is the only
-        // possible one — no guessing) or the fresh-binding switch's scope
-        // when there is no segment at all (the bound-generator arity drives
-        // the body — zero bound fresh = zero rounds, the arity-0 impl).
-        // Several segments without a reference cannot pick a length —
-        // reject.
-        None => match inner_len {
-            Some(l) => l,
-            None if cx.segs.len() == 1 => cx.segs.first().map_or(0, |s| s.len),
-            None if cx.segs.len() > 1 => {
-                return Err(compile_error_str(
-                    "batch-impl: a cursor-only repeat block needs a driving \
-                     segment — with several template segments write \
-                     `@ident(...)..` declaring the driver",
-                    body.first().map_or_else(Span::call_site, |t| t.span()),
-                ));
-            }
-            None => binding_len(cx, &body)?,
-        },
+        None => binding_len(cx, &body.tokens)?,
     };
-    // 4. L rounds of marker substitution, with the literal separator
-    //    between rounds (never after the last one).
+    // L rounds of marker substitution, with the source separator resolved
+    // between rounds (never after the last one).
     let mut out = Output::new(limit);
     for round in 0..len {
         out.append(
-            super::repeat_drivers::substitute(&body, cx, round, depth + 1, out.remaining())?,
-            body.first().map_or_else(Span::call_site, TokenTree::span),
+            super::repeat_drivers::substitute(
+                &body.tokens,
+                &body.origins,
+                cx,
+                &selection,
+                round,
+                depth + 1,
+                out.remaining(),
+            )?,
+            span,
         )?;
         if round + 1 < len {
-            out.extend(sep.iter().cloned())?;
+            out.append(expand_stream(sep, cx, depth + 1, out.remaining())?, span)?;
         }
     }
     Ok(out)
 }
 
 /// Parses a repeat block's parts at `@ ( body ) [sep] ..`: returns the body
-/// tokens, the literal separator tokens between `)` and `..` (empty for the
+/// tokens, the source separator tokens between `)` and `..` (empty for the
 /// plain `@(...)..` form), and the index just past `..`. `None` when the
 /// tokens are not a repeat block (missing group or missing `..`).
 fn parse_repeat_at(

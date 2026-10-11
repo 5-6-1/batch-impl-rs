@@ -284,6 +284,11 @@ fn ui() {
     t.compile_fail("tests/ui/impl_shape_varseg_outside_tuple.rs");
     t.compile_fail("tests/ui/impl_shape_varseg_duplicate.rs");
     t.compile_fail("tests/ui/impl_shape_varseg_uneven.rs");
+    t.compile_fail("tests/ui/variadic_pattern_inconsistent.rs");
+    t.compile_fail("tests/ui/variadic_pattern_structure.rs");
+    t.compile_fail("tests/ui/variadic_pattern_ambiguous.rs");
+    t.compile_fail("tests/ui/variadic_pattern_nested.rs");
+    t.compile_fail("tests/ui/variadic_pattern_driver_conflict.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_unknown.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_no_driver.rs");
     t.compile_fail("tests/ui/impl_shape_repeat_bare_at.rs");

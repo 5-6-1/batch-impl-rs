@@ -8,13 +8,43 @@ use crate::util::compile_error_str;
 
 pub(crate) struct Output {
     pub(crate) tokens: Vec<TokenTree>,
+    pub(crate) origins: Vec<Origin>,
     pub(crate) count: usize,
     limit: usize,
 }
 
+/// Completed substitutions are values, never new source for an enclosing round.
+/// Group provenance mirrors only unfinished template groups; no marker tokens
+/// or reserved identifiers are emitted into the user's Rust.
+#[derive(Clone)]
+pub(crate) enum Origin {
+    Source,
+    Generated,
+    Group(Vec<Origin>),
+}
+
+pub(crate) fn generated(origins: &[Origin], at: usize) -> bool {
+    matches!(origins.get(at), Some(Origin::Generated))
+}
+
+pub(crate) fn group_origins(origins: &[Origin], at: usize) -> &[Origin] {
+    match origins.get(at) {
+        Some(Origin::Group(inner)) => inner,
+        _ => &[],
+    }
+}
+
+fn folds_empty_ranges(group: &Group, source: &[TokenTree], origins: &[Origin]) -> bool {
+    group.delimiter() == proc_macro2::Delimiter::Parenthesis
+        && source.iter().enumerate().any(|(i, _)| {
+            !generated(origins, i)
+                && crate::ast::fresh_protocol::carrier_group_at(source, i).is_some()
+        })
+}
+
 impl Output {
     pub(crate) fn new(limit: usize) -> Self {
-        Self { tokens: vec![], count: 0, limit }
+        Self { tokens: vec![], origins: vec![], count: 0, limit }
     }
 
     pub(crate) fn remaining(&self) -> usize {
@@ -58,6 +88,7 @@ impl Output {
             }
         }
         self.tokens.push(token);
+        self.origins.push(Origin::Generated);
         Ok(())
     }
 
@@ -73,6 +104,7 @@ impl Output {
     pub(crate) fn append(&mut self, other: Self, span: Span) -> Result<(), TokenStream> {
         self.charge(other.count, span)?;
         self.tokens.extend(other.tokens);
+        self.origins.extend(other.origins);
         Ok(())
     }
 
@@ -81,7 +113,45 @@ impl Output {
         let mut group = Group::new(original.delimiter(), inner.tokens.into_iter().collect());
         group.set_span(original.span());
         self.tokens.push(TokenTree::Group(group));
+        self.origins.push(Origin::Generated);
         Ok(())
+    }
+
+    /// Preserve the fresh-range tuple rule while inspecting source only.
+    /// Captured Rust tokens must never become candidates for another pass.
+    pub(crate) fn resolved_group(
+        &mut self, original: &Group, source: &[TokenTree], origins: &[Origin], inner: Self,
+    ) -> Result<(), TokenStream> {
+        if folds_empty_ranges(original, source, origins) {
+            let mut folded = Self::new(inner.limit);
+            folded.extend(super::super::range_refs::fold_empty_tuple(&inner.tokens))?;
+            self.group(original, folded)
+        } else {
+            self.group(original, inner)
+        }
+    }
+
+    /// Source commas can disappear when an empty fresh range is collected.
+    /// Give those input-sized separators temporary room, then charge the
+    /// folded group against the parent's unchanged limit. Generated commas
+    /// do not increase this allowance, and surviving commas still cost tokens.
+    pub(crate) fn resolved_group_limit(
+        &mut self, original: &Group, source: &[TokenTree], origins: &[Origin],
+    ) -> Result<usize, TokenStream> {
+        let limit = self.group_limit(original.span())?;
+        let commas = if folds_empty_ranges(original, source, origins) {
+            source
+                .iter()
+                .enumerate()
+                .filter(|(i, token)| {
+                    !generated(origins, *i)
+                        && matches!(token, TokenTree::Punct(p) if p.as_char() == ',')
+                })
+                .count()
+        } else {
+            0
+        };
+        Ok(limit.saturating_add(commas))
     }
 
     pub(crate) fn group_limit(&mut self, span: Span) -> Result<usize, TokenStream> {
@@ -96,6 +166,7 @@ impl Output {
     // input-sized and are charged in full when a round actually emits them.
     pub(crate) fn source(&mut self, token: TokenTree) {
         self.tokens.push(token);
+        self.origins.push(Origin::Source);
     }
 
     pub(crate) fn template_group(
@@ -105,6 +176,7 @@ impl Output {
         let mut group = Group::new(original.delimiter(), inner.tokens.into_iter().collect());
         group.set_span(original.span());
         self.tokens.push(TokenTree::Group(group));
+        self.origins.push(Origin::Group(inner.origins));
         Ok(())
     }
 }

@@ -1,0 +1,7 @@
+error: batch-impl: binding slot `T` is bound to different subtrees (`u8` vs `u16`)
+ --> tests/ui/variadic_pattern_inconsistent.rs:5:1
+  |
+5 | #[batch_impl((Pair<u8, u16>,) impl{(Pair<T, T>@..,)} #n{0})]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

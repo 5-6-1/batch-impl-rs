@@ -1,14 +1,13 @@
 //! Repeat-block driver collection and marker substitution: the two helpers
 //! of the repeat-block expansion (`expand_repeat_blocks` in `repeat.rs`).
-//! `collect_drivers` finds the `@ident` segment references of a block body
-//! and their common length; `substitute` rewrites the markers of one round
-//! (`@ident` → the segment's i-th bound element, spliced directly — the
-//! `$(...)*` semantics; `@N` → `N + i`).
+//! `collect_drivers` finds source capture references for `repeat_bindings`
+//! to resolve; `substitute` emits one selected row and advances numeric
+//! cursors. Completed nested output and inserted values stay unchanged.
 
-use super::repeat::output::Output;
+use super::repeat::output::{Origin, Output, generated, group_origins};
+use super::repeat_bindings::Selection;
 use proc_macro2::{Literal, Punct, Spacing, TokenStream, TokenTree};
 
-use crate::codegen::VarSeg;
 /// Repairs the float-literal tokenization of `数字.@`: the tokenizer reads
 /// `self.0.@0` as `self . 0. @ 0` (the `0.` becomes a float literal), which
 /// would render `self.0.0` as two adjacent literals. Splitting the trailing
@@ -57,27 +56,21 @@ fn cursor_field(
     Some((cursor, [TokenTree::Punct(dot), TokenTree::Literal(field)]))
 }
 
-/// The inner segment references of a block body: the deduplicated `@ident`
-/// prefixes (first-appearance order) and their common length (`None` when the
-/// block references no segment — a cursor-only block).
+/// Capture names referenced by unfinished source, in first-appearance order.
+/// Already-generated nested values contribute neither names nor drivers.
 pub(crate) fn collect_drivers(
-    tokens: &[TokenTree], segs: &[VarSeg], domain: crate::util::TokenDomain,
-) -> Result<(Vec<String>, Option<usize>), TokenStream> {
+    tokens: &[TokenTree], origins: &[Origin], domain: crate::util::TokenDomain,
+) -> Result<Vec<String>, TokenStream> {
     let mut prefixes = vec![];
-    let mut len = None;
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
+        if generated(origins, i) {
+            i += 1;
+            continue;
+        }
         if is_punct_at(tokens, i, '@') {
-            // `@N` index cursors are not segment references either.
-            if matches!(tokens.get(i + 1), Some(TokenTree::Literal(_))) {
-                i += 2;
-                continue;
-            }
-            // A fresh-ref carrier from an already-expanded nested round
-            // (`@{g_i}`, emitted by the directive signature substitution):
-            // not a driver — pass through.
-            if matches!(tokens.get(i + 1), Some(TokenTree::Group(g))
-                if g.delimiter() == delimiter![{}])
+            if matches!(tokens.get(i + 1), Some(TokenTree::Literal(_)))
+                || matches!(tokens.get(i + 1), Some(TokenTree::Group(g)) if g.delimiter() == delimiter![{}])
             {
                 i += 2;
                 continue;
@@ -90,76 +83,35 @@ pub(crate) fn collect_drivers(
                 ));
             };
             let prefix = id.to_string();
-            let Some(seg) = segs.iter().find(|s| s.prefix == prefix) else {
-                return Err(compile_error_str(
-                    &format!(
-                        "batch-impl: repeat block references unknown variadic segment \
-                         `@{}` (the `impl{{...}}` template declares no `{}@..`)",
-                        prefix, prefix,
-                    ),
-                    id.span(),
-                ));
-            };
             if !prefixes.contains(&prefix) {
                 prefixes.push(prefix);
-            }
-            match len {
-                None => len = Some(seg.len),
-                Some(l) if l != seg.len => {
-                    return Err(compile_error_str(
-                        &format!(
-                            "batch-impl: repeat block segments have different lengths \
-                             ({} vs {}); all referenced segments must be equal-length",
-                            l, seg.len,
-                        ),
-                        id.span(),
-                    ));
-                }
-                _ => {}
             }
             i += 2;
             continue;
         }
-        if let TokenTree::Group(g) = cur {
-            if domain.skips_group(tokens, i) {
-                i += 1;
-                continue;
-            }
+        if let TokenTree::Group(g) = cur
+            && !domain.skips_group(tokens, i)
+        {
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let (p, l) = collect_drivers(&inner, segs, domain)?;
-            for p in p {
+            for p in collect_drivers(&inner, group_origins(origins, i), domain)? {
                 if !prefixes.contains(&p) {
                     prefixes.push(p);
                 }
             }
-            match (len, l) {
-                (None, _) => len = l,
-                (Some(a), Some(b)) if a != b => {
-                    return Err(compile_error_str(
-                        "batch-impl: repeat block segments have different lengths; all \
-                         referenced segments must be equal-length",
-                        cur.span(),
-                    ));
-                }
-                _ => {}
-            }
-            i += 1;
-            continue;
         }
         i += 1;
     }
-    Ok((prefixes, len))
+    Ok(prefixes)
 }
 
-/// Substitutes the markers of one round: `@ident` → the segment's i-th
-/// **bound element** (spliced directly from the shape mapping — the
-/// `$(...)*` semantics; no intermediate name or carrier exists between the
-/// expansion and the output), `@N` → `N + i`, `@{N}` → the N-th fresh
+/// Substitutes source markers of one round: `@ident` → the selected segment
+/// row's capture value (spliced directly), `@N` → `N + i`, `@{N}` → the N-th fresh
 /// generic's name (the fresh-binding switch's name reference — fixed, not
 /// per-round), and `@{@N}` → the `(N + i)`-th fresh's name (the per-round
 /// form — each round names its own fresh).
 pub(crate) fn substitute(
-    tokens: &[TokenTree], cx: &super::RepeatCtx, round: usize, depth: usize, limit: usize,
+    tokens: &[TokenTree], origins: &[Origin], cx: &super::RepeatCtx, selection: &Selection,
+    round: usize, depth: usize, limit: usize,
 ) -> Result<Output, TokenStream> {
     if depth > MAX_NEST_DEPTH {
         return Err(depth_err(tokens, ""));
@@ -167,6 +119,11 @@ pub(crate) fn substitute(
     let mut out = Output::new(limit);
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
+        if generated(origins, i) {
+            out.push(cur.clone())?;
+            i += 1;
+            continue;
+        }
         // A fresh-ref carrier (`@{g_i}`) inside a repeat block: `@{N}` is a
         // **fixed fresh-name reference** (the successor of the retired `@@N`
         // spelling — the same `@{...}` shape the body uses, one `@` consumed),
@@ -174,8 +131,8 @@ pub(crate) fn substitute(
         // form — the index is `N + round`, so each round names its own fresh
         // (`(@(@{@N}::foo()),..)` on three freshs →
         // `(P0::foo(), P1::foo(), P2::foo())`). A **range** carrier
-        // (`@{0..}`) passes through untouched for the later range re-opening
-        // pass (`expand_range_refs`).
+        // (`@{0..}`) or grouped carrier resolves here through the shared
+        // fresh-reference resolver. Its result is never new repeat source.
         if let Some(g) = crate::ast::fresh_protocol::carrier_group_at(tokens, i) {
             let inner_tokens = g.stream().into_iter().collect::<Vec<_>>();
             let index = if is_punct_at(&inner_tokens, 0, '@') {
@@ -204,11 +161,14 @@ pub(crate) fn substitute(
                 let inner = tokens_to_string(&inner_tokens);
                 match inner.parse::<usize>() {
                     Ok(n) => n,
-                    // A range or grouped carrier: pass through for range
-                    // re-opening.
+                    // Resolve a range or grouped carrier without scanning
+                    // any previously inserted target tokens.
                     Err(_) => {
-                        out.push(cur.clone())?;
-                        out.push(TokenTree::Group(g.clone()))?;
+                        out.extend(crate::codegen::expand_body_refs(
+                            [cur.clone(), TokenTree::Group(g.clone())].into_iter().collect(),
+                            cx.fresh,
+                            cx.domain,
+                        )?)?;
                         i += 2;
                         continue;
                     }
@@ -233,22 +193,19 @@ pub(crate) fn substitute(
             match tokens.get(i + 1) {
                 Some(TokenTree::Ident(id)) => {
                     let prefix = id.to_string();
-                    let Some(seg) = cx.segs.iter().find(|s| s.prefix == prefix) else {
+                    let Some(seg) = selection.segment(&prefix, cx.segs) else {
                         // Verified by collect_drivers; defensive (no-panic).
                         return Err(compile_error_str(
                             &format!("batch-impl: unknown variadic segment `@{}`", prefix),
                             id.span(),
                         ));
                     };
-                    // Splice the slot's **bound element** directly — the
-                    // `$(...)*` semantics: the round's output shows the
-                    // actual leaf subtree, no intermediate spelling exists.
-                    // `seg.start` is bounded by the leaf's element count and
-                    // `round` by the segment length — both input-sized, so the
-                    // sum cannot overflow; saturating keeps the whole
-                    // cursor/round family uniform (see the `@N` arm below).
+                    // All columns of a selected segment use this same row.
+                    // The target position is used only for diagnostics;
+                    // inserted values never become source for another pass.
                     let pos = seg.start.saturating_add(round);
-                    let Some(value) = cx.map.seg_value(&prefix, pos) else {
+                    let Some(value) = seg.rows.get(round).and_then(|row| row.capture(&prefix))
+                    else {
                         return Err(compile_error_str(
                             &format!(
                                 "batch-impl: internal error — variadic segment `{}@..` \
@@ -305,17 +262,44 @@ pub(crate) fn substitute(
                 return Err(depth_err(std::slice::from_ref(cur), ""));
             }
             let inner = g.stream().into_iter().collect::<Vec<_>>();
-            let substituted = substitute(&inner, cx, round, depth + 1, out.group_limit(g.span())?)?;
-            out.group(g, substituted)?;
+            let substituted = substitute(
+                &inner,
+                group_origins(origins, i),
+                cx,
+                selection,
+                round,
+                depth + 1,
+                out.resolved_group_limit(g, &inner, group_origins(origins, i))?,
+            )?;
+            out.resolved_group(g, &inner, group_origins(origins, i), substituted)?;
             i += 1;
+            continue;
+        }
+        if is_punct_at(tokens, i, '\'') {
+            out.extend(crate::util::slice_window(tokens, i, 2).iter().cloned())?;
+            i += 2;
             continue;
         }
         if let Some(repaired) = fix_literal_at(tokens, i) {
             out.extend(repaired)?;
         } else {
-            out.push(cur.clone())?;
+            emit_source(&mut out, cur, cx.map)?;
         }
         i += 1;
     }
     Ok(out)
+}
+
+/// Apply fixed slots to source tokens exactly once. Bound target tokens are
+/// emitted directly, so neither an outer slot nor a later round can rewrite them.
+pub(super) fn emit_source(
+    out: &mut Output, token: &TokenTree, mapping: &crate::codegen::Mapping,
+) -> Result<(), TokenStream> {
+    if let TokenTree::Ident(id) = token
+        && let Some((_, value)) = mapping.slots().iter().find(|(name, _)| id == name)
+    {
+        out.extend(value.clone())
+    } else {
+        out.push(token.clone())
+    }
 }

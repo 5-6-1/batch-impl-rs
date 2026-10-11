@@ -1612,7 +1612,7 @@ fn collect_stderr(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 }
 
 /// How many `batch-impl` literals the two debt lists exempt today. See the assertion that reads it.
-const EXEMPTED_DIAGNOSTICS: usize = 95;
+const EXEMPTED_DIAGNOSTICS: usize = 94;
 
 /// Files with the given extension under a directory, recursively.
 fn count_files_below(dir: &Path, ext: &str) -> usize {

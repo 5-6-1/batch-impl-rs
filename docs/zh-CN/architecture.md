@@ -2,6 +2,8 @@
 
 **Unreleased — 0.10.2 后续修复。** 类型解析保留 Rust 宏/属性输入；显式启用的 body 替换按契约进入全部括号。继承约束保留生命周期绑定作用域，委托生成参数使用私有前缀并避开输入名字；重复预算在复制前按重复展开阶段的递归 token 输出计数。见 [CHANGELOG](CHANGELOG.md)。
 
+形状模板的变长段扩展为 `P@..`，复用普通形状匹配器逐元素匹配完整 Rust 类型模式。每轮捕获保存独立映射，包含同名 identity；重复展开区分源模板 token 与已生成值，避免后者被外层固定槽或嵌套轮次再次改写。模式内部再嵌变长段仍拒绝，普通嵌套元组中的独立段继续支持。
+
 **v0.10.0** 引入 `@Self`、const/函数指针匹配、形状替换修复、限定 trait 的异步及方法泛型 blanket 转发、`@all_fresh` 移除与文档更正；次版本边界隔离这些刻意的破坏性变更。
 
 0.10.0 同时将命名范围端点与 Rust 统一（`..` 排除、`..=` 包含），允许空指令作用域与一个尾逗号，并在差集运算前验证所有成员名；关联类型的 impl 声明与 GAT 投影实参分别生成。这些变更复用运算符字典、共享名字列表解析器与泛型名字提取函数。
@@ -97,7 +99,7 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   │   ├── blanket_wrappers.rs blanket wrapper 列表解析（类型表达式 + `:N` 解引用深度 + 尾随 where{...}）
   │   │   ├── blanket_helpers.rs blanket 辅助：`Self` 返回检测、`@0` 目标标记、成组 trait 路径渲染、wrapper-where 的 @trait 解析
   │   │   └── blanket_helpers_boundary_tests.rs 不透明 wrapper token 与谓词引用的回归测试
-  │   ├── varseg.rs         变长段（`ident@..`）：模板标记、解码 API、残留后置条件诊断
+  │   ├── varseg.rs         变长段（`P@..`）：完整类型模式的结构标记、解码 API、残留后置条件诊断
   │   ├── where_process.rs  裸 `where` / 裸 `impl` 收集（kw_process）——一个收集器、两条边界规则
   │   ├── empty_generics.rs `A<>` 照抄展开（形参渲染用合并后的 bound）
   │   └── angle.rs          尖括号组：入口 None 组扁平化 + `<...>` 配对为组（输出侧 render_angles 还原），parse 层不再管 <> 深度
@@ -144,11 +146,14 @@ lib.rs              宏入口（#[batch_impl] / #[batch_impl_only] / batch_trait
   │   ├── range_worker.rs   范围引用展开测试（从 range_refs.rs 拆出以守住单文件预算）
   │   ├── shape.rs          形状模板内核：Mapping + VarSeg + ShapeError
   │   ├── shape_args.rs     路径/const 实参与函数指针匹配；依据声明核对参数种类
+  │   ├── shape_segments.rs 变长模式逐行匹配、捕获列与嵌套段检查
+  │   ├── shape_segment_tests.rs 逐行映射、identity、空段与作用域回归（cfg(test)）
   │   ├── shape_tests.rs    形状内核回归（cfg(test)）：字面约束、参数种类与函数契约
   │   ├── match_ty.rs       模板 vs 叶子的结构递归（覆盖每种 syn::Type 形态；`_` 通配；const 参数数组长度可绑定）
   │   ├── repeat.rs         `@(...)..` 重复块 + token 预算
+  │   ├── repeat_bindings.rs 捕获列所属段选择、驱动推断与歧义检查
   │   ├── repeat_drivers.rs 段驱动 + 逐轮替换
-  │   ├── repeat_output.rs  有界输出缓冲区，复制前计入组及全部后代 token
+  │   ├── repeat_output.rs  有界输出与 token 来源记录；复制前计入组及全部后代 token
   │   ├── repeat_budget_tests.rs 重复展开阶段的输出计数与 body 词法替换回归（cfg(test)）
   │   ├── repeat_tests.rs   `@(...)..` 重复块测试（cfg(test)）：变长段轮次、`@ident` 元素拼接、`@N` 游标替换
   │   ├── top_level.rs      顶层宏注入（`{! ...}`——spec 主体合并 + 宏输入重写）
@@ -201,7 +206,7 @@ Raw ──preprocess()──▶ Paired ──expand_tokens──────▶ 
 | 状态 | 不变量（保证什么） |
 |---|---|
 | `Raw` | 原始 token（裸 `impl` 未收集、`@..` 未标记） |
-| `Marked` | 变长段已标记——`ident@..` 对 `expand_consts` 不透明 |
+| `Marked` | 变长段 `P@..` 已改写为结构标记 `[P; ()]`，段后缀不再进入 `expand_consts` |
 | `ConstsDone` | `@` 已解析——产物可能含扁平 `<...>`！ |
 | `Paired` | `<...>` 已配对成不透明组——**破坏性，绝不二次配对** |
 | `DirectivesResolved` | DSL 中的 `#` 已处理（`expand_tokens` 展开或 `reject_directives` 拒绝；属性、宏输入和普通大括号原样保留） |
@@ -210,7 +215,7 @@ Raw ──preprocess()──▶ Paired ──expand_tokens──────▶ 
 
 公共前缀是一个方法——`Stream<Raw>::preprocess(ctx) → Stream<Paired>`
 （裸 impl 收集 → 变长段标记 → `@` 展开 → 配对）；它途经中间状态 `Marked`
-（`ident@..` 已标记）与 `ConstsDone`（`@` 已解析——输出可能仍含扁平 `<...>`），
+（`P@..` 已标记）与 `ConstsDone`（`@` 已解析——输出可能仍含扁平 `<...>`），
 故上图只画入口可见的迁移。三个入口在 `Paired`
 之后选尾巴（attr 走 `expand_tokens`、impl entry 走 `reject_directives`、
 `batch_trait!` 直通 `where_process`）。`expand_empty_trait_generics` 只
@@ -219,11 +224,11 @@ Raw ──preprocess()──▶ Paired ──expand_tokens──────▶ 
 
 **fuzz 绕过链**（它刻意乱序直调单 pass）。自由函数保持 `pub(crate)`；
 链之外的唯一守卫是 `mark_template` 的**后置条件**（`preprocess/varseg.rs`）——
-其输出的可见类型位置不得含未标记的 `ident@..`——违反时在**所有构建档**返回诊断而不是
+其输出的可见类型位置不得含未标记的 `P@..`——违反时在**所有构建档**返回诊断而不是
 断言（proc macro 里的 `assert!`/`panic!` 就是编译器 ICE）。标记器与残留检查共用边界，
 普通大括号、宏输入和属性不进入，因此保留 `n @ ..=3` 等 Rust 模式。它挂在消费方
-输出上，因为只有那里段形状无歧义：开放范围常量的 `@` 前是 `<`/`,`/`(`，
-绝不可能是 ident。`angle_collect` 的金丝雀不可行：配对**产物**与真实透明组同为
+输出上；标记器从当前类型槽起点向前解析 `P`，再识别 `@..` 后缀，不从后缀逆猜 Rust 类型，
+也不将开放范围常量 `@..u128` 当作变长段。`angle_collect` 的金丝雀不可行：配对**产物**与真实透明组同为
 `Delimiter::None`，token 层无法区分（见 `delimiter!` 宏注）——类型态
 链是它唯一的守卫。
 
@@ -237,8 +242,8 @@ Raw ──preprocess()──▶ Paired ──expand_tokens──────▶ 
 |---|---|
 | `@` 常量 / `#` 指令 / 裸 `where` | `preprocess/stream.rs` 类型态链（impl 入口以 `reject_directives` 替代 `expand_tokens`） |
 | spec → 工作清单 | `entry/driver.rs::collect_spec_leaves` |
-| 重复块 + 段替换 | `codegen/repeat.rs` + `codegen/repeat_drivers.rs`（impl 入口把标记写成 `fresh!(…)`，因为它的 body 必须保持合法 Rust） |
-| 形状模板 | `codegen/match_ty.rs`、`codegen/render.rs::collect_shape_mapping` |
+| 重复块 + 段替换 | `codegen/repeat.rs`、`codegen/repeat_bindings.rs`、`codegen/repeat_drivers.rs`（impl 入口把标记写成 `fresh!(…)`，因为它的 body 必须保持合法 Rust） |
+| 形状模板 | `codegen/match_ty.rs`、`codegen/shape_segments.rs`、`codegen/render.rs::collect_shape_mapping` |
 | fresh 显示名 + 碰撞集 | `codegen/fresh_naming.rs`（单一来源清单） |
 | `@N..` 重开 / where 选择器 | `codegen/range_refs.rs`、`codegen/where_at.rs` |
 | 参数分类 | `ast/param_kind.rs` |
@@ -366,6 +371,23 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 `parse/reentry.rs` 在新生成器求值前预留真正传回的声明，避免复用其组号。
 类型实参、谓词或正文中的引用不分配组号。随后物化与命名只使用已选分支
 自身携带的声明。
+
+**`impl{...}` 形状模板（0.8.0）** 是 `{body}` 与 `where{...}` 之外的第三种附件。
+自 0.9.0 起，它们作为普通块由空格/`.` 链折叠。段标记、常量展开与尖括号恢复后，
+模板按 Rust 类型解析，由 `codegen::shape::match_shape` 与叶子目标匹配。
+同名匹配保留 identity 约束，异名成为模板侧替换槽；已经确定的矩阵叶子不再映射第二次。
+多个附件合并兼容映射，冲突绑定报错。块折叠的 `MAX_NEST_DEPTH` 上限同时覆盖附件链。
+
+变长段 `P@..` 在预处理时编码为 `[P; ()]`；`varseg_pattern` 恢复完整模式，
+`shape_segments` 用普通匹配器分别匹配每个目标元素。`VarSeg { names, start, rows }`
+保存捕获列、元组起点和逐行 `Mapping`，同名 identity 也留在该行，固定槽映射独立保存。
+捕获列由模式自身匹配得到，空段因此仍有可检查的列名。`P` 内部再含变长段会报错，
+普通嵌套元组中的兄弟段不受此限制；宏、属性与 const 表达式不参与捕获或嵌套检查。
+
+重复块先选择捕获列所属的段；无法唯一确定所属段时要求消除歧义，多个驱动段仍须等长。
+输出缓冲区记录源 token、生成值及未完成组的来源，已完成的行捕获不会再进入外层固定槽替换或重复轮次。
+源 fresh 载体在插入捕获值的同一展开流程中解析，保留原有空范围元组折叠；不再用后置全流替换重新扫描生成值。
+声明处理、开关要求和已启用 body 替换进入全部括号的契约保持不变。
 
 ### 扩展准则
 
@@ -516,13 +538,13 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | 目录        | 文件            | 用途                                                                                                                                                                         |
 |-------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `examples/` | `quickstart.rs` | 可运行的 DSL 主特性 demo（`cargo run --example quickstart`），14 段覆盖基础→复杂场景；另有 `simplify.rs`（约 15 行 DSL 生成 30 个 impl）与 `typeclass.rs`                    |
-| `src/`      | 文件内 `#[cfg(test)]` 模块 | **315** 个单测（`cargo test --lib`）：按关注点就近放置，并带模块限定以便查找（`codegen::repeat_tests` 36、`codegen::repeat_budget_tests` 6、`codegen::range_worker` 20、`parse` 18、`codegen::sync` 16、`preprocess::varseg` 15、`preprocess::where_process` 12、`preprocess::angle` 9、`codegen::where_at_tests` 8、`testing::fuzz` 6、`codegen::top_level` 5、`preprocess::consts` 10、`ast::param_kind` 5……、`entry::impl_entry` 7） |
+| `src/`      | 文件内 `#[cfg(test)]` 模块 | **338** 个单测（`cargo test --lib`）：按关注点就近放置，并带模块限定以便查找（`codegen::repeat_tests` 38、`codegen::repeat_budget_tests` 8、`codegen::range_worker` 20、`parse` 18、`codegen::sync` 16、`preprocess::varseg` 21、`preprocess::where_process` 12、`preprocess::angle` 9、`codegen::where_at_tests` 8、`testing::fuzz` 6、`codegen::top_level` 5、`preprocess::consts` 10、`ast::param_kind` 5……、`entry::impl_entry` 7） |
 | `src/`      | `testing/`      | crate 级测试基建（全部 `cfg(test)`）：`doc_claims.rs`（把文档里的 `// →` 声明喂进真实展开路径执行——精确 51 条、按片段 31 条、其余 19 条）、`fixture_dirs.rs`（2 个测试：每个 `proptest-regressions/**/*.txt` 必须按 proptest 自身的路径规则映射到源文件；快照目录必须与 specs 的快照名集合相等）、`fuzz.rs`（proptest——5 条属性 + 1 个用例，各 256 cases，随机 token 走真实入口，承诺不 panic）、`golden.rs`（2 个测试覆盖 10 份 `tests/golden/*.golden` 快照，`BLESS=1` 重写——**文本**锁：它钉住渲染出的 token 流，不保证该 token 流是合法 Rust，合法性由 `tests/features/*` 的编译承担）、`perf.rs`（展开开销测量）、`mod.rs`（`GuardAlloc` 256 MiB 分配守卫） |
 | `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
 | `tests/`    | `no_panic/main.rs` | no-panic 守卫：用 `syn` 走遍 `src/**/*.rs`，断言 `#[cfg(test)]` 之外无 panic 构造——包括**宏 token 流内部**铸出的（`quote!(x.unwrap())`）与**限定形式** `Option::unwrap(o)`——且任何属性位置、嵌在 `#[cfg_attr(…)]` 里或**宏体内**的 deny 家族 `#[allow]` / `#[expect]` 都被报出（一刀切静默同样在内：`clippy::all` / `clippy::restriction` / `warnings`）；`#[cfg(test)]` 闸门只跳过裸谓词，因此 `#[cfg(not(test))]` 的代码照样被扫描；crate 级 deny 行本身也被断言（`lib.rs` clippy deny 之外的第二条腿）；**检测器本身有自测**（`no_panic/selftest.rs`：每个臂都喂了合成违规 + 邻近反例，因此 `syn` 升级或收窄的 `matches!` 会让该文件失败而不是静默报 0 违规），唯一记录在案的洞是**宏体内手写的索引**逃过两条腿（`quote!(v[0])`——clippy 看不见宏体，而这里的 `[…]` 组无法与数组类型区分） |
 | `tests/`    | `doc_consistency.rs` + `doc_consistency/reader_entry.rs` | **18** 项文档守卫：源码/模块树、文件路径、双语章节与示例、诊断和计数保持一致；README 入门程序必须能作为带 `main` 的独立 Rust 文件解析。源码导航检查独立 Markdown 锚点及仓库路径/片段，验收另查生成的 rustdoc 链接。历史 changelog 与 architecture 版本前言豁免当前文件引用检查 |
-| `tests/`    | `features/`     | **78** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **477** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**174** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
+| `tests/`    | `features/`     | **79** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **485** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**179** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
 | `tests/` | `pack_model/` | 独立 Pack 提案模型：Python 标准库，17 组测试、有限结构检查、双语教程核对与生成 Rust 的消费验证。执行 `python tests/pack_model/run.py`，独立 CI job 使用同一命令；不等于正式解析器或物化器的验证。 |
 
 运行：

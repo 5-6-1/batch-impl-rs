@@ -85,3 +85,4 @@ pub(crate) mod shape_template_shape_forms;
 pub(crate) mod shape_template_trait_sync;
 pub(crate) mod shape_template_varseg;
 pub(crate) mod syntax_domains;
+pub(crate) mod variadic_patterns;

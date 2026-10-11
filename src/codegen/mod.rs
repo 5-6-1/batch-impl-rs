@@ -44,6 +44,7 @@ mod range_refs;
 mod range_worker;
 mod render;
 mod repeat;
+mod repeat_bindings;
 #[cfg(test)]
 mod repeat_budget_tests;
 mod repeat_drivers;
@@ -51,6 +52,9 @@ mod repeat_drivers;
 mod repeat_tests;
 mod shape;
 mod shape_args;
+#[cfg(test)]
+mod shape_segment_tests;
+mod shape_segments;
 #[cfg(test)]
 mod shape_tests;
 mod sync;

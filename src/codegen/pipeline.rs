@@ -231,17 +231,12 @@ pub(crate) fn generate_parts(
         } else {
             crate::util::TokenDomain::Rust
         };
-        // Body token postprocessing lives together here, where the impl's
-        // fresh names are in hand:
-        // 1. Repeat blocks expand (`@(…@0,)..`; without an `impl{...}` the
-        //    **fresh-binding switch** `impl{@0..}` drives cursor-only blocks
-        //    — one round per bound fresh — and enables `@{N}` references).
-        //    The expansion splices each segment round's bound element
-        //    directly (the `$(...)*` semantics) — the shape mapping is the
-        //    value source, no intermediate spelling reaches the body.
-        // 2. Fresh-range placeholders re-open (`#map`-copied signatures
-        //    substitute the trait's generic args verbatim, so `(@0..)`
-        //    lands in the body as a carrier reference).
+        // Body postprocessing has the final fresh names and shape captures.
+        // Repeats, fresh carriers and fixed slots resolve from source tokens
+        // together. Completed capture values retain their provenance: neither
+        // an enclosing round nor an outer fixed slot can reinterpret them.
+        // Fresh-range placeholders in copied signatures also resolve here,
+        // retaining the parent tuple's empty-range folding rule.
         //
         // A `@{...}` fresh-position carrier in the body is legal only with
         // a body-slot switch declared — `impl{@{}}`, or the fresh-binding
@@ -268,13 +263,7 @@ pub(crate) fn generate_parts(
             binding,
             budget: Cell::new(MAX_REPEAT_TOKENS),
         };
-        let expanded = expand_repeat_blocks(b.clone(), &cx)?;
-        let expanded = range_refs::expand_body_refs(expanded, &fresh_ctx, domain)?;
-        *b = if shape_map.slots().is_empty() {
-            expanded
-        } else {
-            apply_mapping(expanded, &shape_map)
-        };
+        *b = expand_repeat_blocks(b.clone(), &cx)?;
     }
     render::render_impl(
         parts,

@@ -1,0 +1,10 @@
+error: batch-impl: repeat block driver `@T` conflicts with the inner segment reference `@U` (they must be the same)
+ --> tests/ui/variadic_pattern_driver_conflict.rs:3:1
+  |
+3 | / #[batch_impl(
+4 | |     (Vec<u8>, Vec<u16>, Box<u32>, Vec<u64>) impl{(A<T>@.., B<U>@..,)}
+5 | |     #n { @T(core::mem::size_of::<@U>())+.. }
+6 | | )]
+  | |__^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

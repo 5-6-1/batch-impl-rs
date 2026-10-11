@@ -1,0 +1,10 @@
+error: batch-impl: variadic capture `@Vec` belongs to more than one segment; use an unambiguous capture as the repeat driver (`@name(...)..`) or rename the capture
+ --> tests/ui/variadic_pattern_ambiguous.rs:3:1
+  |
+3 | / #[batch_impl(
+4 | |     ((Vec<u8>,), (Vec<u16>,)) impl{((Vec<T>@..,), (Vec<U>@..,))}
+5 | |     #names { vec![@(core::any::type_name::<@Vec<u8>>()),..] }
+6 | | )]
+  | |__^
+  |
+  = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

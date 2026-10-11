@@ -148,8 +148,7 @@ pub(crate) fn assemble_impl(
     let items = item
         .items
         .iter()
-        .map(|it| apply_mapping(it.to_token_stream(), m))
-        .map(|it| expand_fresh_marks(it, fresh, template_segs, m))
+        .map(|it| expand_fresh_marks(it.to_token_stream(), fresh, template_segs, m))
         .collect::<Result<Vec<_>, _>>()?;
     // **The one renderer.** Both front-ends hand `render_impl` an `ImplParts`;
     // this entry's inputs stay token-level, so it fills the parts it has: the
@@ -274,7 +273,7 @@ fn trait_path_with_mapped_args(path: &syn::Path, m: &Mapping) -> TokenStream {
 
 /// Expands `fresh!(...)` markers in the item body: the group's content is
 /// DSL — repeat blocks (`@(...)..`), `@ident` = a segment reference (a
-/// **template segment** from the shape form's `ident@..`, or an implicit
+/// capture in the shape form's `P@..`, or an implicit
 /// segment bound to this impl's fresh generics), `@{N}` = the N-th fresh
 /// name. `fresh!` is an invisible internal marker (the attribute entry's
 /// repeat protocol, wrapped in a macro-call spelling so the body stays
@@ -311,7 +310,12 @@ fn expand_fresh_marks(
             i += 1;
             continue;
         }
-        out.push(cur.clone());
+        if is_punct_at(&v, i, '\'') {
+            out.extend(crate::util::slice_window(&v, i, 2).iter().cloned());
+            i += 2;
+            continue;
+        }
+        out.extend(apply_mapping(cur.clone().into(), m));
         i += 1;
     }
     Ok(out.into_iter().collect())
@@ -326,34 +330,20 @@ fn expand_fresh_inner(
     inner: &[TokenTree], fresh: &FreshCtx, template_segs: &[VarSeg], m: &Mapping,
 ) -> Result<Vec<TokenTree>, TokenStream> {
     let mut segs = template_segs.to_vec();
-    let mut map = Mapping::default();
-    // Template segments first (values come from the shape match's mapping).
-    for s in template_segs {
-        for k in 0..s.len {
-            let pos = s.start + k;
-            if let Some(v) = m.seg_value(&s.prefix, pos) {
-                map.bind_seg(&s.prefix, pos, v.clone())
-                    .map_err(|e| compile_error_str(&e.message(), proc_macro2::Span::call_site()))?;
-            }
-        }
-    }
     // Keep the source groups, including known-empty range branches. Rebuilding
     // a context from display names would merge all groups and lose empty ones.
-    collect_fresh_segment(inner, fresh, &mut segs, &mut map)?;
+    collect_fresh_segment(inner, fresh, &mut segs)?;
     let cx = RepeatCtx {
         domain: crate::util::TokenDomain::BodySubstitution,
         segs: &segs,
-        map: &map,
+        map: m,
         fresh,
         binding: None,
         budget: Cell::new(MAX_REPEAT_TOKENS),
     };
-    // Repeat blocks + segments first (the `@{...}` carriers inside a block
-    // resolve in `substitute`); top-level carriers pass through and resolve
-    // here.
-    let expanded = expand_repeat_blocks(inner.iter().cloned().collect(), &cx)?;
-    crate::codegen::expand_body_refs(expanded, fresh, crate::util::TokenDomain::BodySubstitution)
-        .map(|o| o.into_iter().collect())
+    // Source markers and fixed slots resolve together; completed captures
+    // must not enter another substitution pass.
+    expand_repeat_blocks(inner.iter().cloned().collect(), &cx).map(|o| o.into_iter().collect())
 }
 
 /// Collects the implicit segments of one `fresh!(...)` group: an `@ident`
@@ -362,7 +352,7 @@ fn expand_fresh_inner(
 /// freshs to bind is an error. `@{...}` carriers and `@N` cursors are not
 /// segments.
 fn collect_fresh_segment(
-    tokens: &[TokenTree], fresh: &FreshCtx, segs: &mut Vec<VarSeg>, map: &mut Mapping,
+    tokens: &[TokenTree], fresh: &FreshCtx, segs: &mut Vec<VarSeg>,
 ) -> Result<(), TokenStream> {
     let mut i = 0;
     while let Some(cur) = tokens.get(i) {
@@ -371,7 +361,7 @@ fn collect_fresh_segment(
             && !matches!(tokens.get(i + 2), Some(TokenTree::Group(_)))
         {
             let prefix = id.to_string();
-            if !segs.iter().any(|s| s.prefix == prefix) {
+            if !segs.iter().any(|s| s.names.contains(&prefix)) {
                 if fresh.names.is_empty() {
                     return Err(compile_error_str(
                         &format!(
@@ -382,15 +372,18 @@ fn collect_fresh_segment(
                         id.span(),
                     ));
                 }
-                segs.push(VarSeg { prefix: prefix.clone(), start: 0, len: fresh.names.len() });
-                for (k, (_, _, n)) in fresh.names.iter().enumerate() {
-                    map.bind_seg(&prefix, k, n.clone())
+                let mut rows = vec![];
+                for (_, _, n) in &fresh.names {
+                    let mut row = Mapping::default();
+                    row.bind(&prefix, n.clone())
                         .map_err(|e| compile_error_str(&e.message(), id.span()))?;
+                    rows.push(row);
                 }
+                segs.push(VarSeg { names: vec![prefix], start: 0, rows });
             }
         }
         if let TokenTree::Group(g) = cur {
-            collect_fresh_segment(&g.stream().into_iter().collect::<Vec<_>>(), fresh, segs, map)?;
+            collect_fresh_segment(&g.stream().into_iter().collect::<Vec<_>>(), fresh, segs)?;
         }
         i += 1;
     }

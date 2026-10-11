@@ -3,9 +3,9 @@
 //! idents as slots and resolving variadic segments. Split out of `shape.rs`
 //! so that file stayed reviewable.
 
-use crate::codegen::shape::{MatchContext, ShapeError, VarSeg};
+use crate::codegen::shape::{MatchContext, ShapeError};
 use crate::codegen::shape_args::{match_fn_ptr, match_qself, match_segments};
-use crate::preprocess::varseg::{is_varseg_type, varseg_prefix};
+use crate::preprocess::varseg::varseg_pattern;
 use quote::ToTokens;
 /// A bare single-segment path with no generic args (`T` / `Vec`).
 pub(crate) fn is_bare_ident(tp: &syn::TypePath) -> bool {
@@ -29,6 +29,16 @@ pub(crate) fn bare_path_ident(expr: &syn::Expr) -> Option<String> {
 pub(crate) fn match_ty(
     template: &syn::Type, leaf: &syn::Type, context: &mut MatchContext<'_>,
 ) -> Result<(), ShapeError> {
+    // A marker outside a tuple element consumes a tuple-valued type slot,
+    // such as the argument of `Wrap<T@..>`.
+    if let Some(pattern) = varseg_pattern(template) {
+        let syn::Type::Tuple(tuple) = leaf else {
+            return Err(ShapeError::ShapeMismatch(
+                "a variadic segment (`P@..`) needs a tuple target".into(),
+            ));
+        };
+        return super::shape_segments::match_segment(pattern, tuple.elems.iter(), 0, context);
+    }
     match template {
         // Bare ident: `_` is a wildcard (matches any type, never binds a
         // slot); an equal leaf ident → literal; anything else → slot bound
@@ -92,120 +102,10 @@ pub(crate) fn match_ty(
                     "the template is a tuple but the target is not".into(),
                 ));
             };
-            // Variadic segments (`ident@..` placeholders): the remaining
-            // leaf positions (after the fixed template elements) split
-            // evenly across the segments. Each segment binds its name
-            // sequence (`prefix` + leaf start index..) to the corresponding
-            // leaf elements — name numbering aligns with the leaf position
-            // (user-confirmed: `(A, B@..)` → `B1, B2, ...`).
-            let seg_count = t.elems.iter().filter(|e| is_varseg_type(e)).count();
-            if seg_count > 0 {
-                let fixed = t.elems.len() - seg_count;
-                if l.elems.len() < fixed {
-                    return Err(ShapeError::ShapeMismatch(format!(
-                        "tuple arity differs (template has {} fixed elements, target has {})",
-                        fixed,
-                        l.elems.len(),
-                    )));
-                }
-                let remaining = l.elems.len() - fixed;
-                if remaining % seg_count != 0 {
-                    return Err(ShapeError::ShapeMismatch(format!(
-                        "variadic segments cannot be split evenly: target tuple has {} \
-                         elements after {} fixed, split across {} segments",
-                        remaining, fixed, seg_count,
-                    )));
-                }
-                let seg_len = remaining / seg_count;
-                let mut leaf_idx = 0;
-                for te in &t.elems {
-                    if is_varseg_type(te) {
-                        let Some(prefix) = varseg_prefix(te) else {
-                            return Err(ShapeError::ShapeMismatch(
-                                "malformed variadic segment marker".into(),
-                            ));
-                        };
-                        if context.segs.iter().any(|s| s.prefix == prefix) {
-                            return Err(ShapeError::ShapeMismatch(format!(
-                                "duplicate variadic segment prefix `{}` (each \
-                                 `ident@..` in one template must be unique)",
-                                prefix,
-                            )));
-                        }
-                        context.segs.push(VarSeg {
-                            prefix: prefix.clone(),
-                            start: leaf_idx,
-                            len: seg_len,
-                        });
-                        for k in 0..seg_len {
-                            // Structured binding: (prefix, leaf position) —
-                            // the repeat-block substitution splices the
-                            // bound element directly (no minted name). Read
-                            // through the iterator: the arity check above
-                            // guarantees the element exists.
-                            let Some(elem) = l.elems.iter().nth(leaf_idx + k) else {
-                                return Err(ShapeError::ShapeMismatch(
-                                    "variadic segment indexes past the target tuple".into(),
-                                ));
-                            };
-                            context.map.bind_seg(&prefix, leaf_idx + k, elem.to_token_stream())?;
-                        }
-                        leaf_idx += seg_len;
-                    } else {
-                        let Some(leaf_elem) = l.elems.iter().nth(leaf_idx) else {
-                            return Err(ShapeError::ShapeMismatch(
-                                "the template has more elements than the target tuple".into(),
-                            ));
-                        };
-                        match_ty(te, leaf_elem, context)?;
-                        leaf_idx += 1;
-                    }
-                }
-                return Ok(());
-            }
-            if t.elems.len() != l.elems.len() {
-                return Err(ShapeError::ShapeMismatch(format!(
-                    "tuple arity differs (template has {}, target has {})",
-                    t.elems.len(),
-                    l.elems.len(),
-                )));
-            }
-            for (te, le) in t.elems.iter().zip(l.elems.iter()) {
-                match_ty(te, le, context)?;
-            }
-            Ok(())
+            super::shape_segments::match_tuple(t, l, context)
         }
         syn::Type::Array(t) => {
-            // A variadic-segment marker (`[A; ()]`) in a **generic-argument
-            // position** (`A<(T@..)>` against `Box<(P0, P1)>`): the leaf arg
-            // must be a tuple whose elements the segment binds (`T0 := P0`,
-            // `T1 := P1`). The tuple-element case is handled by the tuple
-            // arm below; here the marker sits inside a path's `<...>`.
-            if crate::preprocess::varseg::is_varseg_array(t) {
-                let syn::Type::Tuple(tup) = leaf else {
-                    return Err(ShapeError::ShapeMismatch(
-                        "a variadic segment (`ident@..`) in a generic argument \
-                         needs a tuple target (`A<(T@..)>` against `A<(P0, P1)>`)"
-                            .into(),
-                    ));
-                };
-                let Some(prefix) =
-                    crate::preprocess::varseg::varseg_prefix(&syn::Type::Array(t.clone()))
-                else {
-                    return Err(ShapeError::ShapeMismatch(
-                        "malformed variadic segment marker".into(),
-                    ));
-                };
-                for (k, elem) in tup.elems.iter().enumerate() {
-                    context.map.bind_seg(&prefix, k, elem.to_token_stream())?;
-                }
-                return Ok(());
-            }
             let syn::Type::Array(l) = leaf else {
-                // A variadic-segment marker (`[A; ()]`) never reaches this
-                // arm — the generic-argument case above handled it (with the
-                // tuple-target requirement); here the template is a plain
-                // array and the target is not one.
                 return Err(ShapeError::ShapeMismatch(
                     "the template is an array but the target is not".into(),
                 ));
