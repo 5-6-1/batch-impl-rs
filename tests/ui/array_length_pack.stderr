@@ -1,23 +1,31 @@
-error[E0423]: expected value, found builtin type `u8`
+error[E0423]: cannot find value `u8` in this scope
  --> tests/ui/array_length_pack.rs:5:21
   |
 5 | #[batch_impl([u8; *[u8, u16]])]
-  |                     ^^ not a value
+  |                     ^^ not found in this scope
+  |
+  = note: a builtin type named `u8` exists in another namespace
 
-error[E0423]: expected value, found builtin type `u16`
+error[E0423]: cannot find value `u16` in this scope
  --> tests/ui/array_length_pack.rs:5:25
   |
 5 | #[batch_impl([u8; *[u8, u16]])]
-  |                         ^^^ not a value
+  |                         ^^^ not found in this scope
+  |
+  = note: a builtin type named `u16` exists in another namespace
 
-error[E0423]: expected value, found builtin type `u8`
+error[E0423]: cannot find value `u8` in this scope
  --> tests/ui/array_length_pack.rs:8:20
   |
 8 | #[batch_impl([u8; [u8, u16]])]
-  |                    ^^ not a value
+  |                    ^^ not found in this scope
+  |
+  = note: a builtin type named `u8` exists in another namespace
 
-error[E0423]: expected value, found builtin type `u16`
+error[E0423]: cannot find value `u16` in this scope
  --> tests/ui/array_length_pack.rs:8:24
   |
 8 | #[batch_impl([u8; [u8, u16]])]
-  |                        ^^^ not a value
+  |                        ^^^ not found in this scope
+  |
+  = note: a builtin type named `u16` exists in another namespace
