@@ -85,7 +85,8 @@ fn merged_doc_navigation_survives_rustdoc() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repository =
         env!("CARGO_PKG_REPOSITORY").split_once("://").unwrap().1.trim_end_matches('/');
-    let github_main = format!("{repository}/blob/main/");
+    let github_blob = format!("{repository}/blob/");
+    let release_ref = format!("v{}", env!("CARGO_PKG_VERSION"));
     // The English sources are merged by lib.rs. Keep their language mirrors
     // portable as well, without attempting network checks in the test suite.
     for path in
@@ -106,7 +107,14 @@ fn merged_doc_navigation_survives_rustdoc() {
                     "{path}: `{target}` has no anchor in this standalone Markdown document"
                 );
             }
-            if let Some(relative) = url.and_then(|url| url.strip_prefix(&github_main)) {
+            // Validate both development links and this release's pinned links.
+            // Pinning navigation must not silently disable local path checks.
+            if let Some(relative) = url
+                .and_then(|url| url.strip_prefix(&github_blob))
+                .and_then(|tail| tail.split_once('/'))
+                .filter(|(reference, _)| *reference == "main" || *reference == release_ref)
+                .map(|(_, relative)| relative)
+            {
                 let file = relative.split(['#', '?']).next().unwrap();
                 assert!(
                     root.join(file).is_file(),

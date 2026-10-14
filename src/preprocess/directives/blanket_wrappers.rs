@@ -145,13 +145,13 @@ pub(crate) fn parse_blanket_wrappers(
                 proc_macro2::Span::call_site(),
             )),
             // Built-in wrapper constant: `@Cow` → `Cow<'_>` plus the packed
-            // predicates `@0: ToOwned + ?Sized` and `@0::Owned: @trait`.
-            // Cow dereferences to T; the Owned bound is an additional
-            // constraint carried by this constant. Resolve @0/@trait later.
+            // predicate `@0: ToOwned + ?Sized`. Cow dereferences to T;
+            // requirements on Owned are an explicit user policy. Resolve
+            // @0 and any user-supplied @trait references later.
             [TokenTree::Punct(at), TokenTree::Ident(name)]
                 if at.as_char() == '@' && name == "Cow" =>
             {
-                let mut preds = quote!(@0: ToOwned + ?Sized, @0::Owned: @trait);
+                let mut preds = quote!(@0: ToOwned + ?Sized);
                 if let Some(extra) = where_preds.filter(|predicates| !predicates.is_empty()) {
                     preds.extend(quote!(, #(#extra)*));
                 }
@@ -213,7 +213,7 @@ mod tests {
         let wrappers = parse_blanket_wrappers(&tokens).unwrap();
         let predicates =
             wrappers[0].where_preds.clone().unwrap().into_iter().collect::<TokenStream>();
-        let expected = quote!(@0: ToOwned + ?Sized, @0::Owned: @trait, @0: Copy,);
+        let expected = quote!(@0: ToOwned + ?Sized, @0: Copy,);
         assert_eq!(predicates.to_string(), expected.to_string());
     }
 }

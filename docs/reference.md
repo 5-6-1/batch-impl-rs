@@ -1,18 +1,17 @@
 # batch-impl Reference
 
-**Unreleased — changes after 0.10.2.** This manual describes the current working tree, including the unpublished breaking impl-entry requirement for explicit `template: source` in every nonempty spec (§9.2). Diagnostics are in §10; pending changes are recorded in [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md).
+**v0.10.3** (2026-10-14) — Every nonempty impl-entry spec requires explicit `template: source` (§9.2), and `@Cow` no longer adds `Owned: Trait` by default (§6.6). Diagnostics are in §10; migration notes are in [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/CHANGELOG.md).
 
-Repository sources (GitHub `main`): English | [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)
+Repository sources (`v0.10.3`): English | [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md)
 
-Repository links open public `main`, which may differ from a local checkout.
-The top navigation in local English rustdoc stays within the current build;
-read Chinese files from the same checkout.
+Repository links target `v0.10.3`. The top navigation in English rustdoc stays
+within the current build; Chinese links refer to the same release.
 
-A **look-up document**: the complete surface, the legality matrix, the boundaries and the guarantees. The **learning path** is the [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md) (from a one-line impl to advanced matrix combinations) — this manual assumes you have seen the basic shape of the DSL and answers only "what is allowed / what is not / what error comes out / where the ceilings are".
+A **look-up document**: the complete surface, the legality matrix, the boundaries and the guarantees. The **learning path** is the [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/tutorial.md) (from a one-line impl to advanced matrix combinations) — this manual assumes you have seen the basic shape of the DSL and answers only "what is allowed / what is not / what error comes out / where the ceilings are".
 
 Two rules shape how this manual is written:
 
-- **One source of truth per fact**: the tutorial covers "how do I write it / why", this manual covers "legality and boundaries", and the full argument semantics of every API live in rustdoc ([API documentation sources](https://github.com/5-6-1/batch-impl-rs/tree/main/src/doc): `batch_impl_only.md`, `batch_trait.md`, `batch_preview.md`, `directive_fill.md`, `directive_delegate.md`, `directive_blanket.md`, `directive_name.md`, `directive_open.md`, `directive_consts.md`). No sentence is duplicated across the three.
+- **One source of truth per fact**: the tutorial covers "how do I write it / why", this manual covers "legality and boundaries", and the full argument semantics of every API live in rustdoc ([API documentation sources](https://github.com/5-6-1/batch-impl-rs/tree/v0.10.3/src/doc): `batch_impl_only.md`, `batch_trait.md`, `batch_preview.md`, `directive_fill.md`, `directive_delegate.md`, `directive_blanket.md`, `directive_name.md`, `directive_open.md`, `directive_consts.md`). No sentence is duplicated across the three.
 - **Every claim is checkable**: "measured" below means it was measured with `batch_preview!` or a real compile (`cargo check`, reading the rustc diagnostics); diagnostic wording is always locked by a fixture under `tests/ui/`, whose name this manual gives in §10.
 
 ## 1. Spec Grammar
@@ -58,7 +57,7 @@ Attachments are **blocks**: they compose with the spec chain in any order, and a
 A list element's local body and the list's shared body are appended together,
 with no override priority. Different members can coexist; Rust rejects duplicate
 methods. Give a special implementation its own spec, then share a body among the
-remaining targets; see [tutorial §1.3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#13-give-a-special-type-its-own-spec).
+remaining targets; see [tutorial §1.3](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/tutorial.md#13-give-a-special-type-its-own-spec).
 
 ### 1.2 Where the head ends and the target begins: element boundary vs path continuation
 
@@ -393,9 +392,9 @@ that expands to nothing (`*Vec *[]`) and an argument that expands to none
 (`Vec<*[]>`), and a carrier left as the whole target (`*const`, `*self`), are
 diagnosed rather than rendered.
 
-The [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md)
+The [tutorial](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/tutorial.md)
 §4 includes complete programs. The
-[model contract](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/contract.md)
+[model contract](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/tests/pack_model/contract.md)
 records the evaluation stages and counterexamples.
 
 ## 5. The `@` Macro-Meta Layer
@@ -417,7 +416,7 @@ records the evaluation stages and counterexamples.
 | Input impl type | `@Self` | the current attribute invocation's input impl self type | impl entry only; ordinary Rust `Self` keeps its own meaning (§9.2) |
 | Trait-member families | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | a `[a,b,c]` **group** that then goes through directive-argument parsing | required/default and receiver filtering are part of the constant |
 | Generic-parameter families | `@all_type_params` `@all_const_params` `@all_lifetimes` | a flat `<...>` **declaration** copied from the trait | a const parameter carries its full `const N: usize` (a bare name is E0747) |
-| Wrapper constant | `@Cow` | `Cow<'_>` plus the wrapper's constraint predicates | `#blanket` only |
+| Wrapper constant | `@Cow` | `Cow<'_>` plus `@0: ToOwned + ?Sized` | `#blanket` only; add `Owned: @trait` explicitly when needed |
 | Positional references | `@N` `@g_i` `@0..=M` `@N..` | one fresh name, or a comma-separated run of them | §5.4 |
 | Custom constants | `@name=value;` | whatever the value is, verbatim | `batch_trait!` leading section only |
 
@@ -464,7 +463,7 @@ Redefinitions retain lazy lookup: in `@a=u8; @b=@a; @a=u16;`, `@b` ultimately ex
 | `@trait` inside `where{...}` | expanded — measured `<T> TrW<T> u8 where{@trait<T>: Sized}` → `where TrW<T>: Sized` |
 | `@trait` inside `impl{...}` | expanded — measured `Box<u8> impl{@trait<u8>}` → `impl TrI for Box<u8>` |
 | `@all*` families as directive arguments | the directive domain's own input — measured `u8 #fill(@all_methods){7}` fills every method of the trait |
-| `@Cow` as a blanket wrapper | `Cow<'_>` plus the wrapper's constraint predicates — measured `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized, …` (`tests/features/dsl_macro_meta.rs` locks the full form) |
+| `@Cow` as a blanket wrapper | `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized`; no default `P0::Owned: Trait` bound (`tests/features/dsl_macro_meta.rs`) |
 | `@trait` in `batch_trait!` | replaced per segment with that segment's trait path, which is what lets one segment pack another's constants |
 | `stringify!(@trait)` and other macro inputs | opaque during constant and segment substitution, and in the type domain; explicitly enabled body-template substitutions enter macro inputs (§8.4, §13.2) |
 
@@ -560,7 +559,9 @@ meaning. See tutorial §7.3 for a compiling enum example.
 |---|---|
 | a type form | the wrapper to implement for, around a fresh `T` (a `.`/space chain names the nesting, e.g. `Box.Arc`) |
 | `:N` | the **deref depth** to reach the inner value (`Box.Arc:2`) — a number, capped at 128 (`blanket_bad_depth`, `blanket_bad_empty_depth`, `blanket_bad_huge_depth`) |
-| `@Cow` | the packing constant: `Cow<'_>` plus `@0: ToOwned + ?Sized` and the additional `@0::Owned: @trait` constraint |
+| `@Cow` | the packing constant: `Cow<'_>` plus `@0: ToOwned + ?Sized`; blanket itself also adds `T: Trait` |
+
+Both variants of `Cow<'_, T>` delegate to `T`; `T::Owned: Trait` is not required by default. Add that policy explicitly with `@Cow where{@0::Owned: @trait}`; the delegation target stays the same. `@trait` supplies only the path, so write a generic trait's arguments explicitly, for example `@0::Owned: @trait<X>`. If the trait has supertraits such as `Debug` or `Sync`, `Cow` itself must still satisfy them, which may require explicit bounds such as `@0::Owned: ::core::fmt::Debug + Sync`. The macro does not detect and supply these requirements automatically. Code that relied on the former default `Owned: Trait` bound to satisfy them must now add the necessary bounds explicitly.
 
 Rejected: `*const`/`*mut` wrappers (deref would be unsafe, `blanket_ptr`) and bare `Self` in a method's ordinary parameters, return type, or generic constraints, including `U: Marker<Self>`, `where U: Marker<Self>`, and `where Self: Marker<U>`. Inner and wrapper types cannot be equated; the diagnostic suggests a `#name{...}` body (`blanket_self_return`, `blanket_self_in_group`, `blanket_self_constraints`).
 
@@ -642,7 +643,7 @@ Once every fill has run, the predicates are parsed as **Rust predicates** and a 
 
 - **× `<>`**: the sync fills `Trait<>` inside predicates as it does in every other type position (§13.2).
 - **× templates**: the shape mapping is substituted into the predicates, and a variadic template's segment name may appear in them without breaking the depth-0 split (`features::shape_template_boundary`).
-- **× directives**: a **blanket** wrapper's `where` clause is the one place where `@0` means the **target generic** (the blanket's only fresh) rather than the first fresh of the impl — `#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}` (`features::dsl_macro_meta`).
+- **× directives**: a **blanket** wrapper's `where` clause is the one place where `@0` means the **target generic** (the blanket's only fresh) rather than the first fresh of the impl — `#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}` (`features::dsl_macro_meta`). Here `Owned: @trait` is an explicit user policy, equivalent to writing `@Cow where{@0::Owned: @trait}`, not a default `@Cow` bound.
 - **× the impl entry**: the handwritten impl's **own** `where` clause is the inheritance source there, and placeholders in it are rewritten like anywhere else (`features::impl_entry_basic`).
 - **× `@` selectors on the entry**: `where @0..: SomeTrait` constrains every fresh the spec's generator declares (`features::impl_entry_basic`).
 
@@ -770,7 +771,7 @@ With a three-round driver:
 
 The entry points share the type-matrix language; their outer separators are listed in §1.1. This section covers trait paths, impl instantiation and staged expansion.
 
-For an introduction to choosing an entry, see the [tutorial's §11 comparison](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md#11-entry-points).
+For an introduction to choosing an entry, see the [tutorial's §11 comparison](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/tutorial.md#11-entry-points).
 
 ### 9.1 Entry-specific rules
 
@@ -1040,6 +1041,7 @@ The **Source** column says who writes the message: **DSL** = the macro's own use
 | `blanket_depth_zero` | `#blanket(@all_methods){Box:0}` | batch-impl: #blanket `:0` is meaningless (deref depth must be ≥ 1) | DSL |
 | `blanket_wrapper_empty` | `#blanket(@all_methods){Box,}` | batch-impl: #blanket wrapper list contains an empty element (e.g. `&,Box`); separate elements with `,` | DSL |
 | `blanket_cow_extra_bound` | `@Cow where{@0: Extra}` must retain the user's bound | the trait bound `str: Extra` is not satisfied | Rust |
+| `blanket_cow_owned_bound` | An explicitly requested `@0::Owned: @trait` remains required | the trait bound `String: Read` is not satisfied | Rust |
 
 ### 10.6 Shape templates, repeat blocks and variadic segments
 

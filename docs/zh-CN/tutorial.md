@@ -1,11 +1,11 @@
 # batch-impl 教程
 
-**Unreleased — 0.10.2 之后的改动。** 本教程描述当前工作树，包含尚未发布的 impl 入口破坏性变更：每个非空 spec 必须显式写出 `模板: 来源`。待发布改动与迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**v0.10.3**（2026-10-14）——impl 入口的每个非空 spec 现在必须显式写出 `模板: 来源`，`@Cow` 也不再默认附加 `Owned: Trait`。升级前请阅读 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/CHANGELOG.md) 中的迁移说明。
 
-**仓库源码（GitHub main）**：简体中文 · [English](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md) · [参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)
+**仓库源码（v0.10.3）**：简体中文 · [English](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/README.md) · [参考手册](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md)
 
-上方及文中的 GitHub 链接用于查看仓库源码；公共 `main` 可能尚未同步当前
-本地工作树。本教程内部的章节跳转留在当前页面。
+仓库链接固定到 `v0.10.3`。英文 rustdoc 内含教程和参考手册，可从顶部导航访问。
+本教程内部的章节跳转留在当前页面。
 
 先为一个类型实现方法，再用五次修改扩展同一个程序。宏生成的始终是
 普通 Rust impl；已经有完整 impl 时，也可以直接从它开始。
@@ -22,7 +22,7 @@
 类型实参或逐位置包装时看参数包。基础签名复制与简单委托已经在任务中出现；完整的
 指令规则、生成器与自定义扩展可以按需阅读，不必按编号通读。
 
-按照 [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)
+按照 [README](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/README.md)
 配置依赖后，§1 每一步的完整程序都可直接替换 `src/main.rs`，然后运行
 `cargo run`。§1.1–§1.5 保留前一步行为，只引入该步所讲的变化；§1.6 是另一条
 入口路线的独立程序。§2 以后的代码块是独立
@@ -380,7 +380,7 @@ batch_impl::batch_preview! {
 
 多个 spec 用 `,` 分隔：`#[batch_impl(usize, isize)]`。
 
-**规模上能省多少。** [simplify.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs) 用大约 **15 行** DSL 得到 **30 个 impl**（手写约 80 行），[typeclass.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/typeclass.rs) 覆盖一个类层级外加 36 个 `From<bool>` 实例。两者都由 CI 编译，准备好阅读更大示例时，可以跟随 §13 的讲解。
+**规模上能省多少。** [simplify.rs](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/simplify.rs) 用大约 **15 行** DSL 得到 **30 个 impl**（手写约 80 行），[typeclass.rs](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/typeclass.rs) 覆盖一个类层级外加 36 个 `From<bool>` 实例。两者都由 CI 编译，准备好阅读更大示例时，可以跟随 §13 的讲解。
 
 ## 2. 类型矩阵：空格（与 `.`）
 
@@ -669,7 +669,7 @@ fn main() {
 `1 × 2` 与 `2 × 1` 的模式可能描述同一个 Rust 类型。
 宏保留两者，由 rustc 报 E0119；未使用的泛型声明也不会自动删去，
 第二轴为空时可能留下 E0207。
-更多推导见包模型的[应用教程](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/tutorial.zh-CN.md)。
+更多推导见包模型的[应用教程](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/tests/pack_model/tutorial.zh-CN.md)。
 
 ### 4.6 合法位置
 
@@ -687,7 +687,7 @@ fn main() {
 限定路径的 `::Assoc<...>` 段名固定，但段的泛型实参使用类型 DSL，支持候选
 分发与包拼入（§5.6）。`<T as Trait>` 中 `as` 后的 trait 路径仍是普通
 Rust 域，不在其中解释包运算。
-见[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md) §2 与 §4。
+见[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md) §2 与 §4。
 
 ## 5. 泛型 `<>`：从声明到可编程实参
 
@@ -944,7 +944,7 @@ batch_trait! {
 
 fresh 的显示名按文档序编号为 `P0, P1, ...`（与 impl 已用 ident 冲突时按表格字母序后缀逃逸：`P0A`、`P0B`、…、`P0Z`、`P0AA`）——展开把名字拼到 `@` 所在位置（where 谓词主体、target 元组元素、泛型实参），范围变成多个名字，`where` 尾部逐 fresh 复制。
 
-> **高级用法**：`@g_i` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。兼容性约定见 [README](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/README.md)，明确的迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+> **高级用法**：`@g_i` / `@N..M` 是高级寻址记号——日常从 `@u*` / `@all_methods` / `@0` 起步，只有谓词必须指名某个特定 fresh 时才动用。兼容性约定见 [README](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/README.md)，明确的迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/CHANGELOG.md)。
 
 > **引用里的 `_` 是"组/位"分隔符**，不是 Rust 的数字分隔符：`@1_0` 是组 1、位 0。想要扁平下标就写 `@1000`（不带分隔符）；`@1_000` 的读法见参考手册 §5 的边界材料。
 
@@ -1053,7 +1053,7 @@ trait Module<Add, Mul> {
 | `@trait`          | **身份**——当前 trait 名/路径（batch_trait 段级） | 跨段打包「泛型声明 + trait 名」               |
 | `@Self` | **输入类型**——当前 impl 属性收到的自身类型 | 将原型复用为模板或类型实参（§8.5） |
 | `@all_methods` 等 | **选择**——从 trait_def 提取 item 集合            | `#fill(@all_required_methods, -foo)` 精确选中 |
-| `@Cow`            | **`#blanket` 专属内置包装常量**——`Cow<'_>` 及其打包的约束（`@0: ToOwned + ?Sized, @0::Owned: @trait`） | blanket 可用的 `Cow` 委托（见 §7.4）          |
+| `@Cow`            | **`#blanket` 专属内置包装常量**——`Cow<'_>` 及其打包的约束 `@0: ToOwned + ?Sized` | blanket 可用的 `Cow` 委托（见 §7.4）          |
 
 `@all` 系与 `-` 减法组合出任意 item 子集（`#fill(@all_required_methods, -foo)`）；`@all_default*` / `@all_required*` 区分默认实现与必需方法。
 
@@ -1285,18 +1285,28 @@ impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
 
 #### `@Cow`——携带约束的打包（示范案例）
 
-`@Cow` 是 **`#blanket` 专属内置包装常量**（只在 `#blanket` 包装列表里可用），把 `Cow<'_>` 与 `@0: ToOwned + ?Sized`、`@0::Owned: @trait` 一起打包。`Cow<'_, T>` 解引用得到 `T`；`T::Owned: Trait` 是该常量额外附带的约束。包装与打包的谓词一起进入普通 blanket 管线：
+`@Cow` 是 **`#blanket` 专属内置包装常量**（只在 `#blanket` 包装列表里可用），把 `Cow<'_>` 与 `@0: ToOwned + ?Sized` 一起打包。blanket 本身另加 `T: Trait`。`Cow<'_, T>` 的 Borrowed 和 Owned 两种状态都解引用到 `T`，默认不要求 `T::Owned: Trait`：
 
 ```rust
-# use batch_impl::batch_impl;
-# use std::borrow::Cow;
+use batch_impl::batch_impl;
+use std::borrow::Cow;
+
 #[batch_impl(#blanket(@all_methods){@Cow})]
 trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
-impl CowLen for String { fn clen(&self) -> usize { self.len() } }
-// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
-//   （一个泛型 impl 覆盖满足这些打包约束的目标）
+// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized
+
+fn main() {
+    let borrowed: Cow<'_, str> = Cow::Borrowed("abc");
+    let owned: Cow<'_, str> = Cow::Owned(String::from("xy"));
+    assert_eq!(<Cow<'_, str> as CowLen>::clen(&borrowed), 3);
+    assert_eq!(<Cow<'_, str> as CowLen>::clen(&owned), 2);
+}
 ```
+
+这里没有为 `String` 实现 `CowLen`；UFCS 断言验证的是生成的 `Cow<str>` 实现，两种状态都委托给 `str`。若业务确实要求 owned 类型也实现当前 trait，可显式写 `@Cow where{@0::Owned: @trait}`；这是用户附加的策略，不会改变委托目标。`@trait` 只提供路径，泛型 trait 的实参仍须写出，例如 `@0::Owned: @trait<X>`。
+
+包装类型仍须满足 trait 的 supertrait。比如 trait 要求 `Debug + Sync` 时，`Cow` 可能还需要相应的 owned 类型约束，可写 `@Cow where{@0::Owned: ::core::fmt::Debug + Sync}`。宏不自动检测 supertrait 并推导这些约束；此前依赖默认 `Owned: Trait` 间接满足这些要求的代码，需显式补上所需约束。
 
 ### 7.5 开放扩展（顶层宏注入）
 
@@ -1324,7 +1334,7 @@ batch-impl 将目标、所选方法名、body 和 trait 定义按
 `{spec}(args){body} trait_def` 四段协议交给该宏；参考宏从 trait 复制签名，
 使用 `*self + 3` 作为返回值，生成完整 impl。编写自己的扩展时，实际如何
 生成代码由你的宏决定。手动四段写法见
-[开放扩展 API 文档（仓库源码）](https://github.com/5-6-1/batch-impl-rs/blob/main/src/doc/directive_open.md)。
+[开放扩展 API 文档（仓库源码）](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/src/doc/directive_open.md)。
 
 > **协议已收敛为单一形态**：旧的**内嵌形态** `T {m!{...}}`（无 `!`，宏调用留在 impl body、输出关联项）自 0.7.2 起标注**弃用**（保留兼容，proc macro 无 warning 通道故为文档层面收敛）——新扩展一律按顶层 `{! m!{...}}` 四段协议 `{spec}(args){body} trait` 编写。
 
@@ -1810,6 +1820,6 @@ pub trait From<T>: Sized {
 
 ### 13.3 接下来看哪里
 
-- 机制：上面的 §1–§12，然后是[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)（合法性、诊断、上限）；
-- API 文档：[入口与指令指南](https://github.com/5-6-1/batch-impl-rs/tree/main/src/doc)；
-- 内部地图：[架构说明](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/architecture.md)。
+- 机制：上面的 §1–§12，然后是[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md)（合法性、诊断、上限）；
+- API 文档：[入口与指令指南](https://github.com/5-6-1/batch-impl-rs/tree/v0.10.3/src/doc)；
+- 内部地图：[架构说明](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/architecture.md)。

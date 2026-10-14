@@ -51,16 +51,20 @@ cargo doc --no-deps                    # 零警告
    - 头部版本行更新（`README.md`、`docs/tutorial.md`、`docs/reference.md`、`docs/architecture.md`
      及其 zh-CN 对应——EN 替换为 `**vX.Y.Z** (date) — 摘要`；zh-CN architecture
      按版本堆叠是**新增一行**，不替换）；
-   - README 依赖示例版本（`batch-impl = "X.Y.Z"`）同步；版本未发布时，
-     应说明对应源码/路径依赖；
+   - 发布文件定稿时同步 README 依赖示例（`batch-impl = "X.Y.Z"`）；
+     开发阶段使用对应源码/路径依赖；
    - 将开发导航链接固定到发布 tag，包括语言镜像、CHANGELOG 和示例；
-     发布前检查仓库目标及生成的 rustdoc 链接；
+     发布前检查仓库目标及生成的 rustdoc 链接。链接守卫须验证所选 tag 的路径与
+     锚点，不能只检查 `main` URL；
    - 四处 `## Unreleased` → `## X.Y.Z (date)`，保留摘要行；
    - `cargo package --list` 检查清单（无关文件不进包，历史教训：
-     `rust-2024-feature.md` 曾被打进每个 `.crate`）；
+     `rust-2024-feature.md` 曾被打进每个 `.crate`），再通过 `cargo package`
+     构建打包产物。rustdoc 设置 `RUSTDOCFLAGS=-Dwarnings`；普通 rustdoc
+     成功退出并不能证明没有警告；
    - commit `chore: release X.Y.Z (...)` → `git tag vX.Y.Z` →
      `git push origin main --tags`；
-   - **CI 全绿后**（fmt / clippy / test-stable / test-MSRV / test-Windows / doc）
+   - **全部 8 个 CI job 通过后**（fmt / clippy / test-stable / test-msrv /
+     test-windows / consumer / pack-model / doc）
      才 `cargo publish`；若 push 后有修正 commit，tag 用 `-f` 移到最新 commit 再强推。
 3. **发布后**：创建 GitHub Release（`gh release create vX.Y.Z --notes "..."`）。
 

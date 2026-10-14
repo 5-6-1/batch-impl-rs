@@ -263,7 +263,7 @@ On the other axis (value classes):
 | `@trait` | **identity** — the current trait name/path (section-level in `batch_trait!`) | package "generic declaration + trait name" across sections |
 | `@Self` | **input type** — the current impl attribute's input self type | reuse the prototype as a shape template or type argument |
 | `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus its packaged constraints (`@0: ToOwned + ?Sized, @0::Owned: @trait`) | blanket-usable `Cow` delegation |
+| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus the packaged constraint `@0: ToOwned + ?Sized` | blanket-usable `Cow` delegation |
 
 ### `@trait`
 
@@ -325,12 +325,19 @@ trait Len {
 
 ### `@Cow`
 
-A `#blanket`-only wrapper constant: expands to `Cow<'_>` plus the packaged
-predicates `@0: ToOwned + ?Sized` and `@0::Owned: @trait`. `Cow<'_, T>`
-dereferences to `T`; the `T::Owned` bound is an additional requirement of the
-current packing. It is a **built-in of the blanket
-wrapper list** — not a custom constant, and only meaningful inside
-`#blanket(...){ ... @Cow ... }`.
+A `#blanket`-only wrapper constant: expands to `Cow<'_>` plus
+`@0: ToOwned + ?Sized`. Blanket itself also requires `T: Trait`.
+Both variants of `Cow<'_, T>` dereference to `T`; `T::Owned: Trait` is not
+required by default. Add that user policy explicitly with
+`@Cow where{@0::Owned: @trait}` when needed. `@trait` supplies only the path;
+write generic arguments explicitly, as in `@0::Owned: @trait<X>`.
+Supertraits such as `Debug` or `Sync` may require corresponding owned-type
+bounds for `Cow` itself;
+append those predicates explicitly, since the macro does not infer them.
+Code relying on the former default `Owned: Trait` bound may need those
+explicit predicates when migrating.
+It is a **built-in of the blanket wrapper list**, not a custom constant,
+and only meaningful inside `#blanket(...){ ... @Cow ... }`.
 
 ## The generic-parameter families
 

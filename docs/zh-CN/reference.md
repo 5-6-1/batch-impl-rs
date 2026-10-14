@@ -1,17 +1,17 @@
 # batch-impl 参考手册
 
-**Unreleased — 0.10.2 之后的改动。** 本手册描述当前工作树，包含尚未发布的 impl 入口破坏性变更：每个非空 spec 必须显式写出 `模板: 来源`（§9.2）。§10 列出诊断；待发布改动见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**v0.10.3**（2026-10-14）——impl 入口的每个非空 spec 必须显式写出 `模板: 来源`（§9.2），`@Cow` 不再默认附加 `Owned: Trait`（§6.6）。§10 列出诊断；迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/CHANGELOG.md)。
 
-仓库源码（GitHub `main`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) | 简体中文
+仓库源码（`v0.10.3`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/reference.md) | 简体中文
 
-仓库链接指向公开的 `main`，可能与本地工作树不同。本地英文 rustdoc 的顶部
-导航保留当前构建版本；中文资料请阅读同一源码目录中的文件。
+仓库链接指向 `v0.10.3`。英文 rustdoc 的顶部导航保留当前构建版本，
+中文链接也固定在同一版本。
 
-**查阅型文档**：完整的表面、合法性矩阵、边界与保证。**学习路径**在[教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)（从一行 impl 讲到矩阵组合）——本手册假定你已经见过 DSL 的基本形状，只回答"允许什么 / 不允许什么 / 报什么错 / 上限在哪"。
+**查阅型文档**：完整的表面、合法性矩阵、边界与保证。**学习路径**在[教程](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md)（从一行 impl 讲到矩阵组合）——本手册假定你已经见过 DSL 的基本形状，只回答"允许什么 / 不允许什么 / 报什么错 / 上限在哪"。
 
 两条纪律决定了本手册的写法：
 
-- **一条事实只有一个真相源**：教程负责"怎么写 / 为什么"，本手册负责"合法性与边界"，每条 API 的完整参数语义在 rustdoc（[API 文档源码](https://github.com/5-6-1/batch-impl-rs/tree/main/src/doc)：`batch_impl_only.md`、`batch_trait.md`、`batch_preview.md`、`directive_fill.md`、`directive_delegate.md`、`directive_blanket.md`、`directive_name.md`、`directive_open.md`、`directive_consts.md`）。三处不复制同一句话。
+- **一条事实只有一个真相源**：教程负责"怎么写 / 为什么"，本手册负责"合法性与边界"，每条 API 的完整参数语义在 rustdoc（[API 文档源码](https://github.com/5-6-1/batch-impl-rs/tree/v0.10.3/src/doc)：`batch_impl_only.md`、`batch_trait.md`、`batch_preview.md`、`directive_fill.md`、`directive_delegate.md`、`directive_blanket.md`、`directive_name.md`、`directive_open.md`、`directive_consts.md`）。三处不复制同一句话。
 - **每条断言可核对**：文中"实测"指用 `batch_preview!` 或真编译量过（`cargo check` 看 rustc 诊断）；诊断措辞一律由 `tests/ui/` 的 fixture 锁定，fixture 名在本手册 §10 给出。
 
 ## 1. spec 文法
@@ -56,7 +56,7 @@ impl FromImpl for Slot {}
 
 列表元素的局部 body 与列表外的共享 body 追加合并，没有覆盖优先级。
 不同成员可以共存；同名方法重复出现由 Rust 报错。特殊实现应拆成独立 spec，
-其余目标再共享 body，见[教程 §1.3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#13-特殊类型用独立-spec)。
+其余目标再共享 body，见[教程 §1.3](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#13-特殊类型用独立-spec)。
 
 ### 1.2 头与目标怎么切：元素边界 vs 路径续接
 
@@ -358,9 +358,9 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 （`*Vec *[]`）、展开为空的实参（`Vec<*[]>`）、以及留在目标位置的载体
 （`*const`、`*self`）都给出诊断而不是渲染结果。
 
-[教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)
+[教程](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md)
 §4 提供完整程序；
-[模型契约](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/contract.zh-CN.md)
+[模型契约](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/tests/pack_model/contract.zh-CN.md)
 记录求值阶段与反例。
 
 ## 5. `@` 宏元层
@@ -382,7 +382,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | 输入 impl 类型 | `@Self` | 当前属性调用收到的 impl 自身类型 | 仅 impl 入口；普通 Rust `Self` 保持原义（§9.2） |
 | trait 成员族 | `@all_methods` `@all_constants` `@all_types` `@all_required*` `@all_default*` `@all_ref_methods` `@all_value_methods` `@all_static_methods` | `[a,b,c]` **组**，随后进指令参数解析 | 必需/默认与接收者过滤属于常量本身 |
 | 泛型参数族 | `@all_type_params` `@all_const_params` `@all_lifetimes` | 从 trait 拷来的扁平 `<...>` **声明** | const 参数带完整 `const N: usize`（裸名是 E0747） |
-| 包装常量 | `@Cow` | `Cow<'_>` + 该包装的约束谓词 | 仅 `#blanket` |
+| 包装常量 | `@Cow` | `Cow<'_>` + `@0: ToOwned + ?Sized` | 仅 `#blanket`；`Owned: @trait` 按需显式追加 |
 | 位置引用 | `@N` `@g_i` `@0..=M` `@N..` | 一个 fresh 名，或逗号分隔的一串 | §5.4 |
 | 自定义常量 | `@name=值;` | 值本身，逐字 | 仅 `batch_trait!` 的前导段 |
 
@@ -429,7 +429,7 @@ edition 2024 里 `::name` 指**外部 crate**；要指本 crate 根写 `crate::.
 | `where{...}` 里的 `@trait` | 会展开——实测 `<T> TrW<T> u8 where{@trait<T>: Sized}` → `where TrW<T>: Sized` |
 | `impl{...}` 里的 `@trait` | 会展开——实测 `Box<u8> impl{@trait<u8>}` → `impl TrI for Box<u8>` |
 | `@all*` 家族作指令参数 | 指令域自己的输入——实测 `u8 #fill(@all_methods){7}` 填满该 trait 的每个方法 |
-| `@Cow` 作 blanket 包装 | `Cow<'_>` + 该包装的约束谓词——实测 `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized, …`（完整形式由 `tests/features/dsl_macro_meta.rs` 锁定） |
+| `@Cow` 作 blanket 包装 | `#blanket(@all_methods){@Cow}` → `impl<P0> … for Cow<'_, P0> where P0: Trait, P0: ToOwned + ?Sized`；默认不附加 `P0::Owned: Trait`（`tests/features/dsl_macro_meta.rs`） |
 | `batch_trait!` 里的 `@trait` | 逐段替换成该段自己的 trait 路径，因此一段可以复用另一段的常量 |
 | `stringify!(@trait)` 等宏输入 | 常量与逐段替换阶段保留为不透明 token；类型域同样保留宏输入。body 中显式开启的模板替换则进入宏内部（§8.4、§13.2） |
 
@@ -517,7 +517,9 @@ delegate body 表达式中的 `receiver.#call` 是单独的局部标记，不是
 |---|---|
 | 一个类型形态 | 为它实现的那个包装，围绕 fresh `T`（`.`/空格链表达嵌套，如 `Box.Arc`） |
 | `:N` | 到达内层值的 **deref 深度**（`Box.Arc:2`）——必须是数字，上限 128（`blanket_bad_depth`、`blanket_bad_empty_depth`、`blanket_bad_huge_depth`） |
-| `@Cow` | 打包常量：`Cow<'_>` 加上 `@0: ToOwned + ?Sized` 及额外的 `@0::Owned: @trait` 约束 |
+| `@Cow` | 打包常量：`Cow<'_>` 加上 `@0: ToOwned + ?Sized`；blanket 本身另加 `T: Trait` |
+
+`Cow<'_, T>` 的两种状态都委托到 `T`，默认不要求 `T::Owned: Trait`。需要该额外策略时写 `@Cow where{@0::Owned: @trait}`，不会改变委托目标。`@trait` 只提供路径，泛型 trait 的实参仍须写出，例如 `@0::Owned: @trait<X>`。若 trait 有 `Debug`、`Sync` 等 supertrait，`Cow` 自身仍须满足它们，可能需要显式追加 `@0::Owned: ::core::fmt::Debug + Sync` 等对应约束；宏不自动检测并补全这些要求。此前依赖默认 `Owned: Trait` 间接满足这些要求的代码，需显式补上所需约束。
 
 被拒的：`*const`/`*mut` 包装（deref 会不安全，`blanket_ptr`），以及方法普通参数、返回类型或泛型约束中的裸 `Self`，包括 `U: Marker<Self>`、`where U: Marker<Self>` 和 `where Self: Marker<U>`。内部类型不能与包装类型等同；诊断建议手写 `#name{...}`（`blanket_self_return`、`blanket_self_in_group`、`blanket_self_constraints`）。
 
@@ -599,7 +601,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 - **× `<>`**：同步会把谓词里的 `Trait<>` 填上，和它在其它类型位置做的一样（§13.2）。
 - **× 模板**：形状映射会被替换进谓词，变长段的段名出现在谓词里也不会破坏 depth-0 切分（`features::shape_template_boundary`）。
-- **× 指令**：**blanket** 包装的 `where` 子句是唯一一处 `@0` 指**目标泛型**（blanket 唯一的 fresh）、而不是 impl 第一个 fresh 的地方——`#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}`（`features::dsl_macro_meta`）。
+- **× 指令**：**blanket** 包装的 `where` 子句是唯一一处 `@0` 指**目标泛型**（blanket 唯一的 fresh）、而不是 impl 第一个 fresh 的地方——`#blanket(@all_methods){Cow<'_> where{@0: ToOwned + ?Sized, @0::Owned: @trait}}`（`features::dsl_macro_meta`）。本例的 `Owned: @trait` 是用户显式附加的策略，等价于写 `@Cow where{@0::Owned: @trait}`，不是 `@Cow` 的默认约束。
 - **× impl 入口**：那里的继承源是手写 impl **自己的** `where` 子句，其中的占位符照常被重写（`features::impl_entry_basic`）。
 - **× 入口上的 `@` 选择器**：`where @0..: SomeTrait` 约束 spec 的生成器声明的每一个 fresh（`features::impl_entry_basic`）。
 
@@ -718,7 +720,7 @@ trait 自己的参数与 spec 的 trait 实参**按位置**配对，而不是按
 
 各入口共享类型矩阵语言，外层分隔符见 §1.1。本节分别说明 trait 路径、impl 实例化及多阶段展开。
 
-初次选择入口时，先读[教程 §11 的对照表](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#11-入口)。
+初次选择入口时，先读[教程 §11 的对照表](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#11-入口)。
 
 ### 9.1 各入口的规则
 
@@ -974,6 +976,7 @@ cast 是第二条路走不到的情形：像 `f64::from(*self)` 这样的 body �
 | `blanket_depth_zero` | `#blanket(@all_methods){Box:0}` | batch-impl: #blanket `:0` is meaningless (deref depth must be ≥ 1) | DSL |
 | `blanket_wrapper_empty` | `#blanket(@all_methods){Box,}` | batch-impl: #blanket wrapper list contains an empty element (e.g. `&,Box`); separate elements with `,` | DSL |
 | `blanket_cow_extra_bound` | `@Cow where{@0: Extra}` 必须保留用户约束 | the trait bound `str: Extra` is not satisfied | Rust |
+| `blanket_cow_owned_bound` | 显式指定的 `@0::Owned: @trait` 仍须满足 | the trait bound `String: Read` is not satisfied | Rust |
 
 ### 10.6 形状模板、重复块与变长段
 

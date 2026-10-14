@@ -27,17 +27,12 @@ impl CowWhereTrait for String {
     }
 }
 
-// @Cow: built-in constant (Cow<'_> + inherent constraints, deref target = T::Owned)
+// @Cow: built-in constant (Cow<'_> + inherent constraints, deref target = T).
 #[batch_impl(#blanket(@all_methods){@Cow})]
 trait CowConstTrait {
     fn clen(&self) -> usize;
 }
 impl CowConstTrait for str {
-    fn clen(&self) -> usize {
-        self.len()
-    }
-}
-impl CowConstTrait for String {
     fn clen(&self) -> usize {
         self.len()
     }
@@ -61,10 +56,10 @@ trait WhereStyle<T: Clone> {
 fn macro_meta_complete() {
     let c: Cow<'static, str> = Cow::Borrowed("abc");
     assert_eq!(c.klen(), 3); // @trait predicate (@0::Owned: @trait → T::Owned: CowWhereTrait)
-    assert_eq!(c.clen(), 3); // @Cow built-in
+    assert_eq!(CowConstTrait::clen(&c), 3); // @Cow forwards to str, not String.
     let s: Cow<'static, str> = Cow::Owned("xy".to_string());
     assert_eq!(s.klen(), 2);
-    assert_eq!(s.clen(), 2);
+    assert_eq!(CowConstTrait::clen(&s), 2);
     assert_eq!(0u8.m1(), 1); // [m1, m2] filled with 1
     assert_eq!(0u8.m2(), 1);
     assert_eq!(0u8.m3(), 3); // @all -[m1, m2] → m3 filled with 3

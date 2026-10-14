@@ -25,7 +25,8 @@ method type and const arguments are passed explicitly, with lifetimes inferred.
   `E0425: cannot find type `Rc` in this scope` with the span on the wrapper list -
   measured, and it reads as if the wrapper itself were wrong.
 
-  **The fresh generic is `Sized` unless you write `@?` after the wrapper** —
+  **The fresh generic is `Sized` unless you write `@?` after the wrapper**
+  (the built-in `@Cow` already includes `?Sized`) —
   `Box@?`, `&@?`, `Rc@?`, `Arc@?` are what make the blanket cover `Box<str>`,
   `Box<[T]>` and `Box<dyn Trait>`. Without it those impls are simply absent,
   and nothing in the expansion says so: the only signal is an `E0277` at the
@@ -219,22 +220,41 @@ inheritance — the blanket spec's generic X has no bound, inheritance adds
 ## `@Cow` — a constraint-carrying packing
 
 `@Cow` is a **built-in `#blanket` wrapper constant** (usable only in the
-`#blanket` wrapper list). It packs `Cow<'_>` with the predicates
-`@0: ToOwned + ?Sized` and `@0::Owned: @trait`. `Cow<'_, T>` dereferences
-to `T`; the `T::Owned: Trait` predicate is an additional constraint included
-by this constant. Both the wrapper and its packaged constraints enter the
-ordinary blanket pipeline:
+`#blanket` wrapper list). It packs `Cow<'_>` with
+`@0: ToOwned + ?Sized`; blanket itself also adds `T: Trait`. Both the
+Borrowed and Owned variants of `Cow<'_, T>` dereference to `T`, so
+`T::Owned: Trait` is not required by default:
 
 ```rust
-# use batch_impl::batch_impl;
-# use std::borrow::Cow;
+use batch_impl::batch_impl;
+use std::borrow::Cow;
+
 #[batch_impl(#blanket(@all_methods){@Cow})]
 trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
-impl CowLen for String { fn clen(&self) -> usize { self.len() } }
-// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
-//   (one generic impl over the targets satisfying these packaged constraints)
+// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized
+
+fn main() {
+    let borrowed: Cow<'_, str> = Cow::Borrowed("abc");
+    let owned: Cow<'_, str> = Cow::Owned(String::from("xy"));
+    assert_eq!(<Cow<'_, str> as CowLen>::clen(&borrowed), 3);
+    assert_eq!(<Cow<'_, str> as CowLen>::clen(&owned), 2);
+}
 ```
+
+`String` does not implement `CowLen` here. The UFCS assertions exercise the
+generated `Cow<str>` implementation, which forwards both variants to `str`.
+If your policy also requires the owned type to implement the current trait,
+write `@Cow where{@0::Owned: @trait}` explicitly; this does not change the
+delegation target. `@trait` supplies only the path; write a generic trait's
+arguments explicitly, for example `@0::Owned: @trait<X>`.
+
+The wrapper must still satisfy the trait's supertraits. For a trait requiring
+`Debug + Sync`, `Cow` may also need corresponding owned-type bounds; write
+`@Cow where{@0::Owned: ::core::fmt::Debug + Sync}` when needed. The macro does
+not detect supertraits and infer these bounds automatically.
+Code that relied on the former default `Owned: Trait` bound to satisfy these
+requirements must now add the necessary bounds explicitly.
 
 ## Output shape
 

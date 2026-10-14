@@ -357,6 +357,7 @@ fn ui() {
     t.compile_fail("tests/ui/blanket_depth_zero.rs");
     t.compile_fail("tests/ui/blanket_wrapper_empty.rs");
     t.compile_fail("tests/ui/blanket_cow_extra_bound.rs");
+    t.compile_fail("tests/ui/blanket_cow_owned_bound.rs");
     t.compile_fail("tests/ui/unclosed_angle.rs");
     t.compile_fail("tests/ui/range_left_operand.rs");
     t.compile_fail("tests/ui/top_level_two_blocks.rs");

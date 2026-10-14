@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `String: Read` is not satisfied
+  --> tests/ui/blanket_cow_owned_bound.rs:17:16
+   |
+17 |     Read::read(&value);
+   |     ---------- ^^^^^^ the trait `Read` is not implemented for `String`
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the trait `Read` is implemented for `str`
+  --> tests/ui/blanket_cow_owned_bound.rs:9:1
+   |
+ 9 | impl Read for str {
+   | ^^^^^^^^^^^^^^^^^
+note: required for `Cow<'_, str>` to implement `Read`
+  --> tests/ui/blanket_cow_owned_bound.rs:4:1
+   |
+ 4 | #[batch_impl(#blanket(@all_methods){@Cow where { @0::Owned: @trait }})]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 5 | trait Read {
+   |       ^^^^ unsatisfied trait bound introduced here
+   = note: this error originates in the attribute macro `batch_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,4 +1,4 @@
-#![doc = "**This build:** [Quick start](#bi-start) · [Tutorial](#bi-tutorial) · [Reference](#bi-reference) · [API](#macros)\n\nRepository-source links open public GitHub `main`, which may differ from this build. Use the links above to stay in this version.\n\n<a id=\"bi-start\"></a>\n"]
+#![doc = "**This build — 0.10.3:** [Quick start](#bi-start) · [Tutorial](#bi-tutorial) · [Reference](#bi-reference) · [API](#macros)\n\nThe links above stay in this version, which includes the tutorial and reference. Repository-source links target `v0.10.3`.\n\n<a id=\"bi-start\"></a>\n"]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 #![doc = "\n<a id=\"bi-tutorial\"></a>\n"]
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/tutorial.md"))]

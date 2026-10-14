@@ -1,6 +1,8 @@
 # batch-impl 内部架构
 
-**Unreleased — 0.10.2 后续修复。** 类型解析保留 Rust 宏/属性输入；显式启用的 body 替换按契约进入全部括号。继承约束保留生命周期绑定作用域，委托生成参数使用私有前缀并避开输入名字；重复预算在复制前按重复展开阶段的递归 token 输出计数。见 [CHANGELOG](CHANGELOG.md)。
+**v0.10.3（2026-10-14）。** 本版本包含显式 impl 入口 spec、稳定的生成器分组、投影实参组合和变长类型模式，并移除 Cow 默认的 `Owned: Trait` 约束。虽然使用补丁版本号，仍有迁移要求，见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/CHANGELOG.md)。
+
+类型解析保留 Rust 宏/属性输入；显式启用的 body 替换按契约进入全部括号。继承约束保留生命周期绑定作用域，委托生成参数使用私有前缀并避开输入名字；重复预算在复制前按重复展开阶段的递归 token 输出计数。
 
 形状模板的变长段扩展为 `P@..`，复用普通形状匹配器逐元素匹配完整 Rust 类型模式。每轮捕获保存独立映射，包含同名 identity；重复展开区分源模板 token 与已生成值，避免后者被外层固定槽或嵌套轮次再次改写。模式内部再嵌变长段仍拒绝，普通嵌套元组中的独立段继续支持。
 
@@ -396,7 +398,7 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
 `@` 绑定与 `#blanket` 均遵循此准则：前者是宏元层纯词法替换，后者是指令域
 内 `#delegate` 的自动化形态。
 
-**语法面冻结（0.7.2）**：既有记号语义受保护，常规更新只做加法、诊断精化与文档改进。刻意的破坏性变更必须设置兼容边界并明确迁移方式。README 与 changelog 分别记录已发布的 0.10.0 迁移和 0.10.2 之后尚未发布的改动（`@N` 稳定性承诺覆盖整个语法面）。
+**语法面冻结（0.7.2）**：既有记号语义受保护，常规更新只做加法、诊断精化与文档改进。刻意的破坏性变更必须明确迁移方式。README 与 changelog 分别记录 0.10.0 迁移和 0.10.3 中的破坏性改动；0.10.3 的补丁版本号不会隔离现有 Cargo 依赖约束（`@N` 稳定性承诺覆盖整个语法面）。
 
 ### 宏元层完整化：`@` 是唯一宏元记号
 
@@ -412,8 +414,10 @@ DSL 由三个**互不渗透的语法域**组成，各域记号自洽、语义独
   `@Cow`（batch_impl/only 专属）：
   - `@all` 系 → 按 trait 定义选 item 的 Bracket 组（含 required/default 与
     receiver 过滤：`@all_ref_methods`/`@all_value_methods`/`@all_static_methods`）；
-  - `@Cow` → `Cow<'_>` + 打包谓词（`T: ToOwned + ?Sized`，以及现有的额外
-    `T::Owned: Trait` 要求）；其 Deref 目标是 `T`；
+  - `@Cow` → `Cow<'_>` 与 `T: ToOwned + ?Sized`；共享 blanket 规则提供
+    `T: Trait`，Deref 目标为 `T`。默认不附加 `T::Owned: Trait`；需要时写
+    `@Cow where{@0::Owned: @trait}`（泛型 trait 使用 `@trait<X>`）。`Debug`、
+    `Sync` 等 supertrait 可能需要显式补充适当的 `Owned` 约束；
 - **惰性常量重定义**：`value_refs` 只记录常量展开实际进入位置中的依赖。
   覆盖定义时检查新依赖是否能回到自身，不展开常量值；宏/属性输入与普通
   body 不产生展开依赖。既有无环重定义保持惰性求值。
@@ -543,8 +547,8 @@ call-site——全 token 带 span 时 rustc 会把错误当作 item 位置的用
 | `tests/`    | `dsl.rs`        | 薄入口（`mod features;`）挂载拆分测试模块                                                                                                                                   |
 | `tests/`    | `no_panic/main.rs` | no-panic 守卫：用 `syn` 走遍 `src/**/*.rs`，断言 `#[cfg(test)]` 之外无 panic 构造——包括**宏 token 流内部**铸出的（`quote!(x.unwrap())`）与**限定形式** `Option::unwrap(o)`——且任何属性位置、嵌在 `#[cfg_attr(…)]` 里或**宏体内**的 deny 家族 `#[allow]` / `#[expect]` 都被报出（一刀切静默同样在内：`clippy::all` / `clippy::restriction` / `warnings`）；`#[cfg(test)]` 闸门只跳过裸谓词，因此 `#[cfg(not(test))]` 的代码照样被扫描；crate 级 deny 行本身也被断言（`lib.rs` clippy deny 之外的第二条腿）；**检测器本身有自测**（`no_panic/selftest.rs`：每个臂都喂了合成违规 + 邻近反例，因此 `syn` 升级或收窄的 `matches!` 会让该文件失败而不是静默报 0 违规），唯一记录在案的洞是**宏体内手写的索引**逃过两条腿（`quote!(v[0])`——clippy 看不见宏体，而这里的 `[…]` 组无法与数组类型区分） |
 | `tests/`    | `doc_consistency.rs` + `doc_consistency/reader_entry.rs` | **18** 项文档守卫：源码/模块树、文件路径、双语章节与示例、诊断和计数保持一致；README 入门程序必须能作为带 `main` 的独立 Rust 文件解析。源码导航检查独立 Markdown 锚点及仓库路径/片段，验收另查生成的 rustdoc 链接。历史 changelog 与 architecture 版本前言豁免当前文件引用检查 |
-| `tests/`    | `features/`     | **79** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **485** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
-| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**179** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
+| `tests/`    | `features/`     | **79** 个按功能域拆分的测试模块（每个 ≤350 行；由原单文件 `dsl.rs` / `regression.rs` / `impl_entry_impl.rs` / `shape_template_impl.rs` 拆分），共 **487** 个 `#[test]`：`dsl_*`（运算符、限定类型、bound 位置的关联类型绑定、全局路径、fn 具名参数、指令、blanket、`@` 常量、`@N` 引用、参数包、where、泛型、接收者、入口宏、开放扩展、分发）、`regression_*`（角落用例 + `batch_impl` vs `batch_trait!` 一致性 + 宏/路径前缀 + 数组）、`impl_entry_*`（含嵌套/边界/冲突）、`shape_template_*`（含嵌套/边界/冲突/形状形态/原型模式/交叉组合 + 变长段与重复块）、另有 `dup_params` 与 `block_model` |
+| `tests/`    | `ui.rs`         | `trybuild` UI 测试：**180** 个 `compile_fail` fixture 锁定诊断措辞 + 4 个 `pass` fixture |
 | `tests/` | `pack_model/` | 独立 Pack 提案模型：Python 标准库，17 组测试、有限结构检查、双语教程核对与生成 Rust 的消费验证。执行 `python tests/pack_model/run.py`，独立 CI job 使用同一命令；不等于正式解析器或物化器的验证。 |
 
 运行：

@@ -72,19 +72,23 @@ on it.
      EN replaces with
      `**vX.Y.Z** (date) — summary`; the zh-CN architecture **appends** a line
      per version, it does not replace);
-   - Sync the README dependency example (`batch-impl = "X.Y.Z"`); while the
-     version is unpublished, document its source/path dependency instead;
+   - Sync the README dependency example (`batch-impl = "X.Y.Z"`) when finalizing
+     release files. During development, use the corresponding source/path dependency;
    - Fix development navigation links to the release tag, including the
      language mirrors, CHANGELOG and examples; verify their repository targets
-     and the generated rustdoc links before publishing;
+     and the generated rustdoc links before publishing. Link guards
+     must validate the chosen tag's paths and anchors, not only `main` URLs;
    - Turn the four `## Unreleased` sections into `## X.Y.Z (date)`, keeping
      the summary line;
    - `cargo package --list` and eyeball the manifest (no unrelated files —
-     lesson: `rust-2024-feature.md` once shipped inside every `.crate`);
+     lesson: `rust-2024-feature.md` once shipped inside every `.crate`), then
+     build the packaged crate with `cargo package`. Run rustdoc with
+     `RUSTDOCFLAGS=-Dwarnings`; an ordinary successful rustdoc exit alone
+     does not prove that there were no warnings;
    - commit `chore: release X.Y.Z (...)` → `git tag vX.Y.Z` →
      `git push origin main --tags`;
-   - **only after CI is fully green** (fmt / clippy / test-stable /
-     test-MSRV / test-Windows / doc) run `cargo publish`; if a fix commit
+   - **only after all eight CI jobs are green** (fmt / clippy / test-stable /
+     test-msrv / test-windows / consumer / pack-model / doc) run `cargo publish`; if a fix commit
      lands after the tag, move the tag with `-f` and force-push it.
 3. **After release**: create the GitHub Release
    (`gh release create vX.Y.Z --notes "..."`).

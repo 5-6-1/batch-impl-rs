@@ -1,12 +1,12 @@
 # batch-impl Tutorial
 
-**Unreleased — changes after 0.10.2.** This tutorial describes the working tree, including the unpublished breaking impl-entry requirement for explicit `template: source` in every nonempty spec. See [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) for pending changes and migration notes.
+**v0.10.3** (2026-10-14) — Every nonempty impl-entry spec now requires explicit `template: source`, and `@Cow` no longer adds `Owned: Trait` by default. See [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/CHANGELOG.md) for migration notes before upgrading.
 
-**Repository sources (GitHub main)**: English · [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) · [Reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md)
+**Repository sources (v0.10.3)**: English · [简体中文](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md) · [README](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/README.md) · [Reference manual](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/reference.md)
 
-The GitHub links above and throughout this page open repository sources;
-public `main` may not yet match this local working tree. Links between this
-tutorial's sections stay on the current page.
+Repository links are pinned to `v0.10.3`. The English rustdoc includes this
+tutorial and the reference, accessible through its top navigation.
+Links between this tutorial's sections stay on the current page.
 
 Start by implementing a method for one type, then extend the same program
 through five changes. The macro generates ordinary Rust impls; if you
@@ -28,7 +28,7 @@ delegation. Consult complete directive rules, generators and custom
 extensions when needed, rather than reading every chapter in order.
 
 With the dependency configured as described in the
-[README](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md), each complete
+[README](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/README.md), each complete
 program in §1 can replace `src/main.rs`; run it with `cargo run`. Steps
 §1.1–§1.5 preserve the previous behavior and introduce only their stated
 change; §1.6 is a separate program for the other entry route.
@@ -415,7 +415,7 @@ involved impls, the spec can also name generics and the trait application:
 
 Multiple specs are separated by `,`: `#[batch_impl(usize, isize)]`.
 
-**What this buys you at scale.** [simplify.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs) gets **30 impls** out of roughly **15 lines** of DSL (hand-writing them takes ~80), and [typeclass.rs](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/typeclass.rs) covers a class hierarchy plus 36 `From<bool>` instances. Both are compiled by CI, and §13 walks through them when you are ready for a larger example.
+**What this buys you at scale.** [simplify.rs](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/simplify.rs) gets **30 impls** out of roughly **15 lines** of DSL (hand-writing them takes ~80), and [typeclass.rs](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/typeclass.rs) covers a class hierarchy plus 36 `From<bool>` instances. Both are compiled by CI, and §13 walks through them when you are ready for a larger example.
 
 ## 2. Type Matrix: the space (and `.`)
 
@@ -722,7 +722,7 @@ Flattening *ranges* of both dimensions can generate overlapping impls:
 the `1 × 2` and `2 × 1` patterns can describe the same Rust type.
 The macro keeps both; rustc reports E0119. It also keeps unused generic
 declarations: an empty second axis can leave E0207. See the Pack model
-[worked examples](https://github.com/5-6-1/batch-impl-rs/blob/main/tests/pack_model/tutorial.md).
+[worked examples](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/tests/pack_model/tutorial.md).
 
 ### 4.6 Legal positions
 
@@ -745,7 +745,7 @@ Qualified-path segment names (`::Assoc<...>`) are fixed, but their generic
 arguments use the type DSL, including choice distribution and pack splicing
 (§5.6). The trait path after `as` in `<T as Trait>` remains a Rust domain and
 does not interpret pack operations.
-See the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md),
+See the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/reference.md),
 §2 and §4.
 
 ## 5. Generics `<>`
@@ -1030,7 +1030,7 @@ suffixes: `P0A`, `P0B`, ... `P0Z`, `P0AA`) — the expansion splices the names w
 predicate subject, a target tuple element, a generic argument), so a range
 becomes several names and a `where` tail is copied per fresh.
 
-> **Power-user tier**: `@g_i` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. See the [README](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) for the compatibility policy and the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/CHANGELOG.md) for explicit migration notes.
+> **Power-user tier**: `@g_i` / `@N..M` are advanced addressing notations — start from `@u*` / `@all_methods` / `@0` and reach for them only when a predicate must name a specific fresh. See the [README](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/README.md) for the compatibility policy and the [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/CHANGELOG.md) for explicit migration notes.
 
 > **The `_` in a reference is the group/position separator**, not Rust's digit
 > separator: `@1_0` is group 1, position 0. Write `@1000` (no separator) when you
@@ -1150,7 +1150,7 @@ On the other axis (value classes):
 | `@trait` | **identity** — the current trait name/path (section-level in batch_trait) | package "generic declaration + trait name" across sections |
 | `@Self` | **input type** — the self type received by this impl attribute | reuse the prototype as a template or type argument (§8.5) |
 | `@all_methods` etc. | **selection** — extract an item set from trait_def | `#fill(@all_required_methods, -foo)` precise selection |
-| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus its packaged constraints (`@0: ToOwned + ?Sized, @0::Owned: @trait`) | blanket-usable `Cow` delegation (see §7.4) |
+| `@Cow` | **built-in `#blanket` wrapper constant** — `Cow<'_>` plus the packaged constraint `@0: ToOwned + ?Sized` | blanket-usable `Cow` delegation (see §7.4) |
 
 `@all` family combined with `-` subtraction selects arbitrary item subsets (`#fill(@all_required_methods, -foo)`); `@all_default*` / `@all_required*` distinguish default implementations from required methods.
 
@@ -1425,21 +1425,40 @@ impl DynLen for str { fn dlen(&self) -> usize { self.len() } }
 
 `@Cow` is a **built-in `#blanket` wrapper constant** (usable only in the
 `#blanket` wrapper list). It packs `Cow<'_>` with
-`@0: ToOwned + ?Sized` and `@0::Owned: @trait`. `Cow<'_, T>` dereferences
-to `T`; `T::Owned: Trait` is an additional constraint included by this
-constant. The wrapper and packaged predicates enter the ordinary blanket
-pipeline together:
+`@0: ToOwned + ?Sized`; blanket itself also adds `T: Trait`. Both the
+Borrowed and Owned variants of `Cow<'_, T>` dereference to `T`, so
+`T::Owned: Trait` is not required by default:
 
 ```rust
-# use batch_impl::batch_impl;
-# use std::borrow::Cow;
+use batch_impl::batch_impl;
+use std::borrow::Cow;
+
 #[batch_impl(#blanket(@all_methods){@Cow})]
 trait CowLen { fn clen(&self) -> usize; }
 impl CowLen for str { fn clen(&self) -> usize { self.len() } }
-impl CowLen for String { fn clen(&self) -> usize { self.len() } }
-// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized, P0::Owned: CowLen
-//   (one generic impl over the targets satisfying these packaged constraints)
+// → impl<P0> CowLen for Cow<'_, P0> where P0: CowLen, P0: ToOwned + ?Sized
+
+fn main() {
+    let borrowed: Cow<'_, str> = Cow::Borrowed("abc");
+    let owned: Cow<'_, str> = Cow::Owned(String::from("xy"));
+    assert_eq!(<Cow<'_, str> as CowLen>::clen(&borrowed), 3);
+    assert_eq!(<Cow<'_, str> as CowLen>::clen(&owned), 2);
+}
 ```
+
+`String` does not implement `CowLen` here. The UFCS assertions exercise the
+generated `Cow<str>` implementation, which forwards both variants to `str`.
+If your policy also requires the owned type to implement the current trait,
+write `@Cow where{@0::Owned: @trait}` explicitly; this does not change the
+delegation target. `@trait` supplies only the path; write a generic trait's
+arguments explicitly, for example `@0::Owned: @trait<X>`.
+
+The wrapper must still satisfy the trait's supertraits. For a trait requiring
+`Debug + Sync`, `Cow` may also need corresponding owned-type bounds; write
+`@Cow where{@0::Owned: ::core::fmt::Debug + Sync}` when needed. The macro does
+not detect supertraits and infer these bounds automatically.
+Code that relied on the former default `Owned: Trait` bound to satisfy these
+requirements must now add the necessary bounds explicitly.
 
 ### 7.5 Open extension
 
@@ -1471,7 +1490,7 @@ definition through the four-part `{spec}(args){body} trait_def` protocol.
 The reference macro copies signatures from the trait, uses `*self + 3` as
 the return value, and emits a complete impl. For your own extension, your
 macro decides what code to generate. The manual four-part form is described
-in the [open-extension API documentation (repository source)](https://github.com/5-6-1/batch-impl-rs/blob/main/src/doc/directive_open.md).
+in the [open-extension API documentation (repository source)](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/src/doc/directive_open.md).
 
 > **The protocol has converged to one shape**: the legacy **in-impl form** `T {m!{...}}` (no `!`, the call lands in the impl body as associated items) is **deprecated** since 0.7.2 (kept for compatibility — no warning channel exists, so the deprecation lives in the docs). Write new extensions against the top-level `{! m!{...}}` four-segment protocol `{spec}(args){body} trait` only.
 
@@ -2047,6 +2066,6 @@ The hierarchy above it shows the other half of the pattern: `Num` is defined and
 
 ### 13.3 Where to go next
 
-- mechanisms: §1–§12 above, then the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/reference.md) for legality, diagnostics and ceilings;
-- the API documentation: [entry point and directive guides](https://github.com/5-6-1/batch-impl-rs/tree/main/src/doc);
-- the internal map: [architecture](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/architecture.md).
+- mechanisms: §1–§12 above, then the [reference manual](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/reference.md) for legality, diagnostics and ceilings;
+- the API documentation: [entry point and directive guides](https://github.com/5-6-1/batch-impl-rs/tree/v0.10.3/src/doc);
+- the internal map: [architecture](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/architecture.md).

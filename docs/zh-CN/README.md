@@ -1,12 +1,11 @@
 # batch-impl
 
-仓库源码（GitHub `main`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/main/README.md) | 简体中文
+版本源码（`v0.10.3`）：[English](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/README.md) | 简体中文
 
-**Unreleased — 0.10.2 之后的改动。** 当前工作树包含尚未发布的 impl 入口破坏性变更：每个非空 spec 必须显式写出 `模板: 来源`。迁移说明见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。
+**v0.10.3（2026-10-14）。** 本版本包含 impl 入口的破坏性迁移，并移除 `@Cow` 默认的 `Owned: Trait` 约束。从 0.10.2 升级前请阅读[兼容性与迁移](#兼容性与迁移)。
 
-仓库源码链接打开公开的 `main`，可能尚未包含本地修改。在本地运行
-`cargo doc --no-deps --open` 可阅读当前工作树的英文文档；其顶部导航留在
-本次构建版本内。中文教程与参考手册请在同一源码目录中阅读。
+仓库源码链接固定到 `v0.10.3`。rustdoc 首页包含英文教程和参考手册，
+其顶部导航留在当前版本内。
 
 为类型列表或类型矩阵批量生成 Rust trait 实现的过程宏库。
 
@@ -16,30 +15,27 @@
 - **从自己的 trait 复制签名。** `#方法名{body}` 自动补齐对应方法的签名，实现中只需提供方法体。
 - **从列表扩展到类型族。** 有需要时再加入泛型容器、元组长度或包装器委托。生成的实现是普通 Rust，由 rustc 检查。
 
-已有普通 Rust `impl` 时，可以直接[批量复用这个实现](#批量复用已有-impl)，包括外部 trait，无需签名镜像。需要复制签名、填充或委托指令时，本地 trait 由被标注的定义提供签名，外部 trait 则通过 `batch_impl_only` 提供并维护镜像；见[入口选择](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#11-入口)。
+已有普通 Rust `impl` 时，可以直接[批量复用这个实现](#批量复用已有-impl)，包括外部 trait，无需签名镜像。需要复制签名、填充或委托指令时，本地 trait 由被标注的定义提供签名，外部 trait 则通过 `batch_impl_only` 提供并维护镜像；见[入口选择](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#11-入口)。
 
 ## 快速开始
 
-需要 **Rust 1.95 或更新版本**。本页描述 **0.10.2 之后尚未发布的工作树**。使用已发布的 0.10.2 时，请阅读它的[版本文档](https://docs.rs/batch-impl/0.10.2/batch_impl/)。
+需要 **Rust 1.95 或更新版本**。
 
-试用当前源码时，在源码目录旁创建一个小程序：
+创建一个小程序：
 
-```text
-work/
-  batch-impl/    # this source checkout
-  demo/         # your new application
+```bash
+cargo new demo
+cd demo
 ```
 
-在 `work/` 下运行 `cargo new demo`。打开 `demo/Cargo.toml`，把已有的空 `[dependencies]` 段替换为：
+打开 `Cargo.toml`，把已有的空 `[dependencies]` 段替换为：
 
 ```toml
 [dependencies]
-batch-impl = { path = "../batch-impl" }
+batch-impl = "0.10.3"
 ```
 
-请使用包含待试用改动的源码目录。路径依赖能直接使用本地未提交的改动，Git 依赖无法获取这些改动。已发布的 `batch-impl = "0.10.2"` 不包含这些待发布改动。
-
-将下面的完整程序复制到 `demo/src/main.rs`：
+将下面的完整程序复制到 `src/main.rs`：
 
 ```rust
 use batch_impl::batch_impl;
@@ -94,7 +90,7 @@ fn main() {
 
 `@Self` 指输入 impl 的自身类型（这里是 `UserId`），右侧列出生成实现的目标。生成结果替换原 impl，因此列表包含 `UserId` 才会保留它的实现。这个入口直接复用完整方法，不需要 `#fmt` 或 `Display` 的签名镜像。
 
-复用代码中的字段、方法、构造与约束需要对每个目标成立；例如这里两种类型都有可显示的 `.0` 字段。详细规则见[教程的入口选择](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#11-入口)。
+复用代码中的字段、方法、构造与约束需要对每个目标成立；例如这里两种类型都有可显示的 `.0` 字段。详细规则见[教程的入口选择](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#11-入口)。
 
 ## 沿着同一个 trait 继续
 
@@ -121,9 +117,9 @@ fn main() {
 
 `<T> Vec<T>` 为这个 impl 声明泛型。`#blanket` 生成 `impl<T: Describe> Describe for Box<T>`，引用接收者方法转发到内部值。最后一个断言显式调用这个包装器实现。
 
-某个类型需要不同实现时，把它拆成独立 spec，再让其余类型共享 body。**局部 body 与共享 body 合并，不会互相覆盖**；重复提供同名方法会报错。[连续练习](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#1-实现并调用一个方法)逐步演示加类型、加方法、特殊实现、泛型约束与包装转发。
+某个类型需要不同实现时，把它拆成独立 spec，再让其余类型共享 body。**局部 body 与共享 body 合并，不会互相覆盖**；重复提供同名方法会报错。[连续练习](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#1-实现并调用一个方法)逐步演示加类型、加方法、特殊实现、泛型约束与包装转发。
 
-对于自己定义的包装器，`#delegate` 可以经字段转发；对于内部类型不同的枚举，`inner.#call` 可以在每个分支中转发。继续阅读[委托教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#7-指令系统-)。
+对于自己定义的包装器，`#delegate` 可以经字段转发；对于内部类型不同的枚举，`inner.#call` 可以在每个分支中转发。继续阅读[委托教程](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#7-指令系统-)。
 
 ## 结果不符合预期时
 
@@ -136,7 +132,7 @@ batch_impl::batch_preview! {
 }
 ```
 
-运行 `cargo check`，在诊断中阅读生成的 Rust。**预览工具会故意通过编译错误显示输出。** 将结果与预期实现对照，修改 DSL，再去掉预览包装，正常编译。[预览工具](https://github.com/5-6-1/batch-impl-rs/blob/main/src/doc/batch_preview.md)也给出了 `batch_impl_only` 和普通 impl 入口的完整例子。
+运行 `cargo check`，在诊断中阅读生成的 Rust。**预览工具会故意通过编译错误显示输出。** 将结果与预期实现对照，修改 DSL，再去掉预览包装，正常编译。[预览工具](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/src/doc/batch_preview.md)也给出了 `batch_impl_only` 和普通 impl 入口的完整例子。
 
 例如，`Box.Vec u32` 展开为 `Box<Vec, u32>`。Rust 可能提示缺少泛型参数或涉及 `allocator_api`，诊断不保证展示完整的生成类型。要表达嵌套，可以写 `Box (Vec u32)`、`Box.Vec.u32`，或普通 Rust 类型 `Box<Vec<u32>>`。
 
@@ -155,32 +151,32 @@ batch_impl::batch_preview! {
 | `().3` | 一个泛型三元组实现 |
 | `(*Vec *[].3,)` | 一个元组，各成员为独立生成的 `Vec<P0>`、`Vec<P1>`、`Vec<P2>`（fresh 泛型名为 `P0…`） |
 
-空格保持左结合，`.` 保持右结合且优先于空格；括号可直接表明分组。[教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)通过例子逐步展开这些规则，[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)记录完整边界。
+空格保持左结合，`.` 保持右结合且优先于空格；括号可直接表明分组。[教程](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md)通过例子逐步展开这些规则，[参考手册](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md)记录完整边界。
 
 ## 功能概览
 
 第一条学习路线是列表与共享方法体，再学泛型、约束和委托。其余能力按需阅读，不要求一开始就采用紧凑写法。
 
-| 功能 | 用途 | 教程源码（GitHub main） |
+| 功能 | 用途 | 教程源码（v0.10.3） |
 |---|---|---|
-| 列表与 `#方法名{body}` | 给多个类型提供同一个实现体 | [§1](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#1-实现并调用一个方法)、[§3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#3-列表与-body) |
-| 普通 impl 入口 | 将已经写好的实现用于多个目标 | [§11](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#11-入口) |
-| 空格 / `.` 与括号 | 应用泛型参数、嵌套容器 | [§2](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#2-类型矩阵空格与-) |
-| 泛型继承与关联类型 | 复用 trait 参数、约束和关联类型绑定 | [§5](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#5-泛型-从声明到可编程实参) |
-| `where` | 为一组实现添加约束 | [§8.1–§8.3](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#8-where-子句) |
-| `#fill`、`#delegate`、`#blanket` | 填充多个成员，或把方法转发给内部类型 | [§7](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#7-指令系统-) |
-| 包 `*` | 对成员映射构造规则，并拼入实参 | [§4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#4-包-映射与拼入) |
-| `@` 常量与位置引用 | 选择类型族或引用生成的参数 | [§6](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#6--常量系统宏元层) |
-| 元组长度与笛卡尔幂 | 生成元组族和类型组合 | [§9](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#9-元组生成与矩阵) |
-| 形状模板 | 实例化嵌套类型的实现模式 | [§8.4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#84-impl-shape-template-形状模板080) |
-| 类型修饰符 | 引用、指针、函数类型、属性与 unsafe impl | [§10](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#10-修饰符大全) |
-| 开放指令与重复块 | 扩展生成方式，或沿元组位置重复方法体 | [§7](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#7-指令系统-)、[§8.4](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md#84-impl-shape-template-形状模板080) |
+| 列表与 `#方法名{body}` | 给多个类型提供同一个实现体 | [§1](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#1-实现并调用一个方法)、[§3](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#3-列表与-body) |
+| 普通 impl 入口 | 将已经写好的实现用于多个目标 | [§11](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#11-入口) |
+| 空格 / `.` 与括号 | 应用泛型参数、嵌套容器 | [§2](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#2-类型矩阵空格与-) |
+| 泛型继承与关联类型 | 复用 trait 参数、约束和关联类型绑定 | [§5](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#5-泛型-从声明到可编程实参) |
+| `where` | 为一组实现添加约束 | [§8.1–§8.3](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#8-where-子句) |
+| `#fill`、`#delegate`、`#blanket` | 填充多个成员，或把方法转发给内部类型 | [§7](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#7-指令系统-) |
+| 包 `*` | 对成员映射构造规则，并拼入实参 | [§4](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#4-包-映射与拼入) |
+| `@` 常量与位置引用 | 选择类型族或引用生成的参数 | [§6](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#6--常量系统宏元层) |
+| 元组长度与笛卡尔幂 | 生成元组族和类型组合 | [§9](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#9-元组生成与矩阵) |
+| 形状模板 | 实例化嵌套类型的实现模式 | [§8.4](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#84-impl-shape-template-形状模板080) |
+| 类型修饰符 | 引用、指针、函数类型、属性与 unsafe impl | [§10](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#10-修饰符大全) |
+| 开放指令与重复块 | 扩展生成方式，或沿元组位置重复方法体 | [§7](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#7-指令系统-)、[§8.4](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md#84-impl-shape-template-形状模板080) |
 
 团队代码优先选择容易看出生成结果的写法。如果命名类型、显式泛型参数或括号更能表达任务，就使用它们，无需追求最短的矩阵表达式。
 
 ## 使用 batch-impl 的项目
 
-[alga2](https://docs.rs/alga2) 使用 batch-impl 为数值、元组、数组、智能指针等类型构建抽象代数层级。仓库的 [simplify 示例](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs)展示了较小的完整场景：**约 15 行 DSL 生成 30 个实现**。
+[alga2](https://docs.rs/alga2) 使用 batch-impl 为数值、元组、数组、智能指针等类型构建抽象代数层级。仓库的 [simplify 示例](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/simplify.rs)展示了较小的完整场景：**约 15 行 DSL 生成 30 个实现**。
 
 当许多实现遵循相同规则、需要协调修改时，这个库最有价值。对于少量相互独立的实现，可以比较重复劳动与团队学习成本。通过 `batch_impl_only` 使用外部 trait 时，也要计入维护签名镜像的成本。
 
@@ -192,16 +188,19 @@ batch_impl::batch_preview! {
 
 已有 token 语义受 0.7.2 引入的语法冻结承诺保护。兼容版本增加能力、改善诊断，并修复与已记录规则相矛盾的行为；刻意的语法变更必须设置兼容性边界并说明迁移方法。
 
+**0.10.3 虽然使用补丁版本号，仍包含破坏性改动。** Cargo 的 `"0.10.2"` 依赖约束也允许升级到 0.10.3；版本号不会隔离这些迁移。
+
+- **impl 入口**：每个非空 spec 现在必须写成 `模板: 来源`，裸 direct 目标被拒绝。旧 direct 形态只替换 for-type，而模板还会改写 trait 实参、约束、关联项与 body。应按意图选择占位位置，不能机械加上 `@Self:`。`Template:` 现在报缺少来源，空属性仍为恒等。见[显式映射规则](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md#92-impl-入口显式形状-spec)。
+- **Cow blanket**：`@Cow` 默认只附加 `@0: ToOwned + ?Sized`，通用 blanket 规则仍要求 `T: Trait`；不再附加 `T::Owned: Trait`。需要原限制时，显式写 `@Cow where{@0::Owned: @trait}`，泛型 trait 使用 `@trait<X>`。已有 trait 若带 `Debug`、`Sync` 等 supertrait，可能需要显式补充适当的 `Owned` 约束，因为原约束曾间接提供它们。
+
 已经发布的 **0.9.x → 0.10.0** 迁移包含下列破坏性改动。Cargo 的 `"0.9.7"` 依赖约束允许升级到 0.9.8，却不允许升级到 0.10.0；见 [Cargo 版本规则](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#default-requirements)。
 
 - 将已移除的 `@all_fresh` 替换为 `@0..`。
-- `*` 现在只打开候选列表：映射两个构造器要写 `*[F,G] T`。元组是类型，所以 `*(F,G)` 是一个成员——该元组——`*(F,G) T` 则把 `T` 追加进去。单独的包不再将分组升格为容器，需要容器时写 `(*X,)` / `[*X,]`。见[包的迁移规则](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md#46-分支重叠与迁移)。
+- `*` 现在只打开候选列表：映射两个构造器要写 `*[F,G] T`。元组是类型，所以 `*(F,G)` 是一个成员——该元组——`*(F,G) T` 则把 `T` 追加进去。单独的包不再将分组升格为容器，需要容器时写 `(*X,)` / `[*X,]`。见[包的迁移规则](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md#46-分支重叠与迁移)。
 - 重命名原来叫 `Self` 的自定义常量；`@Self` 现在保留给 impl 入口的输入自身类型。
 - 命名类型族范围采用 Rust 的端点规则：`@u8..u16` 只选择 `u8`；要保留两种类型，使用 `@u8..=u16`。省略上界时仍包含族的**最大值** —— `@u16..` 就是 `@u16..=u128`，而 `usize` 与 `isize` 都不属于任何范围族。
 
-当前 **Unreleased — 0.10.2 之后的改动** 另有一项 impl 入口破坏性要求：每个非空 spec 必须写成 `模板: 来源`。迁移时按[显式映射规则](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md#92-impl-入口显式形状-spec)选择原型中需要替换的位置。这项改动尚未包含在已发布的 0.10.2 中。
-
-完整迁移记录见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/CHANGELOG.md)。`main` 上的源码和文档描述正在开发的内容；维护已发布版本时，应阅读对应版本的文档。
+完整迁移记录见 [CHANGELOG](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/CHANGELOG.md)。维护旧版本时，请阅读对应版本的文档。
 
 **如何自查你的迁移。** 两个测量就能覆盖几乎全部问题，而且都很便宜：
 
@@ -212,10 +211,10 @@ batch_impl::batch_preview! {
 
 ## 下一步
 
-- [教程](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/tutorial.md)：从一个有用的实现开始，再按任务选择阅读路线。
-- [参考手册](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/reference.md)：语法规则、合法位置、诊断与限制。
-- [可运行的 quickstart](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/quickstart.rs)、[simplify](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/simplify.rs)、[typeclass](https://github.com/5-6-1/batch-impl-rs/blob/main/examples/typeclass.rs)：完整示例，使用 `cargo run --example quickstart` 运行（或替换为其他示例名）。
-- [架构](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/architecture.md)、[开发指南](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/development-guide.md)、[开发记录](https://github.com/5-6-1/batch-impl-rs/blob/main/docs/zh-CN/dev-changelog.md)：贡献者文档。
+- [教程](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/tutorial.md)：从一个有用的实现开始，再按任务选择阅读路线。
+- [参考手册](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/reference.md)：语法规则、合法位置、诊断与限制。
+- [可运行的 quickstart](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/quickstart.rs)、[simplify](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/simplify.rs)、[typeclass](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/examples/typeclass.rs)：完整示例，使用 `cargo run --example quickstart` 运行（或替换为其他示例名）。
+- [架构](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/architecture.md)、[开发指南](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/development-guide.md)、[开发记录](https://github.com/5-6-1/batch-impl-rs/blob/v0.10.3/docs/zh-CN/dev-changelog.md)：贡献者文档。
 
 ## 许可证
 
